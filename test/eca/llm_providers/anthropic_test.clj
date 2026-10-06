@@ -783,6 +783,67 @@
            (add-cache [{:name "tool1"}
                        {:type "web_search_20250305" :name "web_search"}]))))))
 
+(deftest ->tools-test
+  (let [->tools #(#'llm-providers.anthropic/->tools % false)]
+    (testing "schema without top-level combinators is sent unchanged"
+      (let [schema {:type "object" :properties {:x {:type "string"}} :required ["x"]}]
+        (is (= [{:name "srv__plain" :description "Plain." :input_schema schema}]
+               (->tools [{:full-name "srv__plain" :description "Plain." :parameters schema}])))))
+
+    (testing "top-level oneOf is flattened keeping root required, with a hint in the description"
+      (is (= [{:name "srv__flow"
+               :description (str "Flow view.\n\nInput constraint: provide parameters for exactly one of: "
+                                 "(at) or (time-start, time-end).")
+               :input_schema {:type "object"
+                              :properties {:cid {:type "string"}
+                                           :at {:type "string"}
+                                           :time-start {:type "string"}
+                                           :time-end {:type "string"}}
+                              :required ["cid"]}}]
+             (->tools [{:full-name "srv__flow"
+                        :description "Flow view."
+                        :parameters {:type "object"
+                                     :properties {:cid {:type "string"}
+                                                  :at {:type "string"}
+                                                  :time-start {:type "string"}
+                                                  :time-end {:type "string"}}
+                                     :required ["cid"]
+                                     :oneOf [{:required ["at"]
+                                              :not {:anyOf [{:required ["time-start"]}]}}
+                                             {:required ["time-start" "time-end"]}]}}]))))
+
+    (testing "top-level anyOf merges branch properties, root definitions win and branch required is dropped"
+      (is (= [{:name "srv__impact"
+               :description "Input constraint: provide parameters for at least one of: (route) or (file)."
+               :input_schema {:type "object"
+                              :properties {:limit {:type "integer"}
+                                           :route {:type "string"}
+                                           :file {:type "string"}}
+                              :additionalProperties false}}]
+             (->tools [{:full-name "srv__impact"
+                        :parameters {:properties {:limit {:type "integer"}}
+                                     :additionalProperties false
+                                     :anyOf [{:properties {:route {:type "string"}} :required ["route"]}
+                                             {:properties {:file {:type "string"}
+                                                           :limit {:type "number"}}
+                                              :required ["file"]}]}}]))))
+
+    (testing "top-level allOf keeps required params of all branches, without a hint"
+      (is (= [{:name "srv__all"
+               :description "All."
+               :input_schema {:type "object"
+                              :properties {:a {:type "string"}
+                                           :b {:type "string"}
+                                           :c {:type "string"}}
+                              :required ["a" "b" "c"]}}]
+             (->tools [{:full-name "srv__all"
+                        :description "All."
+                        :parameters {:type "object"
+                                     :properties {:a {:type "string"}}
+                                     :required ["a"]
+                                     :allOf [{:properties {:b {:type "string"}} :required ["b"]}
+                                             {:properties {:c {:type "string"}} :required ["c" "a"]}]}}]))))))
+
 (deftest normalize-messages-tool-call-output-image-test
   (let [tool-output-with-image
         {:role "tool_call_output"
