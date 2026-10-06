@@ -185,9 +185,7 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                  (or stream-idle-timeout-seconds 120))
-                                 :exception e})
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
 
                       :else
                       (throw e))))

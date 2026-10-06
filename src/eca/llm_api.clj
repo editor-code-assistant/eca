@@ -293,6 +293,7 @@
         image-generation (:image-generation? model-capabilities)
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
+        stream-idle-timeout-seconds (some :streamIdleTimeoutSeconds [provider-config config])
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
         {:keys [handler] :as api-handler} (provider->api-handler provider model model-capabilities config)
@@ -336,7 +337,7 @@
                         :auth-type auth-type
                         :cancelled? cancelled?
                         :cache-retention (:cacheRetention provider-config)
-                        :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
+                        :stream-idle-timeout-seconds stream-idle-timeout-seconds}
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -373,7 +374,7 @@
           :account-id (:account-id provider-auth)
           :prompt-cache-key prompt-cache-key
           :cancelled? cancelled?
-          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
+          :stream-idle-timeout-seconds stream-idle-timeout-seconds}
          callbacks)
 
         (= "anthropic" provider)
@@ -410,7 +411,7 @@
                          :api-key api-key
                          :prompt-cache-key prompt-cache-key
                          :cancelled? cancelled?
-                         :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}]
+                         :stream-idle-timeout-seconds stream-idle-timeout-seconds}]
           (case (:api api-handler)
             :openai-responses
             (handler
@@ -458,7 +459,7 @@
           :api-url api-url
           :api-key api-key
           :cancelled? cancelled?
-          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
+          :stream-idle-timeout-seconds stream-idle-timeout-seconds}
          callbacks)
 
         (= "ollama" provider)
@@ -475,7 +476,7 @@
           :extra-payload extra-payload
           :extra-headers extra-headers
           :cancelled? cancelled?
-          :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
+          :stream-idle-timeout-seconds stream-idle-timeout-seconds}
          callbacks)
 
         (and (or model-config
@@ -507,7 +508,7 @@
             :api-key api-key
             :cancelled? cancelled?
             :cache-retention (:cacheRetention provider-config)
-            :stream-idle-timeout-seconds (:streamIdleTimeoutSeconds config)}
+            :stream-idle-timeout-seconds stream-idle-timeout-seconds}
            callbacks))
 
         :else

@@ -261,8 +261,9 @@
         (is (= 1 (count @errors*)))
         (case reason
           :cancelled (is (true? (:silent? (ex-data (:exception (first @errors*))))))
-          :idle-timeout (is (= "Stream idle timeout: no data received for 120 seconds"
-                              (:message (first @errors*))))
+          :idle-timeout (is (match? {:idle-timeout? true
+                                     :message "Stream idle timeout: no data received for 300 seconds"}
+                                    (first @errors*)))
           (is (= "test read failure" (ex-message (:exception (first @errors*))))))))))
 
 (defn ^:private input-stream [^String s]

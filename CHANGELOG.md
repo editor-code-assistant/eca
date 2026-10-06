@@ -6,6 +6,7 @@
 - Fix user messages being lost when a prompt fails, is stopped or superseded before the LLM responds; the next prompt and `/resume` now include them. eca-intellij#27
 - MCP OAuth: use ECA's Client ID Metadata Document (CIMD) instead of Dynamic Client Registration when the server supports it; bump plumcp to 0.3.0 (MCP spec 2025-11-25). #613
 - Update compaction system prompt template for compactions with more quality. #599
+- Raise default `streamIdleTimeoutSeconds` to 300 and allow it per provider (also Bedrock), so large tool calls don't time out; on timeout, recovery asks to split large file writes.
 
 ## 0.161.3
 

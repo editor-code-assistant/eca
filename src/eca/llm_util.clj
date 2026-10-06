@@ -93,7 +93,7 @@
 (defn log-response [tag rid event data]
   (logger/debug tag (format "[%s] %s %s" rid (or event "") data)))
 
-(def ^:private default-stream-idle-timeout-ms 120000)
+(def ^:private default-stream-idle-timeout-ms 300000)
 (def ^:private default-stream-check-interval-ms 500)
 
 (defn start-stream-watchdog!
@@ -140,6 +140,14 @@
                 (reset! running?* false)
                 (.interrupt thread))
      :reason* reason*}))
+
+(defn idle-timeout-error
+  "Error data for a stream closed by the watchdog's idle timeout."
+  [stream-idle-timeout-seconds exception]
+  (cond-> {:message (format "Stream idle timeout: no data received for %d seconds"
+                            (or stream-idle-timeout-seconds (quot default-stream-idle-timeout-ms 1000)))
+           :idle-timeout? true}
+    exception (assoc :exception exception)))
 
 (defn provider-api-key [provider provider-auth config]
   (or (when-let [key (not-empty (get-in config [:providers (name provider) :key]))]
