@@ -783,6 +783,24 @@
       (is (= 300 (:stream-idle-timeout-seconds @captured*))
           "anthropic handler should receive :stream-idle-timeout-seconds from top-level config"))))
 
+(deftest prompt-prefers-provider-stream-idle-timeout-test
+  (let [captured* (atom nil)]
+    (with-redefs [llm-providers.anthropic/chat!
+                  (fn [opts _callbacks] (reset! captured* opts) :ok)]
+      (#'eca.llm-api/prompt!
+       {:provider "my-proxy"
+        :model "claude-sonnet-4-6"
+        :model-capabilities {:tools true :model-name "claude-sonnet-4-6"}
+        :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+        :provider-auth {:api-key "test-key"}
+        :config {:streamIdleTimeoutSeconds 300
+                 :providers {"my-proxy" {:api "anthropic"
+                                         :url "https://my-proxy.example.com/v1"
+                                         :streamIdleTimeoutSeconds 600
+                                         :models {"claude-sonnet-4-6" {}}}}}
+        :sync? false}))
+    (is (= 600 (:stream-idle-timeout-seconds @captured*)))))
+
 (deftest prompt-merges-provider-and-model-extra-headers-test
   (testing "provider-level extraHeaders are sent and model-level ones win on conflicts"
     (let [captured* (atom nil)]

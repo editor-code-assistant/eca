@@ -423,6 +423,7 @@ Schema:
 | `retryRules`                      | array   | Custom retry rules that match by HTTP status and/or error pattern (see [Retry Policy and Rules](#retry-policy-and-rules)) | No       |
 | `retry`                           | map     | Retry count and exponential backoff policy for transient errors; applies to normal chats and sub-agents | No       |
 | `rateLimitMaxWaitSeconds`         | integer | Maximum provider-supplied rate-limit reset wait, including ECA's one-second safety buffer (default: `60`) | No       |
+| `streamIdleTimeoutSeconds`        | integer | Overrides the global `streamIdleTimeoutSeconds` for this provider                                     | No       |
 | `extraHeaders`                    | map     | Extra headers sent on all requests to this provider (completion and models list fetch). Model-level `extraHeaders` win on conflicts | No       |
 | `models`                          | map     | Key: model name, value: its config                                                                           | Yes      |
 | `models <model> extraPayload`     | map     | Extra payload sent in body to LLM                                                                            | No       |

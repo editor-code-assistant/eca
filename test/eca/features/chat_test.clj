@@ -376,6 +376,24 @@
                                        :text #(string/includes? % "Connection closed unexpectedly")}}])}
                 (h/messages))))))
 
+(deftest idle-timeout-recovery-asks-to-split-large-tool-calls-test
+  (h/reset-components!)
+  (let [requests* (atom [])
+        api-mock (fn [{:keys [user-messages on-first-response-received on-message-received on-error]}]
+                   (if (= 1 (count (swap! requests* conj user-messages)))
+                     (do
+                       (on-first-response-received {:type :text :text "Writing the file"})
+                       (on-message-received {:type :text :text "Writing the file"})
+                       (on-error (llm-util/idle-timeout-error 300 (java.io.IOException. "closed"))))
+                     (on-message-received {:type :finish})))]
+    (prompt! {:message "Write a big file"}
+             {:all-tools-mock (constantly [])
+              :api-mock api-mock})
+    (is (match? [{:role "user"
+                  :content [{:type :text
+                             :text #(string/includes? % "split it into a few smaller calls")}]}]
+                (second @requests*)))))
+
 (deftest transient-tls-recovery-limit-test
   (doseq [[configured limit reason] [[nil 3 :limit-reached] [2 2 :limit-reached] [0 0 :disabled]]]
     (testing (str "bounded TLS recovery with maxAutoContinues=" configured)
