@@ -193,7 +193,7 @@
       "type": "integer",
       "description": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
       "markdownDescription": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
-      "default": 120
+      "default": 300
     },
     "connectTimeoutSeconds": {
       "type": "integer",
@@ -808,6 +808,11 @@
           "default": 60,
           "description": "Maximum total delay before retrying a provider rate limit, including ECA's one-second safety buffer. The delay is derived from retry-after or provider-specific reset data and defaults to a 60-second cap. When the total delay exceeds the cap, ECA gives up retrying and surfaces the reset time in the error.",
           "markdownDescription": "Maximum total delay before retrying a provider rate limit, including ECA's one-second safety buffer. The delay is derived from `retry-after` or provider-specific reset data and defaults to a 60-second cap. When the total delay exceeds the cap, ECA gives up retrying and surfaces the reset time in the error."
+        },
+        "streamIdleTimeoutSeconds": {
+          "type": "integer",
+          "description": "Overrides the global streamIdleTimeoutSeconds for this provider.",
+          "markdownDescription": "Overrides the global `streamIdleTimeoutSeconds` for this provider."
         },
         "models": {
           "type": "object",
