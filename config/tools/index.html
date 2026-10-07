@@ -1672,7 +1672,7 @@
 </ul>
 <h2 id="mcp">MCP<a class="headerlink" href="#mcp" title="Permanent link">#</a></h2>
 <p>For MCP servers configuration, use the <code>mcpServers</code> config, examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:10"><input checked="checked" id="stdio" name="__tabbed_1" type="radio" /><input id="http-streamable-or-sse" name="__tabbed_1" type="radio" /><input id="oauth-with-pre-registered-client" name="__tabbed_1" type="radio" /><input id="confidential-oauth-eg-slack" name="__tabbed_1" type="radio" /><input id="static-auth-header" name="__tabbed_1" type="radio" /><input id="youcom-web-search--research" name="__tabbed_1" type="radio" /><input id="serply-web-search" name="__tabbed_1" type="radio" /><input id="advanced--dcr-client-name-override" name="__tabbed_1" type="radio" /><input id="per-project-auth--authscope" name="__tabbed_1" type="radio" /><input id="disabling-a-mcp" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="stdio">Stdio</label><label for="http-streamable-or-sse">HTTP (streamable or sse)</label><label for="oauth-with-pre-registered-client">OAuth with pre-registered client</label><label for="confidential-oauth-eg-slack">Confidential OAuth (e.g. Slack)</label><label for="static-auth-header">Static auth header</label><label for="youcom-web-search--research">You.com web search &amp; research</label><label for="serply-web-search">Serply web search</label><label for="advanced--dcr-client-name-override">Advanced — DCR client name override</label><label for="per-project-auth--authscope">Per-project auth — authScope</label><label for="disabling-a-mcp">Disabling a MCP</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:11"><input checked="checked" id="stdio" name="__tabbed_1" type="radio" /><input id="http-streamable-or-sse" name="__tabbed_1" type="radio" /><input id="oauth-with-pre-registered-client" name="__tabbed_1" type="radio" /><input id="confidential-oauth-eg-slack" name="__tabbed_1" type="radio" /><input id="static-auth-header" name="__tabbed_1" type="radio" /><input id="youcom-web-search--research" name="__tabbed_1" type="radio" /><input id="serply-web-search" name="__tabbed_1" type="radio" /><input id="fxmacrodata-macro-data" name="__tabbed_1" type="radio" /><input id="advanced--dcr-client-name-override" name="__tabbed_1" type="radio" /><input id="per-project-auth--authscope" name="__tabbed_1" type="radio" /><input id="disabling-a-mcp" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="stdio">Stdio</label><label for="http-streamable-or-sse">HTTP (streamable or sse)</label><label for="oauth-with-pre-registered-client">OAuth with pre-registered client</label><label for="confidential-oauth-eg-slack">Confidential OAuth (e.g. Slack)</label><label for="static-auth-header">Static auth header</label><label for="youcom-web-search--research">You.com web search &amp; research</label><label for="serply-web-search">Serply web search</label><label for="fxmacrodata-macro-data">FXMacroData macro data</label><label for="advanced--dcr-client-name-override">Advanced — DCR client name override</label><label for="per-project-auth--authscope">Per-project auth — authScope</label><label for="disabling-a-mcp">Disabling a MCP</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1813,6 +1813,22 @@ set the <code>Authorization</code> header directly. This skips OAuth entirely.</
 <span class="p">}</span>
 </code></pre></div>
 <p>Available tools include <code>google_search</code>, <code>google_news_search</code>, <code>google_scholar_search</code>, <code>bing_search</code> and <code>scrape_url</code>. See the <a href="https://serply.io/docs">Serply docs</a> for the full list.</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://fxmacrodata.com">FXMacroData</a> provides official-source macroeconomic releases, central bank policy rates, economic release calendars and FX rates for 22 currencies via MCP.</p>
+<p>USD releases, the USD calendar and the USD catalogue work without a key; other currencies, FX rates and the rest need a key. For full access, get an API key from <a href="https://fxmacrodata.com/subscribe">fxmacrodata.com</a> and set it as the <code>FXMACRODATA_API_KEY</code> environment variable. When the variable is unset, <code>${env:FXMACRODATA_API_KEY}</code> resolves to an empty string and the server treats the empty bearer token as keyless, so the same config works either way:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;fxmacrodata&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://mcp.fxmacrodata.com&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:FXMACRODATA_API_KEY}&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Available tools include <code>latest_announcements</code>, <code>release_calendar</code>, <code>data_catalogue</code>, <code>indicator_query</code> and <code>forex</code>. See the <a href="https://fxmacrodata.com/documentation">FXMacroData docs</a> for the full list.</p>
 </div>
 <div class="tabbed-block">
 <p>Some OAuth-protected MCP servers allowlist clients during Dynamic Client
@@ -2321,7 +2337,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 6, 2026 19:00:49 UTC">October 6, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 7, 2026 12:51:03 UTC">October 7, 2026</span>
   </span>
 
     
