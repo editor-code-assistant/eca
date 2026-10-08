@@ -399,6 +399,24 @@ Example:
 
     ECA supports the variants concept, allowing to customize the payload of models and quickly changing via UI, __useful for swaping different reasoning efforts__, for more information check [variants section](./variants.md)
 
+## Multiple accounts for the same provider
+
+To use more than one account of a provider, like a work and a personal Claude subscription, add a provider that `inherit`s from it. It behaves like its parent (login methods, models, request options) but has its own login:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "providers": {
+    "anthropic-work": {"inherit": "anthropic"},
+    "openai-work": {"inherit": "openai"}
+  }
+}
+```
+
+Then log in to each one, e.g. `/login anthropic` with your personal account and `/login anthropic-work` with the work one, and choose the account by choosing the model, like `anthropic-work/claude-sonnet-4-6`.
+
+- The parent config is merged under the inheriting provider's own config, except credentials (`key`, `keyRc`, `keyEnv`), so it never uses the parent's API key. Its env var follows its own name, e.g. `ANTHROPIC_WORK_API_KEY`.
+- Any provider can be inherited, including custom ones.
+
 ## Custom providers
 
 ECA allows you to configure custom LLM providers that follow API schemas similar to OpenAI or Anthropic. This is useful when you want to use:
@@ -414,6 +432,7 @@ Schema:
 | Option                            | Type    | Description                                                                                                  | Required |
 |-----------------------------------|---------|--------------------------------------------------------------------------------------------------------------|----------|
 | `api`                             | string  | The API schema to use (`"openai-responses"`, `"openai-chat"`, or `"anthropic"`)                              | Yes      |
+| `inherit`                         | string  | Provider to inherit config and behavior from, keeping a separate login (see [Multiple accounts](#multiple-accounts-for-the-same-provider)) | No       |
 | `url`                             | string  | API URL (with support for dynamic strings like `${env:MY_URL}` or `${cmd:...}`)                              | No*      |
 | `key`                             | string  | API key (with support for dynamic strings like `${env:MY_KEY}`, `${netrc:api.my-provider.com}` or `${cmd:pass show eca/key}`) | No*      |
 | `completionUrlRelativePath`       | string  | Optional override for the completion endpoint path (see defaults below and examples like Azure)              | No       |

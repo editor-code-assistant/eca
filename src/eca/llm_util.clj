@@ -174,13 +174,15 @@
 (defmulti provider-models-override
   "Provider+auth specific override for native /models fetching.
 
-   Dispatches on `[provider auth-type]`. Implementations live in the provider
+   Dispatches on `[provider auth-type]`, using `:provider-base` (see
+   `config/provider-base`) when present so inheriting providers get their
+   parent's override. Implementations live in the provider
    namespace (e.g. `eca.llm-providers.openai`) and return a map of
    model-id -> model-config in the same shape users put under
    `:providers <p> :models` (e.g. `{\"gpt-5.5\" {:limit {:context 272000}}}`),
    letting the generic catalog code apply them through the existing override
    path. Return nil to fall back to the generic native /models fetch."
-  (fn [{:keys [provider auth-type]}] [provider auth-type]))
+  (fn [{:keys [provider provider-base auth-type]}] [(or provider-base provider) auth-type]))
 
 (defmethod provider-models-override :default [_] nil)
 

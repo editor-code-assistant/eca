@@ -813,44 +813,44 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["anthropic" "max"] [_ _ db* _config _messenger _metrics]
+(defmethod f.providers/start-login! ["anthropic" "max"] [provider _ db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :max)]
-    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
-                                             :mode :max
-                                             :verifier verifier})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :max
+                                          :verifier verifier})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/start-login! ["anthropic" "console"] [_ _ db* _config _messenger _metrics]
+(defmethod f.providers/start-login! ["anthropic" "console"] [provider _ db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :console)]
-    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
-                                             :mode :console
-                                             :verifier verifier})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :console
+                                          :verifier verifier})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/complete-oauth-code! "anthropic" [_ data db* messenger metrics]
+(defmethod f.providers/complete-oauth-code! "anthropic" [provider data db* _config messenger metrics]
   (let [code (:code data)
-        {:keys [mode verifier]} (get-in @db* [:auth "anthropic"])]
+        {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
       :console
       (let [{:keys [access-token]} (oauth-authorize code verifier)
             raw-key (create-api-key access-token)]
-        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
-                                                        :type :auth/token
-                                                        :api-key raw-key}))
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/token
+                                                     :api-key raw-key}))
       :max
       (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize code verifier)]
-        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
-                                                        :type :auth/oauth
-                                                        :refresh-token refresh-token
-                                                        :api-key access-token
-                                                        :expires-at expires-at})))
-    (f.providers/sync-and-notify! "anthropic" db* messenger metrics)
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/oauth
+                                                     :refresh-token refresh-token
+                                                     :api-key access-token
+                                                     :expires-at expires-at})))
+    (f.providers/sync-and-notify! provider db* messenger metrics)
     {:action "done"}))
 
 ;; --- Chat-based login (legacy /login command) ---
@@ -915,7 +915,7 @@
 (defmethod f.login/login-step ["anthropic" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
     (do
-      (config/update-global-config! {:providers {"anthropic" {:key input}}})
+      (config/update-global-config! {:providers {provider {:key input}}})
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))

@@ -23,15 +23,15 @@
 
 (defmethod f.login/login-step ["azure" :login/waiting-models] [{:keys [input db* provider send-msg!] :as ctx}]
   (let [{:keys [api-url api-key]} (get-in @db* [:auth provider])]
-    (config/update-global-config! {:providers {"azure" {:api "openai-responses"
-                                                        :url api-url
-                                                        :completionUrlRelativePath "/openai/responses?api-version=2025-04-01-preview"
-                                                        :models (reduce
-                                                                 (fn [models model-str]
-                                                                   (assoc models (string/trim model-str) {}))
-                                                                 {}
-                                                                 (string/split input #","))
-                                                        :key api-key}}}))
+    (config/update-global-config! {:providers {provider {:api "openai-responses"
+                                                         :url api-url
+                                                         :completionUrlRelativePath "/openai/responses?api-version=2025-04-01-preview"
+                                                         :models (reduce
+                                                                  (fn [models model-str]
+                                                                    (assoc models (string/trim model-str) {}))
+                                                                  {}
+                                                                  (string/split input #","))
+                                                         :key api-key}}}))
   (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
   (send-msg! (format "API key, url and models saved to %s" (.getCanonicalPath (config/global-config-file))))
   (f.login/login-done! ctx))

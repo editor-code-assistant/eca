@@ -13,7 +13,13 @@
 
 (def ^:private logger-tag "[LOGIN]")
 
-(defmulti login-step (fn [ctx] [(:provider ctx) (:step ctx)]))
+(defmulti login-step
+  "Login state machine. Dispatches on the provider's base (see
+   `config/provider-base`), so a provider inheriting e.g. `anthropic` runs
+   Anthropic's login steps while `:provider` keeps its own name, storing its
+   auth separately."
+  (fn [{:keys [provider step config]}]
+    [(config/provider-base provider config) step]))
 
 (defmethod login-step :default [{:keys [send-msg!]}]
   (send-msg! "Error: Unknown login step"))
@@ -78,11 +84,21 @@
     (assoc ctx :ask! (fn [question-data] (ask-and-continue! ctx question-data)))
     ctx))
 
+(defn ^:private login-providers
+  "Providers `/login` can handle: the ones with login state, plus configured
+   providers inheriting from one of them."
+  [db config]
+  (let [auth-providers (set (keys (:auth db)))]
+    (->> (keys (:providers config))
+         (filter #(contains? auth-providers (config/provider-base % config)))
+         (into auth-providers)
+         sort)))
+
 ;; No provider selected
 (defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
   (let [provider (string/trim input)
-        providers (->> @db* :auth keys sort)]
-    (if (get-in @db* [:auth provider])
+        providers (login-providers @db* config)]
+    (if (some #{provider} providers)
       (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
           (swap! db* assoc-in [:auth provider] {:step :login/start})
           (when-let [warning (f.providers/key-auth-override-warning provider config)]
@@ -170,7 +186,7 @@
               :config config
               :step :login/renew-token
               :db* db*})
-            (db/update-global-cache! @db* metrics)))))
+            (db/update-global-auth-cache! @db* provider metrics)))))
     (catch Exception e
       (on-error (.getMessage e)))))
 
@@ -204,7 +220,7 @@
                       :or {silent? false
                            skip-models-sync? false}}]
   (when (get-in @db* [:auth provider])
-    (db/update-global-cache! @db* metrics))
+    (db/update-global-auth-cache! @db* provider metrics))
   (when-not skip-models-sync?
     (models/sync-models! db*
                          (config/all @db*) ;; force get updated config

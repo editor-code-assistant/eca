@@ -677,6 +677,57 @@
             (is (= 2 @ran)))
           (finally (fs/delete-tree tmpdir)))))))
 
+(deftest with-global-cache-lock-is-reentrant-test
+  (testing "nesting the lock in the same thread doesn't throw OverlappingFileLockException"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (is (= :inner (db/with-global-cache-lock
+                          (db/with-global-cache-lock :inner))))
+          (is (= :again (db/with-global-cache-lock :again)))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest update-global-auth-cache!-test
+  (testing "writes only the given provider, keeping entries other processes saved"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [peer-fresh {:refresh-token "peer-fresh" :expires-at 9999999999}]
+            (db/update-global-cache! {:auth {"anthropic" peer-fresh
+                                             "anthropic-work" {:refresh-token "old"}}
+                                      :mcp-auth {"server" {:access-token "mcp"}}}
+                                     nil)
+            (db/update-global-auth-cache! {:auth {"anthropic" {:refresh-token "mine-stale" :expires-at 1000}
+                                                  "anthropic-work" {:refresh-token "rotated"}}}
+                                          "anthropic-work"
+                                          nil)
+            (let [disk (atom {:auth {"anthropic" {} "anthropic-work" {}}})]
+              (db/sync-auth-from-cache! disk "anthropic" nil)
+              (is (= peer-fresh (get-in @disk [:auth "anthropic"]))))
+            (let [disk (db/read-transit-file (io/file tmpdir "db.transit.json"))]
+              (is (= "rotated" (get-in disk [:auth "anthropic-work" :refresh-token])))
+              (is (= {:access-token "mcp"} (get-in disk [:mcp-auth "server"])))))
+          (finally (fs/delete-tree tmpdir))))))
+
+  (testing "removes the provider entry when it is gone from memory"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (db/update-global-cache! {:auth {"anthropic" {:api-key "a"} "openai" {:api-key "o"}}} nil)
+          (db/update-global-auth-cache! {:auth {}} "openai" nil)
+          (is (= {"anthropic" {:api-key "a"}}
+                 (:auth (db/read-transit-file (io/file tmpdir "db.transit.json")))))
+          (finally (fs/delete-tree tmpdir))))))
+
+  (testing "falls back to a whole write when there is no disk cache yet"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (db/update-global-auth-cache! {:auth {"anthropic" {:api-key "a"}}} "anthropic" nil)
+          (is (= {"anthropic" {:api-key "a"}}
+                 (:auth (db/read-transit-file (io/file tmpdir "db.transit.json")))))
+          (finally (fs/delete-tree tmpdir)))))))
+
 (deftest with-global-cache-lock-serializes-concurrent-threads-test
   (testing "two threads acquiring the lock cannot interleave inside the body"
     (let [tmpdir (str (fs/create-temp-dir))]

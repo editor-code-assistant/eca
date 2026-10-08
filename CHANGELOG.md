@@ -4,6 +4,8 @@
 
 - Add subagent `timeoutSeconds`; on timeout or max steps the subagent gets a final no-tools turn to report findings, and a parent stop keeps its partial output. #625
 - Fix tool-call continuations sending the provider `key` resolved at prompt start, so a `${cmd:...}` key that prints a short-lived token no longer expires mid-prompt; continuations read the key from the current config. #634
+- Support multiple accounts of the same provider (e.g. work and personal subscriptions) via provider `inherit`, like `"anthropic-work": {"inherit": "anthropic"}`. #617
+- Fix ECA processes overwriting each other's refreshed provider logins in the global cache.
 
 ## 0.162.0
 

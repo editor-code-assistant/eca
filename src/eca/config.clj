@@ -369,6 +369,19 @@
 (defn initial-config []
   (parse-dynamic-string-values initial-config* (io/file ".")))
 
+(defn provider-base
+  "Returns the provider whose built-in behavior (login flows, request options,
+   API quirks) `provider` follows: the provider it `inherit`s from, following
+   the chain, or `provider` itself."
+  [provider config]
+  (when provider
+    (loop [current (name provider)
+           seen #{current}]
+      (let [parent (get-in config [:providers current :inherit])]
+        (if (and parent (not (contains? seen parent)))
+          (recur parent (conj seen parent))
+          current)))))
+
 (defn ^:private regex-matches? [pattern-str s]
   (try
     (some? (re-find (re-pattern pattern-str) s))
@@ -386,6 +399,7 @@
   ([config provider model-name model-capabilities user-variants]
    (let [provider-api (or (some-> (:api model-capabilities) name)
                           (get-in config [:providers provider :api]))
+         base-provider (provider-base provider config)
          api-match? (fn [api config-val]
                       (cond (sequential? config-val) (some #{api} config-val)
                             config-val (= api config-val)
@@ -393,7 +407,7 @@
          builtin (when model-name
                    (some (fn [[pattern-str {:keys [variants excludeProviders api]}]]
                            (when (and (regex-matches? pattern-str model-name)
-                                      (not (some #{provider} excludeProviders))
+                                      (not (some #{base-provider} excludeProviders))
                                       (api-match? provider-api api))
                              variants))
                          (:variantsByModel config)))
@@ -609,6 +623,58 @@
    {}
    agents))
 
+(def ^:private provider-credential-keys
+  "Never inherited: an inheriting provider is a separate account."
+  [:key :keyRc :keyEnv])
+
+(defn ^:private resolve-provider-inheritance
+  "Resolves :inherit keys in provider configs. A provider with :inherit \"other\"
+   is deep-merged on top of the resolved parent config (child wins), minus the
+   parent's credentials, so it can log in to a different account while behaving
+   like the parent. The :inherit key is kept, normalized to the parent provider
+   id, so `provider-base` can find the parent at runtime. Self, unknown and
+   circular parents are ignored with a warning."
+  [providers]
+  (if-not (some :inherit (vals providers))
+    providers
+    (letfn [(parent-of [provider-name]
+              (some-> (get-in providers [provider-name :inherit]) str string/trim not-empty csk/->kebab-case))
+            (circular? [provider-name]
+              (loop [current (parent-of provider-name)
+                     seen #{provider-name}]
+                (cond
+                  (nil? current) false
+                  (= provider-name current) true
+                  (contains? seen current) false
+                  :else (recur (parent-of current) (conj seen current)))))
+            (resolve-provider [provider-name]
+              (let [parent-name (parent-of provider-name)
+                    own-config (dissoc (get providers provider-name) :inherit)]
+                (cond
+                  (nil? parent-name)
+                  own-config
+
+                  (= parent-name provider-name)
+                  (do (logger/warn logger-tag (format "Provider '%s' inherits from itself, ignoring inherit" provider-name))
+                      own-config)
+
+                  (not (contains? providers parent-name))
+                  (do (logger/warn logger-tag (format "Provider '%s' inherits from unknown provider '%s', ignoring inherit" provider-name parent-name))
+                      own-config)
+
+                  (circular? provider-name)
+                  (do (logger/warn logger-tag (format "Provider '%s' has a circular inherit through '%s', ignoring inherit" provider-name parent-name))
+                      own-config)
+
+                  :else
+                  (assoc (deep-merge (apply dissoc (resolve-provider parent-name) provider-credential-keys)
+                                     own-config)
+                         :inherit parent-name))))]
+      (reduce-kv (fn [result provider-name _]
+                   (assoc result provider-name (resolve-provider provider-name)))
+                 {}
+                 providers))))
+
 (defn ^:private eca-version* []
   (string/trim (slurp (io/resource "ECA_VERSION"))))
 
@@ -808,7 +874,8 @@
                   (update config :agent (fn [existing]
                                           (merge md-agent-configs plugin-agents existing)))
                   config)))
-        (update :agent resolve-agent-inheritance))))
+        (update :agent resolve-agent-inheritance)
+        (update :providers resolve-provider-inheritance))))
 
 (def ^:private all-memo
   (memoize/ttl (fn [workspace-folders]

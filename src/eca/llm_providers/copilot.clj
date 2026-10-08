@@ -174,8 +174,8 @@
         (get-in db [:client-capabilities :code-assistant :chat-capabilities :ask-question]))))
 
 (defmethod llm-providers.errors/recover-error! "github-copilot"
-  [{:keys [model db messenger chat-id]}]
-  (let [auth (get-in db [:auth "github-copilot"])]
+  [{:keys [provider model db messenger chat-id]}]
+  (let [auth (get-in db [:auth provider])]
     (messenger/chat-content-received messenger
                                      {:chat-id chat-id
                                       :role :system
@@ -278,19 +278,19 @@
    authorizes in the browser, the login state changes (e.g. cancelled), or
    `max-attempts` is reached. Calls `on-token` with the token data on success
    or `on-timeout` when attempts are exhausted."
-  [provider-settings db* {:keys [interval-ms max-attempts on-token on-timeout]
-                          :or {interval-ms 5000
-                               max-attempts 180}}]
+  [provider provider-settings db* {:keys [interval-ms max-attempts on-token on-timeout]
+                                   :or {interval-ms 5000
+                                        max-attempts 180}}]
   (future
     (loop [attempts 0]
       (Thread/sleep (long interval-ms))
       (when (= :login/waiting-user-confirmation
-               (get-in @db* [:auth "github-copilot" :step]))
+               (get-in @db* [:auth provider :step]))
         (if (< attempts max-attempts)
           (let [token-data (try
                              (when-let [access-token (oauth-access-token
                                                       provider-settings
-                                                      (get-in @db* [:auth "github-copilot" :device-code]))]
+                                                      (get-in @db* [:auth provider :device-code]))]
                                (assoc (oauth-renew-token provider-settings access-token)
                                       :access-token access-token))
                              (catch Exception e
@@ -304,19 +304,20 @@
               (recur (inc attempts))))
           (on-timeout))))))
 
-(defmethod f.providers/start-login! ["github-copilot" "device"] [_ _ db* config messenger metrics]
-  (let [provider-settings (get-in config [:providers "github-copilot"])
+(defmethod f.providers/start-login! ["github-copilot" "device"] [provider _ db* config messenger metrics]
+  (let [provider-settings (get-in config [:providers provider])
         {:keys [user-code device-code url]} (oauth-url provider-settings)]
-    (swap! db* assoc-in [:auth "github-copilot"] {:step :login/waiting-user-confirmation
-                                                   :device-code device-code})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
+                                          :device-code device-code})
     (poll-device-authorization!
+     provider
      provider-settings
      db*
      {:max-attempts 60
       :on-token (fn [token-data]
-                  (swap! db* update-in [:auth "github-copilot"] merge
+                  (swap! db* update-in [:auth provider] merge
                          (assoc token-data :step :login/done))
-                  (f.providers/sync-and-notify! "github-copilot" db* messenger metrics))
+                  (f.providers/sync-and-notify! provider db* messenger metrics))
       :on-timeout (fn [])})
     {:action "device-code"
      :url url
@@ -356,6 +357,7 @@
                 ""
                 "ECA will complete the login automatically after you authorize, type 'cancel' anytime to abort."))
     (poll-device-authorization!
+     provider
      provider-settings
      db*
      {:on-token (fn [token-data] (complete-chat-device-login! ctx token-data))

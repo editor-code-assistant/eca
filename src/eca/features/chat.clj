@@ -1612,11 +1612,13 @@
                                 (and (not compacting?)
                                      (not (:error-recovery-attempted? chat-ctx))
                                      (llm-providers.errors/recoverable-error? {:provider provider
+                                                                               :provider-base (config/provider-base provider config)
                                                                                :error-data error-data
                                                                                :db db}))
                                 (let [real-model (or (get-in db [:models full-model :model-name]) model)
                                       {:keys [retry? notice retry-user-message]}
                                       (llm-providers.errors/recover-error! {:provider provider
+                                                                            :provider-base (config/provider-base provider config)
                                                                             :model real-model
                                                                             :error-data error-data
                                                                             :db db

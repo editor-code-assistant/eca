@@ -56,9 +56,10 @@
        codex-compatibility-version))
 
 (defn ^:private codex-request?
-  "Codex requests are exclusive to the built-in openai provider authenticated
-   via OAuth (ChatGPT subscription). Custom Responses API providers never hit
-   the Codex backend, whatever their auth."
+  "Codex requests are exclusive to the built-in openai provider (or providers
+   inheriting it, `provider` being the provider base) authenticated via OAuth
+   (ChatGPT subscription). Custom Responses API providers never hit the Codex
+   backend, whatever their auth."
   [provider auth-type]
   (and (= "openai" provider)
        (= :auth/oauth auth-type)))
@@ -913,7 +914,7 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["openai" "pro"] [_ _ db* _config messenger metrics]
+(defmethod f.providers/start-login! ["openai" "pro"] [provider _ db* _config messenger metrics]
   (let [local-server-port 1455
         server-url (str "http://localhost:" local-server-port "/auth/callback")
         {:keys [verifier url]} (oauth-url server-url)]
@@ -923,7 +924,7 @@
                     (try
                       (let [{:keys [access-token refresh-token account-id expires-at]}
                             (oauth-authorize server-url code verifier)]
-                        (swap! db* update-in [:auth "openai"] merge
+                        (swap! db* update-in [:auth provider] merge
                                {:step :login/done
                                 :type :auth/oauth
                                 :mode :pro
@@ -931,7 +932,7 @@
                                 :api-key access-token
                                 :account-id account-id
                                 :expires-at expires-at})
-                        (f.providers/sync-and-notify! "openai" db* messenger metrics))
+                        (f.providers/sync-and-notify! provider db* messenger metrics))
                       (catch Exception e
                         (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
                       (finally
@@ -993,7 +994,7 @@
 
 (defmethod f.login/login-step ["openai" :login/waiting-api-key] [{:keys [input db* provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
-    (do (config/update-global-config! {:providers {"openai" {:key input}}})
+    (do (config/update-global-config! {:providers {provider {:key input}}})
         (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
         (send-msg! (str "API key saved in " (.getCanonicalPath (config/global-config-file))))
         (f.login/login-done! ctx))

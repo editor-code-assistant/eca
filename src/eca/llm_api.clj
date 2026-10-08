@@ -200,20 +200,21 @@
    (provider->api-handler provider model nil config))
   ([provider model model-capabilities config]
    (or (api->handler (:api model-capabilities))
-       (cond
-         (= "openai" provider) (api->handler :openai-responses)
-         (= "anthropic" provider) (api->handler :anthropic)
-         (= "github-copilot" provider) (api->handler (if (copilot-responses-api-model? model)
-                                                       :openai-responses
-                                                       :openai-chat))
-         (= "google" provider) (api->handler :openai-chat)
-         (= "ollama" provider) (api->handler :ollama)
-         :else (case (get-in config [:providers provider :api])
-                 ("openai-responses" "openai") (api->handler :openai-responses)
-                 "anthropic" (api->handler :anthropic)
-                 "openai-chat" (api->handler :openai-chat)
-                 "bedrock" (api->handler :bedrock)
-                 nil)))))
+       (let [base-provider (config/provider-base provider config)]
+         (cond
+           (= "openai" base-provider) (api->handler :openai-responses)
+           (= "anthropic" base-provider) (api->handler :anthropic)
+           (= "github-copilot" base-provider) (api->handler (if (copilot-responses-api-model? model)
+                                                              :openai-responses
+                                                              :openai-chat))
+           (= "google" base-provider) (api->handler :openai-chat)
+           (= "ollama" base-provider) (api->handler :ollama)
+           :else (case (get-in config [:providers provider :api])
+                   ("openai-responses" "openai") (api->handler :openai-responses)
+                   "anthropic" (api->handler :anthropic)
+                   "openai-chat" (api->handler :openai-chat)
+                   "bedrock" (api->handler :bedrock)
+                   nil))))))
 
 (def ^:private reasoning-keys-by-api
   {:anthropic [:thinking]
@@ -285,6 +286,9 @@
            past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
+        ;; Providers inheriting a built-in one (e.g. a second Anthropic account)
+        ;; keep their own auth/config but follow the parent's request behavior.
+        base-provider (config/provider-base provider config)
         tools (when (:tools model-capabilities) (tools-for-request tools))
         reason? (:reason? model-capabilities)
         supports-image? (:image-input? model-capabilities)
@@ -297,7 +301,7 @@
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
         {:keys [handler] :as api-handler} (provider->api-handler provider model model-capabilities config)
-        _ (when (and (= "github-copilot" provider) (nil? (:api model-capabilities)))
+        _ (when (and (= "github-copilot" base-provider) (nil? (:api model-capabilities)))
             (logger/info logger-tag
                          (format "Copilot model '%s' has no API discovered from /models catalog, routing to %s by model name"
                                  real-model (:api api-handler))))
@@ -351,7 +355,7 @@
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
-        (= "openai" provider)
+        (= "openai" base-provider)
         (handler
          {:model real-model
           :instructions flat-instructions
@@ -368,7 +372,7 @@
           :reasoning-history reasoning-history
           :api-url api-url
           :api-key api-key
-          :provider provider
+          :provider base-provider
           :auth-type auth-type
           :provider-data (:provider-data model-capabilities)
           :account-id (:account-id provider-auth)
@@ -377,10 +381,10 @@
           :stream-idle-timeout-seconds stream-idle-timeout-seconds}
          callbacks)
 
-        (= "anthropic" provider)
+        (= "anthropic" base-provider)
         (handler anthropic-opts callbacks)
 
-        (= "github-copilot" provider)
+        (= "github-copilot" base-provider)
         (let [api-url (or (:api-url provider-auth) api-url)
               copilot-headers (fn [user-initiator? anthropic?]
                                 (cond-> (merge {"openai-intent" "conversation-panel"
@@ -438,7 +442,7 @@
                                      (copilot-headers (user-initiator? body :messages) false)))
              callbacks)))
 
-        (= "google" provider)
+        (= "google" base-provider)
         (handler
          {:model real-model
           :instructions flat-instructions
@@ -462,7 +466,7 @@
           :stream-idle-timeout-seconds stream-idle-timeout-seconds}
          callbacks)
 
-        (= "ollama" provider)
+        (= "ollama" base-provider)
         (handler
          {:api-url api-url
           :reason? (:reason? model-capabilities)
@@ -580,6 +584,7 @@
                              (if (compare-and-set! error-delivered?* false true)
                                (let [args (llm-providers.errors/enrich-provider-error
                                            {:provider provider
+                                            :provider-base (config/provider-base provider config)
                                             :model (real-model-name model model-capabilities)
                                             :error-data args})]
                                  (logger/error args)
