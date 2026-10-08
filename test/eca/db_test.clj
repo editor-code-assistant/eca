@@ -36,6 +36,23 @@
 (defn ^:private read-chat-cache [workspaces chat-id]
   (:chat (read-transit-file (chat-cache-file workspaces chat-id))))
 
+(defn ^:private legacy-chat-cache-file ^File [workspaces chat-id]
+  (io/file (cache/legacy-workspace-cache-dir workspaces shared/uri->filename)
+           "chats" (db/chat-file-name chat-id)))
+
+(defn ^:private write-legacy-chat!
+  "Persists `chat` in the legacy cache dir the way an older ECA does: its own
+   file plus an entry in that dir's chats index."
+  [workspaces chat]
+  (write-transit! (legacy-chat-cache-file workspaces (:id chat))
+                  {:version db/chats-version :chat chat})
+  (let [index-file (io/file (cache/legacy-workspace-cache-dir workspaces shared/uri->filename)
+                            "chats" "index.transit.json")
+        entries (when (fs/exists? index-file) (:chats (read-transit-file index-file)))]
+    (write-transit! index-file
+                    {:version db/chats-version
+                     :chats (assoc entries (:id chat) (db/chat-list-meta chat))})))
+
 (deftest chat-file-name-test
   (testing "uuid-like ids are used as-is"
     (is (= "aaaaaaaa-1111-2222-3333-444444444444.transit.json"
@@ -80,7 +97,7 @@
 
 (deftest save-chat!-writes-per-chat-file-and-index-test
   (let [tmpdir (str (fs/create-temp-dir))]
-    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+    (h/with-cache-root tmpdir
       (try
         (let [workspaces [{:uri "file:///home/user/save"}]
               db {:workspace-folders workspaces
@@ -100,7 +117,7 @@
 (deftest save-chat!-peer-recency-guard-test
   (testing "a stale save never clobbers a chat file a peer process advanced (#558)"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/peer-guard"}]
                 db {:workspace-folders workspaces
@@ -128,7 +145,7 @@
 (deftest save-chat!-does-not-clobber-unreadable-file-test
   (testing "a meta-only save skips the file write when the existing chat file cannot be read"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/unreadable"}]
                 f (chat-cache-file workspaces "a")]
@@ -145,7 +162,7 @@
 (deftest save-chat!-hydration-safe-test
   (testing "saving an index-only copy merges its meta over the on-disk chat instead of clobbering messages"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/hydration-safe"}]]
             (db/save-chat! {:workspace-folders workspaces
@@ -166,7 +183,7 @@
 
 (deftest hydrate-chat!-test
   (let [tmpdir (str (fs/create-temp-dir))]
-    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+    (h/with-cache-root tmpdir
       (try
         (let [workspaces [{:uri "file:///home/user/hydrate"}]
               chat {:id "a" :title "A" :updated-at 100
@@ -215,7 +232,7 @@
 (deftest save-all-chats!-test
   (testing "persists every hydrated chat and one index covering index-only entries too"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/save-all"}]
                 db {:workspace-folders workspaces
@@ -236,7 +253,7 @@
 
 (deftest delete-chat-from-cache!-test
   (let [tmpdir (str (fs/create-temp-dir))]
-    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+    (h/with-cache-root tmpdir
       (try
         (let [workspaces [{:uri "file:///home/user/delete"}]
               db {:workspace-folders workspaces
@@ -256,7 +273,7 @@
 (deftest update-chats-index!-merges-peer-writes-test
   (testing "an index write over a file another process changed merges entries instead of clobbering"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/merge-peer"}]
                 db-a {:workspace-folders workspaces
@@ -277,7 +294,7 @@
 (deftest update-chats-index!-tie-keeps-memory-test
   (testing "on equal recency the in-memory entry wins, so mid-prompt mutations are never dropped"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/merge-tie"}]
                 db-a {:workspace-folders workspaces
@@ -293,7 +310,7 @@
 (deftest update-chats-index!-first-write-merges-existing-file-test
   (testing "the first index write of a session merges entries a peer wrote since this process loaded"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/merge-first-save"}]]
             (write-transit! (chats-index-file workspaces)
@@ -308,7 +325,7 @@
 (deftest update-chats-index!-does-not-resurrect-deleted-chats-test
   (testing "chats deleted in this session are excluded from the merge with the on-disk index"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/merge-tombstone"}]]
             (write-transit! (chats-index-file workspaces)
@@ -326,12 +343,12 @@
 (deftest migrate-legacy-workspace-caches!-test
   (testing "splits legacy blobs (canonical + redundant dirs) into per-chat files, newest chat wins"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/projX"}]
                 canonical ^File (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)
                 ws-hash (cache/workspaces-hash workspaces shared/uri->filename)
-                hash-only-dir (io/file (cache/global-dir) ws-hash)
+                hash-only-dir (io/file (cache/data-dir) ws-hash)
                 hash-only-file (io/file hash-only-dir "db.transit.json")]
             ;; canonical holds an older copy of chat "a"
             (write-transit! canonical
@@ -352,7 +369,7 @@
           (finally (fs/delete-tree tmpdir))))))
   (testing "chats with invalid ids (e.g. nil key from old bugs) are dropped instead of aborting the migration"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/projNil"}]
                 canonical (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)]
@@ -371,7 +388,7 @@
           (finally (fs/delete-tree tmpdir))))))
   (testing "a newer per-chat file is not clobbered by a stale legacy blob copy"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/projY"}]
                 canonical (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)]
@@ -388,7 +405,7 @@
 
 (deftest load-db-from-cache!-loads-index-only-entries-test
   (let [tmpdir (str (fs/create-temp-dir))]
-    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+    (h/with-cache-root tmpdir
       (try
         (let [workspaces [{:uri "file:///home/user/load"}]]
           (db/save-chat! {:workspace-folders workspaces
@@ -410,7 +427,7 @@
 (deftest load-db-from-cache!-reconciles-index-test
   (testing "orphan chat files are re-indexed after index loss"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/heal"}]]
             (db/save-chat! {:workspace-folders workspaces
@@ -425,7 +442,7 @@
           (finally (fs/delete-tree tmpdir))))))
   (testing "index entries whose chat file vanished are dropped and tombstoned"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri "file:///home/user/heal2"}]
                 db {:workspace-folders workspaces
@@ -446,7 +463,7 @@
 
 (deftest cleanup-old-chats-test
   (let [tmpdir (str (fs/create-temp-dir))]
-    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+    (h/with-cache-root tmpdir
       (try
         (let [now (System/currentTimeMillis)
               fifteen-days-ago (- now (* 15 24 60 60 1000))
@@ -615,7 +632,7 @@
 (deftest sync-auth-from-cache!-adopts-fresher-disk-tokens-test
   (testing "when on-disk :auth has a different :expires-at, in-memory state is overwritten"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [fresh-auth {:type :auth/oauth
                             :mode :max
@@ -641,7 +658,7 @@
 (deftest sync-auth-from-cache!-noop-when-disk-matches-memory-test
   (testing "when on-disk :expires-at matches memory, no update happens"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [auth {:type :auth/oauth
                       :refresh-token "same"
@@ -658,7 +675,7 @@
 (deftest sync-auth-from-cache!-noop-when-no-disk-cache-test
   (testing "when no global cache file exists, returns falsy and leaves memory untouched"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [mem (atom {:auth {"anthropic" {:refresh-token "x" :expires-at 1}}})
                 updated? (db/sync-auth-from-cache! mem "anthropic" nil)]
@@ -669,7 +686,7 @@
 (deftest with-global-cache-lock-runs-body-and-releases-test
   (testing "the lock can be acquired sequentially without leaking handles"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [ran (atom 0)]
             (db/with-global-cache-lock (swap! ran inc))
@@ -680,7 +697,7 @@
 (deftest with-global-cache-lock-serializes-concurrent-threads-test
   (testing "two threads acquiring the lock cannot interleave inside the body"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [inside (atom 0)
                 max-inside (atom 0)
@@ -715,7 +732,7 @@
 (deftest chats-index-persists-workspaces-test
   (testing "the chats index records the workspace root paths so offline readers can tell which workspace the chats belong to"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [workspaces [{:uri (h/file-uri "file:///home/user/my-proj")}]
                 db {:workspace-folders workspaces
@@ -727,7 +744,7 @@
 
 (deftest list-all-workspaces-chats-test
   (let [tmpdir (str (fs/create-temp-dir))]
-    (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+    (h/with-cache-root tmpdir
       (try
         (let [workspaces [{:uri (h/file-uri "file:///home/user/proj-a")}]
               db {:workspace-folders workspaces
@@ -786,7 +803,7 @@
   (testing "unknown workspace paths are recovered by hash-verifying sibling dirs of known roots"
     (let [tmpdir (str (fs/create-temp-dir))
           projects (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [proj-b (io/file projects "proj-b")
                 _ (fs/create-dirs proj-b)
@@ -806,3 +823,211 @@
           (finally
             (fs/delete-tree tmpdir)
             (fs/delete-tree projects)))))))
+
+(deftest load-db-from-cache!-first-start-after-upgrade-test
+  (testing "the first start copies history and login into the data dir, keeping the cache dir copy for downgrades (#623)"
+    (h/with-legacy-and-data-dirs
+      (fn [legacy-root _data-root]
+        (let [workspaces [{:uri "file:///home/user/upgrade"}]]
+          (write-legacy-chat! workspaces {:id "a" :title "A" :updated-at 100
+                                          :messages [{:role "user" :content "hi"}]})
+          (write-transit! (io/file legacy-root "db.transit.json")
+                          {:version db/version :auth {"anthropic" {:api-key "k"}}})
+          (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
+            (db/load-db-from-cache! db* {} nil)
+            (is (= "A" (get-in @db* [:chats "a" :title])))
+            (is (= "k" (get-in @db* [:auth "anthropic" :api-key])))
+            (is (= "A" (:title (read-chat-cache workspaces "a"))) "history now lives in the data dir")
+            (is (fs/exists? (legacy-chat-cache-file workspaces "a")) "and stays in the cache dir")))))))
+
+(deftest load-db-from-cache!-reads-legacy-cache-dir-test
+  (testing "chats an older ECA wrote to the cache dir after a downgrade load and hydrate, newest copy winning"
+    (h/with-legacy-and-data-dirs
+      (fn [_legacy-root _data-root]
+        (let [workspaces [{:uri "file:///home/user/dual-load"}]]
+          (db/save-all-chats! {:workspace-folders workspaces
+                               :chats {"data-only" {:id "data-only" :title "Data only" :updated-at 100 :messages []}
+                                       "data-newer" {:id "data-newer" :title "data" :updated-at 300 :messages []}
+                                       "legacy-newer" {:id "legacy-newer" :title "data" :updated-at 100 :messages []}}}
+                              nil)
+          (write-legacy-chat! workspaces {:id "legacy-only" :title "Legacy only" :updated-at 200
+                                          :messages [{:role "user" :content "from an older ECA"}]})
+          (write-legacy-chat! workspaces {:id "data-newer" :title "legacy" :updated-at 100 :messages []})
+          (write-legacy-chat! workspaces {:id "legacy-newer" :title "legacy" :updated-at 400
+                                          :messages [{:role "user" :content "continued after downgrade"}]})
+          (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
+            (db/load-db-from-cache! db* {} nil)
+            (is (= #{"data-only" "data-newer" "legacy-newer" "legacy-only"} (set (keys (:chats @db*)))))
+            (is (empty? (:deleted-chat-ids @db*)) "chats with a file only in the cache dir are not dropped")
+            (is (= "data" (get-in @db* [:chats "data-newer" :title])))
+            (is (= "legacy" (get-in @db* [:chats "legacy-newer" :title])))
+            (db/hydrate-chat! db* "legacy-only" nil)
+            (db/hydrate-chat! db* "legacy-newer" nil)
+            (is (= ["from an older ECA"] (mapv :content (get-in @db* [:chats "legacy-only" :messages]))))
+            (is (= ["continued after downgrade"] (mapv :content (get-in @db* [:chats "legacy-newer" :messages]))))
+            (testing "saving writes the data dir only"
+              (db/save-chat! @db* "legacy-only" nil)
+              (is (= "Legacy only" (:title (read-chat-cache workspaces "legacy-only"))))
+              (is (= 200 (get-in (read-transit-file (legacy-chat-cache-file workspaces "legacy-only")) [:chat :updated-at]))
+                  "the cache dir copy is left as is"))))))))
+
+(deftest save-chat!-index-only-legacy-chat-test
+  (testing "a meta-only save of a chat only the cache dir has keeps its messages, writing the data dir"
+    (h/with-legacy-and-data-dirs
+      (fn [_legacy-root _data-root]
+        (let [workspaces [{:uri "file:///home/user/dual-rename"}]]
+          (write-legacy-chat! workspaces {:id "a" :title "A" :updated-at 100
+                                          :messages [{:role "user" :content "hi"}]})
+          (db/save-chat! {:workspace-folders workspaces
+                          :chats {"a" {:id "a" :title "Renamed" :updated-at 200
+                                       :index-only? true :message-count 1}}}
+                         "a" nil)
+          (let [chat (read-chat-cache workspaces "a")]
+            (is (= "Renamed" (:title chat)))
+            (is (= 1 (count (:messages chat))))))))))
+
+(deftest delete-chat-removes-legacy-copy-test
+  (testing "deleted and cleaned up chats lose their cache dir copy too, so a reload cannot resurrect them"
+    (h/with-legacy-and-data-dirs
+      (fn [_legacy-root _data-root]
+        (let [now (System/currentTimeMillis)
+              workspaces [{:uri "file:///home/user/dual-delete"}]
+              chats {"keep" {:id "keep" :updated-at now :messages []}
+                     "deleted" {:id "deleted" :updated-at now :messages []}
+                     "stale" {:id "stale" :updated-at (- now (* 30 24 60 60 1000)) :messages []}}]
+          (db/save-all-chats! {:workspace-folders workspaces :chats chats} nil)
+          (doseq [chat (vals chats)]
+            (write-legacy-chat! workspaces chat))
+          (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
+            (db/load-db-from-cache! db* {} nil)
+            (swap! db* #(-> %
+                            (update :chats dissoc "deleted")
+                            (update :deleted-chat-ids conj "deleted")))
+            (db/delete-chat-from-cache! @db* "deleted" nil)
+            (db/cleanup-old-chats! db* nil 14)
+            (doseq [id ["deleted" "stale"]]
+              (is (not (fs/exists? (chat-cache-file workspaces id))))
+              (is (not (fs/exists? (legacy-chat-cache-file workspaces id)))))
+            (is (fs/exists? (legacy-chat-cache-file workspaces "keep"))))
+          (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
+            (db/load-db-from-cache! db* {} nil)
+            (is (= #{"keep"} (set (keys (:chats @db*)))))))))))
+
+(deftest global-cache-dual-location-test
+  (h/with-legacy-and-data-dirs
+    (fn [legacy-root data-root]
+      (let [legacy-file (io/file legacy-root "db.transit.json")
+            data-file (io/file data-root "db.transit.json")
+            auth (fn [token] {:auth {"anthropic" {:refresh-token token :expires-at (count token)}}})
+            refresh-token (fn [f] (get-in (read-transit-file f) [:auth "anthropic" :refresh-token]))]
+        (testing "writes only the data dir when there is no cache dir copy"
+          (db/update-global-cache! (auth "first") nil)
+          (is (= "first" (refresh-token data-file)))
+          (is (not (fs/exists? legacy-file))))
+        (testing "keeps an existing cache dir copy in sync, so a downgrade does not hit rotated tokens"
+          (write-transit! legacy-file {:version db/version :auth {}})
+          (db/update-global-cache! (auth "second") nil)
+          (is (= "second" (refresh-token data-file)))
+          (is (= "second" (refresh-token legacy-file))))
+        (testing "reads the most recently written copy, e.g. tokens an older ECA refreshed"
+          (write-transit! legacy-file (assoc (auth "from-older-eca") :version db/version))
+          (.setLastModified data-file (- (System/currentTimeMillis) 60000))
+          (let [mem (atom (auth "second"))]
+            (is (db/sync-auth-from-cache! mem "anthropic" nil))
+            (is (= "from-older-eca" (get-in @mem [:auth "anthropic" :refresh-token])))))
+        (testing "falls back to the other copy when the newest cannot be read"
+          (spit legacy-file "garbage")
+          (let [mem (atom (auth "x"))]
+            (db/sync-auth-from-cache! mem "anthropic" nil)
+            (is (= "second" (get-in @mem [:auth "anthropic" :refresh-token])))))))))
+
+(deftest copy-legacy-cache-dir!-test
+  (let [copy! #'db/copy-legacy-cache-dir!
+        marker-name @#'db/legacy-copy-marker-name]
+    (testing "copies chat dirs and the global db once, keeping the sources and skipping cache-only entries"
+      (h/with-legacy-and-data-dirs
+        (fn [legacy-root data-root]
+          (write-transit! (io/file legacy-root "proj_aaaa1111" "chats" "x.transit.json")
+                          {:version db/chats-version :chat {:id "x"}})
+          (write-transit! (io/file legacy-root "old_bbbb2222" "db.transit.json")
+                          {:version db/version :chats {}})
+          (write-transit! (io/file legacy-root "db.transit.json") {:version db/version :auth {}})
+          (doseq [d ["tls" "plugins" "toolCallOutputs" "nochats_cccc3333"]]
+            (fs/create-dirs (io/file legacy-root d)))
+          (spit (io/file legacy-root "models-dev.json") "{}")
+          (copy!)
+          (is (fs/exists? (io/file data-root "proj_aaaa1111" "chats" "x.transit.json")))
+          (is (fs/exists? (io/file data-root "old_bbbb2222" "db.transit.json")))
+          (is (= #{"proj_aaaa1111" "old_bbbb2222" "db.transit.json" marker-name}
+                 (set (map #(str (fs/file-name %)) (fs/list-dir data-root))))
+              "cache-only entries, dirs without chats and temp copies are not left in the data dir")
+          (is (fs/exists? (io/file legacy-root "proj_aaaa1111" "chats" "x.transit.json")) "sources are kept")
+          (is (fs/exists? (io/file legacy-root "db.transit.json")))
+          (testing "runs once: dirs removed from the data dir afterwards are not copied back"
+            (fs/delete-tree (io/file data-root "old_bbbb2222"))
+            (copy!)
+            (is (not (fs/exists? (io/file data-root "old_bbbb2222"))))))))
+    (testing "never overwrites what the data dir already has"
+      (h/with-legacy-and-data-dirs
+        (fn [legacy-root data-root]
+          (write-transit! (io/file legacy-root "proj_aaaa1111" "chats" "x.transit.json")
+                          {:version db/chats-version :chat {:id "x" :title "legacy"}})
+          (write-transit! (io/file legacy-root "db.transit.json") {:version db/version :auth {"a" {:api-key "legacy"}}})
+          (write-transit! (io/file data-root "proj_aaaa1111" "chats" "x.transit.json")
+                          {:version db/chats-version :chat {:id "x" :title "data"}})
+          (write-transit! (io/file data-root "db.transit.json") {:version db/version :auth {"a" {:api-key "data"}}})
+          (copy!)
+          (is (= "data" (get-in (read-transit-file (io/file data-root "proj_aaaa1111" "chats" "x.transit.json"))
+                                [:chat :title])))
+          (is (= "data" (get-in (read-transit-file (io/file data-root "db.transit.json")) [:auth "a" :api-key]))))))
+    (testing "no-op when the cache dir and the data dir are the same"
+      (let [tmpdir (str (fs/create-temp-dir))]
+        (h/with-cache-root tmpdir
+          (try
+            (write-transit! (io/file tmpdir "proj_aaaa1111" "chats" "x.transit.json")
+                            {:version db/chats-version :chat {:id "x"}})
+            (copy!)
+            (is (not (fs/exists? (io/file tmpdir marker-name))))
+            (finally (fs/delete-tree tmpdir))))))))
+
+(deftest list-all-workspaces-chats-merges-legacy-cache-dir-test
+  (testing "a workspace with a dir in both locations is listed once, the newest copy of each chat winning"
+    (h/with-legacy-and-data-dirs
+      (fn [legacy-root data-root]
+        (let [workspaces [{:uri (h/file-uri "file:///home/user/proj-a")}]
+              current-dir-name (.getName (cache/workspace-cache-dir workspaces shared/uri->filename))
+              db {:workspace-folders workspaces
+                  :chats {"cur-1" {:id "cur-1" :title "Current" :updated-at 300 :messages []}}}
+              an-hour-ago (- (System/currentTimeMillis) (* 60 60 1000))
+              data-b-index (io/file data-root "projb_hash1111" "chats" "index.transit.json")
+              legacy-c-index (io/file legacy-root "projc_hash2222" "chats" "index.transit.json")]
+          (write-transit! data-b-index
+                          {:version db/chats-version
+                           :workspaces ["/home/user/proj-b"]
+                           :chats {"b-1" {:id "b-1" :title "B data" :updated-at 200}}})
+          ;; written by an older ECA after the data dir copy
+          (.setLastModified data-b-index an-hour-ago)
+          (write-transit! (io/file legacy-root "projb_hash1111" "chats" "index.transit.json")
+                          {:version db/chats-version
+                           :chats {"b-1" {:id "b-1" :title "B legacy stale" :updated-at 100}
+                                   "b-2" {:id "b-2" :title "B legacy only" :updated-at 150}}})
+          ;; not written since the data dir copy, so already merged there
+          (write-transit! (io/file data-root "projc_hash2222" "chats" "index.transit.json")
+                          {:version db/chats-version
+                           :chats {"c-1" {:id "c-1" :title "C" :updated-at 120}}})
+          (write-transit! legacy-c-index
+                          {:version db/chats-version
+                           :chats {"c-1" {:id "c-1" :title "C" :updated-at 120}
+                                   "c-gone" {:id "c-gone" :title "Deleted since" :updated-at 110}}})
+          (.setLastModified legacy-c-index an-hour-ago)
+          ;; the cache dir copy of the current workspace is already merged in memory
+          (write-transit! (io/file legacy-root current-dir-name "chats" "index.transit.json")
+                          {:version db/chats-version
+                           :chats {"cur-old" {:id "cur-old" :title "Old current" :updated-at 50}}})
+          (let [groups (db/list-all-workspaces-chats db nil)]
+            (is (= [["proj-a" true] ["projb" false] ["projc" false]] (map (juxt :name :current?) groups)))
+            (is (= ["/home/user/proj-b"] (:workspaces (second groups))))
+            (is (= [["b-1" "B data"] ["b-2" "B legacy only"]]
+                   (mapv (juxt :id :title) (:chats (second groups)))))
+            (is (= ["c-1"] (mapv :id (:chats (nth groups 2))))
+                "an older cache dir copy is not read")))))))

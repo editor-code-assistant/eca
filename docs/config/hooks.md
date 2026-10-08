@@ -166,7 +166,7 @@ Every hook receives these fields on stdin:
 
 - `hook_name`, `hook_type`, `workspaces`, `cwd`, `db_cache_path`, `session_id`, `eca_executable`
   - `cwd` — the first workspace folder, matching the working directory ECA uses for hook commands.
-  - `db_cache_path` — the workspace chat cache dir (holding `chats/index.transit.json` and per-chat files); pass it to `eca read-chat --db-cache-path`.
+  - `db_cache_path` — the workspace chat dir under `~/.local/share/eca` (holding `chats/index.transit.json` and per-chat files); pass it to `eca read-chat --db-cache-path`.
   - `session_id` — the cache session key: the `db_cache_path` dir name.
   - `eca_executable` — the launch command of the running ECA process (executable path for native binaries; the full `java ... -jar` invocation for JVM launches).
 

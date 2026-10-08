@@ -153,7 +153,7 @@ The built-in commands are:
 
 #### Login
 
-It's possible to login to some providers using `/login` command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its cache `~/.cache/eca/db.transit.json`.
+It's possible to login to some providers using `/login` command, ECA will ask and give instructions on how to authenticate in the chosen provider and save the login info globally in its data dir `~/.local/share/eca/db.transit.json` (`$XDG_DATA_HOME/eca`).
 
 Current supported providers with login:
 

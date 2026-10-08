@@ -79,14 +79,17 @@ exec docker run --rm -i \
 
 ### Persisting state
 
-ECA keeps caches, chat history and logins under `~/.cache/eca`, which is ephemeral in the container. To keep them across runs, add a volume:
+ECA keeps chat history and logins under `~/.local/share/eca` and caches (models, plugins, large tool outputs) under `~/.cache/eca`, both ephemeral in the container. To keep them across runs, add volumes (the cache one is optional):
 
 ```bash
+  -v "$HOME/.local/share/eca-sandbox:/root/.local/share/eca" \
   -v "$HOME/.cache/eca-sandbox:/root/.cache/eca" \
 ```
 
+Older ECA versions kept everything under `~/.cache/eca`: an existing volume there is still read, but new chats and logins only persist with the `~/.local/share/eca` volume.
+
 !!! note
-    Prefer a dedicated host dir (like `eca-sandbox` above) over sharing `~/.cache/eca` with a host ECA, so sandboxed and unsandboxed sessions don't mix state.
+    Prefer dedicated host dirs (like `eca-sandbox` above) over sharing `~/.local/share/eca` and `~/.cache/eca` with a host ECA, so sandboxed and unsandboxed sessions don't mix state.
 
 ### Caveats
 
@@ -102,16 +105,18 @@ ECA keeps caches, chat history and logins under `~/.cache/eca`, which is ephemer
 
 ## Linux: bubblewrap and friends
 
-Containers are not required, any command wrapper works. Example with [bubblewrap](https://github.com/containers/bubblewrap), giving a read-only view of the host except the project dir, ECA cache and `/tmp`:
+Containers are not required, any command wrapper works. Example with [bubblewrap](https://github.com/containers/bubblewrap), giving a read-only view of the host except the project dir, ECA's data and cache dirs and `/tmp`:
 
 ```bash title="~/.local/bin/eca-bwrap"
 #!/usr/bin/env bash
+mkdir -p "$HOME/.local/share/eca" "$HOME/.cache/eca"
 exec bwrap \
   --ro-bind / / \
   --dev /dev \
   --proc /proc \
   --tmpfs /tmp \
   --bind "$PWD" "$PWD" \
+  --bind "$HOME/.local/share/eca" "$HOME/.local/share/eca" \
   --bind "$HOME/.cache/eca" "$HOME/.cache/eca" \
   --die-with-parent \
   eca "$@"

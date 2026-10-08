@@ -1,5 +1,5 @@
 (ns eca.cache
-  "Cache directory and file management utilities."
+  "Cache and data directory and file management utilities."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
@@ -33,12 +33,43 @@
                          (System/getenv "USERPROFILE")])
       (System/getProperty "user.home")))
 
+(defn ^:private xdg-eca-dir
+  "ECA's dir under the XDG base dir named by `env-var`, or under
+   `<home>/<fallback-segments>` when the var is unset, blank or not an
+   absolute path (the XDG spec asks to ignore relative values)."
+  ^File [^String env-var & fallback-segments]
+  (io/file (or (first-valid-home [(System/getenv env-var)])
+               (apply io/file (user-home) fallback-segments))
+           "eca"))
+
 (defn global-dir
-  "Returns the File object for ECA's global cache directory."
+  "Returns the File object for ECA's global cache directory
+   (`$XDG_CACHE_HOME/eca`, default `~/.cache/eca`). Meant for regenerable data
+   only: chat history and login data live in `data-dir` (#623)."
   []
-  (let [cache-home (or (System/getenv "XDG_CACHE_HOME")
-                       (io/file (user-home) ".cache"))]
-    (io/file cache-home "eca")))
+  (xdg-eca-dir "XDG_CACHE_HOME" ".cache"))
+
+(defn data-dir
+  "Returns the File object for ECA's data directory (`$XDG_DATA_HOME/eca`,
+   default `~/.local/share/eca`), holding what cannot be regenerated: chat
+   history and login data (#623)."
+  []
+  (xdg-eca-dir "XDG_DATA_HOME" ".local" "share"))
+
+(defn ^:private same-dir? [a b]
+  (let [resolve-path #(try (str (fs/canonicalize %))
+                           (catch Throwable _ (str (fs/normalize (fs/absolutize %)))))]
+    (= (resolve-path a) (resolve-path b))))
+
+(defn legacy-data-dir
+  "Where chat history and login data lived before #623: the cache dir. Still
+   read (and the login file kept in sync) so data written by an older ECA after
+   a downgrade is not lost. Remove once those versions are no longer supported.
+   Nil when it resolves to the same dir as `data-dir`."
+  []
+  (let [legacy (global-dir)]
+    (when-not (same-dir? legacy (data-dir))
+      legacy)))
 
 (defn ^:private linked-worktree-root*
   "When `path` is the root of a *linked* git worktree, returns the repository's
@@ -156,12 +187,19 @@
       hash)))
 
 (defn workspace-cache-dir
-  "Returns a File object for the workspace-specific cache directory.
-   The directory identity is the order-independent <hash>; the human-readable
-   prefix is cosmetic. Healing of caches fragmented across differently-named
-   dirs for the same workspace is handled by eca.db/migrate-legacy-workspace-caches!."
+  "Returns a File object for the workspace-specific chat cache directory,
+   under `data-dir`. The directory identity is the order-independent <hash>;
+   the human-readable prefix is cosmetic. Healing of caches fragmented across
+   differently-named dirs for the same workspace is handled by
+   eca.db/migrate-legacy-workspace-caches!."
   ^File [workspaces uri->filename-fn]
-  (io/file (global-dir) (workspace-dir-name workspaces uri->filename-fn)))
+  (io/file (data-dir) (workspace-dir-name workspaces uri->filename-fn)))
+
+(defn legacy-workspace-cache-dir
+  "Returns the workspace's dir under `legacy-data-dir`, or nil when there is
+   no separate legacy dir."
+  ^File [workspaces uri->filename-fn]
+  (some-> (legacy-data-dir) (io/file (workspace-dir-name workspaces uri->filename-fn))))
 
 (defn workspace-cache-file
   "Returns a File object for a workspace-specific cache file inside
@@ -182,7 +220,7 @@
         hashes (cond-> #{canonical-hash}
                  (not= raw-hash canonical-hash) (conj raw-hash))
         canonical-dir-name (workspace-dir-name workspaces uri->filename-fn)
-        base (global-dir)]
+        base (data-dir)]
     (if (fs/exists? base)
       (->> (fs/list-dir base)
            (filter fs/directory?)
@@ -199,20 +237,33 @@
 (def ^:private tool-call-outputs-dir-name "toolCallOutputs")
 (def ^:private plugins-dir-name "plugins")
 
+(def ^:private non-workspace-dir-names
+  "Global dirs living next to workspace dirs in the cache dir (`tls` is
+   created by eca.remote.tls)."
+  #{tool-call-outputs-dir-name plugins-dir-name "tls"})
+
+(defn workspace-dirs-in
+  "Returns the workspace cache directories directly under `base`, excluding
+   the global non-workspace dirs (tool call outputs, plugins, TLS) and hidden
+   ones (e.g. in-progress copies). Empty when `base` is nil or missing."
+  [base]
+  (if (and base (fs/exists? base))
+    (->> (fs/list-dir base)
+         (filter fs/directory?)
+         (map fs/file)
+         (remove (fn [^File f]
+                   (let [n (.getName f)]
+                     (or (contains? non-workspace-dir-names n)
+                         (string/starts-with? n ".")))))
+         (vec))
+    []))
+
 (defn workspace-cache-dirs
-  "Returns the workspace cache directories living under `global-dir`,
-   excluding the global non-workspace dirs (tool call outputs, plugins)."
+  "Returns the workspace cache directories under `data-dir`, followed by the
+   ones under `legacy-data-dir`. A workspace may have a dir in each."
   []
-  (let [base (global-dir)]
-    (if (fs/exists? base)
-      (->> (fs/list-dir base)
-           (filter fs/directory?)
-           (map fs/file)
-           (remove (fn [^File f]
-                     (contains? #{tool-call-outputs-dir-name plugins-dir-name}
-                                (.getName f))))
-           (vec))
-      [])))
+  (into (workspace-dirs-in (data-dir))
+        (workspace-dirs-in (legacy-data-dir))))
 
 (defn tool-call-outputs-dir
   "Returns the File object for the tool call outputs cache directory."

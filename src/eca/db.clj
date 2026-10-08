@@ -21,10 +21,11 @@
 (def ^:private logger-tag "[DB]")
 
 (def version
-  "Schema version of the global cache (`~/.cache/eca/db.transit.json`) and of
-   the legacy whole-workspace chat blobs read only for migration. Kept at 6 on
-   purpose: the global (auth) schema did not change with the per-chat layout,
-   so rolling back to an older ECA does not log users out."
+  "Schema version of the global cache (`db.transit.json` in the data dir, plus
+   its legacy cache dir copy) and of the legacy whole-workspace chat blobs read
+   only for migration. Kept at 6 on purpose: the global (auth) schema did not
+   change with the per-chat layout, so rolling back to an older ECA does not
+   log users out."
   6)
 
 (def chats-version
@@ -204,8 +205,13 @@
         (proxy-super flush)
         (proxy-super close)))))
 
-(defn ^:private transit-global-db-file []
-  (io/file (cache/global-dir) "db.transit.json"))
+(defn ^:private transit-global-db-file ^java.io.File []
+  (io/file (cache/data-dir) "db.transit.json"))
+
+(defn ^:private legacy-global-db-file
+  "The global cache's copy in `cache/legacy-data-dir`, or nil."
+  ^java.io.File []
+  (some-> (cache/legacy-data-dir) (io/file "db.transit.json")))
 
 (defn ^:private legacy-workspace-db-file
   "Pre-v7 whole-workspace chat blob (every chat in one file). Only read to
@@ -229,6 +235,17 @@
   ^java.io.File [workspaces]
   (io/file (chats-dir workspaces) "index.transit.json"))
 
+(defn ^:private legacy-chats-dir
+  "The workspace's chats dir under `cache/legacy-data-dir`, or nil. Only read
+   (and chat files deleted), never written: it is where an older ECA keeps
+   writing after a downgrade."
+  ^java.io.File [workspaces]
+  (some-> (cache/legacy-workspace-cache-dir workspaces shared/uri->filename) (io/file "chats")))
+
+(defn ^:private legacy-chats-index-file
+  ^java.io.File [workspaces]
+  (some-> (legacy-chats-dir workspaces) (io/file "index.transit.json")))
+
 (defn chat-file-name
   "Filesystem-safe file name for `chat-id`. Server-generated ids (lowercase
    UUIDs) are used as-is; anything else falls back to a digest: client-supplied
@@ -247,6 +264,10 @@
 (defn ^:private chat-file
   ^java.io.File [workspaces chat-id]
   (io/file (chats-dir workspaces) (chat-file-name chat-id)))
+
+(defn ^:private legacy-chat-file
+  ^java.io.File [workspaces chat-id]
+  (some-> (legacy-chats-dir workspaces) (io/file (chat-file-name chat-id))))
 
 (defn read-transit-file
   "Read and return the transit+json data from a cache file.
@@ -340,8 +361,19 @@
     (catch Throwable e
       (logger/error logger-tag (str "Could not upsert db cache to " cache-file) e))))
 
-(defn ^:private read-global-cache [metrics]
-  (read-cache (transit-global-db-file) version metrics))
+(defn ^:private read-global-cache
+  "Reads the global (auth) cache from the most recently written of the data
+   dir file and its legacy cache dir copy, so tokens an older ECA refreshed
+   after a downgrade are adopted. Falls back to the other copy when that one
+   cannot be read."
+  [metrics]
+  (let [files (->> [(transit-global-db-file) (legacy-global-db-file)]
+                   (remove nil?)
+                   (filter fs/exists?)
+                   (sort-by #(.lastModified ^java.io.File %) >))]
+    (if (seq files)
+      (some #(read-cache % version metrics) files)
+      (read-cache (transit-global-db-file) version metrics))))
 
 (defn ^:private chat-recency [chat]
   (or (:updated-at chat) (:created-at chat) 0))
@@ -476,9 +508,22 @@
       (assoc :id chat-id)))
 
 (defn ^:private read-chat-file
-  "Reads a chat's own cache file, returning the chat map or nil."
+  "Reads a chat's own cache file, returning the chat map or nil. Its legacy
+   cache dir copy is read too and wins when strictly newer, e.g. a chat an
+   older ECA continued after a downgrade."
   [workspaces chat-id metrics]
-  (:chat (read-cache (chat-file workspaces chat-id) chats-version metrics)))
+  (let [chat (:chat (read-cache (chat-file workspaces chat-id) chats-version metrics))
+        legacy-file (legacy-chat-file workspaces chat-id)
+        legacy-chat (when (and legacy-file (fs/exists? legacy-file))
+                      (:chat (read-cache legacy-file chats-version metrics)))]
+    (if (and legacy-chat
+             (or (nil? chat) (> (chat-recency legacy-chat) (chat-recency chat))))
+      legacy-chat
+      chat)))
+
+(defn ^:private chat-file-exists? [workspaces chat-id]
+  (boolean (or (fs/exists? (chat-file workspaces chat-id))
+               (some-> (legacy-chat-file workspaces chat-id) fs/exists?))))
 
 (defn ^:private write-chat-file!
   "Writes `chat` to its cache file, unless the on-disk copy is strictly newer:
@@ -565,7 +610,7 @@
       (if (hydrated? chat)
         (write-chat-file! workspaces chat-id chat metrics)
         (let [disk-chat (read-chat-file workspaces chat-id metrics)]
-          (if (and (nil? disk-chat) (fs/exists? (chat-file workspaces chat-id)))
+          (if (and (nil? disk-chat) (chat-file-exists? workspaces chat-id))
             (logger/warn logger-tag (str "Skipping cache save of chat " chat-id ": existing chat file is unreadable"))
             (write-chat-file! workspaces chat-id
                               (merge disk-chat
@@ -584,8 +629,12 @@
       (write-chat-file! workspaces chat-id chat metrics))
     (update-chats-index! db metrics)))
 
-(defn ^:private delete-chat-file! [workspaces chat-id]
-  (let [f (chat-file workspaces chat-id)]
+(defn ^:private delete-chat-file!
+  "Deletes a chat's cache file and its legacy cache dir copy, so reading both
+   locations cannot resurrect a deleted chat."
+  [workspaces chat-id]
+  (doseq [f (remove nil? [(chat-file workspaces chat-id)
+                          (legacy-chat-file workspaces chat-id)])]
     (try
       (when (fs/exists? f)
         (fs/delete f))
@@ -628,20 +677,29 @@
                        (merge mem-meta disk-chat)
                        (merge disk-chat mem-meta))))))))))
 
+(defn ^:private chat-files-in
+  "The per-chat cache files inside chats `dir` (excluding the index)."
+  [dir]
+  (if (and dir (fs/exists? dir))
+    (into []
+          (comp (map fs/file)
+                (filter (fn [^java.io.File f]
+                          (and (.isFile f)
+                               (string/ends-with? (.getName f) ".transit.json")
+                               (not= "index.transit.json" (.getName f))))))
+          (fs/list-dir dir))
+    []))
+
 (defn ^:private chat-files-on-disk
   "The per-chat cache files inside the workspace's chats dir (excluding the
-   index)."
+   index), plus the legacy cache dir ones it lacks, so chats only an older ECA
+   wrote are not dropped from the index."
   [workspaces]
-  (let [dir (chats-dir workspaces)]
-    (if (fs/exists? dir)
-      (into []
-            (comp (map fs/file)
-                  (filter (fn [^java.io.File f]
-                            (and (.isFile f)
-                                 (string/ends-with? (.getName f) ".transit.json")
-                                 (not= "index.transit.json" (.getName f))))))
-            (fs/list-dir dir))
-      [])))
+  (let [files (chat-files-in (chats-dir workspaces))
+        file-names (into #{} (map (fn [^java.io.File f] (.getName f))) files)]
+    (into files
+          (remove (fn [^java.io.File f] (contains? file-names (.getName f))))
+          (chat-files-in (legacy-chats-dir workspaces)))))
 
 (defn ^:private reconcile-index-with-chat-files
   "Self-heals index `entries` against the actual per-chat files: files missing
@@ -736,14 +794,118 @@
     (catch Throwable e
       (logger/warn logger-tag "Could not migrate legacy workspace cache" e))))
 
+(defn ^:private global-cache-lock-file
+  "Sidecar lock of the global cache. Stays in the cache dir rather than the
+   data dir, so ECA versions from before and after #623 still serialize token
+   refreshes on the same lock."
+  []
+  (io/file (cache/global-dir) "db.transit.json.lock"))
+
+(defn with-global-cache-lock-fn
+  "Run `f` while holding both a JVM-wide mutex and an OS advisory exclusive
+   lock on a sidecar of the global cache file. The JVM mutex avoids
+   `OverlappingFileLockException` when two threads in the same ECA server
+   race a renew; the file lock serializes across `eca server` processes
+   that share `~/.cache/eca/`. Blocks until both are acquired."
+  [f]
+  (with-os-file-lock-fn (global-cache-lock-file) f))
+
+(defmacro with-global-cache-lock
+  "See `with-global-cache-lock-fn`. Runs `body` while holding the lock."
+  [& body]
+  `(with-global-cache-lock-fn (fn [] ~@body)))
+
+(def ^:private legacy-copy-marker-name
+  "Marker in the data dir recording that `copy-legacy-cache-dir!` completed."
+  ".legacy-cache-dir-copied")
+
+(defn ^:private legacy-chats-holder?
+  "True for a legacy cache dir entry holding a workspace's chats (per-chat
+   layout or pre-v7 blob), as opposed to cache-only dirs."
+  [^java.io.File dir]
+  (or (fs/directory? (io/file dir "chats"))
+      (fs/exists? (io/file dir "db.transit.json"))
+      (fs/exists? (io/file dir "db.transit.json.bak"))))
+
+(defn ^:private copy-atomically!
+  "Copies file or dir `src` to `dest` through a hidden sibling temp path
+   renamed into place, so a crash mid-copy never leaves a partial `dest`."
+  [^java.io.File src ^java.io.File dest]
+  (let [tmp (io/file (.getParentFile dest) (str "." (.getName dest) ".copying"))]
+    (try
+      (when (fs/exists? tmp)
+        (fs/delete-tree tmp))
+      (io/make-parents tmp)
+      (if (fs/directory? src)
+        (fs/copy-tree src tmp)
+        (fs/copy src tmp))
+      (atomic-move! tmp dest)
+      (finally
+        (when (fs/exists? tmp)
+          (try (fs/delete-tree tmp) (catch Throwable _)))))))
+
+(defn ^:private copy-legacy-cache-dir!
+  "One-time copy of chat history and login data from where they lived before
+   #623 (`cache/legacy-data-dir`) into the data dir, so wiping the cache dir
+   loses nothing. Copies, never moves: an older ECA still finds its data after
+   a downgrade, and what it writes there keeps being read. Only dirs holding
+   chats and missing from the data dir are copied. A marker, written once
+   everything copied, keeps dirs later removed from the data dir (healing,
+   user cleanup) from being copied back. Best-effort: on failure chats stay
+   readable from the legacy dir."
+  []
+  (when-let [legacy-root (cache/legacy-data-dir)]
+    (let [data-root (cache/data-dir)
+          marker (io/file data-root legacy-copy-marker-name)]
+      (when (and (fs/directory? legacy-root) (not (fs/exists? marker)))
+        (try
+          (with-global-cache-lock-fn
+            (fn []
+              (when-not (fs/exists? marker)
+                (let [copied (atom 0)
+                      failed? (atom false)
+                      copy! (fn [^java.io.File src ^java.io.File dest]
+                              (try
+                                (copy-atomically! src dest)
+                                (swap! copied inc)
+                                (catch Throwable e
+                                  (reset! failed? true)
+                                  (logger/warn logger-tag (str "Could not copy " src " to " dest) e))))
+                      legacy-db (io/file legacy-root "db.transit.json")
+                      data-db (transit-global-db-file)]
+                  (when (and (fs/exists? legacy-db) (not (fs/exists? data-db)))
+                    (copy! legacy-db data-db))
+                  (doseq [^java.io.File dir (cache/workspace-dirs-in legacy-root)
+                          :let [dest (io/file data-root (.getName dir))]
+                          :when (and (legacy-chats-holder? dir) (not (fs/exists? dest)))]
+                    (copy! dir dest))
+                  (when (pos? @copied)
+                    (logger/info logger-tag (str "Copied chat history and login data from " legacy-root " to " data-root
+                                                 " (" @copied " item(s))")))
+                  (when-not @failed?
+                    (fs/create-dirs data-root)
+                    (spit marker (str legacy-root "\n")))))))
+          (catch Throwable e
+            (logger/warn logger-tag (str "Could not copy chats from " legacy-root " to " data-root) e)))))))
+
+(defn ^:private read-legacy-chats-index
+  "Entries of the workspace's legacy cache dir chats index, or nil."
+  [workspaces metrics]
+  (when-let [f (legacy-chats-index-file workspaces)]
+    (when (fs/exists? f)
+      (:chats (read-cache f chats-version metrics)))))
+
 (defn load-db-from-cache! [db* config metrics]
   (when-not (:pureConfig config)
+    (copy-legacy-cache-dir!)
     (when-let [global-cache (read-global-cache metrics)]
       (logger/info logger-tag "Loading from global-cache caches...")
       (swap! db* shared/deep-merge global-cache))
     (let [workspaces (db-workspaces @db*)]
       (migrate-legacy-workspace-caches! workspaces metrics)
-      (let [index-entries (:chats (read-cache (chats-index-file workspaces) chats-version metrics))
+      (let [index-entries (merge-chats [(:chats (read-cache (chats-index-file workspaces) chats-version metrics))
+                                        ;; chats an older ECA indexed after a downgrade
+                                        (read-legacy-chats-index workspaces metrics)])
             [entries dropped-ids changed?] (reconcile-index-with-chat-files index-entries workspaces metrics)
             entries (update-vals (stamp-chat-ids entries) #(assoc % :index-only? true))]
         (when (seq dropped-ids)
@@ -763,27 +925,16 @@
 (defn ^:private normalize-db-for-global-write [db]
   (select-keys db [:auth :mcp-auth]))
 
-(defn update-global-cache! [db metrics]
-  (-> (normalize-db-for-global-write db)
-      (assoc :version version)
-      (upsert-cache! (transit-global-db-file) metrics)))
-
-(defn ^:private global-cache-lock-file []
-  (io/file (cache/global-dir) "db.transit.json.lock"))
-
-(defn with-global-cache-lock-fn
-  "Run `f` while holding both a JVM-wide mutex and an OS advisory exclusive
-   lock on a sidecar of the global cache file. The JVM mutex avoids
-   `OverlappingFileLockException` when two threads in the same ECA server
-   race a renew; the file lock serializes across `eca server` processes
-   that share `~/.cache/eca/`. Blocks until both are acquired."
-  [f]
-  (with-os-file-lock-fn (global-cache-lock-file) f))
-
-(defmacro with-global-cache-lock
-  "See `with-global-cache-lock-fn`. Runs `body` while holding the lock."
-  [& body]
-  `(with-global-cache-lock-fn (fn [] ~@body)))
+(defn update-global-cache!
+  "Persists the global (auth) cache to the data dir. While its legacy cache
+   dir copy exists it is updated too: an older ECA reads only that one, so a
+   downgrade would otherwise hit already rotated refresh tokens."
+  [db metrics]
+  (let [payload (assoc (normalize-db-for-global-write db) :version version)]
+    (upsert-cache! payload (transit-global-db-file) metrics)
+    (when-let [legacy-file (legacy-global-db-file)]
+      (when (fs/exists? legacy-file)
+        (upsert-cache! payload legacy-file metrics)))))
 
 (defn sync-auth-from-cache!
   "Re-read the global cache from disk and, if its `:auth` entry for `provider`
@@ -882,6 +1033,17 @@
       (logger/warn logger-tag (str "Could not read chats from workspace cache dir " dir) e)
       nil)))
 
+(defn ^:private workspace-dir-chats-mtime
+  "Last-modified time of the file `read-workspace-dir-chats` reads in `dir`
+   (chats index, else legacy blob), or 0 when there is none."
+  [^java.io.File dir]
+  (let [index-file (io/file dir "chats" "index.transit.json")
+        legacy-file (io/file dir "db.transit.json")]
+    (cond
+      (.exists index-file) (.lastModified index-file)
+      (.exists legacy-file) (.lastModified legacy-file)
+      :else 0)))
+
 (defn ^:private recover-unknown-workspaces
   "Fills `:workspaces` of groups lacking persisted paths by *verifying*
    candidates against the group's one-way dir `:hash`: sibling directories of
@@ -916,10 +1078,11 @@
               groups)))))
 
 (defn list-all-workspaces-chats
-  "Lists persisted chats across ALL workspace cache dirs under the global
-   cache dir, so a chat can be located without opening each workspace. The
+  "Lists persisted chats across ALL workspace cache dirs (data dir and legacy
+   cache dir), so a chat can be located without opening each workspace. The
    current workspace's chats come from memory (freshest); other dirs are read
-   from disk, tolerating unreadable ones. Subagent chats are excluded and a
+   from disk, tolerating unreadable ones, and a workspace with a dir in both
+   locations is merged into one group. Subagent chats are excluded and a
    chat id duplicated across dirs (legacy duplicate dirs, #558) keeps only
    its most recent copy. Groups without persisted paths get a hash-verified
    recovery attempt (see `recover-unknown-workspaces`).
@@ -933,25 +1096,34 @@
     ...]"
   [db metrics]
   (let [workspaces (db-workspaces db)
-        current-dir (cache/workspace-cache-dir workspaces shared/uri->filename)
-        current-dir-path (.getAbsolutePath current-dir)
+        current-dir-name (.getName (cache/workspace-cache-dir workspaces shared/uri->filename))
         current-paths (not-empty (vec (cache/sorted-workspace-paths workspaces shared/uri->filename)))
-        [current-name current-hash] (workspace-dir-name-parts (.getName current-dir))
+        [current-name current-hash] (workspace-dir-name-parts current-dir-name)
         current-group {:name current-name
                        :hash current-hash
                        :workspaces current-paths
                        :current? true
                        :chats (vec (vals (db->index-entries db)))}
-        other-groups (keep (fn [^java.io.File dir]
-                             (when (not= (.getAbsolutePath dir) current-dir-path)
-                               (when-let [{:keys [workspaces chats]} (read-workspace-dir-chats dir metrics)]
-                                 (let [[approx-name hash] (workspace-dir-name-parts (.getName dir))]
-                                   {:name approx-name
-                                    :hash hash
-                                    :workspaces workspaces
-                                    :current? false
-                                    :chats (vec (vals chats))}))))
-                           (cache/workspace-cache-dirs))
+        ;; Same dir name = same workspace, data dir copy first so it wins
+        ;; recency ties. The legacy copy is only read when written after it
+        ;; (e.g. by an older ECA after a downgrade): the one-time copy left it
+        ;; older, and reading every workspace twice would double listing time.
+        other-groups (->> (cache/workspace-cache-dirs)
+                          (remove (fn [^java.io.File dir] (= current-dir-name (.getName dir))))
+                          (group-by (fn [^java.io.File dir] (.getName dir)))
+                          (keep (fn [[dir-name [dir & other-dirs]]]
+                                  (when-let [dir-chats (->> other-dirs
+                                                            (filter #(> (workspace-dir-chats-mtime %)
+                                                                        (workspace-dir-chats-mtime dir)))
+                                                            (cons dir)
+                                                            (keep #(read-workspace-dir-chats % metrics))
+                                                            (seq))]
+                                    (let [[approx-name hash] (workspace-dir-name-parts dir-name)]
+                                      {:name approx-name
+                                       :hash hash
+                                       :workspaces (some :workspaces dir-chats)
+                                       :current? false
+                                       :chats (vec (vals (merge-chats (map :chats dir-chats))))})))))
         groups (mapv #(update % :chats (fn [chats] (vec (remove :subagent chats))))
                      (cons current-group other-groups))
         ;; Duplicated chat ids across dirs keep only the most recent copy.

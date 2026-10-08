@@ -12,7 +12,8 @@
    [eca.db :as db]
    [eca.main :as main]
    [eca.read-chat :as read-chat]
-   [eca.shared :as shared]))
+   [eca.shared :as shared]
+   [eca.test-helper :as h]))
 
 (set! *warn-on-reflection* true)
 
@@ -386,7 +387,7 @@
                       (str (fs/create-temp-dir {:prefix "eca-ws-b"}))]
           cache-root (fs/create-temp-dir {:prefix "eca-cache"})]
       (try
-        (with-redefs [cache/global-dir (fn [] (io/file (str cache-root)))]
+        (h/with-cache-root cache-root
           (let [path (workspace-db-path workspaces)]
             (io/make-parents path)
             (write-transit-file path sample-db)
@@ -513,7 +514,7 @@
     (let [workspaces [(str (fs/create-temp-dir {:prefix "eca-ws-pc"}))]
           cache-root (fs/create-temp-dir {:prefix "eca-cache-pc"})]
       (try
-        (with-redefs [cache/global-dir (fn [] (io/file (str cache-root)))]
+        (h/with-cache-root cache-root
           (let [dir (cache/workspace-cache-dir
                      (mapv (fn [path] {:uri (shared/filename->uri path)}) workspaces)
                      shared/uri->filename)]
@@ -525,7 +526,40 @@
               (is (= 3 (count records))))))
         (finally
           (doseq [ws workspaces] (fs/delete-tree ws))
-          (fs/delete-tree cache-root))))))
+          (fs/delete-tree cache-root)))))
+  (testing "--workspace falls back to the pre-#623 cache dir when the data dir has none"
+    (let [workspaces [(str (fs/create-temp-dir {:prefix "eca-ws-legacy"}))]]
+      (try
+        (h/with-legacy-and-data-dirs
+          (fn [_legacy-root _data-root]
+            (let [dir (cache/legacy-workspace-cache-dir
+                       (mapv (fn [path] {:uri (shared/filename->uri path)}) workspaces)
+                       shared/uri->filename)]
+              (write-transit-file (str (doto (io/file dir "chats" "index.transit.json")
+                                         io/make-parents))
+                                  {:version db/chats-version
+                                   :chats (update-vals (:chats sample-db) db/chat-list-meta)})
+              (let [records (parse-jsonl (with-out-str (read-chat/run {:workspace workspaces})))]
+                (is (= 3 (count records)))))))
+        (finally
+          (doseq [ws workspaces] (fs/delete-tree ws)))))))
+
+(deftest resolve-db-cache-path-test
+  (testing "an explicit --db-cache-path is used as-is"
+    (is (= "/some/dir" (read-chat/resolve-db-cache-path {:db-cache-path "/some/dir"}))))
+  (testing "--workspace prefers the data dir and only falls back to an existing legacy cache dir"
+    (h/with-legacy-and-data-dirs
+      (fn [_legacy-root _data-root]
+        (let [workspaces ["/tmp/eca-resolve-ws"]
+              uris (mapv (fn [path] {:uri (shared/filename->uri path)}) workspaces)
+              data-dir (cache/workspace-cache-dir uris shared/uri->filename)
+              legacy-dir (cache/legacy-workspace-cache-dir uris shared/uri->filename)]
+          (is (= (str data-dir) (read-chat/resolve-db-cache-path {:workspace workspaces}))
+              "neither exists: the data dir, so the not-found error points at it")
+          (fs/create-dirs legacy-dir)
+          (is (= (str legacy-dir) (read-chat/resolve-db-cache-path {:workspace workspaces})))
+          (fs/create-dirs data-dir)
+          (is (= (str data-dir) (read-chat/resolve-db-cache-path {:workspace workspaces}))))))))
 
 (deftest run-per-chat-index-path-direct-test
   (testing "--db-cache-path pointing directly at index.transit.json works for detail mode too"

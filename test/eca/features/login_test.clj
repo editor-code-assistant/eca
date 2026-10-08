@@ -1,15 +1,14 @@
 (ns eca.features.login-test
   (:require
    [babashka.fs :as fs]
-   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.cache :as cache]
    [eca.db :as db]
    [eca.features.login :as login]
    [eca.llm-providers.anthropic]
    [eca.llm-providers.copilot :as llm-providers.copilot]
    [eca.messenger :as messenger]
+   [eca.test-helper :as h]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -185,7 +184,7 @@
 (deftest renew-auth!-skips-refresh-when-peer-already-refreshed-test
   (testing "if disk holds fresher tokens than memory, renew-auth! adopts them and does NOT call login-step"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [fresh {:type :auth/oauth :mode :max :step :login/done
                        :refresh-token "peer-fresh" :api-key "peer-access"
@@ -212,7 +211,7 @@
 (deftest renew-auth!-refreshes-when-disk-also-stale-test
   (testing "when memory and disk are both expired, renew-auth! invokes login-step exactly once and persists"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [stale {:type :auth/oauth :mode :max :step :login/done
                        :refresh-token "stale" :api-key "stale-access"
@@ -244,7 +243,7 @@
 (deftest renew-auth!-calls-on-error-when-login-step-throws-test
   (testing "exceptions from the provider refresh propagate to on-error and do not persist"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [stale {:type :auth/oauth :refresh-token "stale" :expires-at 1000}
                 _ (db/update-global-cache! {:auth {"anthropic" stale}} nil)
@@ -262,7 +261,7 @@
 (deftest renew-expiring-auth-tokens!-only-renews-expiring-providers-test
   (testing "renews only providers whose token is at/near expiry, skipping fresh and keyless ones"
     (let [tmpdir (str (fs/create-temp-dir))]
-      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+      (h/with-cache-root tmpdir
         (try
           (let [stale {:type :auth/oauth :step :login/done
                        :access-token "gh-oauth" :api-key "stale-session"

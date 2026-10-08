@@ -14,11 +14,41 @@
 (def ^:private isolated-cache-dir
   "Tests use `user.dir` (this repo) as their workspace folder, so without
    isolation every test run writes chat caches into the developer's real
-   ~/.cache/eca history for the eca workspace (#557). Redirect ECA's cache
-   dir to a per-run temp dir for the whole test JVM."
+   ECA history for the eca workspace (#557). Redirect ECA's cache dir to a
+   per-run temp dir for the whole test JVM."
   (io/file (str (fs/create-temp-dir {:prefix "eca-test-cache"}))))
 
+(def ^:private isolated-data-dir
+  "Same isolation for the data dir, where chat history and login data live
+   since #623."
+  (io/file (str (fs/create-temp-dir {:prefix "eca-test-data"}))))
+
 (alter-var-root #'cache/global-dir (constantly (constantly isolated-cache-dir)))
+(alter-var-root #'cache/data-dir (constantly (constantly isolated-data-dir)))
+
+(defmacro with-cache-root
+  "Runs `body` with both ECA's cache dir and data dir at `dir`, so there is no
+   separate legacy dir (see `cache/legacy-data-dir`)."
+  [dir & body]
+  `(let [dir# (io/file (str ~dir))]
+     (with-redefs [cache/global-dir (constantly dir#)
+                   cache/data-dir (constantly dir#)]
+       ~@body)))
+
+(defn with-legacy-and-data-dirs
+  "Calls `(f legacy-dir data-dir)` with ECA's cache dir (where chat history and
+   login data lived before #623) and data dir redirected to two fresh temp
+   dirs, deleted afterwards."
+  [f]
+  (let [legacy-dir (io/file (str (fs/create-temp-dir {:prefix "eca-test-legacy"})))
+        data-dir (io/file (str (fs/create-temp-dir {:prefix "eca-test-data"})))]
+    (try
+      (with-redefs [cache/global-dir (constantly legacy-dir)
+                    cache/data-dir (constantly data-dir)]
+        (f legacy-dir data-dir))
+      (finally
+        (fs/delete-tree legacy-dir)
+        (fs/delete-tree data-dir)))))
 
 (def windows? (string/starts-with? (System/getProperty "os.name") "Windows"))
 

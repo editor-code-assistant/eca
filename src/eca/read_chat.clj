@@ -79,13 +79,18 @@
 (defn resolve-db-cache-path
   "Resolve the db cache path from explicit opts.
    Accepts either :db-cache-path or repeated :workspace paths; the latter
-   resolves to the workspace cache dir (per-chat layout)."
+   resolves to the workspace cache dir (per-chat layout), or to its pre-#623
+   location in the cache dir when only that one exists."
   [opts]
   (if-let [path (:db-cache-path opts)]
     path
     (when-let [workspaces (seq (:workspace opts))]
-      (let [workspace-uris (mapv (fn [wpath] {:uri (shared/filename->uri wpath)}) workspaces)]
-        (str (cache/workspace-cache-dir workspace-uris shared/uri->filename))))))
+      (let [workspace-uris (mapv (fn [wpath] {:uri (shared/filename->uri wpath)}) workspaces)
+            ^java.io.File dir (cache/workspace-cache-dir workspace-uris shared/uri->filename)
+            ^java.io.File legacy-dir (cache/legacy-workspace-cache-dir workspace-uris shared/uri->filename)]
+        (str (if (and (not (.exists dir)) legacy-dir (.exists legacy-dir))
+               legacy-dir
+               dir))))))
 
 (defn ^:private parse-date-ms [^String s]
   (or (when-let [[_ amount-str unit] (re-matches #"^(\d+)([mhd])$" s)]

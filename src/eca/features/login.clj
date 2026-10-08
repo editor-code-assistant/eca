@@ -150,7 +150,7 @@
    {:keys [db* messenger config metrics]}
    {:keys [on-error]}]
   (try
-    ;; Serialize across ECA processes that share `~/.cache/eca/db.transit.json`.
+    ;; Serialize across ECA processes that share the global `db.transit.json`.
     ;; OAuth refresh tokens are single-use, so two concurrent processes
     ;; both POSTing with the same token would have one win and the other
     ;; receive `invalid_grant`. Holding the cache lock + re-reading disk

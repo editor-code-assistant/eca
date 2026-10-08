@@ -7,11 +7,12 @@
    [eca.test-helper :as h]))
 
 (defmacro ^:private with-temp-cache-dir
-  "Runs body with cache/global-dir redirected to a temporary directory."
+  "Runs body with cache/global-dir and cache/data-dir redirected to one
+   temporary directory."
   [& body]
   `(let [tmp-dir# (fs/create-temp-dir {:prefix "eca-cache-test"})]
      (try
-       (with-redefs [cache/global-dir (fn [] (io/file (str tmp-dir#)))]
+       (h/with-cache-root tmp-dir#
          ~@body)
        (finally
          (fs/delete-tree tmp-dir#)))))
@@ -175,7 +176,7 @@
     (with-temp-cache-dir
       (let [workspaces [{:uri "/home/user/my-project"}]
             ws-hash (cache/workspaces-hash workspaces identity)
-            base (cache/global-dir)
+            base (cache/data-dir)
             canonical (cache/workspace-cache-file workspaces "db.transit.json" identity)
             hash-only-file (io/file base ws-hash "db.transit.json")
             other-prefixed-file (io/file base (str "old_" ws-hash) "db.transit.json")]
@@ -200,7 +201,7 @@
                 repo (setup-worktree! tmp "wt1" (str (fs/file tmp "repo" ".git" "worktrees" "wt1")) "../..")
                 workspaces [{:uri wt}]
                 raw-hash (#'cache/paths-hash [wt])
-                base (cache/global-dir)
+                base (cache/data-dir)
                 ;; chats saved before canonicalization, when the worktree was its own bucket
                 legacy-file (io/file base (str "wt1_" raw-hash) "db.transit.json")
                 canonical (cache/workspace-cache-file workspaces "db.transit.json" identity)]
@@ -252,6 +253,61 @@
               (is (= env-home resolved)))))
         (finally
           (System/setProperty "user.home" prev))))))
+
+(deftest xdg-eca-dir-test
+  (let [xdg-eca-dir #'cache/xdg-eca-dir]
+    (testing "falls back to <home>/<segments>/eca when the env var is unset"
+      (is (= (io/file (cache/user-home) ".local" "share" "eca")
+             (xdg-eca-dir "ECA_TEST_SURELY_UNSET_XDG_VAR" ".local" "share"))))
+    (testing "uses <env var>/eca when the env var holds an absolute path"
+      (when-let [var-name (some #(when-let [v (System/getenv ^String %)]
+                                   (when (.isAbsolute (io/file v)) %))
+                                ["HOME" "USERPROFILE"])]
+        (is (= (io/file (System/getenv ^String var-name) "eca")
+               (xdg-eca-dir var-name ".local" "share")))))))
+
+(deftest legacy-data-dir-test
+  (let [tmp (fs/create-temp-dir {:prefix "eca-legacy-dir-test"})
+        cache-dir (io/file (str tmp) "cache" "eca")
+        data-dir (io/file (str tmp) "data" "eca")]
+    (try
+      (testing "is the cache dir when it differs from the data dir"
+        (with-redefs [cache/global-dir (constantly cache-dir)
+                      cache/data-dir (constantly data-dir)]
+          (let [workspaces [{:uri "/home/user/proj"}]
+                dir (cache/workspace-cache-dir workspaces identity)
+                legacy-dir (cache/legacy-workspace-cache-dir workspaces identity)]
+            (is (= cache-dir (cache/legacy-data-dir)))
+            (is (= data-dir (.getParentFile dir)) "workspace dirs live in the data dir")
+            (is (= cache-dir (.getParentFile legacy-dir)))
+            (is (= (.getName dir) (.getName legacy-dir))))))
+      (testing "is nil when both resolve to the same dir"
+        (with-redefs [cache/global-dir (constantly (io/file (str tmp) "same" "eca"))
+                      cache/data-dir (constantly (io/file (str tmp) "same" "." "eca"))]
+          (is (nil? (cache/legacy-data-dir)))
+          (is (nil? (cache/legacy-workspace-cache-dir [{:uri "/home/user/proj"}] identity)))))
+      (finally
+        (fs/delete-tree tmp)))))
+
+(deftest workspace-cache-dirs-test
+  (testing "lists data dir workspace dirs first, then legacy cache dir ones, skipping global and hidden dirs"
+    (h/with-legacy-and-data-dirs
+      (fn [legacy-root data-root]
+        (doseq [d [(io/file data-root "proj_aaaa1111")
+                   (io/file data-root ".proj_bbbb2222.copying")
+                   (io/file legacy-root "proj_aaaa1111")
+                   (io/file legacy-root "other_bbbb2222")
+                   (io/file legacy-root "toolCallOutputs")
+                   (io/file legacy-root "plugins")
+                   (io/file legacy-root "tls")]]
+          (fs/create-dirs d))
+        (spit (io/file legacy-root "models-dev.json") "{}")
+        (let [dirs (cache/workspace-cache-dirs)]
+          (is (= [(io/file data-root "proj_aaaa1111")]
+                 (take 1 dirs)))
+          (is (= #{(io/file legacy-root "proj_aaaa1111")
+                   (io/file legacy-root "other_bbbb2222")}
+                 (set (drop 1 dirs)))))))))
 
 (deftest global-dir-not-relative-test
   (testing "global-dir is absolute (no literal \"?\" segment) when user.home is the placeholder"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Store chats and logins in `$XDG_DATA_HOME/eca` (`~/.local/share/eca`) instead of `~/.cache/eca`, which is still read for downgrades. #623
+
 ## 0.162.0
 
 - Reject unknown tool args (e.g. `offset` for `read_file`) with an `INVALID_ARGS` error listing supported params; MCP tools only when `additionalProperties: false`.
