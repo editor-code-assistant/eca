@@ -990,8 +990,14 @@
         },
         "maxSteps": {
           "type": "integer",
-          "description": "Maximum number of tool-call steps before the agent is halted. Useful for limiting subagent execution.",
-          "markdownDescription": "Maximum number of tool-call steps before the agent is halted. Useful for limiting subagent execution.",
+          "description": "Maximum number of tool-call steps before the agent is halted and asked for a final summary. Useful for limiting subagent execution.",
+          "markdownDescription": "Maximum number of tool-call steps before the agent is halted and asked for a final summary. Useful for limiting subagent execution.",
+          "minimum": 1
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "description": "Wall-clock limit in seconds for a subagent run. When reached, the subagent is stopped and asked for a final summary of its findings, with tool calls refused.",
+          "markdownDescription": "Wall-clock limit in seconds for a subagent run. When reached, the subagent is stopped and asked for a final summary of its findings, with tool calls refused.",
           "minimum": 1
         },
         "defaultModel": {
