@@ -247,7 +247,7 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
-    Available tools include `SearchDocuments`, `GetFinancialStatement`, `GetEarningsCallTranscript`, `GetInsiderTransactions` and `GetTopHolders`. The free plan allows 100 requests a day. Portfolio and watchlist tools write to your own Equibles account, so keep approval prompts on for them. See the [Equibles MCP docs](https://equibles.com/docs/mcp/tools) for the full list.
+    Available tools include `SearchDocuments`, `GetFinancialStatement`, `GetEarningsCallTranscript`, `GetInsiderTransactions` and `GetTopHolders`. The free plan allows 100 requests a day. Portfolio, watchlist and feedback tools write to your own Equibles account, so keep approval prompts on for them. See the [Equibles MCP docs](https://equibles.com/docs/mcp/tools) for the full list.
 
 === "Advanced — DCR client name override"
 
