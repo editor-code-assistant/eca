@@ -212,6 +212,43 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     Available tools include `latest_announcements`, `release_calendar`, `data_catalogue`, `indicator_query` and `forex`. See the [FXMacroData docs](https://fxmacrodata.com/documentation) for the full list.
 
+=== "Equibles stock market data"
+
+    [Equibles](https://equibles.com/mcp) provides US stock market data via MCP: full-text search across SEC filings and earnings call transcripts, XBRL financial statements, insider and congressional trades, 13F institutional holdings, short interest, end-of-day prices and macroeconomic series.
+
+    **Option 1: OAuth (no API key)**
+
+    The `?auth=oauth` parameter makes the server ask for sign-in during discovery, so ECA registers a client via DCR and marks the server as requiring authentication until you sign in with a free Equibles account:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "equibles": {
+          "url": "https://mcp.equibles.com/mcp?auth=oauth"
+        }
+      }
+    }
+    ```
+
+    **Option 2: API key**
+
+    Create a key at [equibles.com/dashboard/apikeys](https://equibles.com/dashboard/apikeys) and set it as the `EQUIBLES_API_KEY` environment variable:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "equibles": {
+          "url": "https://mcp.equibles.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:EQUIBLES_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Available tools include `SearchDocuments`, `GetFinancialStatement`, `GetEarningsCallTranscript`, `GetInsiderTransactions` and `GetTopHolders`. The free plan allows 100 requests a day. Portfolio and watchlist tools write to your own Equibles account, so keep approval prompts on for them. See the [Equibles MCP docs](https://equibles.com/docs/mcp/tools) for the full list.
+
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client
