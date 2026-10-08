@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add subagent `timeoutSeconds`; on timeout or max steps the subagent gets a final no-tools turn to report findings, and a parent stop keeps its partial output. #625
+- Fix tool-call continuations sending the provider `key` resolved at prompt start, so a `${cmd:...}` key that prints a short-lived token no longer expires mid-prompt; continuations read the key from the current config. #634
 
 ## 0.162.0
 

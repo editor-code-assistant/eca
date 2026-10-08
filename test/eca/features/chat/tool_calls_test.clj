@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
+   [eca.config :as config]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.hooks :as f.hooks]
@@ -559,6 +560,48 @@
               "rejection path must also return fresh api-key so the next subagent request uses the renewed token")
           (is (= (:api-key renewed-provider-auth) (:api-key (:provider-auth result)))
               "rejection path must also return refreshed provider-auth"))))))
+
+(deftest on-tools-called!-returns-key-from-current-config-test
+  (testing "a continuation sends the provider key the config resolves now, not the one resolved at prompt start"
+    (h/reset-components!)
+    (reset! config/initialization-config* {:pureConfig true
+                                           :providers {"my-gateway" {:key "key-resolved-now"}}})
+    (config/clear-cache!)
+    (let [chat-id   "test-chat"
+          provider  "my-gateway"
+          db*       (h/db*)
+          _         (swap! db* #(-> %
+                                    (assoc-in [:chats chat-id :status] :running)
+                                    (assoc-in [:chats chat-id :messages] [])
+                                    (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)))
+          chat-ctx  {:db*       db*
+                     :config    (assoc-in (config/initial-config)
+                                          [:providers provider :key] "key-resolved-at-prompt-start")
+                     :chat-id   chat-id
+                     :provider  provider
+                     :agent     :default
+                     :messenger (h/messenger)
+                     :metrics   (h/metrics)}
+          add-to-history! (fn [msg]
+                            (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id           "call-1"
+                       :full-name    "eca__test_tool"
+                       :arguments    {}
+                       :arguments-text "{}"}]
+          all-tools  [{:name      "test_tool"
+                       :full-name "eca__test_tool"
+                       :origin    :eca
+                       :server    {:name "eca"}}]]
+      (with-redefs [f.tools/all-tools                           (constantly all-tools)
+                    f.tools/approval                            (constantly :allow)
+                    f.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
+                    f.tools/call-tool!                          (fn [& _] {:contents [{:text "result" :type :text}]})
+                    f.tools/tool-call-details-before-invocation (constantly nil)
+                    f.tools/tool-call-details-after-invocation  (constantly nil)
+                    f.tools/tool-call-summary                   (constantly "Test tool")
+                    lifecycle/maybe-renew-auth-token            (constantly nil)]
+        (let [result ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls)]
+          (is (= "key-resolved-now" (:fresh-api-key result))))))))
 
 (deftest on-tools-called!-summary-requested-refuses-tools-test
   (testing "a subagent asked for its final summary finishes without running tools or counting a step"
