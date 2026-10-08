@@ -641,6 +641,16 @@
             "bedrock"
           ]
         },
+        "inherit": {
+          "type": "string",
+          "description": "Provider to inherit config and behavior from (login methods, models, request options), keeping a separate login. Useful for multiple accounts of the same provider, e.g. a work and a personal subscription. Credentials (key, keyRc, keyEnv) are not inherited.",
+          "markdownDescription": "Provider to inherit config and behavior from (login methods, models, request options), keeping a separate login. Useful for multiple accounts of the same provider, e.g. a work and a personal subscription. Credentials (`key`, `keyRc`, `keyEnv`) are not inherited.",
+          "examples": [
+            "anthropic",
+            "openai",
+            "github-copilot"
+          ]
+        },
         "fetchModels": {
           "type": "boolean",
           "description": "Whether to fetch available models from the provider's API.",
