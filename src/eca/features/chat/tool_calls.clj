@@ -799,13 +799,20 @@
     ;; postToolCall hooks report continue:false through the tool call state,
     ;; accumulated per-tool by the state machine action :trigger-post-tool-call-hook.
     (let [all-tools (f.tools/all-tools chat-id agent @db* config)
-          max-steps-reached? (check-subagent-max-steps! db* chat-id)]
+          ;; Checked first so the final summary turn doesn't count as a step.
+          summary-requested? (get-in @db* [:chats chat-id :summary-requested?])
+          max-steps-reached? (and (not summary-requested?)
+                                  (check-subagent-max-steps! db* chat-id))]
       (lifecycle/assert-chat-not-stopped! chat-ctx)
-      ;; Check subagent max steps - if reached, finish without executing more tools
-      (if max-steps-reached?
+      ;; Subagent reached max steps or was asked for its final summary,
+      ;; finish without executing more tools
+      (if (or summary-requested? max-steps-reached?)
         (do
-          (logger/info logger-tag "Subagent reached max steps, finishing" {:chat-id chat-id})
-          (swap! db* assoc-in [:chats chat-id :max-steps-reached?] true)
+          (if summary-requested?
+            (logger/info logger-tag "Subagent tried to call tools during its final summary, finishing" {:chat-id chat-id})
+            (do
+              (logger/info logger-tag "Subagent reached max steps, finishing" {:chat-id chat-id})
+              (swap! db* assoc-in [:chats chat-id :max-steps-reached?] true)))
           (when-not (string/blank? @received-msgs*)
             (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]}))
           (lifecycle/finish-chat-prompt! :idle chat-ctx)

@@ -59,12 +59,83 @@
           messages)
     messages))
 
+(def ^:private schema-combinators
+  "Rejected by Anthropic at the top level of a tool input_schema, in hint preference order."
+  [:oneOf :anyOf :allOf])
+
+(def ^:private flattened-schema-kept-keys
+  [:$defs :definitions :$schema :additionalProperties :description :title])
+
+(defn ^:private schema-branches [schema combinator]
+  (let [branches (get schema combinator)]
+    (when (sequential? branches)
+      (filter map? branches))))
+
+(defn ^:private required-params [schema]
+  (let [required (:required schema)]
+    (when (sequential? required)
+      (filter string? required))))
+
+(defn ^:private combinator-branch-summary
+  "Names a combinator branch by its required params, or else by its properties."
+  [branch]
+  (let [required (required-params branch)
+        properties (:properties branch)]
+    (cond
+      (seq required) (string/join ", " required)
+      (and (map? properties) (seq properties)) (string/join ", " (map name (keys properties))))))
+
+(defn ^:private combinator-hint
+  "Plain text version of the oneOf/anyOf constraint lost when flattening the schema."
+  [schema combinators]
+  (when-let [combinator (some #{:oneOf :anyOf} combinators)]
+    (let [quantifier (if (= :oneOf combinator) "exactly one of" "at least one of")
+          groups (->> (schema-branches schema combinator)
+                      (keep combinator-branch-summary)
+                      distinct
+                      (map #(str "(" % ")")))]
+      (if (seq groups)
+        (format "Input constraint: provide parameters for %s: %s." quantifier (string/join " or " groups))
+        (format "Input constraint: provide parameters for %s the documented parameter groups." quantifier)))))
+
+(defn ^:private flatten-schema-combinators
+  "Anthropic rejects a tool input_schema with oneOf/anyOf/allOf at the top level,
+   failing the whole request. Like Claude Code, flattens them: branch properties are
+   merged into the top level and branch required params are only kept for allOf.
+   Returns the schema and, for oneOf/anyOf, a hint describing the lost constraint."
+  [schema]
+  (let [combinators (when (map? schema)
+                      (filterv #(contains? schema %) schema-combinators))]
+    (if (empty? combinators)
+      {:schema schema}
+      (let [properties (reduce (fn [acc [k v]]
+                                 (cond-> acc (not (contains? acc k)) (assoc k v)))
+                               (if (map? (:properties schema)) (:properties schema) {})
+                               (->> combinators
+                                    (mapcat #(schema-branches schema %))
+                                    (map :properties)
+                                    (filter map?)
+                                    (mapcat seq)))
+            required (->> (schema-branches schema :allOf)
+                          (mapcat required-params)
+                          (concat (required-params schema))
+                          distinct
+                          vec)]
+        {:schema (merge (cond-> {:type "object" :properties properties}
+                          (seq required) (assoc :required required))
+                        (select-keys schema flattened-schema-kept-keys))
+         :hint (combinator-hint schema combinators)}))))
+
 (defn ^:private ->tools [tools web-search]
   (cond->
    (mapv (fn [tool]
-           {:description (:description tool)
-            :input_schema (:parameters tool)
-            :name (:full-name tool)}) tools)
+           (let [{:keys [schema hint]} (flatten-schema-combinators (:parameters tool))]
+             {:description (if hint
+                             (string/join "\n\n" (remove string/blank? [(:description tool) hint]))
+                             (:description tool))
+              :input_schema schema
+              :name (:full-name tool)}))
+         tools)
     web-search (conj {:type "web_search_20250305"
                       :name "web_search"
                       :max_uses 10})))
@@ -163,9 +234,7 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                  (or stream-idle-timeout-seconds 120))
-                                 :exception e})
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
 
                       :else
                       (on-error {:exception e

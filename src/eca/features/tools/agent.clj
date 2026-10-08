@@ -15,6 +15,14 @@
 (def ^:private logger-tag "[AGENT-TOOL]")
 (def ^:private activity-summary-max-length 40)
 
+(def ^:private poll-interval-ms
+  "How often the subagent chat status is checked while waiting for it."
+  1000)
+
+(def ^:private summary-turn-timeout-ms
+  "Max time the subagent has to write its final summary after a timeout or max steps halt."
+  (* 2 60 1000))
+
 (defn normalize-arguments
   "Normalize spawn_agent arguments before display, history, and invocation."
   [arguments]
@@ -38,6 +46,9 @@
                   :model (:defaultModel agent-config)
                   :variant (:variant agent-config)
                   :max-steps (:maxSteps agent-config)
+                  :timeout-seconds (let [timeout (:timeoutSeconds agent-config)]
+                                     (when (and (number? timeout) (pos? timeout))
+                                       (long timeout)))
                   :system-prompt (:systemPrompt agent-config)
                   :tool-call (:toolCall agent-config)})))
        vec))
@@ -137,6 +148,34 @@
       (catch Exception e
         (logger/warn logger-tag (format "Error stopping subagent '%s': %s" agent-name (.getMessage e)))))))
 
+(defn ^:private summary-turn-prompt [reason]
+  (str reason " Tool calls are no longer allowed.\n\n"
+       "Without calling any tools, reply now with your final report: what you found so far, "
+       "with concrete evidence like file paths, what you did not get to, and any open questions."))
+
+(defn ^:private run-summary-turn!
+  "Prompts the subagent one last time, with tool calls refused, so it reports what
+   it found. Waits while that turn runs, stopping the subagent if it takes longer
+   than `summary-turn-timeout-ms`. `chat/prompt` marks the chat :running before
+   returning, so any other status means the turn is over or never started."
+  [{:keys [db* messenger config metrics chat-id subagent-chat-id agent-name prompt-params]} reason]
+  (logger/with-chat-context subagent-chat-id chat-id
+    (logger/info logger-tag (format "Requesting final summary from agent '%s'" agent-name))
+    (swap! db* assoc-in [:chats subagent-chat-id :summary-requested?] true)
+    (let [chat-prompt (requiring-resolve 'eca.features.chat/prompt)
+          deadline (+ (System/currentTimeMillis) (long summary-turn-timeout-ms))]
+      (chat-prompt (assoc prompt-params :message (summary-turn-prompt reason))
+                   db* messenger config metrics)
+      (loop []
+        (when (= :running (get-in @db* [:chats subagent-chat-id :status]))
+          (if (< (System/currentTimeMillis) deadline)
+            (do
+              (Thread/sleep (long poll-interval-ms))
+              (recur))
+            (do
+              (logger/warn logger-tag (format "Agent '%s' did not finish its final summary in time, stopping it" agent-name))
+              (stop-subagent-chat! db* messenger config metrics subagent-chat-id agent-name))))))))
+
 (defn ^:private available-model-names
   "Returns a sorted list of available model names from the runtime db."
   [db]
@@ -226,7 +265,25 @@
 
     (logger/info logger-tag (format "Spawning agent '%s' for task: %s (model: %s, variant: %s)" agent-name task subagent-model (or variant "default")))
 
-    (let [max-steps-limit (max-steps subagent)]
+    (let [max-steps-limit (max-steps subagent)
+          timeout-seconds (:timeout-seconds subagent)
+          deadline (when timeout-seconds
+                     (+ (System/currentTimeMillis) (* 1000 (long timeout-seconds))))
+          prompt-params (cond-> {:chat-id subagent-chat-id
+                                 :model subagent-model
+                                 :agent agent-name
+                                 :contexts []
+                                 :trust trust}
+                          variant (assoc :variant variant))
+          summary-ctx {:db* db*
+                       :messenger messenger
+                       :config config
+                       :metrics metrics
+                       :chat-id chat-id
+                       :subagent-chat-id subagent-chat-id
+                       :agent-name agent-name
+                       :prompt-params prompt-params}
+          subagent-messages #(get-in @db* [:chats subagent-chat-id :messages] [])]
       (swap! db* assoc-in [:chats subagent-chat-id]
              (cond-> {:id subagent-chat-id
                       :parent-chat-id chat-id
@@ -242,18 +299,7 @@
                             (format "%s\n\nIMPORTANT: You have a maximum of %d steps to complete this task. Be efficient and provide a clear summary of your findings before reaching the limit."
                                     task max-steps-limit)
                             task)]
-          (chat-prompt
-           (cond-> {:message task-prompt
-                    :chat-id subagent-chat-id
-                    :model subagent-model
-                    :agent agent-name
-                    :contexts []
-                    :trust trust}
-             variant (assoc :variant variant))
-           db*
-           messenger
-           config
-           metrics))
+          (chat-prompt (assoc prompt-params :message task-prompt) db* messenger config metrics))
 
         ;; Wait for subagent to complete by polling status
         (let [stopped-result (fn []
@@ -261,7 +307,9 @@
                                (stop-subagent-chat! db* messenger config metrics subagent-chat-id agent-name)
                                {:error true
                                 :contents [{:type :text
-                                            :text (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)}]})]
+                                            :text (str (format "Agent '%s' was stopped because the parent chat was stopped." agent-name)
+                                                       (when-let [partial-output (extract-final-assistant-text (subagent-messages))]
+                                                         (str "\n\n## Partial result\n\n" partial-output)))}]})]
           (try
             (loop [last-step 0]
               (let [db @db*
@@ -297,10 +345,12 @@
                     (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
                     (cond
                       max-steps-reached?
-                      {:error true
-                       :contents [{:type :text
-                                   :text (format "## Agent '%s' Halted\n\nAgent was halted because it reached the maximum number of steps (%d). The result below may be incomplete.\n\n%s"
-                                                 agent-name max-steps-limit summary)}]}
+                      (do
+                        (run-summary-turn! summary-ctx (format "You reached your maximum number of steps (%d)." max-steps-limit))
+                        {:error true
+                         :contents [{:type :text
+                                     :text (format "## Agent '%s' Halted\n\nAgent was halted because it reached the maximum number of steps (%d). The result below may be incomplete.\n\n%s"
+                                                   agent-name max-steps-limit (extract-final-summary (subagent-messages)))}]})
 
                       failed?
                       (failed-agent-result agent-name prompt-error partial-output)
@@ -310,10 +360,24 @@
                        :contents [{:type :text
                                    :text (format "## Agent '%s' Result\n\n%s" agent-name summary)}]}))
 
+                  ;; Subagent ran past its timeout, stop it and ask for a final summary
+                  (and deadline (>= (System/currentTimeMillis) (long deadline)))
+                  (do
+                    (logger/info logger-tag (format "Agent '%s' timed out after %ds" agent-name timeout-seconds))
+                    (stop-subagent-chat! db* messenger config metrics subagent-chat-id agent-name)
+                    (run-summary-turn! summary-ctx (format "You reached your time limit of %d seconds and your work was interrupted." timeout-seconds))
+                    (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :subagent-final-step] current-step)
+                    {:error true
+                     :contents [{:type :text
+                                 :text (format "## Agent '%s' Timed out\n\nAgent was stopped because it reached its timeout (%ds). The result below may be incomplete.\n\n%s"
+                                               agent-name timeout-seconds
+                                               (or (extract-final-assistant-text (subagent-messages))
+                                                   "Agent produced no output before timing out."))}]})
+
                   ;; Keep waiting
                   :else
                   (do
-                    (Thread/sleep 1000)
+                    (Thread/sleep (long poll-interval-ms))
                     (recur (long (max last-step current-step)))))))
             (catch InterruptedException _
               (stopped-result))))

@@ -1522,7 +1522,7 @@
                                                               (tc/transition-tool-call! db* chat-ctx id :cleanup-finished
                                                                                         {:name resolved-name}))
                                                   nil)))
-                :on-error (fn [{:keys [message exception] :as error-data}]
+                :on-error (fn [{:keys [message exception idle-timeout?] :as error-data}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   ;; A dead shared connection makes every stacked tool-continuation
@@ -1663,7 +1663,7 @@
                                 :else
                                 (let [partial-text @received-msgs*
                                       transient-error? (or (contains? #{:overloaded :premature-stop :network} error-type)
-                                                           (string/includes? (or message "") "idle timeout"))
+                                                           idle-timeout?)
                                       auto-continue-count (:auto-continue-count chat-ctx 0)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
                                       user-messages-recorded? (boolean
@@ -1675,7 +1675,8 @@
                                       retry-messages (if continue-existing-response?
                                                        [{:role "user"
                                                          :content [{:type :text
-                                                                    :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                                                    :text (cond-> "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."
+                                                                            idle-timeout? (str " If you were writing a large file or edit, split it into a few smaller calls."))}]}]
                                                        user-messages)
                                       retry-source-type (if continue-existing-response?
                                                           :auto-continue
