@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add subagent `timeoutSeconds`; on timeout or max steps the subagent gets a final no-tools turn to report findings, and a parent stop keeps its partial output. #625
+
 ## 0.162.0
 
 - Reject unknown tool args (e.g. `offset` for `read_file`) with an `INVALID_ARGS` error listing supported params; MCP tools only when `additionalProperties: false`.

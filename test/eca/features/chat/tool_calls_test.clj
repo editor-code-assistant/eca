@@ -560,6 +560,51 @@
           (is (= (:api-key renewed-provider-auth) (:api-key (:provider-auth result)))
               "rejection path must also return refreshed provider-auth"))))))
 
+(deftest on-tools-called!-summary-requested-refuses-tools-test
+  (testing "a subagent asked for its final summary finishes without running tools or counting a step"
+    (h/reset-components!)
+    (let [chat-id "subagent-test"
+          db* (h/db*)
+          _ (swap! db* #(-> %
+                            (assoc-in [:chats chat-id :subagent] {:max-steps 5})
+                            (assoc-in [:chats chat-id :current-step] 2)
+                            (assoc-in [:chats chat-id :summary-requested?] true)
+                            (assoc-in [:chats chat-id :status] :running)
+                            (assoc-in [:chats chat-id :messages] [])
+                            (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)))
+          chat-ctx {:db* db*
+                    :config (h/config)
+                    :chat-id chat-id
+                    :agent :default
+                    :messenger (h/messenger)
+                    :metrics (h/metrics)}
+          received-msgs* (atom "Final report: nothing else to check.")
+          add-to-history! (fn [msg]
+                            (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id "call-1"
+                       :full-name "eca__test_tool"
+                       :arguments {}
+                       :arguments-text "{}"}]
+          all-tools [{:name "test_tool"
+                      :full-name "eca__test_tool"
+                      :origin :eca
+                      :server {:name "eca"}}]
+          tool-called?* (atom false)]
+      (with-redefs [f.tools/all-tools (constantly all-tools)
+                    f.tools/approval (constantly :allow)
+                    f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)
+                    f.tools/call-tool! (fn [& _]
+                                         (reset! tool-called?* true)
+                                         {:contents [{:text "result" :type :text}]})]
+        (is (nil? ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)))
+        (is (false? @tool-called?*))
+        (is (= 2 (get-in @db* [:chats chat-id :current-step])))
+        (is (nil? (get-in @db* [:chats chat-id :max-steps-reached?])))
+        (is (= :idle (get-in @db* [:chats chat-id :status])))
+        (is (match? [{:role "assistant"
+                      :content [{:type :text :text "Final report: nothing else to check."}]}]
+                    (get-in @db* [:chats chat-id :messages])))))))
+
 (deftest on-tools-called!-pretoolcall-continue-false-halts-batch-test
   (testing "a preToolCall continue:false on the first tool stops the batch: the second tool is never processed"
     (h/reset-components!)
