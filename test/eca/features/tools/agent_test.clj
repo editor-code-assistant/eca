@@ -460,20 +460,34 @@
           :call-state-fn (constantly {:status :executing})})
         (is (nil? (:trust @chat-prompt-called*)))))))
 
+(defn ^:private assistant-msg [text]
+  {:role "assistant" :content [{:type :text :text text}]})
+
+(def ^:private timeout-test-config
+  (assoc-in test-config [:agent "slow"] {:mode "subagent"
+                                         :description "Slow agent"
+                                         :timeoutSeconds 1}))
+
 (deftest spawn-agent-max-steps-reached-test
-  (testing "returns halted result when subagent reaches max steps"
+  (testing "asks for a final summary and returns it as halted result when subagent reaches max steps"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
-          subagent-chat-id "subagent-tc-1"]
+          subagent-chat-id "subagent-tc-1"
+          prompts* (atom [])]
       (with-redefs [requiring-resolve
                     (fn [sym]
                       (case sym
                         eca.features.chat/prompt
-                        (fn [_params _db* _messenger _config _metrics]
-                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
-                          (swap! db* assoc-in [:chats subagent-chat-id :max-steps-reached?] true)
-                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
-                                 [{:role "assistant"
-                                   :content [{:type :text :text "Partial results so far."}]}]))
+                        (fn [params _db* _messenger _config _metrics]
+                          (swap! prompts* conj params)
+                          (if (= 1 (count @prompts*))
+                            (swap! db* update-in [:chats subagent-chat-id] assoc
+                                   :status :idle
+                                   :max-steps-reached? true
+                                   :messages [(assistant-msg "Partial results so far.")])
+                            (swap! db* update-in [:chats subagent-chat-id]
+                                   #(-> %
+                                        (assoc :status :idle)
+                                        (update :messages conj (assistant-msg "Final report: found 3 files."))))))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
         (let [result ((spawn-handler)
                       {"agent" "explorer" "task" "find files" "activity" "exploring"}
@@ -486,8 +500,100 @@
                        :call-state-fn (constantly {:status :executing})})]
           (is (match? {:error true
                        :contents [{:type :text
-                                   :text #"(?s)Halted.*maximum number of steps \(5\)"}]}
-                      result)))))))
+                                   :text #"(?s)Halted.*maximum number of steps \(5\).*Final report: found 3 files\."}]}
+                      result))
+          (testing "summary turn reuses the subagent prompt params and forbids tools"
+            (is (= 2 (count @prompts*)))
+            (is (match? {:chat-id subagent-chat-id
+                         :agent "explorer"
+                         :message #"(?s)maximum number of steps \(5\).*Without calling any tools"}
+                        (second @prompts*)))
+            (is (true? (get-in @db* [:chats subagent-chat-id :summary-requested?])))))))))
+
+(deftest spawn-agent-timeout-test
+  (testing "stops the subagent at its timeout and returns its final summary"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-1"
+          prompts* (atom [])
+          stops* (atom 0)]
+      (with-redefs [f.tools.agent/poll-interval-ms 10
+                    requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (swap! prompts* conj params)
+                          (if (= 1 (count @prompts*))
+                            (swap! db* update-in [:chats subagent-chat-id] assoc
+                                   :status :running
+                                   :messages [(assistant-msg "Let me check the next file.")])
+                            (swap! db* update-in [:chats subagent-chat-id]
+                                   #(-> %
+                                        (assoc :status :idle)
+                                        (update :messages conj (assistant-msg "Found the bug in foo.clj."))))))
+                        eca.features.chat/prompt-stop
+                        (fn [_params _db* _messenger _config _metrics _opts]
+                          (swap! stops* inc)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :stopping))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "slow" "task" "review" "activity" "reviewing"}
+                      {:db* db*
+                       :config timeout-test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error true
+                       :contents [{:type :text
+                                   :text #"(?s)Timed out.*timeout \(1s\).*Found the bug in foo\.clj\."}]}
+                      result))
+          (is (= 1 @stops*))
+          (is (match? {:chat-id subagent-chat-id
+                       :agent "slow"
+                       :message #"(?s)time limit of 1 seconds.*Without calling any tools"}
+                      (second @prompts*)))
+          (is (true? (get-in @db* [:chats subagent-chat-id :summary-requested?]))))))))
+
+(deftest spawn-agent-timeout-summary-not-finished-test
+  (testing "stops a summary turn that runs too long and falls back to the last output"
+    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
+          subagent-chat-id "subagent-tc-1"
+          prompts* (atom [])
+          stops* (atom 0)]
+      (with-redefs [f.tools.agent/poll-interval-ms 10
+                    f.tools.agent/summary-turn-timeout-ms 50
+                    requiring-resolve
+                    (fn [sym]
+                      (case sym
+                        eca.features.chat/prompt
+                        (fn [params _db* _messenger _config _metrics]
+                          (swap! prompts* conj params)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :running)
+                          (when (= 1 (count @prompts*))
+                            (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                   [(assistant-msg "Let me check the next file.")])))
+                        eca.features.chat/prompt-stop
+                        (fn [_params _db* _messenger _config _metrics _opts]
+                          (swap! stops* inc)
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :stopping))
+                        (clojure.lang.RT/var (namespace sym) (name sym))))]
+        (let [result ((spawn-handler)
+                      {"agent" "slow" "task" "review" "activity" "reviewing"}
+                      {:db* db*
+                       :config timeout-test-config
+                       :messenger (h/messenger)
+                       :metrics (h/metrics)
+                       :chat-id "chat-1"
+                       :tool-call-id "tc-1"
+                       :call-state-fn (constantly {:status :executing})})]
+          (is (match? {:error true
+                       :contents [{:type :text
+                                   :text #"(?s)Timed out.*Let me check the next file\."}]}
+                      result))
+          (is (= 2 (count @prompts*)))
+          (is (= 2 @stops*)))))))
 
 (deftest spawn-agent-parent-stop-test
   (testing "stops subagent when parent chat is stopped"
@@ -501,6 +607,8 @@
                         (fn [_params _db* _messenger _config _metrics]
                           ;; Simulate subagent still running — parent will stop it
                           (swap! db* assoc-in [:chats subagent-chat-id :status] :running)
+                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
+                                 [(assistant-msg "Checked 2 of 5 files.")])
                           ;; Signal parent stop so the poll loop picks it up
                           (reset! call-state* {:status :stopping}))
                         eca.features.chat/prompt-stop
@@ -519,6 +627,9 @@
           (is (match? {:error true
                        :contents [{:type :text :text #"was stopped"}]}
                       result))
+          (testing "includes what the subagent produced so far"
+            (is (match? {:contents [{:text #"(?s)## Partial result\n\nChecked 2 of 5 files\."}]}
+                        result)))
           (testing "preserves subagent chat for resume replay"
             (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
 

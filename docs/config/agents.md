@@ -119,6 +119,22 @@ Subagents can be configured in config or markdown and support/require these fiel
 - `disabledTools` (optional): tools to hide from this agent entirely. Same matching as the global [`disabledTools`](tools.md#disabled-tools): a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name `server__tool`.
 - `mcpToolSearch` (optional): MCP tools this agent loads on demand via `eca__search_tools` instead of keeping in context. See [MCP tool search](#mcp-tool-search) below.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.
+- `timeoutSeconds` (optional): wall-clock limit in seconds for a subagent run. See [Limits and final summary](#limits-and-final-summary).
+
+### Limits and final summary
+
+`maxSteps` and `timeoutSeconds` keep a subagent from running forever. When a subagent reaches either limit, ECA stops it (on timeout, its running tool calls are cancelled) and prompts it one last time, with tool calls refused, to report what it found, what it didn't get to and any open questions. That report goes back to the parent flagged as `Halted` (max steps) or `Timed out`.
+
+The final summary turn has up to 2 minutes, after that the subagent is stopped and its last output is returned instead.
+
+```yaml
+---
+mode: subagent
+description: Reviews the changes for bugs
+maxSteps: 80
+timeoutSeconds: 1200
+---
+```
 
 ### Parent-scoped subagents
 
@@ -281,7 +297,8 @@ The `/config` command intentionally remains an administrative, raw resolved-conf
           "defaultModel": "anthropic/sonnet-4.5",
           "variant": "high",
           "toolCall": {...},
-          "maxSteps": 25 // Optional: to limit turns in subagent
+          "maxSteps": 25, // Optional: to limit turns in subagent
+          "timeoutSeconds": 1200 // Optional: wall-clock limit for the subagent run
         }
       }
     }

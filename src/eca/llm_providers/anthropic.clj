@@ -59,12 +59,83 @@
           messages)
     messages))
 
+(def ^:private schema-combinators
+  "Rejected by Anthropic at the top level of a tool input_schema, in hint preference order."
+  [:oneOf :anyOf :allOf])
+
+(def ^:private flattened-schema-kept-keys
+  [:$defs :definitions :$schema :additionalProperties :description :title])
+
+(defn ^:private schema-branches [schema combinator]
+  (let [branches (get schema combinator)]
+    (when (sequential? branches)
+      (filter map? branches))))
+
+(defn ^:private required-params [schema]
+  (let [required (:required schema)]
+    (when (sequential? required)
+      (filter string? required))))
+
+(defn ^:private combinator-branch-summary
+  "Names a combinator branch by its required params, or else by its properties."
+  [branch]
+  (let [required (required-params branch)
+        properties (:properties branch)]
+    (cond
+      (seq required) (string/join ", " required)
+      (and (map? properties) (seq properties)) (string/join ", " (map name (keys properties))))))
+
+(defn ^:private combinator-hint
+  "Plain text version of the oneOf/anyOf constraint lost when flattening the schema."
+  [schema combinators]
+  (when-let [combinator (some #{:oneOf :anyOf} combinators)]
+    (let [quantifier (if (= :oneOf combinator) "exactly one of" "at least one of")
+          groups (->> (schema-branches schema combinator)
+                      (keep combinator-branch-summary)
+                      distinct
+                      (map #(str "(" % ")")))]
+      (if (seq groups)
+        (format "Input constraint: provide parameters for %s: %s." quantifier (string/join " or " groups))
+        (format "Input constraint: provide parameters for %s the documented parameter groups." quantifier)))))
+
+(defn ^:private flatten-schema-combinators
+  "Anthropic rejects a tool input_schema with oneOf/anyOf/allOf at the top level,
+   failing the whole request. Like Claude Code, flattens them: branch properties are
+   merged into the top level and branch required params are only kept for allOf.
+   Returns the schema and, for oneOf/anyOf, a hint describing the lost constraint."
+  [schema]
+  (let [combinators (when (map? schema)
+                      (filterv #(contains? schema %) schema-combinators))]
+    (if (empty? combinators)
+      {:schema schema}
+      (let [properties (reduce (fn [acc [k v]]
+                                 (cond-> acc (not (contains? acc k)) (assoc k v)))
+                               (if (map? (:properties schema)) (:properties schema) {})
+                               (->> combinators
+                                    (mapcat #(schema-branches schema %))
+                                    (map :properties)
+                                    (filter map?)
+                                    (mapcat seq)))
+            required (->> (schema-branches schema :allOf)
+                          (mapcat required-params)
+                          (concat (required-params schema))
+                          distinct
+                          vec)]
+        {:schema (merge (cond-> {:type "object" :properties properties}
+                          (seq required) (assoc :required required))
+                        (select-keys schema flattened-schema-kept-keys))
+         :hint (combinator-hint schema combinators)}))))
+
 (defn ^:private ->tools [tools web-search]
   (cond->
    (mapv (fn [tool]
-           {:description (:description tool)
-            :input_schema (:parameters tool)
-            :name (:full-name tool)}) tools)
+           (let [{:keys [schema hint]} (flatten-schema-combinators (:parameters tool))]
+             {:description (if hint
+                             (string/join "\n\n" (remove string/blank? [(:description tool) hint]))
+                             (:description tool))
+              :input_schema schema
+              :name (:full-name tool)}))
+         tools)
     web-search (conj {:type "web_search_20250305"
                       :name "web_search"
                       :max_uses 10})))
@@ -163,9 +234,7 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                  (or stream-idle-timeout-seconds 120))
-                                 :exception e})
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
 
                       :else
                       (on-error {:exception e
@@ -744,44 +813,44 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["anthropic" "max"] [_ _ db* _config _messenger _metrics]
+(defmethod f.providers/start-login! ["anthropic" "max"] [provider _ db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :max)]
-    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
-                                             :mode :max
-                                             :verifier verifier})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :max
+                                          :verifier verifier})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/start-login! ["anthropic" "console"] [_ _ db* _config _messenger _metrics]
+(defmethod f.providers/start-login! ["anthropic" "console"] [provider _ db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :console)]
-    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
-                                             :mode :console
-                                             :verifier verifier})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :console
+                                          :verifier verifier})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/complete-oauth-code! "anthropic" [_ data db* messenger metrics]
+(defmethod f.providers/complete-oauth-code! "anthropic" [provider data db* _config messenger metrics]
   (let [code (:code data)
-        {:keys [mode verifier]} (get-in @db* [:auth "anthropic"])]
+        {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
       :console
       (let [{:keys [access-token]} (oauth-authorize code verifier)
             raw-key (create-api-key access-token)]
-        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
-                                                        :type :auth/token
-                                                        :api-key raw-key}))
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/token
+                                                     :api-key raw-key}))
       :max
       (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize code verifier)]
-        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
-                                                        :type :auth/oauth
-                                                        :refresh-token refresh-token
-                                                        :api-key access-token
-                                                        :expires-at expires-at})))
-    (f.providers/sync-and-notify! "anthropic" db* messenger metrics)
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/oauth
+                                                     :refresh-token refresh-token
+                                                     :api-key access-token
+                                                     :expires-at expires-at})))
+    (f.providers/sync-and-notify! provider db* messenger metrics)
     {:action "done"}))
 
 ;; --- Chat-based login (legacy /login command) ---
@@ -846,7 +915,7 @@
 (defmethod f.login/login-step ["anthropic" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
     (do
-      (config/update-global-config! {:providers {"anthropic" {:key input}}})
+      (config/update-global-config! {:providers {provider {:key input}}})
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))

@@ -49,14 +49,14 @@
     nil))
 
 (defn ^:private models-endpoint-headers
-  [provider auth-type api-type api-key extra-headers]
+  [copilot? auth-type api-type api-key extra-headers]
   (let [oauth? (= :auth/oauth auth-type)
         anthropic? (= "anthropic" api-type)]
     (client/merge-llm-headers
      (merge
       (assoc-some
        (cond-> {"Content-Type" "application/json"}
-         (= "github-copilot" provider) (merge (llm-util/copilot-ide-headers)))
+         copilot? (merge (llm-util/copilot-ide-headers)))
        "anthropic-version" (when anthropic? "2023-06-01")
        "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
        "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
@@ -333,7 +333,7 @@
   (let [provider-api-url (llm-util/provider-api-url provider config)]
     (boolean
      (and (fetch-model-catalog-enabled? provider-config)
-          (resolve-models-dev-provider provider provider-api-url models-dev-index)))))
+          (resolve-models-dev-provider (config/provider-base provider config) provider-api-url models-dev-index)))))
 
 (defn ^:private deprecated-model?
   [model-config]
@@ -534,11 +534,12 @@
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> discovered model config on success, nil on failure."
-  [{:keys [api-url auth-type api-key api-type provider extra-headers static-models]}]
+  [{:keys [api-url auth-type api-key api-type provider provider-base extra-headers static-models]}]
   (when-let [models-path (provider-models-endpoint-path api-type)]
     (let [url (shared/join-api-url api-url models-path)
           rid (llm-util/gen-rid)
-          headers (models-endpoint-headers provider auth-type api-type api-key extra-headers)]
+          copilot? (= "github-copilot" (or provider-base provider))
+          headers (models-endpoint-headers copilot? auth-type api-type api-key extra-headers)]
       (try
         (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
         (let [{:keys [status body]} (http/get url
@@ -562,7 +563,7 @@
                   (logger/debug logger-tag
                                 (format "[%s] Provider '%s': Received %d models from %s"
                                         rid provider (count models-data) url))
-                  (if (= "github-copilot" provider)
+                  (if copilot?
                     (parse-copilot-models provider models-data static-models)
                     (not-empty (into {} (keep #(parse-native-model-entry % api-type) models-data)))))))))
         (catch Exception e
@@ -581,12 +582,14 @@
           [auth-type api-key] (llm-util/provider-api-key provider
                                                          provider-auth
                                                          config)
-          api-type (:api provider-config)]
+          api-type (:api provider-config)
+          provider-base (config/provider-base provider config)]
       ;; Provider+auth specific source first (e.g. OpenAI OAuth -> ChatGPT Codex
       ;; /models, registered via `llm-util/provider-models-override`), then the
       ;; generic native /models endpoint.
       (when-let [models (or (llm-util/provider-models-override
                              {:provider provider
+                              :provider-base provider-base
                               :auth-type auth-type
                               :api-key api-key
                               :account-id (:account-id provider-auth)
@@ -594,6 +597,7 @@
                             (when api-url
                               (fetch-provider-native-models
                                {:provider provider
+                                :provider-base provider-base
                                 :api-url api-url
                                 :auth-type auth-type
                                 :api-key api-key
@@ -638,11 +642,12 @@
   [provider provider-config config models-dev-index]
   (when (add-models-from-models-dev? provider provider-config config models-dev-index)
     (let [provider-api-url (llm-util/provider-api-url provider config)
+          models-dev-id (config/provider-base provider config)
           models-dev-provider (resolve-models-dev-provider
-                               provider provider-api-url models-dev-index)
+                               models-dev-id provider-api-url models-dev-index)
           provider-models (some->> (get models-dev-provider "models")
                                    (parse-models-dev-provider-models provider))]
-      (when (using-models-dev-provider-id-fallback? provider provider-api-url models-dev-index)
+      (when (using-models-dev-provider-id-fallback? models-dev-id provider-api-url models-dev-index)
         (logger/debug logger-tag
                       (format "Provider '%s': Using models.dev provider-id fallback (url '%s' not matched)"
                               provider provider-api-url)))
@@ -701,37 +706,43 @@
               overrides))
 
 (defn ^:private build-model-capabilities
-  "Build capabilities for a single model, looking up from known models database."
-  [all-models provider model model-config]
-  (let [real-model-name (or (:modelName model-config) model)
-        full-real-model (str provider "/" real-model-name)
-        full-model (str provider "/" model)
-        base-capabilities (or (get all-models full-real-model)
-                              ;; when real-model-name already includes a provider prefix
-                              ;; (e.g. "anthropic/claude-opus-4-6"), try direct lookup
-                              (get all-models real-model-name)
-                              ;; we guess the capabilities from
-                              ;; the first model with same name
-                              (when-let [found-full-model
-                                         (->> (keys all-models)
-                                              (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
-                                                                                                                 #"(.+/)"
-                                                                                                                 ""))
-                                                              (shared/normalize-model-name (second (shared/full-model->provider+model %))))
-                                                           (= (shared/normalize-model-name real-model-name)
-                                                              (shared/normalize-model-name (second (shared/full-model->provider+model %))))))
-                                              first)]
-                                (get all-models found-full-model))
-                              {:tools true
-                               :reason? true
-                               :web-search false
-                               :mid-conversation-system? false
-                               :image-generation? false
-                               :image-input? false})
-        model-capabilities (-> (merge-capabilities base-capabilities
-                                                   (config-overrides->capabilities model-config))
-                               (assoc :model-name real-model-name))]
-    [full-model model-capabilities]))
+  "Build capabilities for a single model, looking up from known models database.
+   `provider-base` is the provider `provider` inherits from, if any, whose
+   known models are preferred over guessing by model name."
+  ([all-models provider model model-config]
+   (build-model-capabilities all-models provider model model-config nil))
+  ([all-models provider model model-config provider-base]
+   (let [real-model-name (or (:modelName model-config) model)
+         full-real-model (str provider "/" real-model-name)
+         full-model (str provider "/" model)
+         base-capabilities (or (get all-models full-real-model)
+                               ;; when real-model-name already includes a provider prefix
+                               ;; (e.g. "anthropic/claude-opus-4-6"), try direct lookup
+                               (get all-models real-model-name)
+                               (when (and provider-base (not= provider-base provider))
+                                 (get all-models (str provider-base "/" real-model-name)))
+                               ;; we guess the capabilities from
+                               ;; the first model with same name
+                               (when-let [found-full-model
+                                          (->> (keys all-models)
+                                               (filter #(or (= (shared/normalize-model-name (string/replace-first real-model-name
+                                                                                                                  #"(.+/)"
+                                                                                                                  ""))
+                                                               (shared/normalize-model-name (second (shared/full-model->provider+model %))))
+                                                            (= (shared/normalize-model-name real-model-name)
+                                                               (shared/normalize-model-name (second (shared/full-model->provider+model %))))))
+                                               first)]
+                                 (get all-models found-full-model))
+                               {:tools true
+                                :reason? true
+                                :web-search false
+                                :mid-conversation-system? false
+                                :image-generation? false
+                                :image-input? false})
+         model-capabilities (-> (merge-capabilities base-capabilities
+                                                    (config-overrides->capabilities model-config))
+                                (assoc :model-name real-model-name))]
+     [full-model model-capabilities])))
 
 (defn ^:private merge-provider-models
   "Merges static config models with dynamically fetched models.
@@ -789,7 +800,8 @@
    (fn [p [provider provider-config]]
      (let [static-models (:models provider-config)
            dynamic-models (get discovered-provider-models provider)
-           merged-models (merge-provider-models static-models dynamic-models)]
+           merged-models (merge-provider-models static-models dynamic-models)
+           provider-base (config/provider-base provider config)]
        (merge p
               (reduce
                (fn [m [model model-config]]
@@ -803,7 +815,7 @@
                                                  (get dynamic-models real-model))))
                        model-config (merge discovered-config model-config)
                        [full-model capabilities] (build-model-capabilities
-                                                  known-models provider model model-config)]
+                                                  known-models provider model model-config provider-base)]
                    (assoc m full-model capabilities)))
                {}
                merged-models))))

@@ -1047,6 +1047,13 @@
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+      (when (and run-hooks? (:user-content-id chat-ctx))
+        ;; Kept until the LLM responds, so a turn that is stopped, fails or is
+        ;; superseded before that doesn't lose what the user typed.
+        (lifecycle/record-unsent-user-messages! db* chat-id)
+        (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
+               {:content-id (:user-content-id chat-ctx)
+                :messages user-messages}))
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)
@@ -1515,7 +1522,7 @@
                                                               (tc/transition-tool-call! db* chat-ctx id :cleanup-finished
                                                                                         {:name resolved-name}))
                                                   nil)))
-                :on-error (fn [{:keys [message exception] :as error-data}]
+                :on-error (fn [{:keys [message exception idle-timeout?] :as error-data}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   ;; A dead shared connection makes every stacked tool-continuation
@@ -1605,11 +1612,13 @@
                                 (and (not compacting?)
                                      (not (:error-recovery-attempted? chat-ctx))
                                      (llm-providers.errors/recoverable-error? {:provider provider
+                                                                               :provider-base (config/provider-base provider config)
                                                                                :error-data error-data
                                                                                :db db}))
                                 (let [real-model (or (get-in db [:models full-model :model-name]) model)
                                       {:keys [retry? notice retry-user-message]}
                                       (llm-providers.errors/recover-error! {:provider provider
+                                                                            :provider-base (config/provider-base provider config)
                                                                             :model real-model
                                                                             :error-data error-data
                                                                             :db db
@@ -1656,7 +1665,7 @@
                                 :else
                                 (let [partial-text @received-msgs*
                                       transient-error? (or (contains? #{:overloaded :premature-stop :network} error-type)
-                                                           (string/includes? (or message "") "idle timeout"))
+                                                           idle-timeout?)
                                       auto-continue-count (:auto-continue-count chat-ctx 0)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
                                       user-messages-recorded? (boolean
@@ -1668,7 +1677,8 @@
                                       retry-messages (if continue-existing-response?
                                                        [{:role "user"
                                                          :content [{:type :text
-                                                                    :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                                                    :text (cond-> "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."
+                                                                            idle-timeout? (str " If you were writing a large file or edit, split it into a few smaller calls."))}]}]
                                                        user-messages)
                                       retry-source-type (if continue-existing-response?
                                                           :auto-continue

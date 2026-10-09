@@ -198,7 +198,7 @@
       :models models}
      :label (get provider-labels provider-name)
      :settings (config-settings provider-config provider-settings-exclude-keys)
-     :login (when-let [methods (get login-methods provider-name)]
+     :login (when-let [methods (get login-methods (config/provider-base provider-name config))]
               {:methods methods}))))
 
 (defn notify-provider-updated!
@@ -212,7 +212,7 @@
   "Common post-login/logout action: persist auth cache, re-sync models,
    and send both config/updated and providers/updated notifications."
   [provider-name db* messenger metrics]
-  (db/update-global-cache! @db* metrics)
+  (db/update-global-auth-cache! @db* provider-name metrics)
   (let [config (config/all @db*)]
     (models/sync-models! db* config
                          (fn [new-models]
@@ -224,8 +224,10 @@
 (defmulti start-login!
   "Starts a provider-specific async login flow (OAuth, device flow, etc.).
    Returns an action descriptor for the client.
-   Implementations live in provider namespaces."
-  (fn [provider-name method _db* _config _messenger _metrics] [provider-name method]))
+   Implementations live in provider namespaces and dispatch on the provider's
+   base (see `config/provider-base`), storing auth under `provider-name`."
+  (fn [provider-name method _db* config _messenger _metrics]
+    [(config/provider-base provider-name config) method]))
 
 (defmethod start-login! :default [provider-name method _ _ _ _]
   (throw (ex-info "Unsupported login method"
@@ -234,10 +236,12 @@
 (defmulti complete-oauth-code!
   "Exchanges an OAuth authorization code for tokens.
    Called when client submits a code after browser-based auth.
-   Implementations live in provider namespaces."
-  (fn [provider-name _data _db* _messenger _metrics] provider-name))
+   Implementations live in provider namespaces and dispatch on the provider's
+   base (see `config/provider-base`), storing auth under `provider-name`."
+  (fn [provider-name _data _db* config _messenger _metrics]
+    (config/provider-base provider-name config)))
 
-(defmethod complete-oauth-code! :default [provider-name _ _ _ _]
+(defmethod complete-oauth-code! :default [provider-name _ _ _ _ _]
   (throw (ex-info "Provider does not support OAuth code exchange"
                   {:error-response {:message (str "Provider '" provider-name "' does not support code-based login")}})))
 
@@ -257,7 +261,8 @@
    Two-round-trip: first call without method returns choose-method,
    second call with method returns an action descriptor."
   [provider-name method db* config messenger metrics]
-  (let [methods (get login-methods provider-name)]
+  (let [base-provider (config/provider-base provider-name config)
+        methods (get login-methods base-provider)]
     (when-not methods
       (throw (ex-info "Unknown provider" {:error-response {:message (str "Unknown provider: " provider-name)}})))
     (cond
@@ -272,7 +277,7 @@
 
       ;; Manual / API key methods -> return input fields
       (or (= method "manual") (= method "api-key"))
-      (let [fields (or (get provider-login-fields provider-name)
+      (let [fields (or (get provider-login-fields base-provider)
                        [{:key "api-key" :label "API Key" :type "secret"}])]
         {:action "input" :fields fields})
 
@@ -282,19 +287,20 @@
 
 (defn provider-login-input
   "Processes login input submitted by the client."
-  [provider-name data db* _config messenger metrics]
+  [provider-name data db* config messenger metrics]
   (if (:code data)
     ;; OAuth code exchange (e.g., Anthropic after browser auth)
-    (complete-oauth-code! provider-name data db* messenger metrics)
+    (complete-oauth-code! provider-name data db* config messenger metrics)
     ;; API key input
-    (let [api-key (get data :api-key)
+    (let [base-provider (config/provider-base provider-name config)
+          api-key (get data :api-key)
           models-str (get data :models)
           url (get data :url)
-          provider-cfg (get provider-configs provider-name)
+          provider-cfg (get provider-configs base-provider)
           models-map (when (not-empty models-str)
                        (into {} (map (fn [m] [(string/trim m) {}])
                                      (string/split models-str #","))))]
-      (if (get provider-login-fields provider-name)
+      (if (get provider-login-fields base-provider)
         ;; Providers that save to config (google, deepseek, openrouter, z-ai, azure)
         (let [config-update (shared/assoc-some
                              (merge {:key api-key} provider-cfg)

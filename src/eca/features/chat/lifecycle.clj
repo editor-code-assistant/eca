@@ -459,6 +459,22 @@
   (when-not (get-in @db* [:chats chat-id :created-at])
     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
 
+(defn record-unsent-user-messages!
+  "User messages only reach the chat history once the LLM starts responding.
+   Adds the ones of a turn that ended (stopped, failed or superseded) before
+   that, so the next prompt and a resumed chat still have them."
+  [db* chat-id]
+  (when (get-in @db* [:chats chat-id :unsent-user-messages])
+    (swap! db* update-in [:chats chat-id]
+           (fn [{:keys [unsent-user-messages messages] :as chat}]
+             (let [{:keys [content-id] user-messages :messages} unsent-user-messages]
+               (cond-> (dissoc chat :unsent-user-messages)
+                 (and (seq user-messages)
+                      (not-any? #(= content-id (:content-id %)) messages))
+                 (update :messages (fnil into [])
+                         (map #(assoc % :content-id content-id :created-at (System/currentTimeMillis)))
+                         user-messages)))))))
+
 (defn ^:private dispatch-finish-callbacks!
   "Dispatch finish-flow callbacks. `on-finished-side-effect` always runs first
    (and may itself request `stop-after-finish?`). After that, exactly one
@@ -499,6 +515,7 @@
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
           (swap! db* update-in [:chats chat-id] dissoc :steer-message)
+          (record-unsent-user-messages! db* chat-id)
           (apply-status-transition! chat-ctx status))
         ;; A postRequest hook that returned continue:false stops the turn and
         ;; cancels followUp; surface the reason to the user (prefixed with the

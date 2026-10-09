@@ -1,9 +1,13 @@
 (ns eca.oauth-test
   (:require
+   [cheshire.core :as json]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.oauth :as oauth]
    [hato.client :as http]
+   [matcher-combinators.matchers :as m]
+   [matcher-combinators.test :refer [match?]]
    [ring.util.codec :as ring.util]))
 
 (deftest generate-pkce-test
@@ -363,6 +367,69 @@
                                {:status 404}))]
       (let [info (oauth/oauth-info "https://example.com/mcp" nil)]
         (is (= oauth/eca-client-id (:client-id info)))))))
+
+(defn ^:private with-auth-server
+  "Stubs an OAuth-protected MCP server whose authorization server supports DCR
+   and publishes `extra-meta`. Calls `f` with an atom counting DCR attempts."
+  [extra-meta f]
+  (let [dcr-calls (atom 0)]
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                (do (swap! dcr-calls inc)
+                                    {:status 200 :body {:client_id "dcr-obtained-id"}})
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   (merge {:authorization_endpoint "https://example.com/authorize"
+                                                           :token_endpoint "https://example.com/token"
+                                                           :registration_endpoint "https://example.com/register"}
+                                                          extra-meta))
+                               {:status 404}))]
+      (f dcr-calls))))
+
+(defn ^:private auth-url-params [info]
+  (ring.util/form-decode (second (string/split (:authorization-endpoint info) #"\?" 2))))
+
+(deftest oauth-info-cimd-test
+  (testing "uses ECA's CIMD URL as client_id instead of DCR when the auth server supports it"
+    (with-auth-server
+      {:client_id_metadata_document_supported true}
+      (fn [dcr-calls]
+        (let [info (oauth/oauth-info "https://example.com/mcp")]
+          (is (= oauth/cimd-client-id (:client-id info)))
+          (is (= oauth/cimd-client-id (get (auth-url-params info) "client_id")))
+          (is (nil? (:client-secret info)) "CIMD client is public")
+          (is (re-matches #"http://localhost:\d+/auth/callback" (:redirect-uri info)))
+          (is (zero? @dcr-calls) "DCR should not be attempted")))))
+
+  (testing "keeps DCR when the auth server does not support CIMD"
+    (with-auth-server
+      {:client_id_metadata_document_supported false}
+      (fn [dcr-calls]
+        (is (= "dcr-obtained-id" (:client-id (oauth/oauth-info "https://example.com/mcp"))))
+        (is (= 1 @dcr-calls)))))
+
+  (testing "any configured client setting keeps the pre-registered client or DCR"
+    (doseq [[setting args expected-client-id] [["clientId" ["my-client"] "my-client"]
+                                               ["clientSecret" [nil "my-secret"] "dcr-obtained-id"]
+                                               ["oauthPort" [nil nil 19284] "dcr-obtained-id"]
+                                               ["clientName" [nil nil nil "Claude Code"] "dcr-obtained-id"]]]
+      (with-auth-server
+        {:client_id_metadata_document_supported true}
+        (fn [_]
+          (is (= expected-client-id
+                 (:client-id (apply oauth/oauth-info "https://example.com/mcp" args)))
+              setting))))))
+
+(deftest published-client-metadata-document-test
+  (testing "docs/oauth/client-metadata.json (served at the CIMD URL) matches ECA's OAuth client"
+    (is (match? {:client_id oauth/cimd-client-id
+                 :redirect_uris (m/embeds ["http://localhost/auth/callback"])
+                 :grant_types (m/embeds ["authorization_code" "refresh_token"])
+                 :token_endpoint_auth_method "none"}
+                (json/parse-string (slurp (io/file "docs" "oauth" "client-metadata.json")) true)))))
 
 (deftest url-without-query-test
   (testing "strips query string"
