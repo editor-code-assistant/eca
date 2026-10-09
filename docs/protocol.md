@@ -3504,6 +3504,30 @@ interface MCPRemoveServerResult {
 }
 ```
 
+## Model Catalog
+
+### Refresh Models (↩️)
+
+Request a fresh model catalog without changing provider configuration or chat selections. The request completes after reconciliation. It does not select a model. `providers/list` remains a read-only snapshot.
+
+_Request:_
+
+* method: `models/refresh`
+* params: `{}`
+
+_Response:_
+
+```typescript
+interface ModelsRefreshResult {
+    modelCount: number;
+    warnings: { provider: string; message: string }[];
+}
+```
+
+A successful response can contain warnings. Discovery uses the native provider endpoint first, then `models.dev`. If both sources fail, the server retains that provider's last known in-memory models and reports them as stale. A disk-cache fallback produces one `models.dev` warning because cached metadata or fallback lists can be stale. An Ollama fetch failure retains its last known models when Ollama remains configured and reports stale data. A valid empty Ollama catalog removes those models. Failed near-expiry token renewal produces a provider warning. Static configured models and available Ollama models remain eligible. If no usable models remain, the request returns a JSON-RPC error with code `no_usable_model_catalog`. The server keeps the current model list in that case.
+
+After successful reconciliation, the server sends `config/updated` with `chat.models` when that list changes. The response does not carry the list. The refresh notification does not contain `selectModel`, `selectAgent`, or `selectVariant`. Existing chat selections stay unchanged, even if a selected model leaves the catalog.
+
 ## Provider Management
 
 ### List Providers (↩️)

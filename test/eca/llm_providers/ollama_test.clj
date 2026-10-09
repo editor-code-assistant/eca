@@ -12,8 +12,8 @@
     (let [req* (atom nil)
           fake-api-url "http://localhost:99"
           fake-response {:status 200
-                         :body {:models [{:name "model-a"}
-                                         {:name "model-b"}]}}]
+                         :body {:models [{:model "model-a"}
+                                         {:model "model-b"}]}}]
       (with-client-proxied {}
 
         (fn handler [req]
@@ -26,7 +26,25 @@
                  (select-keys @req* [:method :uri])))
 
           ;; response parsing
-          (is (= [{:name "model-a"} {:name "model-b"}] result)))))))
+          (is (= [{:model "model-a"} {:model "model-b"}] result)))))))
+
+(deftest list-models-failure-vs-empty-test
+  (let [api-url "http://localhost:99"]
+    (testing "a valid empty catalog is a successful fetch"
+      (with-redefs [http/get (fn [_ _] {:status 200 :body {:models []}})]
+        (is (= [] (llm-providers.ollama/list-models {:api-url api-url})))))
+    (testing "HTTP failure is not an empty catalog"
+      (with-redefs [http/get (fn [_ _] {:status 503 :body {:models []}})]
+        (is (nil? (llm-providers.ollama/list-models {:api-url api-url})))))
+    (testing "transport exceptions are not empty catalogs"
+      (with-redefs [http/get (fn [_ _] (throw (ex-info "offline" {})))]
+        (is (nil? (llm-providers.ollama/list-models {:api-url api-url})))))
+    (testing "a malformed successful catalog is not empty"
+      (doseq [body [{} {:models nil} {:models {}} {:models "invalid"}
+                    {:models [nil]} {:models [{}]} {:models [{:model ""}]}
+                    {:models [{:model 42}]}]]
+        (with-redefs [http/get (fn [_ _] {:status 200 :body body})]
+          (is (nil? (llm-providers.ollama/list-models {:api-url api-url}))))))))
 
 (deftest model-capabilities-test
   (testing "fetches capabilities for a specific Ollama model"

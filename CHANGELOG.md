@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `models/refresh` to update the model catalog without restarting; report provider fallback and stale-model warnings while preserving chat selections.
+
 ## 0.163.0
 
 - Add subagent `timeoutSeconds`; on timeout or max steps the subagent gets a final no-tools turn to report findings, and a parent stop keeps its partial output. #625

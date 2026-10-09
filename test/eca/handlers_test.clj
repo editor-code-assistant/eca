@@ -1,16 +1,214 @@
 (ns eca.handlers-test
   (:require
    [clojure.test :refer [deftest is testing]]
+   [hato.client :as http]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.hooks :as f.hooks]
+   [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
+   [eca.llm-providers.ollama :as ollama]
    [eca.models :as models]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
+
+(deftest models-refresh-test
+  (h/reset-components!)
+  (swap! (h/db*) assoc :models {"openai/old" {:tools true}}
+         :chats {"c1" {:model "openai/old"}})
+  (with-redefs [models/sync-models! (fn [db* _config callback _opts]
+                                      (swap! db* assoc :models {"openai/new" {:tools true}})
+                                      (callback (:models @db*))
+                                      {:model-count 1 :warnings []})]
+    (is (= {:modelCount 1 :warnings []}
+           (handlers/models-refresh (h/components) {})))
+    (is (= "openai/old" (get-in (h/db) [:chats "c1" :model])))
+    (is (= [{:chat {:models ["openai/new"]}}]
+           (:config-updated (h/messages))))))
+
+(deftest login-and-provider-model-notifications-keep-refresh-mirror-current-test
+  (doseq [[path initial changed action]
+          [["chat login" ["openai/a"] ["openai/a" "openai/b"]
+            (fn [] (f.login/login-done! {:chat-id "c1" :db* (h/db*)
+                                         :messenger (h/messenger) :metrics (h/metrics)
+                                         :provider "openai" :send-msg! (fn [_])}
+                                        :silent? true))]
+           ["Providers login" ["openai/a"] ["openai/a" "openai/b"]
+            (fn [] (f.providers/provider-login-input "openai" {:api-key "test"}
+                                                     (h/db*) (h/config) (h/messenger) (h/metrics)))]
+           ["Providers logout" ["openai/a" "openai/b"] ["openai/a"]
+            (fn [] (f.providers/provider-logout "openai" (h/db*) (h/config)
+                                                (h/messenger) (h/metrics)))]]]
+    (testing path
+      (h/reset-components!)
+      (let [next-models* (atom changed)]
+        (config/notify-fields-changed-only! {:chat {:models initial}} (h/messenger) (h/db*))
+        (with-redefs [db/update-global-cache! (fn [& _])
+                      models/sync-models! (fn [db* _config callback & _]
+                                            (let [new-models (zipmap @next-models* (repeat {}))]
+                                              (swap! db* assoc :models new-models)
+                                              (callback new-models)
+                                              {:model-count (count new-models) :warnings []}))]
+          (action)
+          (is (= [{:chat {:models initial}} {:chat {:models changed}}]
+                 (:config-updated (h/messages))))
+          (when (not= path "chat login")
+            (is (= 1 (count (:provider-updated (h/messages))))))
+          (action)
+          (is (= 2 (count (:config-updated (h/messages))))
+              "an unchanged login/logout catalog must not send another model list")
+          (when (not= path "chat login")
+            (is (= 2 (count (:provider-updated (h/messages))))
+                "provider status must still be sent when the models are unchanged"))
+          (reset! next-models* initial)
+          (handlers/models-refresh (h/components) {})
+          (is (= [{:chat {:models initial}}
+                  {:chat {:models changed}}
+                  {:chat {:models initial}}]
+                 (:config-updated (h/messages))))
+          (handlers/models-refresh (h/components) {})
+          (is (= 3 (count (:config-updated (h/messages)))))
+          (when (not= path "chat login")
+            (is (= 2 (count (:provider-updated (h/messages)))))))))))
+
+(deftest models-refresh-uses-config-at-turn-test
+  (h/reset-components!)
+  (let [current* (atom {:providers {"old" {:api "openai-chat" :url "https://old.test" :key "key"}}})
+        entered (promise)
+        release (promise)
+        renewed* (atom [])
+        fetched* (atom [])
+        first-turn (models/reserve-sync!)
+        second-turn (models/reserve-sync!)]
+    (with-redefs [config/all (fn [_] @current*)
+                  models/models-dev (fn [] {})
+                  ollama/list-models (fn [_] [])
+                  f.login/renew-expiring-auth-tokens! (fn [{:keys [config]}]
+                                                         (swap! renewed* conj config))
+                  http/get (fn [url _]
+                             (swap! fetched* conj url)
+                             {:status 200 :body {:data [{:id "found"}]}})]
+      (let [first-sync (future (models/sync-models! (h/db*) {:providers {}}
+                                                    (fn [_] (deliver entered true) @release)
+                                                    {:turn first-turn}))]
+        (try
+          (is (= true (deref entered 5000 false)))
+          (let [refresh (future (handlers/models-refresh
+                                 (assoc (h/components) :model-sync-turn second-turn) {}))]
+            (reset! current* {:providers {"new" {:api "openai-chat" :url "https://new.test" :key "key"}}})
+            (is (empty? @renewed*))
+            (deliver release true)
+            (is (not= :timeout (deref first-sync 5000 :timeout)))
+            (is (= {:modelCount 1 :warnings []} (deref refresh 5000 :timeout)))
+            (is (= [@current*] @renewed*))
+            (is (= ["https://new.test/models"] @fetched*)))
+          (finally (deliver release true)))))))
+
+(deftest login-syncs-read-config-inside-turn-test
+  (doseq [[path sync!]
+          [["chat login" (fn [] (f.login/login-done!
+                                 {:chat-id "c1" :db* (h/db*) :messenger (h/messenger)
+                                  :metrics (h/metrics) :provider "new" :send-msg! (fn [_])}
+                                 :silent? true))]
+           ["provider login/logout" (fn [] (f.providers/sync-and-notify!
+                                            "new" (h/db*) (h/messenger) (h/metrics)))]]]
+    (testing path
+      (h/reset-components!)
+      (let [current* (atom {:providers {}})
+            entered (promise)
+            release (promise)
+            fetched* (atom [])
+            renewed* (atom [])
+            blocker (models/reserve-sync!)]
+        (with-redefs [config/all (fn [_] @current*)
+                      db/update-global-cache! (fn [& _])
+                      models/models-dev (fn [] {})
+                      ollama/list-models (fn [_] [])
+                      f.login/renew-expiring-auth-tokens! (fn [{:keys [config]}]
+                                                             (swap! renewed* conj config))
+                      http/get (fn [url _]
+                                 (swap! fetched* conj url)
+                                 {:status 200 :body {:data [{:id "found"}]}})]
+          (let [work (future (deliver entered true) (sync!))]
+            (try
+              (is (= true (deref entered 5000 false)))
+              (reset! current* {:providers {"new" {:api "openai-chat" :url "https://new.test" :key "key"}}})
+              (is (empty? @renewed*))
+              (deliver (:done blocker) true)
+              (is (not= :timeout (deref work 5000 :timeout)))
+              (is (= ["https://new.test/models"] @fetched*))
+              (is (= [@current*] @renewed*)
+                  "renewal uses the provider config from its sync turn")
+              (finally (deliver (:done blocker) true)))))))))
+
+(deftest initialized-sync-renews-after-queue-test
+  (h/reset-components!)
+  (let [initial (assoc (config/all (h/db)) :providers {})
+        current* (atom initial)
+        entered (promise)
+        renewed-once (promise)
+        renewed* (atom [])
+        blocker (models/reserve-sync!)
+        sync! models/sync-models!]
+    (try
+      (with-redefs [config/all (fn [_] @current*)
+                    config/listen-for-changes! (fn [& _])
+                    f.hooks/trigger-if-matches! (fn [& _])
+                    f.tools/init-servers! (fn [& _])
+                    models/models-dev (fn [] {})
+                    ollama/list-models (fn [_] [])
+                    f.login/renew-expiring-auth-tokens! (fn [{:keys [config]}]
+                                                           (swap! renewed* conj config)
+                                                           (deliver renewed-once true))
+                    models/sync-models! (fn [& args]
+                                          (deliver entered true)
+                                          (apply sync! args))]
+        (handlers/initialized (h/components))
+        (is (= true (deref entered 5000 false)))
+        (is (empty? @renewed*) "startup renewal waits for its sync turn")
+        (reset! current* (assoc initial :providers {"new" {:fetchModels false :models {"pinned" {}}}}))
+        (deliver (:done blocker) true)
+        (is (= true (deref renewed-once 5000 false)))
+        (is (= [@current*] @renewed*))
+        (let [callback (get-in @(h/db*) [:config-updated-fns :sync-models])
+              newer (assoc initial :providers {"latest" {:fetchModels false :models {"pinned" {}}}})]
+          (reset! current* newer)
+          (callback @current* newer)
+          (is (= [(:providers (first @renewed*)) (:providers newer)]
+                 (mapv :providers @renewed*)))))
+      (finally (deliver (:done blocker) true)))))
+
+(deftest models-refresh-renewal-warning-test
+  (h/reset-components!)
+  (with-redefs [f.login/renew-expiring-auth-tokens!
+                (fn [{:keys [on-renew-error]}] (on-renew-error "openai" "expired"))
+                models/sync-models!
+                (fn [db* config callback {:keys [before-sync]}]
+                  (let [warnings* (atom [])]
+                    (before-sync (if (fn? config) (config) config)
+                                 (fn [provider message]
+                                   (swap! warnings* conj {:provider provider :message message})))
+                    (swap! db* assoc :models {"openai/new" {}})
+                    (callback (:models @db*))
+                    {:model-count 1 :warnings @warnings*}))]
+    (is (= {:modelCount 1 :warnings [{:provider "openai" :message "expired"}]}
+           (handlers/models-refresh (h/components) {})))))
+
+(deftest models-refresh-no-catalog-test
+  (h/reset-components!)
+  (with-redefs [models/sync-models!
+                (fn [_ _ _ _]
+                  (throw (ex-info "No usable model catalog available; current models unchanged"
+                                  {:type :no-usable-model-catalog})))]
+    (is (= {:error {:code "no_usable_model_catalog"
+                    :message "No usable model catalog available; current models unchanged"}}
+           (handlers/models-refresh (h/components) {})))
+    (is (empty? (:config-updated (h/messages))))))
 
 (deftest initialize-test
   (testing "initializationOptions config is merged properly with default init config"
