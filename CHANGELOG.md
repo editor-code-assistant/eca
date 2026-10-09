@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Stop the `shell_command` prompt from asking for a description of the command, as the tool has no such param and calls with it now fail.
-- Allow `spawn_agent` to continue a subagent conversation using optional `chat_id`, preserving its history and model selections within the same live parent chat. #614
+- Allow `spawn_agent` to continue a subagent conversation with optional `chat_id`, keeping its history and (unless overridden) model; each run gets fresh step/time budgets. #614
 
 ## 0.163.0
 

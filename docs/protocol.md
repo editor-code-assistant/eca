@@ -1330,9 +1330,18 @@ interface SubagentDetails {
     /**
      * The chatId of this running subagent, useful to link other chat/ContentReceived
      * messages to this tool call.
-     * Available from toolCallRun afterwards
+     * Available from toolCallRun afterwards.
+     * A subagent continued with spawn_agent's `chat_id` keeps its chatId, so several
+     * tool calls of the same parent chat can share it.
      */
     subagentChatId?: string;
+
+    /**
+     * The [start, end) indexes of the subagent chat messages that this tool call ran,
+     * [0, 0] when it did not run. Set on toolCalled. History replay uses it to show
+     * each call's part of a continued subagent.
+     */
+    subagentMessageRange?: [number, number];
 
     /**
      *  The model this subagent is using.

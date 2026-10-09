@@ -4,11 +4,28 @@
    [babashka.process :as p]
    [clojure.test :refer [are deftest is testing]]
    [eca.features.tools.shell :as f.tools.shell]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
 (def ^:private call-state-fn (constantly {:status :executing}))
 (def ^:private state-transition-fn (constantly nil))
+
+(deftest background-command-is-not-a-tool-resource-test
+  (testing "a background job is never a tool-call resource, so stopping the chat neither waits for it nor kills it"
+    (let [events* (atom [])
+          ;; An existing dir: on Windows a temp dir that the job still uses cannot be deleted.
+          dir (System/getProperty "user.dir")
+          result ((get-in f.tools.shell/definitions ["shell_command" :handler])
+                  {"command" "echo started" "background" "test job"}
+                  {:db {:workspace-folders [{:uri (shared/filename->uri dir) :name "project"}]}
+                   :db* (atom {})
+                   :chat-id "chat"
+                   :messenger (h/messenger)
+                   :call-state-fn call-state-fn
+                   :state-transition-fn (fn [event & _] (swap! events* conj event))})]
+      (is (match? {:contents [{:text #"Background job \S+ started"}]} result))
+      (is (empty? @events*)))))
 
 (deftest shell-command-test
   (testing "non-existent working_directory"
