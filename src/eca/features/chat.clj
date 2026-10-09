@@ -1074,6 +1074,8 @@
             provider-auth (get-in @db* [:auth provider])
             all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
             auto-continue-limit (provider-max-auto-continues config provider)
+            ;; Consecutive recoveries; reset when a response completes and its tools run.
+            auto-continue-count* (atom (:auto-continue-count chat-ctx 0))
             received-msgs* (atom "")
             reasonings* (atom {})
             server-tool-times* (atom {})
@@ -1285,7 +1287,8 @@
                                                                    " Try rephrasing or switching to a different model.")})
                                                       (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
                                                       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
-                                         :finish (let [response-text @received-msgs*
+                                         :finish (let [chat-ctx (assoc chat-ctx :auto-continue-count @auto-continue-count*)
+                                                       response-text @received-msgs*
                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
                                                    (when-not (string/blank? response-text)
                                                      (add-to-history! {:role "assistant"
@@ -1344,7 +1347,9 @@
                 :on-tools-called (tc/on-tools-called!
                                   (assoc chat-ctx :continue-fn
                                          (fn [tc-all-tools tc-user-messages]
-                                           (let [continue-turn! (fn []
+                                           (reset! auto-continue-count* 0)
+                                           (let [chat-ctx (assoc chat-ctx :auto-continue-count 0)
+                                                 continue-turn! (fn []
                                                                   (consume-steer-message! chat-id db* chat-ctx add-to-history!)
                                                                   (consume-pending-job-notifications! chat-id db* add-to-history!)
                                                                   {:tools tc-all-tools
@@ -1523,7 +1528,8 @@
                                                                                         {:name resolved-name}))
                                                   nil)))
                 :on-error (fn [{:keys [message exception idle-timeout?] :as error-data}]
-                            (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
+                            (let [chat-ctx (assoc chat-ctx :auto-continue-count @auto-continue-count*)
+                                  {error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   ;; A dead shared connection makes every stacked tool-continuation
                                   ;; request fail: only the first error belongs to this prompt, later
@@ -1743,7 +1749,7 @@
                                                                           (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))
                                                                                (case recovery-blocked-reason
                                                                                  :disabled "\nAutomatic recovery is disabled for this provider (retry.maxAutoContinues: 0)."
-                                                                                 :limit-reached (format "\nAutomatic recovery limit reached (%d/%d for this turn). Send a new message to continue."
+                                                                                 :limit-reached (format "\nAutomatic recovery limit reached (%d/%d in a row). Send a new message to continue."
                                                                                                         auto-continue-count auto-continue-limit)
                                                                                  nil)
                                                                                (when-let [resets-at (:rate-limit-resets-at error-data)]

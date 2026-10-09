@@ -435,7 +435,7 @@
                                            :text #(and (string/includes? % "bad_record_mac")
                                                        (string/includes? % (if (zero? limit)
                                                                              "Automatic recovery is disabled"
-                                                                             (format "Automatic recovery limit reached (%d/%d for this turn)" limit limit))))}}])}
+                                                                             (format "Automatic recovery limit reached (%d/%d in a row)" limit limit))))}}])}
                     (h/messages)))))))
 
 (deftest truncated-response-shares-recovery-budget-test
@@ -460,7 +460,37 @@
                  (m/embeds [{:role :system
                              :content {:type :progress :text #"Response interrupted.*recovery 1/1"}}
                             {:role :system
-                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 for this turn\).*"}}])}
+                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 in a row\).*"}}])}
+                (h/messages)))))
+
+(deftest recovery-budget-resets-after-completed-step-test
+  (h/config! {:providers {"openai" {:retry {:maxAutoContinues 1}}}})
+  (let [attempts* (atom 0)
+        exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")
+        fail! (fn [on-error]
+                (on-error {:exception exception
+                           :message (llm-util/connection-error-message exception)}))
+        {:keys [chat-id]}
+        (prompt!
+         {:message "Keep working"}
+         {:all-tools-mock (constantly [{:name "list_allowed_directories" :full-name "eca__list_allowed_directories" :server {:name "eca"}}])
+          :call-tool-mock (constantly {:error false :contents [{:type :text :text "ok"}]})
+          :api-mock (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called on-error]}]
+                      (let [attempt (swap! attempts* inc)]
+                        (on-first-response-received)
+                        (on-message-received {:type :text :text "Partial"})
+                        (case attempt
+                          1 (fail! on-error)
+                          2 (do
+                              (on-prepare-tool-call {:id "call-1" :full-name "eca__list_allowed_directories" :arguments-text ""})
+                              (on-tools-called [{:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}])
+                              (fail! on-error))
+                          (on-message-received {:type :finish}))))})]
+    (is (= 3 @attempts*) "a completed step refills the budget, so the second failure is recovered")
+    (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
+    (is (match? {:chat-content-received
+                 (m/embeds [{:role :system :content {:type :progress :text #"recovery 1/1"}}
+                            {:role :system :content {:type :progress :text #"recovery 1/1"}}])}
                 (h/messages)))))
 
 (deftest stream-error-rejects-preparing-tool-calls-test
