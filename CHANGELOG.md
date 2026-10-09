@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Stop the `shell_command` prompt from asking for a description of the command, as the tool has no such param and calls with it now fail.
+
 ## 0.163.0
 
 - Add subagent `timeoutSeconds`; on timeout or max steps the subagent gets a final no-tools turn to report findings, and a parent stop keeps its partial output. #625
