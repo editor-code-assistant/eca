@@ -117,6 +117,18 @@
                  (#{:completed :rejected} (:status state))))
        (into {})))
 
+(def ^:private waiting-approval-progress-text "Waiting for tool call approval")
+
+(defn ^:private progress-text
+  "Progress text for a tool call transition of `chat-id`. While any of its tool
+   calls waits for approval that is shown instead of `text`, so an approved
+   tool call finishing in the background doesn't hide the pending approval."
+  [db chat-id text]
+  (if (some #(= :waiting-approval (:status %))
+            (vals (get-in db [:chats chat-id :tool-calls])))
+    waiting-approval-progress-text
+    text))
+
 (defn ^:private run-post-tool-call-hooks!
   "Run postToolCall hooks and append any additionalContext to the tool output.
    Returns {:stop-turn? boolean :stop-reason string-or-nil} when a hook returns
@@ -356,7 +368,7 @@
     (lifecycle/send-content! chat-ctx :system
                              {:type :progress
                               :state :running
-                              :text (:progress-text event-data)})
+                              :text (progress-text @db* (:chat-id chat-ctx) (:progress-text event-data))})
 
     :send-toolCallPrepare
     (lifecycle/send-content! chat-ctx :assistant
@@ -871,7 +883,7 @@
                                                                             :summary                   summary}))
                         (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state @db* chat-id id)))
                           (case decision
-                            :ask   (transition-tool-call! db* chat-ctx id :approval-ask {:progress-text "Waiting for tool call approval"})
+                            :ask   (transition-tool-call! db* chat-ctx id :approval-ask {:progress-text waiting-approval-progress-text})
                             :allow (transition-tool-call! db* chat-ctx id :approval-allow {:reason reason})
                             :deny  (transition-tool-call! db* chat-ctx id :approval-deny {:reason reason})
                             (logger/warn logger-tag "Unknown value of approval" {:approval decision :tool-call-id id})))

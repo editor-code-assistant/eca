@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
+
 ## 0.163.1
 
 - Stop the `shell_command` prompt from asking for a description of the command, as the tool has no such param and calls with it now fail.

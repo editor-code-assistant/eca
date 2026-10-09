@@ -497,6 +497,66 @@
                         (first completed-messages))
                 "Expected toolCalled message to contain correct completion details")))))))
 
+(deftest transition-tool-call-progress-keeps-pending-approval-test
+  (testing "Another tool call finishing doesn't replace the progress of a tool call waiting for approval"
+    (h/reset-components!)
+    (let [db* (h/db*)
+          chat-id "test-chat"
+          chat-ctx {:chat-id chat-id :request-id "req-1" :messenger (h/messenger)}
+          last-progress-text #(->> (:chat-content-received (h/messages))
+                                   (filter (fn [msg] (= :progress (get-in msg [:content :type]))))
+                                   last
+                                   :content
+                                   :text)
+          ask-approval! (fn [tool-call-id]
+                          (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-prepare
+                                                      {:name "shell" :origin :native :arguments-text "{}"})
+                          (#'tc/transition-tool-call! db* chat-ctx tool-call-id :tool-run
+                                                      {:approved?* (promise)
+                                                       :future-cleanup-complete?* (promise)
+                                                       :name "shell"
+                                                       :origin :native
+                                                       :arguments {}
+                                                       :manual-approval true})
+                          (#'tc/transition-tool-call! db* chat-ctx tool-call-id :approval-ask
+                                                      {:progress-text "Waiting for tool call approval"}))
+          approve-and-start! (fn [tool-call-id]
+                               (#'tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
+                                                           {:reason {:code :user-choice-allow
+                                                                     :text "Tool call allowed by user choice"}})
+                               (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-start
+                                                           {:delayed-future (delay nil)
+                                                            :name "shell"
+                                                            :origin :native
+                                                            :arguments {}
+                                                            :start-time (System/currentTimeMillis)
+                                                            :progress-text "Calling tool"}))
+          finish! (fn [tool-call-id]
+                    (#'tc/transition-tool-call! db* chat-ctx tool-call-id :execution-end
+                                                {:name "shell"
+                                                 :origin :native
+                                                 :arguments {}
+                                                 :error false
+                                                 :outputs []
+                                                 :total-time-ms 1
+                                                 :progress-text "Generating"}))]
+      (ask-approval! "tool-1")
+      (approve-and-start! "tool-1")
+      (is (= "Calling tool" (last-progress-text)))
+
+      (ask-approval! "tool-2")
+      (is (= "Waiting for tool call approval" (last-progress-text)))
+
+      (finish! "tool-1")
+      (is (= "Waiting for tool call approval" (last-progress-text))
+          "Expected tool-1 finishing to keep the approval progress while tool-2 waits for approval")
+
+      (approve-and-start! "tool-2")
+      (is (= "Calling tool" (last-progress-text)))
+
+      (finish! "tool-2")
+      (is (= "Generating" (last-progress-text))))))
+
 ;;; Tests for stop-prompt functionality.
 
 (deftest transition-tool-call-all-states-to-stop-test
