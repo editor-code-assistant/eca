@@ -229,6 +229,8 @@
    Note: All actions are run in the order specified.
    Note: The :send-* actions should be last, so that they have the latest values of the state context.
    Note: The :status is updated before any actions are run, so the actions are in the context of the latest :status.
+   Note: :finally-actions run after the actions and the status hook, even when they throw.
+   The future-cleanup promise is delivered there, so a stop joins the post-tool hooks too.
 
    Note: all choices (i.e. conditionals) have to be made in code and result
    in different events being sent to the state machine.
@@ -278,7 +280,8 @@
 
    [:executing :execution-end]
    {:status :cleanup
-    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
+    :actions [:save-execution-result :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]
+    :finally-actions [:deliver-future-cleanup-completed]}
 
    [:cleanup :cleanup-finished]
    {:status :completed
@@ -298,7 +301,8 @@
 
    [:stopping :stop-attempted]
    {:status :cleanup
-    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCallRejected :trigger-post-tool-call-hook]}
+    :actions [:save-execution-result :send-toolCallRejected :trigger-post-tool-call-hook]
+    :finally-actions [:deliver-future-cleanup-completed]}
 
    ;; And now all the :stop-requested transitions
 
@@ -574,7 +578,8 @@
    - event: Event keyword (e.g., :tool-prepare, :tool-run, :user-approve)
    - event-data: Optional map with event-specific data
 
-   Returns: {:status new-status :actions actions-executed}
+   Returns: the transition, {:status new-status :actions actions-executed}
+   plus its :finally-actions, if any.
 
    Throws: ex-info if the transition is invalid for the current state.
 
@@ -584,7 +589,7 @@
   (let [current-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)
         current-status (:status current-state :initial) ; Default to :initial if no state
         transition-key [current-status event]
-        {:keys [status actions]} (get tool-call-state-machine transition-key)]
+        {:keys [status actions finally-actions] :as transition} (get tool-call-state-machine transition-key)]
 
     (logger/debug logger-tag "Tool call transition"
                   {:tool-call-id tool-call-id :current-status current-status :event event :status status})
@@ -601,13 +606,15 @@
     ;; Atomic status update
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :status] status)
 
-    ;; Execute all actions sequentially
-    (doseq [action actions]
-      (execute-action! action db* chat-ctx tool-call-id event-data))
+    (try
+      (doseq [action actions]
+        (execute-action! action db* chat-ctx tool-call-id event-data))
+      (lifecycle/trigger-chat-status-hook! (assoc chat-ctx :db* db*))
+      (finally
+        (doseq [action finally-actions]
+          (execute-action! action db* chat-ctx tool-call-id event-data))))
 
-    (lifecycle/trigger-chat-status-hook! (assoc chat-ctx :db* db*))
-
-    {:status status :actions actions}))
+    transition))
 
 (def ^:private hook-approval-rank
   {"allow" 1
@@ -890,7 +897,7 @@
                                                                                      config
                                                                                      messenger
                                                                                      metrics
-                                                                                     (partial get-tool-call-state @db* chat-id id)
+                                                                                     #(get-tool-call-state @db* chat-id id)
                                                                                      (partial transition-tool-call! db* chat-ctx id)
                                                                                      {:trust (db/resolve-trust @db* chat-id)})
                                             details              (f.tools/tool-call-details-after-invocation name arguments details result
@@ -980,7 +987,6 @@
                           (reduced nil))))
                     nil
                     tool-calls)
-            (lifecycle/assert-chat-not-stopped! chat-ctx)
             (doseq [[tool-call-id state] (get-active-tool-calls @db* chat-id)]
               (when-let [f (:future state)]
                 (try (deref f)
@@ -1011,6 +1017,7 @@
                                                     :ex-data (ex-data t)
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
+            (lifecycle/assert-chat-not-stopped! chat-ctx)
             (f.tools.mcp/await-pending-tools-refresh @db* 5000)
             ;; Token can expire during long tool calls (e.g. spawn_agent),
             ;; so renew before any continuation branch.

@@ -49,6 +49,9 @@
    ;; chat ids deleted in this session; excluded from workspace cache writes so
    ;; the merge-on-write never resurrects them from a shared cache file.
    :deleted-chat-ids #{:string}
+   ;; chats only their owner may prompt (spawn_agent for subagents); the owner
+   ;; passes its :token as :owner-token, :workers counts unwinding prompt workers.
+   :managed-chats {"<chat-id>" {:token ::object :workers :number :interrupted? :boolean}}
    :models {"<model-name>" {:web-search :boolean
                             :tools :boolean
                             :reason? :boolean
@@ -176,6 +179,8 @@
    :tool-calls {}
    ;; Chat ids deleted in this session (not cached), see _db-spec.
    :deleted-chat-ids #{}
+   ;; Chats only their owner may prompt (not cached), see _db-spec.
+   :managed-chats {}
 
    ;; cacheable; bump `chats-version` when changing :chats shape, `version`
    ;; when changing :auth/:mcp-auth shape
