@@ -250,6 +250,10 @@
                    :message (llm-util/connection-error-message e)})))
     @response*))
 
+(def ^:private transient-stream-error-types
+  "Anthropic SSE `error` event types equivalent to transient 5xx statuses."
+  #{"api_error" "overloaded_error" "timeout_error"})
+
 (defn ^:private request-with-retry!
   "Retries one exact post-tool request, never the tool execution that built it.
    Defer retry decisions until the failed stream and its watchdog are closed."
@@ -713,7 +717,9 @@
                                                        :premature? true})
                                  (throw (ex-info "Stream ended without completion"
                                                  {:error/type :premature-stop}))))
-              "error" (on-error {:message (format "\nAnthropic error response: %s" (:error data))})
+              "error" (on-error (cond-> {:message (format "\nAnthropic error response: %s" (:error data))}
+                                  (contains? transient-stream-error-types (-> data :error :type))
+                                  (assoc :error/type :overloaded)))
               nil))))]
     (base-request!
      {:rid (llm-util/gen-rid)
