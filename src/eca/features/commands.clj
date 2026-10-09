@@ -382,12 +382,14 @@
          (let [desc (:description agent-config)
                model (:defaultModel agent-config)
                steps (:maxSteps agent-config)
+               timeout (:timeoutSeconds agent-config)
                permissions (format-tool-permissions agent-config)]
            (str s "- **" agent-name "**"
                 (when desc (str ": " desc))
                 "\n"
                 (when model (str "  Model: " model "\n"))
                 (when steps (str "  Max steps: " steps "\n"))
+                (when timeout (str "  Timeout: " timeout "s\n"))
                 (when permissions (str "  Tool permissions:\n" permissions "\n"))
                 "\n")))
        "Subagents available:\n\n"

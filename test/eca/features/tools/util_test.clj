@@ -195,6 +195,54 @@
              "count" 0
              "tags" []})))))
 
+(deftest invalid-params-error-test
+  (let [schema {:type "object"
+                :properties {"path" {:type "string"}
+                             "line_offset" {:type "integer"}
+                             "limit" {:type "integer"}}
+                :required ["path"]}]
+    (testing "returns nil when args are valid"
+      (is (nil? (tools.util/invalid-params-error schema {"path" "/a" "line_offset" 10} :native))))
+
+    (testing "reports missing required params"
+      (is (= {:error true
+              :contents [{:type :text
+                          :text "INVALID_ARGS: missing required params: `path`"}]}
+             (tools.util/invalid-params-error schema {"limit" 5} :native))))
+
+    (testing "native tool rejects unknown args and lists supported params"
+      (is (= {:error true
+              :contents [{:type :text
+                          :text "INVALID_ARGS: unknown params: `offset`. Supported params: `path` (required), `line_offset`, `limit`"}]}
+             (tools.util/invalid-params-error schema {"path" "/a" "offset" 10 "limit" 5} :native))))
+
+    (testing "reports unknown and missing params together"
+      (is (match? {:error true
+                   :contents [{:text "INVALID_ARGS: unknown params: `offset`; missing required params: `path`. Supported params: `path` (required), `line_offset`, `limit`"}]}
+                  (tools.util/invalid-params-error schema {"offset" 10} :native))))
+
+    (testing "native tool allows unknown args when schema opts in"
+      (is (nil? (tools.util/invalid-params-error (assoc schema :additionalProperties true)
+                                                 {"path" "/a" "offset" 10} :native))))
+
+    (testing "MCP tool allows unknown args by default"
+      (is (nil? (tools.util/invalid-params-error schema {"path" "/a" "offset" 10} :mcp))))
+
+    (testing "MCP tool rejects unknown args when additionalProperties is false"
+      (is (match? {:error true
+                   :contents [{:text #"unknown params: `offset`"}]}
+                  (tools.util/invalid-params-error (assoc schema :additionalProperties false)
+                                                   {"path" "/a" "offset" 10} :mcp)))))
+
+  (testing "tool with no params says so"
+    (is (match? {:error true
+                 :contents [{:text "INVALID_ARGS: unknown params: `foo`. Supported params: none"}]}
+                (tools.util/invalid-params-error {:type "object" :properties {}} {"foo" 1} :native))))
+
+  (testing "skips unknown check for schemas without properties"
+    (is (nil? (tools.util/invalid-params-error {:type "object"} {"foo" 1} :native)))
+    (is (nil? (tools.util/invalid-params-error nil {"foo" 1} :native)))))
+
 (deftest path-outside-workspace-allows-tool-call-outputs-dir-test
   (testing "path inside tool-call-outputs cache dir is not considered outside workspace"
     (let [db {:workspace-folders [{:uri (h/file-uri "file:///home/user/project") :name "project"}]}

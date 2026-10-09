@@ -11,7 +11,8 @@
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [eca.secrets :as secrets]
-   [eca.test-helper :as h]))
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
 
@@ -755,6 +756,59 @@
           (is (= 1 (count (distinct session-ids)))
               "every request in the turn shares one Session-ID"))))))
 
+(deftest inheriting-provider-follows-parent-behavior-test
+  (let [base-opts {:user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                   :instructions {:static "static" :dynamic "dynamic"}
+                   :past-messages []
+                   :tools []
+                   :sync? false}]
+    (testing "a provider inheriting anthropic sends OAuth auth and structured instructions like anthropic"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.anthropic/chat!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (merge base-opts
+                  {:provider "anthropic-work"
+                   :model "claude-opus-5"
+                   :model-capabilities {:tools true :model-name "claude-opus-5"}
+                   :provider-auth {:api-key "work-oauth-token" :type :auth/oauth}
+                   :config {:providers {"anthropic" {:api "anthropic"
+                                                     :url "https://api.anthropic.com"}
+                                        "anthropic-work" {:api "anthropic"
+                                                          :url "https://api.anthropic.com"
+                                                          :inherit "anthropic"}}}})))
+        (is (match? {:api-key "work-oauth-token"
+                     :auth-type :auth/oauth
+                     :instructions {:static "static" :dynamic "dynamic"}}
+                    @captured*))))
+
+    (testing "a provider inheriting openai keeps Codex behavior and its own account"
+      (let [captured* (atom nil)]
+        (with-redefs [llm-providers.openai/create-response!
+                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+          (#'eca.llm-api/prompt!
+           (merge base-opts
+                  {:provider "openai-work"
+                   :model "gpt-5.5"
+                   :model-capabilities {:tools true :model-name "gpt-5.5"}
+                   :provider-auth {:api-key "work-oauth-token" :type :auth/oauth :account-id "work-account"}
+                   :config {:providers {"openai" {:api "openai-responses"
+                                                  :url "https://api.openai.com"}
+                                        "openai-work" {:api "openai-responses"
+                                                       :url "https://api.openai.com"
+                                                       :inherit "openai"}}}})))
+        (is (match? {:provider "openai"
+                     :api-key "work-oauth-token"
+                     :auth-type :auth/oauth
+                     :account-id "work-account"}
+                    @captured*))))
+
+    (testing "a provider inheriting github-copilot routes models like copilot"
+      (let [config {:providers {"github-copilot" {:api "openai-chat"}
+                                "copilot-work" {:api "openai-chat" :inherit "github-copilot"}}}]
+        (is (= :openai-responses (:api (llm-api/provider->api-handler "copilot-work" "gpt-5.5" config))))
+        (is (= :openai-chat (:api (llm-api/provider->api-handler "copilot-work" "gpt-4.1" config))))))))
+
 (deftest prompt-forwards-stream-idle-timeout-and-cache-retention-to-anthropic-handler-test
   (testing "custom provider with :api anthropic forwards :stream-idle-timeout-seconds and :cache-retention to chat!"
     (let [captured* (atom nil)]
@@ -782,6 +836,24 @@
           "anthropic handler should receive :cache-retention from provider-config")
       (is (= 300 (:stream-idle-timeout-seconds @captured*))
           "anthropic handler should receive :stream-idle-timeout-seconds from top-level config"))))
+
+(deftest prompt-prefers-provider-stream-idle-timeout-test
+  (let [captured* (atom nil)]
+    (with-redefs [llm-providers.anthropic/chat!
+                  (fn [opts _callbacks] (reset! captured* opts) :ok)]
+      (#'eca.llm-api/prompt!
+       {:provider "my-proxy"
+        :model "claude-sonnet-4-6"
+        :model-capabilities {:tools true :model-name "claude-sonnet-4-6"}
+        :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
+        :provider-auth {:api-key "test-key"}
+        :config {:streamIdleTimeoutSeconds 300
+                 :providers {"my-proxy" {:api "anthropic"
+                                         :url "https://my-proxy.example.com/v1"
+                                         :streamIdleTimeoutSeconds 600
+                                         :models {"claude-sonnet-4-6" {}}}}}
+        :sync? false}))
+    (is (= 600 (:stream-idle-timeout-seconds @captured*)))))
 
 (deftest prompt-merges-provider-and-model-extra-headers-test
   (testing "provider-level extraHeaders are sent and model-level ones win on conflicts"

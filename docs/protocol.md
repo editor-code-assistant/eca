@@ -1269,8 +1269,10 @@ interface ChatToolCallRejectedContent {
     
     /**
      * The reason why this tool call was rejected.
+     * 'interrupted': the LLM response streaming this tool call failed
+     * (e.g. connection dropped), so it will never run.
      */
-    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'userPromptStop' | 'userStop' | 'user';
+    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'userPromptStop' | 'userStop' | 'user' | 'interrupted';
     
     /**
      * Summary text to present about this tool call, 

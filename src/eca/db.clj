@@ -472,7 +472,7 @@
   ;; and chats that hit a provider error before any token arrived. Cleanup of
   ;; stale chats is handled by cleanup-old-chats! instead.
   (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
-      (dissoc :tool-calls :last-status-payload)
+      (dissoc :tool-calls :last-status-payload :unsent-user-messages)
       (assoc :id chat-id)))
 
 (defn ^:private read-chat-file
@@ -771,19 +771,50 @@
 (defn ^:private global-cache-lock-file []
   (io/file (cache/global-dir) "db.transit.json.lock"))
 
+(def ^:private ^ThreadLocal global-cache-lock-held
+  "Marks the thread currently holding the global cache lock, making the lock
+   reentrant: taking the OS file lock twice in the same JVM throws
+   `OverlappingFileLockException`."
+  (ThreadLocal.))
+
 (defn with-global-cache-lock-fn
   "Run `f` while holding both a JVM-wide mutex and an OS advisory exclusive
    lock on a sidecar of the global cache file. The JVM mutex avoids
    `OverlappingFileLockException` when two threads in the same ECA server
    race a renew; the file lock serializes across `eca server` processes
-   that share `~/.cache/eca/`. Blocks until both are acquired."
+   that share `~/.cache/eca/`. Blocks until both are acquired. Reentrant for
+   the thread already holding it."
   [f]
-  (with-os-file-lock-fn (global-cache-lock-file) f))
+  (if (.get global-cache-lock-held)
+    (f)
+    (with-os-file-lock-fn
+      (global-cache-lock-file)
+      (fn []
+        (.set global-cache-lock-held true)
+        (try
+          (f)
+          (finally
+            (.remove global-cache-lock-held)))))))
 
 (defmacro with-global-cache-lock
   "See `with-global-cache-lock-fn`. Runs `body` while holding the lock."
   [& body]
   `(with-global-cache-lock-fn (fn [] ~@body)))
+
+(defn update-global-auth-cache!
+  "Persists only `provider`'s auth entry to the global cache, keeping every
+   other entry as currently on disk, so ECA processes using different
+   providers don't overwrite each other's freshly rotated tokens. Falls back
+   to a whole write when the disk cache can't be read."
+  [db provider metrics]
+  (with-global-cache-lock
+    (if-let [disk-cache (read-global-cache metrics)]
+      (upsert-cache! (if-let [provider-auth (get-in db [:auth provider])]
+                       (assoc-in disk-cache [:auth provider] provider-auth)
+                       (update disk-cache :auth dissoc provider))
+                     (transit-global-db-file)
+                     metrics)
+      (update-global-cache! db metrics))))
 
 (defn sync-auth-from-cache!
   "Re-read the global cache from disk and, if its `:auth` entry for `provider`

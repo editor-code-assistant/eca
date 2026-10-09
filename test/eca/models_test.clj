@@ -581,7 +581,26 @@
                  {:providers {"my-provider" {:url "https://api.not-matching.test/v1"}}}
                  {:by-id {"my-provider" {"api" "https://api.my-provider.dev/v1"
                                          "models" {"foo" {"id" "foo"}}}}
-                  :by-url {}})))))
+                  :by-url {}}))))
+
+  (testing "Inheriting providers fall back to their parent provider id"
+    (is (true? (#'models/add-models-from-models-dev?
+                "anthropic-work"
+                {:api "anthropic"}
+                {:providers {"anthropic" {:url "https://api.anthropic.com"}
+                             "anthropic-work" {:url "https://api.anthropic.com" :inherit "anthropic"}}}
+                {:by-id {"anthropic" {"models" {"claude-sonnet-4-6"
+                                                {"id" "claude-sonnet-4-6"
+                                                 "name" "Claude Sonnet 4.6"}}}}
+                 :by-url {}})))))
+
+(deftest build-model-capabilities-inherited-provider-test
+  (testing "an inheriting provider uses its parent's known model instead of guessing by name"
+    (let [all-models (array-map "other/claude-opus-5" {:tools false :web-search false}
+                                "anthropic/claude-opus-5" {:tools true :web-search true})
+          [full caps] (#'models/build-model-capabilities all-models "anthropic-work" "claude-opus-5" {} "anthropic")]
+      (is (= "anthropic-work/claude-opus-5" full))
+      (is (match? {:tools true :web-search true} caps)))))
 
 (deftest parse-models-dev-provider-models-test
   (testing "Uses key as model key"

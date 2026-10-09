@@ -18,14 +18,14 @@
 
 (defmethod f.login/login-step ["mistral" :login/waiting-models] [{:keys [input db* provider send-msg!] :as ctx}]
   (let [api-key (get-in @db* [:auth provider :api-key])]
-    (config/update-global-config! {:providers {"mistral" {:api "openai-chat"
-                                                          :url "https://api.mistral.ai/v1"
-                                                          :models (reduce
-                                                                   (fn [models model-str]
-                                                                     (assoc models (string/trim model-str) {}))
-                                                                   {}
-                                                                   (string/split input #","))
-                                                          :key api-key}}}))
+    (config/update-global-config! {:providers {provider {:api "openai-chat"
+                                                         :url "https://api.mistral.ai/v1"
+                                                         :models (reduce
+                                                                  (fn [models model-str]
+                                                                    (assoc models (string/trim model-str) {}))
+                                                                  {}
+                                                                  (string/split input #","))
+                                                         :key api-key}}}))
   (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
   (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
   (f.login/login-done! ctx))

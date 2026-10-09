@@ -45,6 +45,8 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+    If the server's authorization server supports [Client ID Metadata Documents](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents) (CIMD), ECA identifies itself with `https://eca.dev/oauth/client-metadata.json`; otherwise it registers a client via Dynamic Client Registration (DCR). Setting `clientId`, `clientSecret`, `clientName` or `oauthPort` keeps the pre-registered client or DCR.
+
 === "OAuth with pre-registered client"
 
     Some providers (e.g. Databricks) require a pre-registered OAuth application
@@ -189,6 +191,27 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     Available tools include `google_search`, `google_news_search`, `google_scholar_search`, `bing_search` and `scrape_url`. See the [Serply docs](https://serply.io/docs) for the full list.
 
+=== "FXMacroData macro data"
+
+    [FXMacroData](https://fxmacrodata.com) provides official-source macroeconomic releases, central bank policy rates, economic release calendars and FX rates for 22 currencies via MCP.
+
+    USD releases, the USD calendar and the USD catalogue work without a key; other currencies, FX rates and the rest need a key. For full access, get an API key from [fxmacrodata.com](https://fxmacrodata.com/subscribe) and set it as the `FXMACRODATA_API_KEY` environment variable. When the variable is unset, `${env:FXMACRODATA_API_KEY}` resolves to an empty string and the server treats the empty bearer token as keyless, so the same config works either way:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "fxmacrodata": {
+          "url": "https://mcp.fxmacrodata.com",
+          "headers": {
+            "Authorization": "Bearer ${env:FXMACRODATA_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Available tools include `latest_announcements`, `release_calendar`, `data_catalogue`, `indicator_query` and `forex`. See the [FXMacroData docs](https://fxmacrodata.com/documentation) for the full list.
+
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client
@@ -208,6 +231,9 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     The DCR attempt, its result and the chosen `client_name` are logged at
     `info`/`warn` level so you can verify behavior in the ECA log.
+
+    Setting `clientName` also makes ECA use DCR when the server supports CIMD,
+    useful if a server rejects ECA's CIMD client.
 
 === "Per-project auth — authScope"
 

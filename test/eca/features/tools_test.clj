@@ -745,6 +745,62 @@
             identity
             nil))))))
 
+(deftest call-tool!-unknown-params-test
+  (testing "INVALID_ARGS for unknown param on native tool, handler not called"
+    (is (match?
+         {:error    true
+          :contents [{:type :text
+                      :text "INVALID_ARGS: unknown params: `offset`. Supported params: `path` (required), `line_offset`"}]}
+         (with-redefs [f.tools.filesystem/definitions
+                       {"test_native_read"
+                        {:description "Test tool read"
+                         :parameters  {"type"      "object"
+                                       :properties {"path" {:type "string"}
+                                                    "line_offset" {:type "integer"}}
+                                       :required   ["path"]}
+                         :handler     (fn [& _]
+                                        (throw (ex-info "handler should not be called" {})))}}]
+           (f.tools/call-tool!
+            "eca__test_native_read"
+            {"path" "/tmp/foo" "offset" 10}
+            "chat-3"
+            "call-4"
+            "code"
+            (h/db*)
+            (h/config)
+            (h/messenger)
+            (h/metrics)
+            identity
+            identity
+            nil)))))
+  (testing "unknown params pass through to MCP tools without additionalProperties false"
+    (is (match?
+         {:error    false
+          :contents [{:type :text :text "OK"}]}
+         (with-redefs [f.mcp/all-tools  (fn [_]
+                                          [{:name        "mcp_eval"
+                                            :server      {:name "clojureMCP"}
+                                            :description "eval code"
+                                            :parameters  {"type"      "object"
+                                                          :properties {"code" {:type "string"}}
+                                                          :required   ["code"]}}])
+                       f.mcp/call-tool! (fn [& _]
+                                          {:error    false
+                                           :contents [{:type :text :text "OK"}]})]
+           (f.tools/call-tool!
+            "clojureMCP__mcp_eval"
+            {"code" "(+ 1 2)" "extra" true}
+            "chat-3"
+            "call-5"
+            "code"
+            (h/db*)
+            (h/config)
+            (h/messenger)
+            (h/metrics)
+            identity
+            identity
+            nil))))))
+
 (deftest fetch-rule-tool-test
   (testing "fetch_rule renders the matching path-scoped rule content for the current chat context"
     (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")

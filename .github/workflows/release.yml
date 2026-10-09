@@ -269,14 +269,15 @@ jobs:
       - name: Zip binary
         run: zip eca-native-macos-amd64.zip eca
 
-      - name: Notarize zipped binary
-        if: env.APPLE_ID != ''
-        run: |
-          xcrun notarytool submit eca-native-macos-amd64.zip \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --wait
+      # Disabled until the Apple ID login is fixed (notarytool returns 401)
+      # - name: Notarize zipped binary
+      #   if: env.APPLE_ID != ''
+      #   run: |
+      #     xcrun notarytool submit eca-native-macos-amd64.zip \
+      #       --apple-id "$APPLE_ID" \
+      #       --team-id "$APPLE_TEAM_ID" \
+      #       --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+      #       --wait
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -373,14 +374,15 @@ jobs:
       - name: Zip binary
         run: zip eca-native-macos-aarch64.zip eca
 
-      - name: Notarize zipped binary
-        if: env.APPLE_ID != ''
-        run: |
-          xcrun notarytool submit eca-native-macos-aarch64.zip \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --wait
+      # Disabled until the Apple ID login is fixed (notarytool returns 401)
+      # - name: Notarize zipped binary
+      #   if: env.APPLE_ID != ''
+      #   run: |
+      #     xcrun notarytool submit eca-native-macos-aarch64.zip \
+      #       --apple-id "$APPLE_ID" \
+      #       --team-id "$APPLE_TEAM_ID" \
+      #       --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+      #       --wait
 
       - name: Upload
         uses: actions/upload-artifact@v4

@@ -182,6 +182,7 @@
                   {:status 200 :body {:access_token "gh-access"}}))
             {:status 200 :body {:token "copilot-api-key" :expires_at 9999999999}}))
         (#'llm-providers.copilot/poll-device-authorization!
+         "github-copilot"
          test-provider-settings
          db*
          {:interval-ms 10
@@ -200,6 +201,7 @@
       (with-client-proxied {}
         (fn handler [_req] {:status 200 :body {:error "authorization_pending"}})
         (#'llm-providers.copilot/poll-device-authorization!
+         "github-copilot"
          test-provider-settings
          db*
          {:interval-ms 10
@@ -214,6 +216,7 @@
       (with-client-proxied {}
         (fn handler [_req] {:status 200 :body {:access_token "gh-access"}})
         (let [polling (#'llm-providers.copilot/poll-device-authorization!
+                       "github-copilot"
                        test-provider-settings
                        db*
                        {:interval-ms 10

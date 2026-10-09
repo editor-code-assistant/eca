@@ -5,9 +5,10 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
+   [eca.config :as config]
    [eca.db :as db]
    [eca.features.login :as login]
-   [eca.llm-providers.anthropic]
+   [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.copilot :as llm-providers.copilot]
    [eca.messenger :as messenger]
    [hato.client :as http]
@@ -106,6 +107,54 @@
                             :send-msg! send-msg!}))
       (is (some #(re-find #"take precedence over login auth" %) @msg-log)
           "a precedence warning should be among the sent messages"))))
+
+(def ^:private inheriting-config
+  {:providers {"anthropic" {:api "anthropic"}
+               "anthropic-work" {:api "anthropic" :inherit "anthropic"}
+               "nubank-anthropic" {:api "anthropic"}}})
+
+(deftest login-step-inherited-provider-test
+  (let [msg-log (atom [])
+        db* (atom {:auth {"anthropic" {}
+                          "github-copilot" {}}
+                   :chats {0 {}}})
+        ctx {:chat-id 0
+             :db* db*
+             :config inheriting-config
+             :send-msg! #(swap! msg-log conj %)}]
+    (testing "/login offers providers inheriting a login-capable provider"
+      (login/login-step (assoc ctx :step :login/start :input ""))
+      (is (string/includes? (last @msg-log) "- anthropic-work\n"))
+      (is (not (string/includes? (last @msg-log) "nubank-anthropic"))))
+
+    (testing "logging in runs the parent's steps but keeps auth under the inheriting provider"
+      (login/login-step (assoc ctx :step :login/start :input "anthropic-work"))
+      (is (= "anthropic-work" (get-in @db* [:chats 0 :login-provider])))
+      (is (= {:step :login/waiting-login-method} (get-in @db* [:auth "anthropic-work"])))
+      (login/login-step (assoc ctx :provider "anthropic-work" :step :login/waiting-login-method :input "manual"))
+      (is (= {:step :login/waiting-api-key :mode :manual} (get-in @db* [:auth "anthropic-work"])))
+      (is (= {} (get-in @db* [:auth "anthropic"]))))
+
+    (testing "a manual API key is saved to the inheriting provider config"
+      (let [saved* (atom nil)]
+        (with-redefs [config/update-global-config! #(reset! saved* %)
+                      login/login-done! (fn [& _] nil)]
+          (login/login-step (assoc ctx :provider "anthropic-work" :step :login/waiting-api-key :input "sk-work")))
+        (is (= {:providers {"anthropic-work" {:key "sk-work"}}} @saved*))))
+
+    (testing "token renewal uses the parent's refresh and updates only the inheriting provider"
+      (swap! db* assoc-in [:auth "anthropic-work"] {:type :auth/oauth :refresh-token "work-refresh" :expires-at 1000})
+      (with-redefs-fn {#'llm-providers.anthropic/oauth-refresh (fn [refresh-token]
+                                                                 {:refresh-token (str refresh-token "-rotated")
+                                                                  :access-token "work-access"
+                                                                  :expires-at 9999999999})
+                       #'login/login-done! (fn [& _] nil)}
+        #(login/login-step (assoc ctx :provider "anthropic-work" :step :login/renew-token)))
+      (is (match? {:refresh-token "work-refresh-rotated"
+                   :api-key "work-access"
+                   :expires-at 9999999999}
+                  (get-in @db* [:auth "anthropic-work"])))
+      (is (= {} (get-in @db* [:auth "anthropic"]))))))
 
 (defn ^:private stub-messenger
   "Messenger stub recording chat contents in `contents*` and answering

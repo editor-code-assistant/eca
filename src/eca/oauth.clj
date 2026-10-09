@@ -26,6 +26,12 @@
 
 (def eca-client-id "Ov23liT613uPA2ydLTa8")
 
+(def cimd-client-id
+  "ECA's OAuth Client ID Metadata Document (CIMD) URL, published from
+   docs/oauth/client-metadata.json. Authorization servers fetch it to identify
+   ECA, replacing Dynamic Client Registration."
+  "https://eca.dev/oauth/client-metadata.json")
+
 (def ^:private logo-svg
   (delay
     (-> (slurp (io/resource "logo.svg"))
@@ -216,7 +222,10 @@
 
 (defn oauth-info
   "Perform OAuth discovery for the given MCP server URL.
-   Optional `configured-client-id` skips dynamic client registration when provided.
+   The client follows the MCP spec priority: pre-registered `configured-client-id`,
+   then ECA's Client ID Metadata Document (CIMD) when the authorization server
+   advertises `client_id_metadata_document_supported` and no other client setting
+   (secret, oauth port, name) is configured, then Dynamic Client Registration (DCR).
    Optional `configured-client-secret` enables confidential OAuth (e.g. Slack MCP).
    When DCR is performed, a `client_secret` returned by the registration endpoint
    is also captured and used in the subsequent token exchange (some servers like
@@ -254,8 +263,15 @@
          ;; Only proceed if we discovered a usable authorization_endpoint
          (when (:authorization_endpoint meta)
            (let [base-auth-endpoint (:authorization_endpoint meta)
-                 ;; Skip DCR when a client-id is pre-configured
-                 new-client-info (when-not configured-client-id
+                 cimd? (and (true? (:client_id_metadata_document_supported meta))
+                            (not (or configured-client-id
+                                     configured-client-secret
+                                     configured-client-name
+                                     configured-oauth-port)))
+                 _ (when cimd?
+                     (logger/info logger-tag (format "Using Client ID Metadata Document %s as client_id" cimd-client-id)))
+                 ;; Skip DCR when a client-id is pre-configured or CIMD is used
+                 new-client-info (when-not (or configured-client-id cimd?)
                                    (when-let [reg-endpoint (:registration_endpoint meta)]
                                      (let [auth-method (if configured-client-secret
                                                          "client_secret_post"
@@ -301,7 +317,10 @@
                                                                       b))))
                                              nil)))))
                  {:keys [challenge verifier]} (generate-pkce)
-                 client-id (or configured-client-id (:client-id new-client-info) eca-client-id)
+                 client-id (or configured-client-id
+                               (when cimd? cimd-client-id)
+                               (:client-id new-client-info)
+                               eca-client-id)
                  client-secret (or configured-client-secret (:client-secret new-client-info))
                  scope (when-let [scopes (:scopes_supported meta)]
                          (if (coll? scopes)

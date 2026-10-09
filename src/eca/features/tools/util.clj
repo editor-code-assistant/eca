@@ -157,19 +157,41 @@
             (remove (fn [[k _]] (contains? #{:type :required} k)) schema))
       schema)))
 
-(defn required-params-error
-  "Given a tool `parameters` JSON schema (object) and an args map, return a
-  single-text-content error when any required parameter is missing. Returns nil
-  if all required parameters are present."
-  [parameters args]
-  (when-let [req (seq (:required parameters))]
-    (let [args (update-keys args name)
-          missing (->> req (map name) (filter #(nil? (get args %))) vec)]
-      (when (seq missing)
-        (single-text-content
-         (format "INVALID_ARGS: missing required params: %s"
-                 (->> missing (map #(str "`" % "`")) (string/join ", ")))
-         :error)))))
+(defn invalid-params-error
+  "Given a tool `parameters` JSON schema (object, may be nil), an args map and
+  the tool origin (:native or :mcp), return a single-text-content error when
+  required params are missing or unknown params are given. Unknown params also
+  list the supported params. Returns nil when the args are valid.
+  Property keys are strings for native and custom tools but keywords for MCP
+  tools (keywordized JSON), so they are normalized with `name`. Args keys and
+  `:required` values are already strings."
+  [{:keys [properties required additionalProperties]} args origin]
+  (let [supported (map name (keys properties))
+        ;; Native schemas are ours: closed unless they allow extra args.
+        ;; MCP schemas follow JSON Schema defaults: open unless
+        ;; `additionalProperties` is false, as some servers take free-form args.
+        closed? (and (map? properties)
+                     (if (= :mcp origin)
+                       (false? additionalProperties)
+                       (not additionalProperties)))
+        unknown (when closed? (remove (set supported) (keys args)))
+        missing (filter #(nil? (get args %)) required)
+        backticks (fn [params & [marked-required]]
+                    (->> params
+                         (map #(str "`" % "`" (when (some #{%} marked-required) " (required)")))
+                         (string/join ", ")))]
+    (when (or (seq unknown) (seq missing))
+      (single-text-content
+       (str "INVALID_ARGS: "
+            (string/join "; " (cond-> []
+                                (seq unknown) (conj (str "unknown params: " (backticks unknown)))
+                                (seq missing) (conj (str "missing required params: " (backticks missing)))))
+            (when (seq unknown)
+              (str ". Supported params: "
+                   (if (seq supported)
+                     (backticks supported required)
+                     "none"))))
+       :error))))
 
 (defn omit-optional-empty-string-args
   "Drops optional tool arguments whose value is the empty string.

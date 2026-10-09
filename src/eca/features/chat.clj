@@ -673,6 +673,17 @@
   (when-not (string/blank? text)
     (odd? (count (re-seq #"(?m)^```" text)))))
 
+(def ^:private interrupted-tool-call-reason
+  {:code :interrupted
+   :text "Tool call interrupted because the LLM response failed"})
+
+(defn ^:private reject-active-tool-calls!
+  "Requests a stop for every unfinished tool call of the chat, so the ones
+   that won't make progress anymore are rejected for clients."
+  [db* {:keys [chat-id] :as chat-ctx} reason]
+  (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+    (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested {:reason reason})))
+
 (defn ^:private compact-finished-side-effect!
   "on-finished-side-effect for a mid-turn compaction: clear the auto-compacting
    flag, apply the compact side effects and run postCompact hooks for `trigger`
@@ -1069,6 +1080,13 @@
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+      (when (and run-hooks? (:user-content-id chat-ctx))
+        ;; Kept until the LLM responds, so a turn that is stopped, fails or is
+        ;; superseded before that doesn't lose what the user typed.
+        (lifecycle/record-unsent-user-messages! db* chat-id)
+        (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
+               {:content-id (:user-content-id chat-ctx)
+                :messages user-messages}))
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)
@@ -1538,7 +1556,7 @@
                                                               (tc/transition-tool-call! db* chat-ctx id :cleanup-finished
                                                                                         {:name resolved-name}))
                                                   nil)))
-                :on-error (fn [{:keys [message exception] :as error-data}]
+                :on-error (fn [{:keys [message exception idle-timeout?] :as error-data}]
                             (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   ;; A dead shared connection makes every stacked tool-continuation
@@ -1555,6 +1573,11 @@
                                   ;; under a new prompt-id and the error would never surface to the user. (#491)
                                   compactable? (boolean (seq (shared/messages-after-last-compact-marker
                                                               (get-in db [:chats chat-id :messages] []))))]
+                              ;; Tool calls the failed response was still streaming are never
+                              ;; resumed (a retry starts new ones), so reject them or clients
+                              ;; keep showing them as in progress forever.
+                              (when-not stale?
+                                (reject-active-tool-calls! db* chat-ctx interrupted-tool-call-reason))
                               (cond
                                 stale?
                                 (logger/info logger-tag "Ignoring error for finished or superseded prompt"
@@ -1623,11 +1646,13 @@
                                 (and (not compacting?)
                                      (not (:error-recovery-attempted? chat-ctx))
                                      (llm-providers.errors/recoverable-error? {:provider provider
+                                                                               :provider-base (config/provider-base provider config)
                                                                                :error-data error-data
                                                                                :db db}))
                                 (let [real-model (or (get-in db [:models full-model :model-name]) model)
                                       {:keys [retry? notice retry-user-message]}
                                       (llm-providers.errors/recover-error! {:provider provider
+                                                                            :provider-base (config/provider-base provider config)
                                                                             :model real-model
                                                                             :error-data error-data
                                                                             :db db
@@ -1674,7 +1699,7 @@
                                 :else
                                 (let [partial-text @received-msgs*
                                       transient-error? (or (contains? #{:overloaded :premature-stop :network} error-type)
-                                                           (string/includes? (or message "") "idle timeout"))
+                                                           idle-timeout?)
                                       auto-continue-count (:auto-continue-count chat-ctx 0)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
                                       user-messages-recorded? (boolean
@@ -1686,7 +1711,8 @@
                                       retry-messages (if continue-existing-response?
                                                        [{:role "user"
                                                          :content [{:type :text
-                                                                    :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                                                    :text (cond-> "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."
+                                                                            idle-timeout? (str " If you were writing a large file or edit, split it into a few smaller calls."))}]}]
                                                        user-messages)
                                       retry-source-type (if continue-existing-response?
                                                           :auto-continue
@@ -1770,6 +1796,7 @@
                   (swap! db* assoc-in [:subagent-runs chat-id :interrupted?] true))
                 (when-not (:silent? (ex-data e))
                   (logger/error e)
+                  (reject-active-tool-calls! db* chat-ctx interrupted-tool-call-reason)
                   (swap! db* assoc-in [:chats chat-id :prompt-error]
                          (prompt-error-data {:exception e} :unknown))
                   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
@@ -2494,11 +2521,8 @@
           (lifecycle/send-content! chat-ctx :system {:type :text
                                                      :text "\nPrompt stopped\n"}))
 
-        ;; Handle each active tool call
-        (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-          (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                    {:reason {:code :user-prompt-stop
-                                              :text "Tool call rejected because of user prompt stop"}}))
+        (reject-active-tool-calls! db* chat-ctx {:code :user-prompt-stop
+                                                 :text "Tool call rejected because of user prompt stop"})
         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
         (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
         (lifecycle/finish-chat-prompt! :stopping (lifecycle/strip-hook-callbacks chat-ctx))))))
