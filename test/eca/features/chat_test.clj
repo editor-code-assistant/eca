@@ -994,10 +994,7 @@
         {#'f.chat/trigger-auto-compact!
          (fn [chat-ctx _all-tools user-messages]
            (swap! auto-compact-count* inc)
-           (#'f.chat/prompt-messages!
-            user-messages
-            :auto-compact
-            (assoc chat-ctx :auto-compacted? true)))}
+           (#'f.chat/resume-after-compact! chat-ctx user-messages))}
         (fn []
           (let [{:keys [_chat-id]}
                 (prompt!
@@ -1651,6 +1648,237 @@
   (if (= "eca__compact_chat" full-name)
     ((get-in f.tools.chat/definitions ["compact_chat" :handler]) arguments {:db* (h/db*) :chat-id chat-id})
     {:error false :contents [{:type :text :text "file contents"}]}))
+
+(defn ^:private repeated-auto-compact-api-mock
+  "API mock for a single long turn that crosses the auto-compact threshold
+   again after compacting. `respond` is called with the 1-based LLM call number
+   and the helpers {:usage! :read! :compact! :finish! :overflow!}."
+  [api-calls* respond]
+  (fn [{:keys [user-messages on-first-response-received on-message-received
+               on-prepare-tool-call on-tools-called on-usage-updated on-error]}]
+    (swap! api-calls* conj user-messages)
+    (on-first-response-received)
+    (respond
+     (count @api-calls*)
+     {:usage! (fn [input-tokens]
+                (on-usage-updated {:input-tokens input-tokens :output-tokens 0}))
+      :read! (fn [id]
+               (on-prepare-tool-call {:id id :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+               (on-tools-called [{:id id :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+      :compact! (fn [id]
+                  (on-prepare-tool-call {:id id :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Summary\"}"})
+                  (on-tools-called [{:id id :full-name "eca__compact_chat" :arguments {"summary" "Summary"}}]))
+      :finish! (fn []
+                 (on-message-received {:type :text :text "Done"})
+                 (on-message-received {:type :finish}))
+      :overflow! (fn []
+                   (on-error {:error/type :context-overflow
+                              :message "token limit exceeded"}))})))
+
+(defn ^:private repeated-auto-compact-prompt!
+  ([chat-id api-calls* respond]
+   (repeated-auto-compact-prompt! chat-id api-calls* respond {}))
+  ([chat-id api-calls* respond config]
+   (h/reset-components!)
+   (h/config! (merge {:autoCompactPercentage 75
+                      :autoCompactMaxPerTurn 3
+                      :prompts {:compact "Summarize the chat."}}
+                     config))
+   (swap! (h/db*) assoc-in [:models "openai/gpt-5.2"] {:tools true :limit {:context 1000}})
+   (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+     (prompt!
+      {:message "Long task" :chat-id chat-id}
+      {:all-tools-mock (constantly steered-compact-tools)
+       :call-tool-mock steered-compact-call-tool-mock
+       :api-mock (repeated-auto-compact-api-mock api-calls* respond)}))))
+
+(defn ^:private compact-markers [chat-id]
+  (filterv #(= "compact_marker" (:role %)) (get-in (h/db) [:chats chat-id :messages])))
+
+(deftest auto-compact-again-later-in-same-turn-test
+  (testing "the threshold check compacts again when the context fills up again in the same turn"
+    (let [chat-id "recompact-threshold-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1")) "crossing the threshold compacts"))
+           ;; First compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: under the threshold at first, then above it again.
+           3 (do (usage! 100)
+                 (is (some? (read! "call-2")) "the compacted context is under the threshold, so the turn goes on")
+                 (usage! 800)
+                 (when (some? (read! "call-3"))
+                   (finish!)))
+           ;; Second compaction prompt.
+           4 (compact! "compact-2")
+           ;; Task resumed again.
+           5 (finish!))))
+      (is (= 5 (count @api-calls*))
+          "task, compaction, resumed task, second compaction, resumed task")
+      (is (= 2 (count (compact-markers chat-id))))
+      (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
+                   {:role "user" :content [{:type :text :text "Long task"}]}]
+                  (nth @api-calls* 4 nil))
+          "the task resumes after the second compaction")
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "no second compaction when the compacted context is still above the threshold (no loop)"
+    (let [chat-id "recompact-still-big-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: the compacted context is still above the threshold.
+           3 (do (usage! 900)
+                 (when (some? (read! "call-2"))
+                   (finish!))))))
+      (is (= 3 (count @api-calls*)))
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest context-overflow-later-in-same-turn-auto-compacts-test
+  (testing "a context overflow after the compacted context was accepted compacts again instead of failing"
+    (let [chat-id "recompact-overflow-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish! overflow!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; First compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: one response under the threshold, then the provider rejects the next request.
+           3 (do (usage! 100)
+                 (is (some? (read! "call-2")))
+                 (overflow!))
+           ;; Overflow fallback compaction prompt.
+           4 (compact! "compact-2")
+           ;; Task resumed again.
+           5 (finish!))))
+      (is (= 5 (count @api-calls*)))
+      (is (= 2 (count (compact-markers chat-id))))
+      (is (match? {:chat-content-received
+                   (m/embeds [{:role :system
+                               :content {:type :text
+                                         :text "Context window exceeded. Auto-compacting conversation..."}}])}
+                  (h/messages)))
+      (is (not-any? #(some-> % :content :text (string/includes? "Context window exceeded: this request is larger"))
+                    (:chat-content-received (h/messages)))
+          "the overflow is recovered, not surfaced as an error")
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "an overflow right after compacting still surfaces the error instead of looping (#391)"
+    (let [chat-id "recompact-overflow-at-once-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! overflow!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: the provider rejects the first request after the compaction.
+           3 (overflow!))))
+      (is (= 3 (count @api-calls*)))
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (match? {:chat-content-received
+                   (m/embeds [{:role :system
+                               :content {:type :text
+                                         :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
+                  (h/messages)))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest auto-compact-limit-per-turn-test
+  (testing "a turn that keeps refilling the context stops auto-compacting after 3 compactions"
+    (let [chat-id "recompact-limit-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompts.
+           (2 4 6) (compact! (str "compact-" call-number))
+           ;; Resumed tasks: the context refills above the threshold every time.
+           (3 5 7) (do (usage! 100)
+                       (read! (str "call-" call-number "-a"))
+                       (usage! 800)
+                       (when (some? (read! (str "call-" call-number "-b")))
+                         (finish!))))))
+      (is (= 7 (count @api-calls*))
+          "task, then 3 times a compaction and the resumed task, with no 4th compaction")
+      (is (= 3 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "autoCompactMaxPerTurn 1 compacts only once per turn"
+    (let [chat-id "recompact-limit-one-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: the context refills above the threshold, but the limit is reached.
+           3 (do (usage! 100)
+                 (read! "call-2")
+                 (usage! 800)
+                 (when (some? (read! "call-3"))
+                   (finish!)))))
+       {:autoCompactMaxPerTurn 1})
+      (is (= 3 (count @api-calls*)))
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "after the limit, a context overflow surfaces the error instead of compacting again"
+    (let [chat-id "recompact-limit-overflow-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! overflow!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompts.
+           (2 4 6) (compact! (str "compact-" call-number))
+           ;; Resumed tasks: the context refills above the threshold.
+           (3 5) (do (usage! 100)
+                     (read! (str "call-" call-number "-a"))
+                     (usage! 800)
+                     (is (nil? (read! (str "call-" call-number "-b")))))
+           ;; Last resumed task: the provider rejects a request.
+           7 (do (usage! 100)
+                 (read! "call-7-a")
+                 (overflow!)))))
+      (is (= 7 (count @api-calls*)))
+      (is (= 3 (count (compact-markers chat-id))))
+      (is (match? {:chat-content-received
+                   (m/embeds [{:role :system
+                               :content {:type :text
+                                         :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
+                  (h/messages)))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
 
 (deftest steered-compact-test
   (testing "a /compact steered while the turn runs compacts at the tool-call boundary with its instructions, then resumes the task (#600)"

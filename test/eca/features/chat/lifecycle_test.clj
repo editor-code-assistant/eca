@@ -205,6 +205,18 @@
   (testing "nil when auto-compact is disabled"
     (is (nil? (lifecycle/auto-compact-threshold {} agent-name 1000000)))))
 
+(deftest auto-compact-max-per-turn-test
+  (testing "returns the global value"
+    (is (= 3 (lifecycle/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
+
+  (testing "respects per-agent autoCompactMaxPerTurn override"
+    (is (= 1 (lifecycle/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
+                                                   :autoCompactMaxPerTurn 3}
+                                                  agent-name))))
+
+  (testing "nil when unset"
+    (is (nil? (lifecycle/auto-compact-max-per-turn {} agent-name)))))
+
 (deftest auto-compact?-respects-in-progress-flags
   (testing "returns nil when chat is already compacting"
     (let [db (-> (db-with {:last-input-tokens 800 :last-output-tokens 0}

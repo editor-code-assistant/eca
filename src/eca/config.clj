@@ -351,6 +351,7 @@
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :autoCompactPercentage 75
+   :autoCompactMaxPerTurn 3
    :includeParentAgentsFiles false
    :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
    :remote {:enabled false}

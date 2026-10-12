@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
+- Fix auto-compaction running only once per turn: long (e.g. steered) turns now compact again when the context refills, up to `autoCompactMaxPerTurn` (default 3).
 
 ## 0.163.1
 
