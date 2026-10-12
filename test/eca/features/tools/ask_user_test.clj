@@ -8,7 +8,7 @@
 
 (h/reset-components-before-test)
 
-(defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id db*]
+(defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id db* trust]
                                      :or {tool-call-id "test-tool-call-id"}}]]
   ((get-in f.tools.ask-user/definitions ["ask_user" :handler])
    arguments
@@ -16,7 +16,8 @@
     :config (or config (h/config))
     :chat-id (or chat-id "test-chat-id")
     :tool-call-id tool-call-id
-    :db* db*}))
+    :db* db*
+    :trust trust}))
 
 (deftest ask-user-option-selected-test
   (testing "User selects a predefined option"
@@ -60,6 +61,53 @@
           :contents [{:type :text
                       :text "User cancelled the question."}]}
          (call-ask-user {"question" "Which framework?"})))))
+
+(deftest ask-user-trust-mode-timeout-test
+  (let [config {:toolCall {:askUser {:trustModeTimeoutSeconds 300}}}
+        answer {:answer "yes" :cancelled false}
+        returning (fn [result]
+                    (reify messenger/IMessenger
+                      (chat-content-received [_ _data])
+                      (ask-question [_ _params] result)))
+        ;; Records each wait and cancel. The timed wait returns the answer only
+        ;; when answered? is true.
+        pending (fn [events* & {:keys [answered?]}]
+                  (reify
+                    clojure.lang.IDeref
+                    (deref [_] (swap! events* conj :untimed) answer)
+                    clojure.lang.IBlockingDeref
+                    (deref [_ _ms timeout-value]
+                      (swap! events* conj :timed)
+                      (if answered? answer timeout-value))
+                    java.util.concurrent.Future
+                    (cancel [_ _] (swap! events* conj :cancel) true)))]
+    (testing "trust on: no answer in time continues and cancels the request"
+      (let [events* (atom [])]
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text "The user did not answer within 300 seconds. Continue with your best judgment and state the assumptions you made."}]}
+             (call-ask-user {"question" "Which DB?"}
+                            {:messenger (returning (pending events*)) :config config :trust true})))
+        (is (= [:timed :cancel] @events*))))
+    (testing "trust on: an answer in time is returned without a cancel"
+      (let [events* (atom [])]
+        (is (match?
+             {:error false
+              :contents [{:type :text :text "User answered: yes"}]}
+             (call-ask-user {"question" "Which DB?"}
+                            {:messenger (returning (pending events* :answered? true)) :config config :trust true})))
+        (is (= [:timed] @events*))))
+    (testing "trust off: waits without timeout"
+      (let [events* (atom [])]
+        (call-ask-user {"question" "Which DB?"}
+                       {:messenger (returning (pending events*)) :config config :trust false})
+        (is (= [:untimed] @events*))))
+    (testing "trust on without the setting: waits without timeout"
+      (let [events* (atom [])]
+        (call-ask-user {"question" "Which DB?"}
+                       {:messenger (returning (pending events*)) :config {} :trust true})
+        (is (= [:untimed] @events*))))))
 
 (deftest ask-user-missing-question-test
   (testing "Missing question parameter"

@@ -439,6 +439,22 @@
       (is (future-cancelled? inner-result)
           "the editor's pending request must be cancelled so the server retracts it"))))
 
+(deftest ask-question-future-cancel-resolves-question-test
+  (testing "future-cancel resolves the question as cancelled, cancels the editor request and follows the Future contract"
+    (let [inner-result (java.util.concurrent.CompletableFuture.)
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _params] inner-result))
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+          result (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Q?" :request-id "req-1"})]
+      (is (not (future-done? result)))
+      (is (true? (future-cancel result)))
+      (is (future-done? result))
+      (is (future-cancelled? result))
+      (is (= {:answer nil :cancelled true} (deref result 0 :pending)))
+      (is (future-cancelled? inner-result))
+      (is (nil? (remote.messenger/answer-question! broadcast-messenger "req-1" "late" false))
+          "a late remote answer finds no pending question"))))
+
 (deftest ask-question-editor-answer-wins-test
   (testing "an editor answer resolves the call and cleans up the SSE pending entry"
     (let [inner-promise (promise)

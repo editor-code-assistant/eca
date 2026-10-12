@@ -1282,6 +1282,20 @@
             }
           }
         },
+        "askUser": {
+          "type": "object",
+          "description": "Configuration for the ask_user tool.",
+          "markdownDescription": "Configuration for the `ask_user` tool.",
+          "additionalProperties": false,
+          "properties": {
+            "trustModeTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "In trust mode only, seconds to wait for an answer. After that the LLM continues without one. Unset waits until the user answers.",
+              "markdownDescription": "In trust mode only, seconds to wait for an answer. After that the LLM continues without one. Unset waits until the user answers."
+            }
+          }
+        },
         "shellCommand": {
           "type": "object",
           "description": "Configuration for the shell_command tool.",
