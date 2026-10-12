@@ -168,7 +168,7 @@ By default ECA consider the following as the base configuration:
       },
       "defaultAgent": "code",
       "welcomeMessage" : "Welcome to ECA!\n\nType '/' for commands\n\n",
-      "autoCompactPercentage": 85,
+      "autoCompactPercentage": 75,
       "autoCompactMaxPerTurn": 3,
       "index" : {
         "ignoreFiles" : [ {
