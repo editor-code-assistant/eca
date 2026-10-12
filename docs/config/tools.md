@@ -249,6 +249,27 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     Available tools include `SearchDocuments`, `GetFinancialStatement`, `GetEarningsCallTranscript`, `GetInsiderTransactions` and `GetTopHolders`. The free plan allows 100 requests a day. Portfolio, watchlist and feedback tools write to your own Equibles account, so keep approval prompts on for them. See the [Equibles MCP docs](https://equibles.com/docs/mcp/tools) for the full list.
 
+=== "looot business data"
+
+    [looot](https://looot.ai) gives one API key and prepaid balance for about 2,500 data endpoints via MCP: work email and phone lookup, company and people enrichment, Google SERP, web and news search, and web page reading.
+
+    The server supports OAuth with dynamic client registration, so ECA signs in through the browser with just the URL. For a headless setup, create an API key at [looot.ai](https://looot.ai) and set it as the `LOOOT_API_KEY` environment variable:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "looot": {
+          "url": "https://api.looot.ai/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:LOOOT_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Available tools include `find_work_email`, `verify_email`, `enrich_company`, `search_companies`, `google_search_results`, `web_search` and `read_web_page`. Billing is prepaid with no free tier, and each call shows its price first, so keep approval prompts on. See the [looot docs](https://docs.looot.ai) for the full list.
+
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client
