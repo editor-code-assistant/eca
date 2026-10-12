@@ -231,6 +231,13 @@
       "markdownDescription": "Remaining context tokens (model context limit minus used tokens) at or below which auto-compact triggers. Takes precedence over `autoCompactPercentage`, which is only used as fallback when this value is not smaller than the model context limit. Useful when switching between models with very different context sizes.",
       "minimum": 1
     },
+    "autoCompactMaxPerTurn": {
+      "type": "integer",
+      "description": "Maximum number of auto-compactions in a single turn. Each compaction sends the whole context to the LLM, so this stops a turn that keeps refilling the context from compacting without end. When reached, a context overflow is shown as an error instead.",
+      "markdownDescription": "Maximum number of auto-compactions in a single turn. Each compaction sends the whole context to the LLM, so this stops a turn that keeps refilling the context from compacting without end. When reached, a context overflow is shown as an error instead.",
+      "minimum": 1,
+      "default": 3
+    },
     "includeParentAgentsFiles": {
       "type": "boolean",
       "description": "When true, also include AGENTS.md files from each workspace folder's parent directories, ordered outermost parent first, then the workspace's own AGENTS.md.",
@@ -1044,6 +1051,12 @@
           "type": "integer",
           "description": "Remaining context tokens at or below which auto-compact triggers for this agent. Takes precedence over autoCompactPercentage.",
           "markdownDescription": "Remaining context tokens at or below which auto-compact triggers for this agent. Takes precedence over `autoCompactPercentage`.",
+          "minimum": 1
+        },
+        "autoCompactMaxPerTurn": {
+          "type": "integer",
+          "description": "Maximum number of auto-compactions in a single turn for this agent.",
+          "markdownDescription": "Maximum number of auto-compactions in a single turn for this agent.",
           "minimum": 1
         },
         "toolCall": {

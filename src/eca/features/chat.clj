@@ -719,16 +719,44 @@
       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
     {:stop-after-finish? stop-turn?}))
 
+(def ^:private resume-after-compact-message
+  {:role "user"
+   :content [{:type :text
+              :text "Continue with the task. The previous user request was:"}]})
+
 (defn ^:private resume-after-compact!
-  "on-after-finish! for a mid-turn compaction: resume the original user task."
+  "on-after-finish! for a mid-turn compaction: resume the original user task.
+   A turn can compact more than once, so a resume prefix from an earlier
+   compaction is not repeated. The resumed turn carries a fresh post-compact
+   guard, see `auto-compact-suppressed?`."
   [chat-ctx user-messages]
   (prompt-messages!
-   (concat [{:role "user"
-             :content [{:type :text
-                        :text "Continue with the task. The previous user request was:"}]}]
-           user-messages)
+   (cons resume-after-compact-message
+         (remove #(= resume-after-compact-message (select-keys % [:role :content])) user-messages))
    :auto-compact
-   (assoc chat-ctx :auto-compacted? true)))
+   (assoc chat-ctx :post-compact-guard* (atom true))))
+
+(defn ^:private auto-compact-suppressed?
+  "Whether auto-compaction must not run (again) in this turn: a preCompact hook
+   blocked it (`:auto-compacted?`, kept for the rest of the turn), the turn
+   reached `autoCompactMaxPerTurn`, or the chat was just compacted and no
+   response showed the compacted context under the threshold yet
+   (`:post-compact-guard*`). Compacting again before that could loop, as the
+   compacted context alone may still be too big. #391"
+  [{:keys [config agent auto-compactions post-compact-guard*] :as chat-ctx}]
+  (let [max-per-turn (lifecycle/auto-compact-max-per-turn config agent)]
+    (boolean (or (:auto-compacted? chat-ctx)
+                 (and max-per-turn (>= (or auto-compactions 0) max-per-turn))
+                 (some-> post-compact-guard* deref)))))
+
+(defn ^:private release-post-compact-guard!
+  "Called on each usage update: once the compacted context is under the
+   auto-compact threshold, compaction may run again later in the same turn."
+  [{:keys [db* chat-id agent full-model config post-compact-guard*]}]
+  (when (and post-compact-guard*
+             @post-compact-guard*
+             (not (lifecycle/auto-compact? chat-id agent full-model config @db*)))
+    (reset! post-compact-guard* false)))
 
 (defn ^:private trigger-compact!
   "Compact the chat in the middle of a running turn, then resume the original
@@ -774,15 +802,20 @@
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task.
    When a hook blocks compaction without stopping the turn, the original task is
-   (re)sent as a new prompt, marked so auto-compaction is not retried."
+   (re)sent as a new prompt, marked so auto-compaction is not retried.
+   Counts the auto-compactions of the turn, see `autoCompactMaxPerTurn`."
   [chat-ctx all-tools user-messages]
-  (trigger-compact! chat-ctx all-tools user-messages
-                    {:trigger "auto"
-                     :on-blocked (fn []
-                                   (prompt-messages! user-messages
-                                                     :auto-compact-blocked
-                                                     (assoc chat-ctx :auto-compacted? true))
-                                   nil)}))
+  (let [{:keys [chat-id config agent auto-compactions] :as chat-ctx} (update chat-ctx :auto-compactions (fnil inc 0))]
+    (when (= (lifecycle/auto-compact-max-per-turn config agent) auto-compactions)
+      (logger/warn logger-tag "Last auto-compaction allowed in this turn" {:chat-id chat-id
+                                                                         :auto-compactions auto-compactions}))
+    (trigger-compact! chat-ctx all-tools user-messages
+                      {:trigger "auto"
+                       :on-blocked (fn []
+                                     (prompt-messages! user-messages
+                                                       :auto-compact-blocked
+                                                       (assoc chat-ctx :auto-compacted? true))
+                                     nil)})))
 
 (defn ^:private log-api-switch!
   "Log when the user swaps to a model whose api differs from the chat's
@@ -1164,6 +1197,7 @@
                                         (logger/warn logger-tag "Failed to update provider quota" e)))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
+                                 (release-post-compact-guard! chat-ctx)
                                  ;; Never let the context-breakdown (a display-only
                                  ;; aid) throw into the streaming path, or the error
                                  ;; gets misclassified as a retryable provider error.
@@ -1229,7 +1263,7 @@
                       (db/save-chat! @db* chat-id metrics))))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                 (not (:auto-compacted? chat-ctx)))
+                 (not (auto-compact-suppressed? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
           (start-prompt-worker! chat-ctx
            (fn []
@@ -1446,7 +1480,7 @@
                                                    ;; and the task resumes, so the LLM never sees them as text. #610
                                                    (consume-steered-native-command! chat-id db* chat-ctx)
                                                    (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                                            (not (:auto-compacted? chat-ctx)))
+                                                            (not (auto-compact-suppressed? chat-ctx)))
                                                      (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
                                                      (continue-turn!))))))))
                                   received-msgs* add-to-history! user-messages)
@@ -1623,7 +1657,7 @@
 
                                 (and (= :context-overflow error-type)
                                      (not compacting?)
-                                     (not (:auto-compacted? chat-ctx))
+                                     (not (auto-compact-suppressed? chat-ctx))
                                      compactable?)
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"

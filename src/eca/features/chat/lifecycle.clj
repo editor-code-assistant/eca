@@ -22,6 +22,13 @@
   (or (get-in config [:agent agent-name :autoCompactPercentage])
       (get-in config [:autoCompactPercentage])))
 
+(defn auto-compact-max-per-turn
+  "How many times a single turn may auto-compact (`autoCompactMaxPerTurn`).
+   Per-agent value wins over the global one; nil when unset (no limit)."
+  [config agent-name]
+  (or (get-in config [:agent agent-name :autoCompactMaxPerTurn])
+      (get-in config [:autoCompactMaxPerTurn])))
+
 (defn ^:private auto-compact-tokens-left
   "Remaining-tokens threshold (`autoCompactTokensLeft`) at which the
    conversation is auto-compacted. Per-agent value wins over the global one;
