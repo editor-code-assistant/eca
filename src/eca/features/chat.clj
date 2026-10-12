@@ -1147,8 +1147,9 @@
         ;; superseded before that doesn't lose what the user typed.
         (lifecycle/record-unsent-user-messages! db* chat-id)
         (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
-               {:content-id (:user-content-id chat-ctx)
-                :messages user-messages}))
+               (assoc-some {:content-id (:user-content-id chat-ctx)
+                            :messages user-messages}
+                           :date-context (:date-context chat-ctx))))
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)

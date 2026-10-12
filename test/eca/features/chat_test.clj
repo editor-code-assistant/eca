@@ -309,7 +309,7 @@
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
       (is (match?
-           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
+           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"} (date-text-item)]}]}}
            (:chats (h/db)))
           "the unanswered message is kept so the next prompt and /resume still have it (eca-intellij#27)")
       (is (match?
@@ -606,9 +606,11 @@
           {:keys [chat-id]} (prompt! {:message "hello"}
                                      {:all-tools-mock (constantly [])
                                       :api-mock (fn [{:keys [on-error]}] (on-error error-data))})]
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (not (contains? (get-in (h/db) [:chats chat-id]) :unsent-user-messages)))
+      (is (= (:text (date-text-item)) (get-in (h/db) [:chats chat-id :last-injected-date]))
+          "the stored unsent message carries the date stamp, so the next turn must not send it again")
       (prompt! {:message "second" :chat-id chat-id}
                {:all-tools-mock (constantly [])
                 :api-mock (fn [{:keys [past-messages on-first-response-received on-message-received]}]
@@ -616,8 +618,8 @@
                             (on-first-response-received {:type :text :text "ok"})
                             (on-message-received {:type :text :text "ok"})
                             (on-message-received {:type :finish}))})
-      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"}]}]) @past-messages*))
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]) @past-messages*))
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}
                    {:role "user" :content [{:type :text :text "second"}]}
                    {:role "assistant" :content [{:type :text :text "ok"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))))
@@ -629,7 +631,7 @@
                {:all-tools-mock (constantly [])
                 :api-mock (fn [_]
                             (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics) {}))})
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]
                   (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest transient-tls-recovery-guards-test
