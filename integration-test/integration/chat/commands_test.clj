@@ -32,6 +32,8 @@
                                     {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
                        {:name "context" :arguments []}
+                       {:name "approvals" :arguments []}
+                       {:name "forget-approvals" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "fork" :arguments []}
                        {:name "btw" :arguments [{:name "prompt" :required true}]}
