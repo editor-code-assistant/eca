@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.164.0
+
 - Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
 - Scope "approve & remember" approvals to the chat and its subagents instead of all chats, add `/approvals` and `/forget-approvals` commands to list and forget them. #639
 
