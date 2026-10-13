@@ -2212,8 +2212,8 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <h3 id="how-eca-decides-rule-precedence">How ECA decides: rule precedence<a class="headerlink" href="#how-eca-decides-rule-precedence" title="Permanent link">#</a></h3>
 <p>For each tool call, ECA checks the following in order, and the first match wins:</p>
 <ol>
-<li><strong><code>deny</code> rules</strong>: always win, even over session-remembered approvals and trust mode.</li>
-<li><strong>Session-remembered approvals</strong>: what you approved with "approve and remember for this session" (<a href="#approve-remember-for-this-session">below</a>).</li>
+<li><strong><code>deny</code> rules</strong>: always win, even over remembered approvals and trust mode.</li>
+<li><strong>Remembered approvals</strong>: what you approved in the current chat with "approve and remember for this session" (<a href="#approve-remember-for-this-session">below</a>).</li>
 <li><strong>Tool built-in checks</strong>: some native tools force asking in risky cases regardless of <code>allow</code> rules, e.g. filesystem tools and <code>shell_command</code> when the path or working directory is outside the workspace roots.</li>
 <li><strong><code>ask</code> rules</strong>.</li>
 <li><strong><code>allow</code> rules</strong>.</li>
@@ -2262,9 +2262,10 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <h4 id="chained-and-piped-shell-commands">Chained and piped shell commands<a class="headerlink" href="#chained-and-piped-shell-commands" title="Permanent link">#</a></h4>
 <p>Config <code>argsMatchers</code> are tested against the <strong>full command string</strong> — there is no per-command splitting: for <code>cat file | grep foo</code>, an <code>allow</code> regex must match that whole string. That's why deny patterns are usually written like <code>".*\\b(rm|mv|cp)\\b.*"</code>. Splitting a chain into individual commands only happens for <a href="#approve-remember-for-this-session">session remember</a>.</p>
 <h3 id="approve-remember-for-this-session">Approve &amp; remember for this session<a class="headerlink" href="#approve-remember-for-this-session" title="Permanent link">#</a></h3>
-<p>When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool by name: future calls of it are auto-approved. Remembered approvals live in memory only — they apply to all chats of the running ECA process, are not written to any config file, and are lost on restart. <code>deny</code> rules still win over them.</p>
+<p>When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool (by its full <code>server__tool</code> name) for the chat session: future calls of it in the same chat, including its subagents, are auto-approved, while other chats keep asking. Remembered approvals live in memory only: they are not written to any config file, and are lost when the chat is cleared or ECA restarts. <code>deny</code> rules still win over them.</p>
+<p>Run <code>/approvals</code> to list the approvals remembered in the current chat and <code>/forget-approvals</code> to forget them without losing the conversation. A <code>/btw</code> side chat starts with the approvals of the chat it was asked from, like its trust mode. For tools you always want auto-approved, prefer an <code>allow</code> rule.</p>
 <h4 id="granular-approve-remember-for-shell-commands">Granular approve &amp; remember for shell commands<a class="headerlink" href="#granular-approve-remember-for-shell-commands" title="Permanent link">#</a></h4>
-<p>When you approve a <code>eca__shell_command</code> or <code>eca__git</code> tool call choosing "approve and remember", ECA remembers the approved commands for the session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (<code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>) produces a key — command + subcommand for multi-command tools (<code>git checkout</code>, <code>npm install</code>), the plain command otherwise (<code>rg</code>). A future shell call runs automatically only when all its commands were already remembered.</p>
+<p>When you approve a <code>eca__shell_command</code> or <code>eca__git</code> tool call choosing "approve and remember", ECA remembers the approved commands for the chat session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (<code>&amp;&amp;</code>, <code>||</code>, <code>;</code>, <code>|</code>) produces a key — command + subcommand for multi-command tools (<code>git checkout</code>, <code>npm install</code>), the plain command otherwise (<code>rg</code>). A future shell call runs automatically only when all its commands were already remembered.</p>
 <p>ECA fails closed: commands it cannot safely reason about always ask again, like command/process substitution (<code>$(...)</code>, backticks), subshells, heredocs, output redirections to files (except <code>/dev/null</code>), and wrapper commands that execute arbitrary code (<code>sudo</code>, <code>bash -c</code>, <code>xargs</code>, <code>env</code>, ...).</p>
 <h3 id="trust-mode-by-default">Trust mode by default<a class="headerlink" href="#trust-mode-by-default" title="Permanent link">#</a></h3>
 <p>Trust mode auto-accepts all tool calls in a chat (it never overrides <code>deny</code>). Editors expose a toggle for it, and you can make <strong>new chats start trusted</strong> for every editor via <code>chat.defaultTrust</code>:</p>
@@ -2316,7 +2317,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 </tr>
 <tr>
 <td><code>:session-remember</code></td>
-<td>an "approve and remember for this session" approval</td>
+<td>an "approve and remember for this session" approval of the current chat</td>
 </tr>
 <tr>
 <td><code>:tool-built-in-check</code></td>
@@ -2364,7 +2365,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 9, 2026 17:53:45 UTC">October 9, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 13, 2026 17:25:02 UTC">October 13, 2026</span>
   </span>
 
     
