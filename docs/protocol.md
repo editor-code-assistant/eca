@@ -1474,7 +1474,8 @@ interface ShellCommandBreakdown {
     approvalKey?: string;
 
     /**
-     * Whether approvalKey is already remembered for this session.
+     * Whether approvalKey is already remembered for this chat session
+     * (the chat and its subagents).
      * Only present when approvalKey is present.
      */
     remembered?: boolean;
@@ -1532,6 +1533,8 @@ interface ChatToolCallApproveParams {
     
     /**
      * The approach to save this tool call.
+     * 'session' remembers the approval for the chat session: the chat and its subagents,
+     * in memory only, until the chat is cleared or the server restarts.
      * For tools with granular approval (eca shell_command and git), 'session' remembers
      * the specific approved commands (e.g. "git checkout") instead of the whole tool.
      */
@@ -1754,7 +1757,8 @@ the running task, instead of injecting the command text into the conversation.
 
 Other native commands that do not affect the running turn (`/sync-system-prompt`, `/costs`,
 `/context`, `/chats`, `/skills`, `/rules`, `/subagents`, `/plugins`, `/hooks`, `/prompt-show`,
-`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`) are also queued and
+`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
+`/forget-approvals`) are also queued and
 executed at the turn boundary: their output is shown and the task resumes. Native commands that
 would change the chat or start another prompt (`/model`, `/agent`, `/fork`, `/resume`,
 `/delete-chat`, `/login`, `/init`, ...) are refused with a system message and not queued.
@@ -1857,7 +1861,8 @@ interface ChatClearParams {
     chatId: string;
 
     /**
-     * Whether to clear the messages and tool calls of the chat.
+     * Whether to clear the messages and tool calls of the chat,
+     * also forgetting its remembered tool call approvals.
      */
     messages?: boolean;
 }

@@ -16,8 +16,8 @@
 (def ^:private default-timeout 120000)
 
 (defmethod tools.util/tool-call-details-before-invocation :git
-  [_name arguments _server {:keys [db]}]
-  (shell/shell-command-details "git" (get arguments "command") db))
+  [_name arguments _server {:keys [db chat-id]}]
+  (shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
 
 (defn ^:private heredoc-in-substitution-hint
   "Some shells (e.g. macOS bash 3.2) fail to parse heredocs inside $(...) when

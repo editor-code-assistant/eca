@@ -3383,6 +3383,74 @@
     (is (= {} (:chats (h/db))))
     (is (= {} (h/messages)))))
 
+(deftest tool-call-approve-remembers-in-chat-session-test
+  (let [waiting-tool-call (fn [tool-call]
+                            (merge {:status :waiting-approval
+                                    :approved?* (promise)
+                                    :future-cleanup-complete?* (promise)}
+                                   tool-call))
+        shell-call (waiting-tool-call {:name "shell_command" :full-name "eca__shell_command" :server "eca"
+                                       :origin :native :arguments {"command" "git status && rg foo"}})
+        approve! (fn [chat-id save]
+                   (f.chat/tool-call-approve {:chat-id chat-id :tool-call-id "t1" :save save}
+                                             (h/db*) (h/messenger) (h/config) (h/metrics)))]
+    (testing "granular native tools remember the approved command keys in the chat only"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" shell-call}}
+                                   "c2" {:id "c2"}})
+      (approve! "c1" "session")
+      (is (= {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}}
+             (db/remembered-approvals (h/db) "c1")))
+      (is (nil? (db/remembered-approvals (h/db) "c2")) "Other chats are untouched")
+      (is (not (contains? (h/db) :tool-calls)) "Nothing is remembered server-wide"))
+
+    (testing "other tools are remembered as a whole by full tool name"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" (waiting-tool-call {:name "write_file" :full-name "fs__write_file"
+                                                                                         :server "fs" :origin :mcp
+                                                                                         :arguments {"path" "/tmp/a"}})}}})
+      (approve! "c1" "session")
+      (is (= {"fs__write_file" {:remember-to-approve? true}}
+             (db/remembered-approvals (h/db) "c1"))))
+
+    (testing "an MCP tool named like a native granular tool is remembered as a whole tool"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" (waiting-tool-call {:name "git" :full-name "gitmcp__git"
+                                                                                         :server "gitmcp" :origin :mcp
+                                                                                         :arguments {"command" "git status"}})}}})
+      (approve! "c1" "session")
+      (is (= {"gitmcp__git" {:remember-to-approve? true}}
+             (db/remembered-approvals (h/db) "c1"))))
+
+    (testing "approving a subagent tool call remembers it in the parent chat"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"parent" {:id "parent"}
+                                   "sub" {:id "sub" :parent-chat-id "parent" :tool-calls {"t1" shell-call}}})
+      (approve! "sub" "session")
+      (is (= {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}}
+             (get-in (h/db) [:chats "parent" :remembered-approvals])))
+      (is (not (contains? (get-in (h/db) [:chats "sub"]) :remembered-approvals))))
+
+    (testing "approving without save remembers nothing"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" shell-call}}})
+      (approve! "c1" nil)
+      (is (nil? (db/remembered-approvals (h/db) "c1"))))))
+
+(deftest clear-chat-resets-remembered-approvals-test
+  (testing "Clearing the chat messages forgets its remembered approvals (#639)"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"
+                                       :messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                                       :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}
+                                 "c2" {:id "c2"
+                                       :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}})
+    (f.chat/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
+    (is (nil? (db/remembered-approvals (h/db) "c1")))
+    (is (= {"eca__write_file" {:remember-to-approve? true}}
+           (db/remembered-approvals (h/db) "c2"))
+        "Other chats keep their approvals")))
+
 (deftest tool-call-reject-on-unknown-chat-is-noop-test
   (testing "Rejecting a tool-call against an unknown chat does not throw or mutate state"
     (h/reset-components!)

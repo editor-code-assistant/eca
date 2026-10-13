@@ -840,15 +840,17 @@
 
 (def ^:private steer-boundary-commands
   "Native commands that can run while a prompt is in flight without touching the
-   running turn: read-only ones and /sync-system-prompt, which only drops the
-   prompt cache read by the next prompt. All return :chat-messages. Steered, they
-   are queued and executed at the next turn boundary with the running turn's
-   context, then the task resumes; any other steered native command is refused
-   (see `steer-refused-command`). /btw runs immediately instead
-   (`steer-divertible-commands`) and /compact has its own boundary handling. #610"
+   running turn: read-only ones, /sync-system-prompt, which only drops the
+   prompt cache read by the next prompt, and /forget-approvals, which only drops
+   remembered approvals read by the next tool calls. All return :chat-messages.
+   Steered, they are queued and executed at the next turn boundary with the
+   running turn's context, then the task resumes; any other steered native
+   command is refused (see `steer-refused-command`). /btw runs immediately
+   instead (`steer-divertible-commands`) and /compact has its own boundary
+   handling. #610"
   #{"sync-system-prompt" "costs" "context" "chats" "skills" "rules" "subagents"
     "plugins" "hooks" "prompt-show" "repo-map-show" "doctor" "config" "remote"
-    "debug-chat" "export"})
+    "debug-chat" "export" "approvals" "forget-approvals"})
 
 (defn ^:private send-command-chat-messages!
   "Emits a command's :chat-messages result to the client, per target chat."
@@ -2270,7 +2272,8 @@
                                       (merge {:last-api (:last-api source-chat)
                                               :messages (f.commands/drop-dangling-tool-calls
                                                          (vec (:messages source-chat)))}
-                                             (select-keys source-chat [:trust :prompt-cache :startup-context])))
+                                             (select-keys source-chat [:trust :remembered-approvals
+                                                                       :prompt-cache :startup-context])))
                              ;; Mirror prompt's default-trust seeding for brand-new
                              ;; chats: explicit trust param wins, then the source
                              ;; chat's trust, then chat.defaultTrust.
@@ -2332,14 +2335,21 @@
                                   {:reason {:code :user-choice-allow
                                             :text "Tool call allowed by user choice"}})
         (when (= "session" save)
-          (let [{tool-call-name :name arguments :arguments} (get-in @db* [:chats chat-id :tool-calls tool-call-id])]
-            (if-let [{keys' :keys} (f.tools/tool-approval-keys tool-call-name arguments)]
+          ;; Remembered for the chat session (the root chat, shared with its
+          ;; subagents) by full tool name, never server-wide. #639
+          (let [{tool-call-name :name :keys [full-name origin arguments]}
+                (get-in @db* [:chats chat-id :tool-calls tool-call-id])]
+            ;; Granular keys only exist for native tools, an MCP tool named
+            ;; like one (e.g. `git`) is remembered as a whole tool.
+            (if-let [{keys' :keys} (when (= :native origin)
+                                     (f.tools/tool-approval-keys tool-call-name arguments))]
               ;; Granular remember (e.g. shell commands): remember only the
               ;; derived keys instead of whitelisting the whole tool. #153
               (when (seq keys')
-                (swap! db* update-in [:tool-calls tool-call-name :remembered-command-keys]
-                       (fnil into #{}) keys'))
-              (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true))))))))
+                (swap! db* db/update-remembered-approvals chat-id
+                       update-in [full-name :remembered-command-keys] (fnil into #{}) keys'))
+              (swap! db* db/update-remembered-approvals chat-id
+                     assoc-in [full-name :remember-to-approve?] true))))))))
 
 (defn tool-call-reject
   [{:keys [chat-id tool-call-id]} db* messenger config metrics]
@@ -2520,10 +2530,12 @@
              (cond-> chat
                ;; A cleared chat is a fresh conversation: drop the prompt cache
                ;; so the next prompt rebuilds the system prompt silently instead
-               ;; of warning about an invalidated cache that no longer exists. #530
+               ;; of warning about an invalidated cache that no longer exists
+               ;; (#530), and the "approve & remember" approvals too (#639).
                messages (-> (assoc :messages [])
                             (dissoc :tool-calls :last-api :usage :task
-                                    :prompt-cache :last-editor-state)))))
+                                    :prompt-cache :last-editor-state
+                                    :remembered-approvals)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/save-chat! @db* chat-id metrics)))
 
