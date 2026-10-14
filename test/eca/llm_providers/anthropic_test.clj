@@ -265,11 +265,44 @@
     (is (= 3 (count requests)))
     (is (= 1 tools-called) "events after the SSE error are not dispatched")
     (is (apply = (rest requests)))
-    (is (= [:rate-limited] (mapv #(get-in % [:classified :error/type]) retries)))
+    (is (= [:overloaded] (mapv #(get-in % [:classified :error/type]) retries)))
     (is (nil? (get-in retries [0 :error-data :exception])) "do not replace the SSE error with the unwind exception")
     (is (empty? errors))
     (is (= [:text :finish] (mapv :type messages)))
     (is (= [2 3 1] closed))))
+
+(deftest post-tool-sse-transient-error-test
+  (doseq [error-type ["api_error" "overloaded_error" "timeout_error"]]
+    (testing (str error-type " before content is retried as overloaded")
+      (let [{:keys [requests errors retries messages]}
+            (post-tool-scenario!
+             {:child-response (fn [n respond]
+                                (if (= 2 n)
+                                  (respond [["error" {:error {:type error-type :message "read: operation timed out"}}]])
+                                  (respond final-events)))})]
+        (is (= 3 (count requests)))
+        (is (= [:overloaded] (mapv #(get-in % [:classified :error/type]) retries)))
+        (is (empty? errors))
+        (is (= [:text :finish] (mapv :type messages)))))
+    (testing (str error-type " after reasoning started surfaces as overloaded for chat recovery")
+      (let [{:keys [requests errors retries]}
+            (post-tool-scenario!
+             {:child-response (fn [_ respond]
+                                (respond [(first final-events)
+                                          ["content_block_start" {:index 0 :content_block {:type "thinking"}}]
+                                          ["error" {:error {:type error-type :message "read: operation timed out"}}]]))})]
+        (is (= 2 (count requests)))
+        (is (empty? retries))
+        (is (= [:overloaded] (mapv :error/type errors)))))))
+
+(deftest post-tool-sse-non-transient-error-test
+  (let [{:keys [requests errors retries]}
+        (post-tool-scenario!
+         {:child-response (fn [_ respond]
+                            (respond [["error" {:error {:type "invalid_request_error" :message "bad request"}}]]))})]
+    (is (= 2 (count requests)))
+    (is (empty? retries))
+    (is (= [nil] (mapv :error/type errors)))))
 
 (deftest post-tool-rate-limit-delay-test
   (let [{:keys [requests tools-called errors retries sleeps]}

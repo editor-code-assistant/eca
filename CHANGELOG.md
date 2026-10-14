@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
+- Retry or auto-continue Anthropic streams that fail mid-response with an `api_error`, `overloaded_error` or `timeout_error` SSE event, instead of ending the prompt.
+- Refill the `maxAutoContinues` recovery budget once a response completes and its tools run, so long turns aren't stopped by failures spread across many steps.
+
 ## 0.164.0
 
 - Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
