@@ -78,6 +78,10 @@
       (is (= {:id "a" :messages []}
              (normalize "a" {:messages []
                              :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}))))
+    (testing "the open reasoning display group is never persisted (#643)"
+      (is (= {:id "a" :messages []}
+             (normalize "a" {:messages []
+                             :reason-group {:id "r1" :total-time-ms 0 :open {"r1" 1}}}))))
     (testing "chats with empty or absent :messages are preserved (e.g. after rollback or early provider error)"
       (is (= {:id "a" :messages []} (normalize "a" {:messages []})))
       (is (= {:id "a"} (normalize "a" {}))))))

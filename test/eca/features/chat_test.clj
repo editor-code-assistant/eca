@@ -3405,6 +3405,87 @@
     (is (= {} (f.chat/fork-chat {:chat-id "c1" :content-id "nope"}
                                 (h/db*) (h/messenger) (h/metrics))))))
 
+(deftest messages->contents-merges-adjacent-reasons-test
+  (let [reason (fn [id text ms] {:role "reason" :content {:id id :external-id (str "enc-" id) :text text :total-time-ms ms}})
+        assistant {:role "assistant" :content [{:type :text :text "Hi"}]}
+        contents (fn [messages]
+                   (mapv :content (f.chat/messages->contents messages {:chat-id "c1" :db {}})))]
+    (testing "a run of reasons renders as one block with the first id, joined texts and summed time"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonText :id "r1" :text "Plan\n\nAct"}
+              {:type :reasonFinished :id "r1" :total-time-ms 1750}
+              {:type :text :text "\nHi"}]
+             (contents [(reason "r1" nil 1000) (reason "r2" "Plan" 500) (reason "r3" " " 0)
+                        (reason "r4" "Act" 250) assistant]))))
+
+    (testing "a run of empty reasons renders as one empty block"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonFinished :id "r1" :total-time-ms 3}]
+             (contents [(reason "r1" nil 1) (reason "r2" nil 2)]))))
+
+    (testing "reasons separated by other messages stay separate and single reasons are unchanged"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonText :id "r1" :text "a"}
+              {:type :reasonFinished :id "r1" :total-time-ms 1}
+              {:type :text :text "\nHi"}
+              {:type :reasonStarted :id "r2"}
+              {:type :reasonFinished :id "r2" :total-time-ms nil}]
+             (contents [(reason "r1" "a" 1) assistant (reason "r2" nil nil)]))))))
+
+(deftest flag-and-fork-after-merged-reasons-test
+  (let [messages [{:role "user" :content [{:type :text :text "q"}] :content-id "u1"}
+                  {:role "reason" :content {:id "r1" :text nil :total-time-ms 1}}
+                  {:role "reason" :content {:id "r2" :text "plan" :total-time-ms 2}}
+                  {:role "assistant" :content [{:type :text :text "a"}]}]
+        seed! (fn []
+                (h/reset-components!)
+                (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "Orig" :messages messages}))]
+    (testing "a flag added on a merged block lands after the whole run"
+      (seed!)
+      (f.chat/add-flag {:chat-id "c1" :content-id "r1" :text "checkpoint"} (h/db*) (h/messenger) (h/metrics))
+      (is (= ["user" "reason" "reason" "flag" "assistant"]
+             (mapv :role (get-in (h/db) [:chats "c1" :messages])))))
+
+    (testing "a fork from a merged block keeps the whole run"
+      (seed!)
+      (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "c1" :content-id "r1"} (h/db*) (h/messenger) (h/metrics))]
+        (is (= ["user" "reason" "reason"]
+               (mapv :role (get-in (h/db) [:chats chat-id :messages]))))))))
+
+(deftest prompt-groups-consecutive-reasoning-test
+  (testing "consecutive reasoning blocks show as one block while history keeps every block"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Hey!"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received on-reason]}]
+              (on-first-response-received {:type :reason})
+              (on-reason {:status :started :id "r1"})
+              (on-reason {:status :finished :id "r1" :external-id "enc-1"})
+              (on-reason {:status :started :id "r2"})
+              (on-reason {:status :thinking :id "r2" :text "Planning"})
+              (on-reason {:status :finished :id "r2" :external-id "enc-2"})
+              (on-message-received {:type :text :text "Done"})
+              (on-message-received {:type :finish}))})]
+      (is (match? {:messages [{:role "user"}
+                              {:role "reason" :content {:id "r1" :external-id "enc-1" :text nil}}
+                              {:role "reason" :content {:id "r2" :external-id "enc-2" :text "Planning"}}
+                              {:role "assistant" :content [{:type :text :text "Done"}]}]}
+                  (get-in (h/db) [:chats chat-id])))
+      (is (match? {:chat-content-received
+                   [{:role :user :content {:type :text :text "Hey!\n"}}
+                    {:role :system :content {:type :progress :state :running :text "Waiting model"}}
+                    {:role :system :content {:type :progress :state :running :text "Generating"}}
+                    {:role :assistant :content {:type :reasonStarted :id "r1"}}
+                    {:role :assistant :content {:type :reasonText :id "r1" :text "Planning"}}
+                    {:role :assistant :content {:type :reasonFinished :id "r1" :total-time-ms number?}}
+                    {:role :assistant :content {:type :text :text "Done"}}
+                    {:role :system :content {:type :progress :state :finished}}]}
+                  (h/messages)))
+      (is (nil? (get-in (h/db) [:chats chat-id :reason-group]))))))
+
 (deftest tool-call-approve-on-unknown-chat-is-noop-test
   (testing "Approving a tool-call against an unknown chat does not throw or mutate state"
     (h/reset-components!)

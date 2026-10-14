@@ -389,11 +389,33 @@
                        :text (:text message-content)
                        :contentId content-id}}]))
 
+(defn ^:private merge-adjacent-reasons
+  "Display-only: collapses each run of consecutive reason messages into one,
+   mirroring the live grouping in `lifecycle/send-content!`. Keeps the first
+   block id, joins non-blank texts with a blank line and sums the times."
+  [messages]
+  (into []
+        (mapcat (fn [[first-message :as run]]
+                  (if (and (= "reason" (:role first-message)) (next run))
+                    [(assoc first-message
+                            :content {:id (get-in first-message [:content :id])
+                                      :text (some->> run
+                                                     (keep #(shared/not-blank (get-in % [:content :text])))
+                                                     seq
+                                                     (string/join "\n\n"))
+                                      :total-time-ms (some->> run
+                                                              (keep #(get-in % [:content :total-time-ms]))
+                                                              seq
+                                                              (reduce +))})]
+                    run)))
+        (partition-by #(= "reason" (:role %)) messages)))
+
 (defn messages->contents
   "Pure transform of persisted `messages` into the flat sequence of chat-content
    notification payloads ({:chat-id :role :content :parent-chat-id?}) that the
    streaming replay sends, including nested subagent expansion. `db` is a plain
-   db snapshot used only to resolve subagent message histories.
+   db snapshot used only to resolve subagent message histories. Consecutive
+   reason messages render as a single reasoning block, like live streaming.
 
    Shared by the streaming replay (`send-chat-contents!`) and the request/response
    `chat/history` method so both render identical content."
@@ -419,7 +441,7 @@
                                               :db db})
                          [(->payload (last chat-contents))])
                  (map ->payload chat-contents))))
-           messages))))
+           (merge-adjacent-reasons messages)))))
 
 (defn ^:private send-chat-contents! [messages chat-ctx]
   (doseq [payload (messages->contents messages {:chat-id (:chat-id chat-ctx)
@@ -2609,15 +2631,23 @@
 
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both
-   :content-id (user messages) and [:content :id] (tool calls, etc)."
+   :content-id (user messages) and [:content :id] (tool calls, etc).
+   A matched reason message extends to the end of its run of adjacent reason
+   messages, as clients show the whole run as one block with the first id."
   [messages content-id]
-  (loop [i (dec (count messages))]
-    (cond
-      (neg? i) nil
-      (let [msg (messages i)]
-        (or (= content-id (:content-id msg))
-            (= content-id (get-in msg [:content :id])))) i
-      :else (recur (dec i)))))
+  (when-let [idx (loop [i (dec (count messages))]
+                   (cond
+                     (neg? i) nil
+                     (let [msg (messages i)]
+                       (or (= content-id (:content-id msg))
+                           (= content-id (get-in msg [:content :id])))) i
+                     :else (recur (dec i))))]
+    (if (= "reason" (:role (messages idx)))
+      (loop [i idx]
+        (if (= "reason" (:role (get messages (inc i))))
+          (recur (inc i))
+          i))
+      idx)))
 
 (defn add-flag
   "Add a named flag after the message identified by content-id.

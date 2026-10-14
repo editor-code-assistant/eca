@@ -793,6 +793,10 @@ interface ChatProgressContent {
 /**
  * A reason started from the LLM
  *
+ * Consecutive reasoning blocks with no other visible content between them
+ * are merged by the server into a single reason: one id, texts joined by a
+ * blank line and a single `reasonFinished` with the summed time, sent right
+ * before the next visible content or when the prompt finishes.
  */
 interface ChatReasonStartedContent {
     type: 'reasonStarted';

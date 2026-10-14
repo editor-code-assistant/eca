@@ -114,6 +114,14 @@
                         ;; their root chat's, see `remembered-approvals`.
                         :remembered-approvals {"<server__tool>" {:remember-to-approve? :boolean
                                                                  :remembered-command-keys #{:string}}}
+                        ;; Reasoning blocks currently shown as one block in the
+                        ;; client, in memory only (never persisted), see
+                        ;; `eca.features.chat.lifecycle/send-content!`.
+                        :reason-group {:id :string
+                                       :total-time-ms :number
+                                       :open {"<reason-id>" :number}
+                                       :text? :boolean
+                                       :last-text-block-id :string}
                         :tool-calls {"<tool-call-id>"
                                      {:status (or :initial :preparing :check-approval :waiting-approval
                                                   :execution-approved :executing :rejected :cleanup
@@ -508,7 +516,7 @@
   ;; and chats that hit a provider error before any token arrived. Cleanup of
   ;; stale chats is handled by cleanup-old-chats! instead.
   (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
-      (dissoc :tool-calls :last-status-payload :unsent-user-messages :remembered-approvals)
+      (dissoc :tool-calls :last-status-payload :unsent-user-messages :remembered-approvals :reason-group)
       (assoc :id chat-id)))
 
 (defn ^:private read-chat-file
