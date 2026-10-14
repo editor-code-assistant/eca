@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -302,6 +303,24 @@
         (jwt-payload->account-id payload)))
     (catch Exception _)))
 
+(def ^:private codex-usage-url "https://chatgpt.com/backend-api/wham/usage")
+
+(defmethod f.quota/fetch-quota "openai" [{:keys [provider-auth]}]
+  (let [api-key (:api-key provider-auth)
+        {:keys [status body]} (http/get codex-usage-url
+                                        {:headers (merge
+                                                   {"Authorization" (str "Bearer " api-key)}
+                                                   (codex-request-headers
+                                                    {:account-id (or (:account-id provider-auth)
+                                                                     (jwt-token->account-id api-key))}))
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout codex-models-timeout-ms})]
+    (if (= 200 status)
+      (f.quota/codex-usage->snapshot body)
+      (throw (ex-info (format "ChatGPT usage endpoint returned status %s" status) {:status status})))))
+
 (defn ^:private response-body->result [body]
   {:output-text (reduce
                  #(str %1 (:text %2))
@@ -371,7 +390,7 @@
 
 (defn ^:private base-responses-request!
   [{:keys [rid body api-url codex? url-relative-path api-key account-id
-           turn-context responses-lite? on-error on-stream http-client extra-headers
+           turn-context responses-lite? on-error on-stream on-response-headers http-client extra-headers
            cancelled? stream-idle-timeout-seconds]}]
   (let [stream? (and on-stream (not= false (:stream body)))
         url (if codex?
@@ -405,6 +424,8 @@
                                                           :throw-exceptions? false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if stream? :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
         (when (and codex? (= 200 status))
           (capture-codex-turn-state!
            turn-context
@@ -623,7 +644,7 @@
                                 provider auth-type provider-data account-id http-client prompt-cache-key cancelled?
                                 stream-idle-timeout-seconds]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-                                on-server-web-search on-server-image-generation retry-request] :as callbacks}]
+                                on-server-web-search on-server-image-generation on-response-headers retry-request] :as callbacks}]
   (let [codex? (codex-request? provider auth-type)
         provider-data (when codex?
                         (merge (:discovered-provider-data (codex-model-fallback-discovery model))
@@ -812,6 +833,7 @@
                         :cancelled? cancelled?
                         :stream-idle-timeout-seconds stream-idle-timeout-seconds
                         :on-error on-error
+                        :on-response-headers on-response-headers
                         :on-stream handle-stream
                         :retry-request retry-request})))
                   (on-message-received {:type :finish
@@ -841,6 +863,7 @@
                  :cancelled? cancelled?
                  :stream-idle-timeout-seconds stream-idle-timeout-seconds
                  :on-error on-error
+                 :on-response-headers on-response-headers
                  :on-stream on-stream-fn})]
     (if callbacks
       result

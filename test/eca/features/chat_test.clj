@@ -213,6 +213,41 @@
                     {:role :system :content {:type :progress :state :finished}}]}
                   (h/messages))))))
 
+(deftest prompt-subscription-quota-test
+  (let [api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated on-response-headers]}]
+                   (on-response-headers {"x-codex-primary-used-percent" "42"
+                                         "x-codex-primary-window-minutes" "300"
+                                         "x-codex-primary-reset-at" "1900000000"})
+                   (on-first-response-received {:type :text :text "Hey"})
+                   (on-message-received {:type :text :text "Hey"})
+                   (on-usage-updated {:input-tokens 10 :output-tokens 5})
+                   (on-message-received {:type :finish}))
+        usage-contents #(->> (:chat-content-received (h/messages))
+                             (map :content)
+                             (filter (comp #{:usage} :type)))
+        priced-models {"openai/gpt-5.2" {:tools true :input-token-cost 0.000001 :output-token-cost 0.000002}}]
+    (testing "subscription logins get the quota instead of costs and notify the provider status"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/oauth :mode :pro :api-key "oauth-token"})
+      (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
+      (is (match? [{:session-tokens 15
+                    :quota {:windows [{:id "primary" :label "5h" :used-percent 42.0 :resets-at 1900000000}]}
+                    :last-message-cost m/absent
+                    :session-cost m/absent}]
+                  (usage-contents)))
+      (is (match? [{:id "openai" :quota {:windows [{:id "primary" :used-percent 42.0}]}}]
+                  (:provider-updated (h/messages)))))
+    (testing "API key logins keep costs and ignore quota headers"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/token :api-key "sk-key"})
+      (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
+      (is (match? [{:session-tokens 15 :session-cost "0.00" :quota m/absent}]
+                  (usage-contents)))
+      (is (empty? (:provider-updated (h/messages))))
+      (is (nil? (get-in (h/db) [:provider-quotas "openai"]))))))
+
 (deftest prompt-basic-test
   (testing "Simple hello"
     (h/reset-components!)

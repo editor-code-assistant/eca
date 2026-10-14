@@ -966,13 +966,26 @@ interface ChatUsageContent {
     
     /**
      * The cost of the last sent message summing input + output tokens.
+     * Absent when the model has no pricing or the chat uses a subscription
+     * login (see `quota`).
      */
     lastMessageCost?: string; 
     
     /**
      * The cost of the whole chat session so far.
+     * Absent when the model has no pricing or the chat uses a subscription
+     * login (see `quota`).
      */
     sessionCost?: string;
+
+    /**
+     * Subscription quota of the provider behind the chat's model, sent instead
+     * of the costs when logged in with a subscription (Claude Pro/Max, ChatGPT,
+     * GitHub Copilot), as the provider has no per-token cost. Absent until the
+     * provider reports it. Same value as the provider's `ProviderStatus.quota`
+     * when this usage was sent.
+     */
+    quota?: ProviderQuota;
     
     /**
      * Information about limits.
@@ -3548,6 +3561,41 @@ interface ProviderStatus {
     models: ProviderModel[];
     /** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */
     settings?: Record<string, any>;
+    /**
+     * Latest subscription quota, only for subscription logins (`auth.type`
+     * "oauth") once the provider reported it, either on a request or via its
+     * usage endpoint fetched after login, on startup and by `/quota`.
+     */
+    quota?: ProviderQuota;
+}
+
+/**
+ * Account-level subscription quota reported by the provider (e.g. Claude
+ * Pro/Max, ChatGPT, GitHub Copilot). Unrelated to chat tokens or API billing.
+ */
+interface ProviderQuota {
+    /** When this snapshot was captured, epoch seconds. */
+    updatedAt: number;
+    /**
+     * Quota windows as reported by the provider, shortest first. Ids, labels
+     * and durations come from the provider, clients should not assume fixed
+     * windows. A window whose `resetsAt` already passed is stale until the next
+     * update.
+     */
+    windows: ProviderQuotaWindow[];
+}
+
+interface ProviderQuotaWindow {
+    /** Stable id derived from the provider data (e.g. "5h", "7d", "primary", "premium_interactions"). */
+    id: string;
+    /** Short display label (e.g. "5h", "7d", "Premium"). */
+    label: string;
+    /** Used share of the window, 0-100. May exceed 100 when the provider allows overage. */
+    usedPercent: number;
+    /** When the window resets, epoch seconds. */
+    resetsAt?: number;
+    /** Window duration in minutes, when reported. */
+    windowMinutes?: number;
 }
 
 interface ProviderAuth {
@@ -3711,8 +3759,8 @@ _Response:_
 
 ### Provider Updated (⬅️)
 
-A server notification sent when a provider's authentication state or available models change.
-Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+A server notification sent when a provider's authentication state, available models or subscription quota change.
+Sent after login completion, logout, token renewal, model sync, or when the quota clients display changes. Contains the full provider
 status (same shape as items in `providers/list` response).
 
 _Notification:_

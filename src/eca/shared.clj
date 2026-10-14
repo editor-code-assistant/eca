@@ -330,7 +330,7 @@
         (format "%.2f" (+ input-cost
                           (* output-tokens output-token-cost)))))))
 
-(defn usage-sumary [chat-id full-model db]
+(defn ^:private usage-sumary* [chat-id full-model db]
   (let [last-input-tokens (or (get-in db [:chats chat-id :usage :last-input-tokens]) 0)
         last-output-tokens (or (get-in db [:chats chat-id :usage :last-output-tokens]) 0)
         last-input-cache-creation-tokens (or (get-in db [:chats chat-id :usage :last-input-cache-creation-tokens]) 0)
@@ -348,6 +348,20 @@
                 :last-message-cost (tokens->cost last-input-tokens last-input-cache-creation-tokens last-input-cache-read-tokens last-output-tokens model-capabilities)
                 :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities))))
 
+(defn usage-sumary
+  "Usage payload of a chat. Subscription logins (`subscription?`) have no
+   per-token cost, so costs are replaced by the provider's quota."
+  ([chat-id full-model db]
+   (usage-sumary chat-id full-model db nil))
+  ([chat-id full-model db {:keys [subscription?]}]
+   (let [usage (usage-sumary* chat-id full-model db)
+         provider (some-> full-model (string/split #"/" 2) first)]
+     (if subscription?
+       (-> usage
+           (dissoc :last-message-cost :session-cost)
+           (assoc-some :quota (get-in db [:provider-quotas provider])))
+       usage))))
+
 (defn usage-msg->usage
   "How this works:
     - tokens: the last message from API already contain the total
@@ -356,7 +370,7 @@
   [{:keys [input-tokens output-tokens
            input-cache-creation-tokens input-cache-read-tokens]}
    full-model
-   {:keys [chat-id db*]}]
+   {:keys [chat-id db*] :as chat-ctx}]
   (when (and output-tokens input-tokens)
     (swap! db* assoc-in [:chats chat-id :usage :last-input-tokens] input-tokens)
     (swap! db* assoc-in [:chats chat-id :usage :last-output-tokens] output-tokens)
@@ -368,7 +382,7 @@
     (when input-cache-read-tokens
       (swap! db* assoc-in [:chats chat-id :usage :last-input-cache-read-tokens] input-cache-read-tokens)
       (swap! db* update-in [:chats chat-id :usage :total-input-cache-read-tokens] (fnil + 0) input-cache-read-tokens))
-    (usage-sumary chat-id full-model @db*)))
+    (usage-sumary chat-id full-model @db* (select-keys chat-ctx [:subscription?]))))
 
 (defn estimate-tokens
   "Rough, provider-agnostic token estimate: ~4 chars per token.
@@ -638,7 +652,7 @@
 (defn compact-side-effect!
   "Performs side effects after chat compaction: appends a compact_marker tombstone
    and summary to history, zeros token usage, and notifies the user."
-  [{:keys [chat-id full-model db* messenger]} auto-compact?]
+  [{:keys [chat-id full-model db* messenger] :as chat-ctx} auto-compact?]
   ;; Append compact marker tombstone + summary to preserve full history
   (swap! db* (fn [db]
                (let [summary (get-in db [:chats chat-id :last-summary])
@@ -667,7 +681,7 @@
               :text (if auto-compact?
                       "Auto-compacted chat"
                       "Compacted chat")}})
-  (when-let [usage (usage-sumary chat-id full-model @db*)]
+  (when-let [usage (usage-sumary chat-id full-model @db* (select-keys chat-ctx [:subscription?]))]
     (messenger/chat-content-received
      messenger
      {:chat-id chat-id

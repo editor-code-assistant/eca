@@ -124,7 +124,7 @@ This step-by-step feature implementation help track progress and next steps:
   - [ ] Support reason/thoughts content blocks.
   - [ ] Show MCPs summary (running, failed, pending).
   - [ ] Support chat commands (`/`) auto completion, querying via `chat/queryCommands`.
-  - [ ] Show usage (costs/tokens) from usage content blocks.
+  - [ ] Show usage (costs/tokens, or subscription quota) from usage content blocks.
   - [ ] keybindings: navigate through chat blocks/messages, clear chat.
 - MCP
   - [ ] Open MCP details window

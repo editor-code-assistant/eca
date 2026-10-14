@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -160,7 +161,7 @@
      (fn [tool] (assoc tool :cache_control cache-control)))
     tools))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream on-response-headers http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path messages-path))
         reason-id* (atom (str (random-uuid)))
         oauth? (= :auth/oauth auth-type)
@@ -194,6 +195,8 @@
                                                           :decompress-body false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if on-stream :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
@@ -521,7 +524,8 @@
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
            stream-idle-timeout-seconds cache-retention]}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search retry-request] :as callbacks}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search
+           on-response-headers retry-request] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
                      (normalize-messages supports-image?)
@@ -684,6 +688,7 @@
                                                      :content-block* (atom nil)
                                                      :cancelled? cancelled?
                                                      :on-error on-error
+                                                     :on-response-headers on-response-headers
                                                      :make-on-stream make-on-stream
                                                      :retry-request retry-request
                                                      :stream-idle-timeout-seconds stream-idle-timeout-seconds}))))
@@ -733,8 +738,23 @@
       :content-block* (atom nil)
       :cancelled? cancelled?
       :on-error on-error
+      :on-response-headers on-response-headers
       :on-stream (when stream? (make-on-stream on-error))
       :stream-idle-timeout-seconds stream-idle-timeout-seconds})))
+
+(def ^:private oauth-usage-url "https://api.anthropic.com/api/oauth/usage")
+
+(defmethod f.quota/fetch-quota "anthropic" [{:keys [provider-auth]}]
+  (let [{:keys [status body]} (http/get oauth-usage-url
+                                        {:headers {"Authorization" (str "Bearer " (:api-key provider-auth))
+                                                   "anthropic-beta" "oauth-2025-04-20"}
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout 10000})]
+    (if (= 200 status)
+      (f.quota/anthropic-usage->snapshot body)
+      (throw (ex-info (format "Anthropic usage endpoint returned status %s" status) {:status status})))))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
 

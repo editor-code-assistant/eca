@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.quota :as f.quota]
    [eca.messenger :as messenger]
    [eca.models :as models]
    [eca.shared :as shared]))
@@ -199,7 +200,10 @@
      :label (get provider-labels provider-name)
      :settings (config-settings provider-config provider-settings-exclude-keys)
      :login (when-let [methods (get login-methods (config/provider-base provider-name config))]
-              {:methods methods}))))
+              {:methods methods})
+     ;; Only subscription logins (OAuth) have a quota, see eca.features.quota.
+     :quota (when (= "oauth" (:type auth-info))
+              (get-in db [:provider-quotas provider-name])))))
 
 (defn notify-provider-updated!
   "Sends a providers/updated notification to the client with the current
@@ -208,12 +212,29 @@
   (messenger/provider-updated messenger
                               (build-provider-status provider-name @db* config)))
 
+(defn refresh-quota!
+  "Best-effort fetch of the subscription quota of `provider-name` from its
+   usage endpoint, notifying the client when it changed."
+  [provider-name db* config messenger & {:keys [force?]}]
+  (when (f.quota/refresh! provider-name {:db* db* :config config :force? force?})
+    (notify-provider-updated! provider-name db* config messenger)))
+
+(defn reset-quota!
+  "Drops the quota of `provider-name` after its login changed, fetching the
+   new one in background."
+  [provider-name db* config messenger]
+  (swap! db* update :provider-quotas dissoc provider-name)
+  (swap! db* update :provider-quota-fetched-at dissoc provider-name)
+  (shared/future* config
+    (refresh-quota! provider-name db* config messenger)))
+
 (defn sync-and-notify!
   "Common post-login/logout action: persist auth cache, re-sync models,
    and send both config/updated and providers/updated notifications."
   [provider-name db* messenger metrics]
   (db/update-global-auth-cache! @db* provider-name metrics)
   (let [config (config/all @db*)]
+    (reset-quota! provider-name db* config messenger)
     (models/sync-models! db* config
                          (fn [new-models]
                            (messenger/config-updated messenger {:chat {:models (sort (keys new-models))}})

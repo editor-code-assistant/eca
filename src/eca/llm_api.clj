@@ -282,7 +282,7 @@
 (defn ^:private prompt!
   [{:keys [provider model model-capabilities instructions user-messages config variant
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           on-server-web-search on-server-image-generation on-history-sanitized retry-request
+           on-server-web-search on-server-image-generation on-history-sanitized on-response-headers retry-request
            past-messages tools provider-auth sync? subagent? cancelled? prompt-cache-key]
     :or {on-error identity}}]
   (let [real-model (real-model-name model model-capabilities)
@@ -351,6 +351,7 @@
                      :on-usage-updated on-usage-updated
                      :on-server-web-search on-server-web-search
                      :on-server-image-generation on-server-image-generation
+                     :on-response-headers on-response-headers
                      :retry-request retry-request})]
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
@@ -523,7 +524,7 @@
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-           on-server-web-search on-server-image-generation on-history-sanitized
+           on-server-web-search on-server-image-generation on-history-sanitized on-response-headers
            past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?
            prompt-cache-key]
     :or {on-first-response-received identity
@@ -722,6 +723,7 @@
                 :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper
                 :on-history-sanitized on-history-sanitized-wrapper
+                :on-response-headers on-response-headers
                 :retry-request (fn [{:keys [error-data attempt replay-safe? retry-fn on-give-up]}]
                                  (maybe-retry error-data (or attempt 0) (true? replay-safe?)
                                               (or on-give-up on-error-wrapper) retry-fn))

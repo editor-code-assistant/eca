@@ -15,6 +15,8 @@
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
+   [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
@@ -212,6 +214,10 @@
                       {:name "costs"
                        :type :native
                        :description "Total costs of the current chat session."
+                       :arguments []}
+                      {:name "quota"
+                       :type :native
+                       :description "Subscription quota usage and reset times (Claude Pro/Max, ChatGPT, GitHub Copilot)."
                        :arguments []}
                       {:name "context"
                        :type :native
@@ -692,7 +698,7 @@
      ""
      "_Tool schemas are sent separately and are not included in this text dump._")))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
+(defn handle-command! [command args {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
   (let [db @db*
         custom-cmds (custom-commands config (:workspace-folders db))
         skills (f.skills/all config (:workspace-folders db))]
@@ -1015,15 +1021,30 @@
                     total-input-cache-read-tokens (get-in db [:chats chat-id :usage :total-input-cache-read-tokens] nil)
                     total-output-tokens (get-in db [:chats chat-id :usage :total-output-tokens] 0)
                     model-capabilities (get-in db [:models full-model])
+                    subscription? (f.quota/subscription? provider db config)
                     text (multi-str (str "Total input tokens: " total-input-tokens)
                                     (when total-input-cache-creation-tokens
                                       (str "Total input cache creation tokens: " total-input-cache-creation-tokens))
                                     (when total-input-cache-read-tokens
                                       (str "Total input cache read tokens: " total-input-cache-read-tokens))
                                     (str "Total output tokens: " total-output-tokens)
-                                    (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
+                                    (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)
+                                         (when subscription?
+                                           " (API pricing estimate, subscription logins are not billed per token, see /quota)")))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "quota" (let [providers (f.quota/subscription-providers db config)]
+                (doseq [provider providers]
+                  (f.login/maybe-renew-auth-token!
+                   {:provider provider
+                    :on-error (fn [msg]
+                                (logger/warn "[commands]" (format "Could not renew '%s' auth token before fetching quota: %s" provider msg)))}
+                   chat-ctx)
+                  (f.providers/refresh-quota! provider db* config messenger :force? true))
+                {:type :chat-messages
+                 :chats {chat-id {:messages [{:role "system"
+                                              :content [{:type :text
+                                                         :text (f.quota/quota-text @db* providers)}]}]}}})
       "approvals" (let [approvals (db/remembered-approvals db chat-id)
                         text (if (empty? approvals)
                                no-remembered-approvals-msg
@@ -1050,7 +1071,8 @@
                                                            :content [{:type :text
                                                                       :text "System prompt will be re-synced on the next message (prompt cache invalidated)."}]}]}}})
       "context" (let [messages (get-in db [:chats chat-id :messages] [])
-                      usage (shared/usage-sumary chat-id full-model db)
+                      usage (shared/usage-sumary chat-id full-model db
+                                                 {:subscription? (f.quota/subscription? provider db config)})
                       context-limit (get-in db [:models full-model :limit :context])
                       compact-percentage (lifecycle/auto-compact-threshold config agent context-limit)
                       breakdown (shared/context-breakdown

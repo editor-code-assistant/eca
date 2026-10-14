@@ -114,7 +114,7 @@
      :output-text (:content message)}))
 
 (defn ^:private base-chat-request!
-  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream
+  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-response-headers
            on-usage-updated on-tools-called-wrapper http-client cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path chat-completions-path))
         extra-headers (if (fn? extra-headers)
@@ -138,6 +138,8 @@
                                                           :throw-exceptions? false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if on-stream :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
@@ -607,7 +609,8 @@
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
            think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds]}
-   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated retry-request] :as callbacks}]
+   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-response-headers retry-request] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
         stream? (boolean callbacks)
@@ -695,6 +698,7 @@
                                                         :cancelled? cancelled?
                                                         :stream-idle-timeout-seconds stream-idle-timeout-seconds
                                                         :on-error wrapped-on-error
+                                                        :on-response-headers on-response-headers
                                                         :on-usage-updated on-usage-updated}]
                                       (reset! tool-calls* {})
                                       (if stream?
@@ -817,6 +821,7 @@
       :cancelled? cancelled?
       :stream-idle-timeout-seconds stream-idle-timeout-seconds
       :on-error wrapped-on-error
+      :on-response-headers on-response-headers
       :on-usage-updated on-usage-updated
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls*)))})))

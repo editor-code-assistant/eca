@@ -154,7 +154,15 @@
    :mcp-auth {"<mcp-server-name>" {:type :auth/oauth
                                    :access-token :string
                                    :refresh-token :string
-                                   :expires-at :long}}})
+                                   :expires-at :long}}
+   ;; Subscription quota per provider, in memory only (never persisted),
+   ;; see `eca.features.quota`.
+   :provider-quotas {"<provider-name>" {:updated-at :long
+                                        :windows [{:id :string
+                                                   :label :string
+                                                   :used-percent :number
+                                                   :resets-at :long
+                                                   :window-minutes :long}]}}})
 
 (defn parent-chat-id [db chat-id]
   (get-in db [:chats chat-id :parent-chat-id]))

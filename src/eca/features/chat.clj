@@ -16,6 +16,8 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
+   [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
@@ -1091,7 +1093,10 @@
       ;; prompt keeps the record in sync with the user's current pick.
       (swap! db* assoc-in [:chats chat-id :variant] (:variant chat-ctx))
       (swap! db* update-in [:chats chat-id :user-prompt-count] (fnil inc 0))
-      (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
+      (let [chat-ctx (assoc chat-ctx
+                            :prompt-id prompt-id
+                            ;; Subscription logins have no per-token cost, usage shows their quota instead.
+                            :subscription? (f.quota/subscription? provider @db* config))
             _ (lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
             db @db*
             model-capabilities (get-in db [:models full-model])
@@ -1129,6 +1134,14 @@
                                 ;; triggers the save in their place.
                                 (when-not (#{"tool_call" "server_tool_use"} role)
                                   (db/save-chat! @db* chat-id metrics))))
+            on-response-headers (fn [headers]
+                                  (when (:subscription? chat-ctx)
+                                    ;; Display-only, so never let it break the request.
+                                    (try
+                                      (when (f.quota/update-from-headers! db* provider headers)
+                                        (f.providers/notify-provider-updated! provider db* config messenger))
+                                      (catch Exception e
+                                        (logger/warn logger-tag "Failed to update provider quota" e)))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  ;; Never let the context-breakdown (a display-only
@@ -1273,6 +1286,7 @@
                                                                                          :state :running
                                                                                          :text "Generating"}))
                 :on-usage-updated on-usage-updated
+                :on-response-headers on-response-headers
                 :on-message-received (fn [{:keys [type] :as msg}]
                                        (lifecycle/assert-chat-not-stopped! chat-ctx)
                                        (case type
