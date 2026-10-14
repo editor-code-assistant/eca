@@ -3658,13 +3658,26 @@ all behave like any other chat.</p>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The cost of the last sent message summing input + output tokens.</span>
+<span class="cm">     * Absent when the model has no pricing or the chat uses a subscription</span>
+<span class="cm">     * login (see `quota`).</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">lastMessageCost?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The cost of the whole chat session so far.</span>
+<span class="cm">     * Absent when the model has no pricing or the chat uses a subscription</span>
+<span class="cm">     * login (see `quota`).</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">sessionCost?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Subscription quota of the provider behind the chat&#39;s model, sent instead</span>
+<span class="cm">     * of the costs when logged in with a subscription (Claude Pro/Max, ChatGPT,</span>
+<span class="cm">     * GitHub Copilot), as the provider has no per-token cost. Absent until the</span>
+<span class="cm">     * provider reports it. Same value as the provider&#39;s `ProviderStatus.quota`</span>
+<span class="cm">     * when this usage was sent.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">quota?</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderQuota</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * Information about limits.</span>
@@ -5992,6 +6005,41 @@ row from their UI.</p>
 <span class="w">    </span><span class="nx">models</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderModel</span><span class="p">[];</span>
 <span class="w">    </span><span class="cm">/** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */</span>
 <span class="w">    </span><span class="nx">settings?</span><span class="o">:</span><span class="w"> </span><span class="kt">Record</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">any</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Latest subscription quota, only for subscription logins (`auth.type`</span>
+<span class="cm">     * &quot;oauth&quot;) once the provider reported it, either on a request or via its</span>
+<span class="cm">     * usage endpoint fetched after login, on startup and by `/quota`.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">quota?</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderQuota</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * Account-level subscription quota reported by the provider (e.g. Claude</span>
+<span class="cm"> * Pro/Max, ChatGPT, GitHub Copilot). Unrelated to chat tokens or API billing.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ProviderQuota</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** When this snapshot was captured, epoch seconds. */</span>
+<span class="w">    </span><span class="nx">updatedAt</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Quota windows as reported by the provider, shortest first. Ids, labels</span>
+<span class="cm">     * and durations come from the provider, clients should not assume fixed</span>
+<span class="cm">     * windows. A window whose `resetsAt` already passed is stale until the next</span>
+<span class="cm">     * update.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">windows</span><span class="o">:</span><span class="w"> </span><span class="kt">ProviderQuotaWindow</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ProviderQuotaWindow</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="cm">/** Stable id derived from the provider data (e.g. &quot;5h&quot;, &quot;7d&quot;, &quot;primary&quot;, &quot;premium_interactions&quot;). */</span>
+<span class="w">    </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Short display label (e.g. &quot;5h&quot;, &quot;7d&quot;, &quot;Premium&quot;). */</span>
+<span class="w">    </span><span class="nx">label</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Used share of the window, 0-100. May exceed 100 when the provider allows overage. */</span>
+<span class="w">    </span><span class="nx">usedPercent</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** When the window resets, epoch seconds. */</span>
+<span class="w">    </span><span class="nx">resetsAt?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/** Window duration in minutes, when reported. */</span>
+<span class="w">    </span><span class="nx">windowMinutes?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ProviderAuth</span><span class="w"> </span><span class="p">{</span>
@@ -6139,8 +6187,8 @@ returns an action descriptor telling the client what to render.</p>
 <li>result: <code>{}</code></li>
 </ul>
 <h3 id="provider-updated">Provider Updated (⬅️)<a class="headerlink" href="#provider-updated" title="Permanent link">#</a></h3>
-<p>A server notification sent when a provider's authentication state or available models change.
-Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+<p>A server notification sent when a provider's authentication state, available models or subscription quota change.
+Sent after login completion, logout, token renewal, model sync, or when the quota clients display changes. Contains the full provider
 status (same shape as items in <code>providers/list</code> response).</p>
 <p><em>Notification:</em></p>
 <ul>
@@ -6291,7 +6339,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 15:06:26 UTC">October 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 14, 2026 16:47:24 UTC">October 14, 2026</span>
   </span>
 
     
