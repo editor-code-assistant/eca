@@ -109,6 +109,11 @@
                                         :status (or :pending :in-progress :done)
                                         :priority (or :high :medium :low)
                                         :blocked-by #{:number}}]}
+                        ;; "approve & remember" approvals, in memory only (never
+                        ;; persisted). Only root chats carry them: subagents use
+                        ;; their root chat's, see `remembered-approvals`.
+                        :remembered-approvals {"<server__tool>" {:remember-to-approve? :boolean
+                                                                 :remembered-command-keys #{:string}}}
                         :tool-calls {"<tool-call-id>"
                                      {:status (or :initial :preparing :check-approval :waiting-approval
                                                   :execution-approved :executing :rejected :cleanup
@@ -160,6 +165,41 @@
           (:trust chat)
           (recur (:parent-chat-id chat) (conj seen id)))))))
 
+(defn root-chat-id
+  "Resolve the top-level chat of `chat-id` by walking up `:parent-chat-id`
+   while the parent chat exists, so a subagent resolves to the chat that
+   spawned it. Returns `chat-id` itself for top-level chats."
+  [db chat-id]
+  (loop [id chat-id
+         seen #{chat-id}]
+    (let [parent-id (get-in db [:chats id :parent-chat-id])]
+      (if (and parent-id
+               (not (contains? seen parent-id))
+               (contains? (:chats db) parent-id))
+        (recur parent-id (conj seen parent-id))
+        id))))
+
+(defn remembered-approvals
+  "Tool calls approved with \"approve & remember\" in `chat-id`'s chat session,
+   keyed by full tool name. They live in the root chat (see `root-chat-id`), so
+   subagents share the approvals of the chat that spawned them. #639"
+  [db chat-id]
+  (get-in db [:chats (root-chat-id db chat-id) :remembered-approvals]))
+
+(defn update-remembered-approvals
+  "Returns `db` with `f` applied to the remembered approvals of `chat-id`'s chat
+   session (see `remembered-approvals`), dropping the key when they end up
+   empty. No-op when the chat does not exist, so a late approval never seeds a
+   phantom chat entry."
+  [db chat-id f & args]
+  (let [root-id (root-chat-id db chat-id)]
+    (if (contains? (:chats db) root-id)
+      (let [approvals (apply f (get-in db [:chats root-id :remembered-approvals]) args)]
+        (if (seq approvals)
+          (assoc-in db [:chats root-id :remembered-approvals] approvals)
+          (update-in db [:chats root-id] dissoc :remembered-approvals)))
+      db)))
+
 (defonce initial-db
   {:client-info {}
    :workspace-folders []
@@ -170,10 +210,6 @@
    :stopping false
    :models {}
    :mcp-clients {}
-   ;; Approved tool calls remembered for this session (not cached):
-   ;; {tool-name {:remember-to-approve? boolean
-   ;;             :remembered-command-keys #{string}}}
-   :tool-calls {}
    ;; Chat ids deleted in this session (not cached), see _db-spec.
    :deleted-chat-ids #{}
 
@@ -472,7 +508,7 @@
   ;; and chats that hit a provider error before any token arrived. Cleanup of
   ;; stale chats is handled by cleanup-old-chats! instead.
   (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
-      (dissoc :tool-calls :last-status-payload :unsent-user-messages)
+      (dissoc :tool-calls :last-status-payload :unsent-user-messages :remembered-approvals)
       (assoc :id chat-id)))
 
 (defn ^:private read-chat-file

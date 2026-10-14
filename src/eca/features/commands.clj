@@ -217,6 +217,14 @@
                        :type :native
                        :description "Context window usage breakdown for the current chat."
                        :arguments []}
+                      {:name "approvals"
+                       :type :native
+                       :description "List tool call approvals remembered in the current chat via approve & remember."
+                       :arguments []}
+                      {:name "forget-approvals"
+                       :type :native
+                       :description "Forget tool call approvals remembered in the current chat, so those calls ask for approval again."
+                       :arguments []}
                       {:name "compact"
                        :type :native
                        :description "Summarize the chat so far cleaning previous chat history to reduce context."
@@ -394,6 +402,19 @@
                 "\n")))
        "Subagents available:\n\n"
        subagents))))
+
+(def ^:private no-remembered-approvals-msg
+  "No tool call approvals remembered in this chat.")
+
+(defn ^:private remembered-approvals-lines
+  "One markdown line per remembered tool, listing its remembered command keys
+   for granular tools (e.g. shell commands)."
+  [approvals]
+  (for [[full-name {:keys [remembered-command-keys]}] (sort-by key approvals)]
+    (str "- `" full-name "`: "
+         (if (seq remembered-command-keys)
+           (string/join ", " (map #(str "`" % "`") (sort remembered-command-keys)))
+           "all calls"))))
 
 (def ^:private hook-type-order
   "Display order for hook types in /hooks output."
@@ -816,7 +837,9 @@
                  :notice-text "Usage: /btw <prompt>. Asks a side question in a forked chat, keeping this chat history clean."}
                 (let [chat (get-in @db* [:chats chat-id])
                       {new-id :id new-title :title new-messages :messages}
-                      (fork-chat! chat (btw-title question) [:variant :trust :prompt-cache :startup-context] chat-ctx)]
+                      (fork-chat! chat (btw-title question)
+                                  [:variant :trust :remembered-approvals :prompt-cache :startup-context]
+                                  chat-ctx)]
                   {:type :side-prompt
                    :target-chat-id new-id
                    :target-title new-title
@@ -1001,6 +1024,25 @@
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "approvals" (let [approvals (db/remembered-approvals db chat-id)
+                        text (if (empty? approvals)
+                               no-remembered-approvals-msg
+                               (multi-str "Tool call approvals remembered in this chat:"
+                                          ""
+                                          (remembered-approvals-lines approvals)
+                                          ""
+                                          "Run `/forget-approvals` to forget them."))]
+                    {:type :chat-messages
+                     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
+      "forget-approvals" (let [[old-db] (swap-vals! db* db/update-remembered-approvals chat-id (constantly nil))
+                               approvals (db/remembered-approvals old-db chat-id)
+                               text (if (empty? approvals)
+                                      no-remembered-approvals-msg
+                                      (multi-str "Forgot the tool call approvals remembered in this chat:"
+                                                 ""
+                                                 (remembered-approvals-lines approvals)))]
+                           {:type :chat-messages
+                            :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "sync-system-prompt" (do
                              (swap! db* update-in [:chats chat-id] dissoc :prompt-cache)
                              {:type :chat-messages

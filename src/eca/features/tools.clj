@@ -4,6 +4,7 @@
   (:require
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.db :as db]
    [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.background :as f.tools.background]
    [eca.features.tools.chat :as f.tools.chat]
@@ -63,7 +64,7 @@
                the matched :selector and :args-matcher>}.
    Sources are checked in precedence order:
    1. :config-deny             - config `deny` rules
-   2. :session-remember        - session 'approve and remember' approvals
+   2. :session-remember        - the chat session 'approve and remember' approvals
    3. :tool-built-in-check     - the tool's own check (e.g. path outside workspace)
    4. :config-ask              - config `ask` rules
    5. :config-allow            - config `allow` rules
@@ -72,21 +73,24 @@
    8. :fallback                - probably a config error, default to ask
    Agent-name parameter is required - pass nil for global-only approval rules.
    Optional opts map supports :trust - when true, promotes :ask to :trust/allow
-   (never overrides :deny). Callers should normalize :trust/allow to :allow."
+   (never overrides :deny) - and :chat-id, whose chat session remembered
+   approvals are considered (none without it). Callers should normalize
+   :trust/allow to :allow."
   ([all-tools tool args db config agent-name]
    (approval-decision all-tools tool args db config agent-name nil))
-  ([all-tools tool args db config agent-name {:keys [trust]}]
+  ([all-tools tool args db config agent-name {:keys [trust chat-id]}]
    (let [{:keys [server name require-approval-fn approval-keys-fn]} tool
+         remembered (get (db/remembered-approvals db chat-id) (str (:name server) "__" name))
          remembered? (if approval-keys-fn
                        ;; Granular remember: every derived key (e.g. "git checkout")
                        ;; must have been remembered, and the command must be fully
                        ;; understood (:complete?), otherwise still ask.
                        (let [{keys' :keys complete? :complete?} (approval-keys-fn args)
-                             remembered-keys (get-in db [:tool-calls name :remembered-command-keys] #{})]
+                             remembered-keys (:remembered-command-keys remembered #{})]
                          (boolean (and complete?
                                        (seq keys')
                                        (every? remembered-keys keys'))))
-                       (boolean (get-in db [:tool-calls name :remember-to-approve?])))
+                       (boolean (:remember-to-approve? remembered)))
          native-tools (filter #(= :native (:origin %)) all-tools)
          {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                      (get-in config [:agent agent-name :toolCall :approval]))

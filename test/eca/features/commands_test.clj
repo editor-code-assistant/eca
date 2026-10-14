@@ -388,6 +388,7 @@
             :title "My chat"
             :model "openai/gpt-5.2"
             :trust true
+            :remembered-approvals {"eca__shell_command" {:remembered-command-keys #{"rg"}}}
             :variant "high"
             :prompt-cache {:static "cached"}
             :messages [{:role "user" :content [{:type :text :text "hello"}]}
@@ -411,6 +412,9 @@
         (is (= "btw: who is foo?" (:title new-chat)))
         (is (= "openai/gpt-5.2" (:model new-chat)))
         (is (true? (:trust new-chat)))
+        (is (= {"eca__shell_command" {:remembered-command-keys #{"rg"}}}
+               (:remembered-approvals new-chat))
+            "Like trust, the side chat keeps the remembered approvals")
         (is (= "high" (:variant new-chat)))
         (is (= {:static "cached"} (:prompt-cache new-chat)))
         (is (= [{:chat-id new-id :title "btw: who is foo?"}]
@@ -433,6 +437,44 @@
                    :arguments [{:name "agent-name"}]}
                  %)
               commands))))
+
+(deftest approvals-commands-test
+  (let [command-text (fn [command chat-id]
+                       (-> (f.commands/handle-command! command [] (command-context chat-id))
+                           (get-in [:chats chat-id :messages 0 :content 0 :text])))
+        approvals {"eca__shell_command" {:remembered-command-keys #{"rg" "git status"}}
+                   "my-mcp__my_tool" {:remember-to-approve? true}}]
+    (testing "both commands are listed"
+      (is (every? (set (map :name (f.commands/all-commands {:workspace-folders []} {})))
+                  ["approvals" "forget-approvals"])))
+
+    (testing "/approvals lists the current chat remembered approvals, sorted"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :remembered-approvals approvals}})
+      (is (= (str "Tool call approvals remembered in this chat:\n\n"
+                  "- `eca__shell_command`: `git status`, `rg`\n"
+                  "- `my-mcp__my_tool`: all calls\n\n"
+                  "Run `/forget-approvals` to forget them.")
+             (command-text "approvals" "chat-1"))))
+
+    (testing "/approvals without remembered approvals"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1"}})
+      (is (= "No tool call approvals remembered in this chat."
+             (command-text "approvals" "chat-1"))))
+
+    (testing "/forget-approvals forgets only the current chat remembered approvals"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :remembered-approvals approvals}
+                                   "chat-2" {:id "chat-2" :remembered-approvals approvals}})
+      (is (= (str "Forgot the tool call approvals remembered in this chat:\n\n"
+                  "- `eca__shell_command`: `git status`, `rg`\n"
+                  "- `my-mcp__my_tool`: all calls")
+             (command-text "forget-approvals" "chat-1")))
+      (is (not (contains? (get-in (h/db) [:chats "chat-1"]) :remembered-approvals)))
+      (is (= approvals (db/remembered-approvals (h/db) "chat-2")) "Other chats are untouched")
+      (is (= "No tool call approvals remembered in this chat."
+             (command-text "forget-approvals" "chat-1"))))))
 
 (deftest handle-sync-system-prompt-command-test
   (testing "clears the chat prompt cache and confirms"
