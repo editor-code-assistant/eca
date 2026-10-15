@@ -2632,7 +2632,8 @@
 
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
-   Then notify to clear chat and then the kept messages."
+   Then notify the client: `chat/truncated` when it supports incremental
+   updates, otherwise `chat/cleared` followed by the kept messages."
   [{:keys [chat-id content-id include]} db* messenger metrics]
   (db/hydrate-chat! db* chat-id metrics)
   (let [include (if (seq include)
@@ -2661,15 +2662,20 @@
       ;; state. Persist immediately so the cleaned-up history survives a
       ;; restart instead of relying on the next unrelated save.
       (db/save-chat! @db* chat-id metrics)
-      (messenger/chat-cleared
-       messenger
-       {:chat-id chat-id
-        :messages true})
-      (send-chat-contents!
-       new-messages
-       {:chat-id chat-id
-        :db* db*
-        :messenger messenger}))
+      (if (history/incremental-updates? @db*)
+        (when (< (count new-messages) (count all-messages))
+          (messenger/chat-truncated messenger {:chat-id chat-id
+                                               :content-id content-id}))
+        (do
+          (messenger/chat-cleared
+           messenger
+           {:chat-id chat-id
+            :messages true})
+          (send-chat-contents!
+           new-messages
+           {:chat-id chat-id
+            :db* db*
+            :messenger messenger}))))
     {}))
 
 (defn ^:private find-last-message-idx
@@ -2696,7 +2702,9 @@
   "Add a named flag after the message identified by content-id.
    Searches both :content-id and [:content :id] to support placement
    after any message type (user, tool call, reason, etc).
-   Clears and replays the chat to render the flag at the correct position."
+   Clients supporting incremental updates receive only the flag, with
+   `afterContentId` telling where to render it; others get a clear and
+   full replay so the flag renders at the correct position."
   [{:keys [chat-id content-id text]} db* messenger metrics]
   (db/hydrate-chat! db* chat-id metrics)
   (let [messages (vec (get-in @db* [:chats chat-id :messages]))
@@ -2709,8 +2717,17 @@
                                (cons flag-msg (subvec messages insert-after)))]
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
         (db/save-chat! @db* chat-id metrics)
-        (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
-        (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))
+        (if (history/incremental-updates? @db*)
+          (messenger/chat-content-received messenger
+                                           {:chat-id chat-id
+                                            :role :system
+                                            :content {:type :flag
+                                                      :text text
+                                                      :contentId flag-id
+                                                      :afterContentId content-id}})
+          (do
+            (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
+            (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))))
     {}))
 
 (defn remove-flag
@@ -2728,7 +2745,10 @@
 
 (defn fork-chat
   "Fork the chat creating a new chat with messages up to and including
-   the message identified by content-id."
+   the message identified by content-id.
+   Clients supporting incremental updates get only the newest page of kept
+   messages; the paging meta is returned as `:meta` and in `chat/opened` so
+   the client can page older via `chat/history`."
   [{:keys [chat-id content-id]} db* messenger metrics]
   (db/hydrate-chat! db* chat-id metrics)
   (let [chat (get-in @db* [:chats chat-id])
@@ -2748,19 +2768,23 @@
                       :model (:model chat)
                       :last-api (:last-api chat)
                       :messages kept-messages
-                      :prompt-finished? true}]
+                      :prompt-finished? true}
+            page (history/server-created-page @db* kept-messages)
+            meta (when page (history/page-meta page kept-messages))]
         (swap! db* assoc-in [:chats new-id] new-chat)
         (mark-editor-open! db* new-id)
         (db/save-chat! @db* new-id metrics)
-        (messenger/chat-opened messenger {:chat-id new-id :title new-title})
-        (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
+        (messenger/chat-opened messenger (assoc-some {:chat-id new-id :title new-title}
+                                                     :history meta))
+        (send-chat-contents! (if page (:messages page) kept-messages)
+                             {:chat-id new-id :db* db* :messenger messenger})
         (lifecycle/send-content! {:messenger messenger :chat-id new-id}
                                  :system
                                  (assoc-some {:type :metadata} :title new-title))
         (lifecycle/send-content! {:messenger messenger :chat-id chat-id}
                                  :system
                                  {:type :text :text (str "Chat forked to: " new-title)})
-        {:chat-id new-id}))))
+        (assoc-some {:chat-id new-id} :meta meta)))))
 
 (defn list-chats
   "Pure projection over `(:chats db)`: returns a summary list intended for the
@@ -2852,11 +2876,7 @@
                         :title title
                         :selection selection}
                        :meta (when windowed?
-                               {:total (:total page)
-                                :returned (:returned page)
-                                :before-cursor (:before-cursor page)
-                                :after-cursor (:after-cursor page)
-                                :compaction-cursor (history/compaction-cursor (:messages chat))}))))))))
+                               (history/page-meta page (:messages chat))))))))))
 
 (defn fetch-history
   "Window a chat's persisted messages and return the transformed content items
@@ -2880,8 +2900,4 @@
                     :message "Cursor no longer points to an existing message; refetch the latest page"}}
            {:contents (messages->contents (:messages result)
                                           {:chat-id chat-id :parent-chat-id nil :db db})
-            :meta {:total (:total result)
-                   :returned (:returned result)
-                   :before-cursor (:before-cursor result)
-                   :after-cursor (:after-cursor result)
-                   :compaction-cursor (history/compaction-cursor messages)}}))))))
+            :meta (history/page-meta result messages)}))))))

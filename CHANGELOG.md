@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `toolCall.askUser.trustModeTimeoutSeconds`: in trust mode, an unanswered `ask_user` question times out and the LLM continues with its best judgment.
+- Speed up rollback, flags and forks on long chats via the `incrementalUpdates` capability: `chat/truncated`, positioned flags, and paged `/fork`, `/btw` and `chat/fork`.
 
 ## 0.165.0
 

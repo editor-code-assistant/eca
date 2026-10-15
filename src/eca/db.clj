@@ -41,7 +41,8 @@
    :client-capabilities {:code-assistant {:editor {:diagnostics :boolean
                                                    :definition :boolean
                                                    :references :boolean}
-                                          :chat-capabilities {:ask-question :boolean}}}
+                                          :chat-capabilities {:ask-question :boolean
+                                                              :incremental-updates {:history-page-size :number}}}}
    :config-hash :string
    :providers-config-hash :string
    :last-config-notified ::any-map
