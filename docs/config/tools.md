@@ -113,163 +113,6 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
-=== "You.com web search & research"
-
-    [You.com](https://you.com/?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs) provides web search, URL content extraction, and AI-powered research via MCP.
-
-    **Option 1: Authenticated (full features)**
-    
-    Get your API key from [you.com/api](https://you.com/api?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs) and set it as `YDC_API_KEY` environment variable:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "you-search": {
-          "url": "https://api.you.com/mcp",
-          "headers": {
-            "Authorization": "Bearer ${env:YDC_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    **Option 2: Keyless (basic web search)**
-    
-    Try You.com search without an API key using the free profile:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "you-search-free": {
-          "url": "https://api.you.com/mcp?profile=free"
-        }
-      }
-    }
-    ```
-
-    **Option 3: Specialized profiles**
-    
-    Use focused endpoints for specific domains:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "you-finance": {
-          "url": "https://api.you.com/mcp?tools=you-finance",
-          "headers": {
-            "Authorization": "Bearer ${env:YDC_API_KEY}"
-          }
-        },
-        "you-docs": {
-          "url": "https://you.com/docs/_mcp/server"
-        }
-      }
-    }
-    ```
-
-    Available tools include `you_search` (web search with citations), `you_url_contents` (webpage content extraction), and `you_research` (multi-step research workflows).
-
-=== "Serply web search"
-
-    [Serply](https://serply.io) provides Google web, news, scholar, maps, jobs and video search, Bing search, URL scraping and Reddit lookups via MCP.
-
-    Get an API key from [serply.io](https://serply.io) and set it as the `SERPLY_API_KEY` environment variable. Serply reads the key from the `X-Api-Key` header:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "serply": {
-          "url": "https://api.serply.io/mcp",
-          "headers": {
-            "X-Api-Key": "${env:SERPLY_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    Available tools include `google_search`, `google_news_search`, `google_scholar_search`, `bing_search` and `scrape_url`. See the [Serply docs](https://serply.io/docs) for the full list.
-
-=== "FXMacroData macro data"
-
-    [FXMacroData](https://fxmacrodata.com) provides official-source macroeconomic releases, central bank policy rates, economic release calendars and FX rates for 22 currencies via MCP.
-
-    USD releases, the USD calendar and the USD catalogue work without a key; other currencies, FX rates and the rest need a key. For full access, get an API key from [fxmacrodata.com](https://fxmacrodata.com/subscribe) and set it as the `FXMACRODATA_API_KEY` environment variable. When the variable is unset, `${env:FXMACRODATA_API_KEY}` resolves to an empty string and the server treats the empty bearer token as keyless, so the same config works either way:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "fxmacrodata": {
-          "url": "https://mcp.fxmacrodata.com",
-          "headers": {
-            "Authorization": "Bearer ${env:FXMACRODATA_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    Available tools include `latest_announcements`, `release_calendar`, `data_catalogue`, `indicator_query` and `forex`. See the [FXMacroData docs](https://fxmacrodata.com/documentation) for the full list.
-
-=== "Equibles stock market data"
-
-    [Equibles](https://equibles.com/mcp) provides US stock market data via MCP: full-text search across SEC filings and earnings call transcripts, XBRL financial statements, insider and congressional trades, 13F institutional holdings, short interest, end-of-day prices and macroeconomic series.
-
-    **Option 1: OAuth (no API key)**
-
-    The `?auth=oauth` parameter makes the server ask for sign-in during discovery, so ECA registers a client via DCR and marks the server as requiring authentication until you sign in with a free Equibles account:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "equibles": {
-          "url": "https://mcp.equibles.com/mcp?auth=oauth"
-        }
-      }
-    }
-    ```
-
-    **Option 2: API key**
-
-    Create a key at [equibles.com/dashboard/apikeys](https://equibles.com/dashboard/apikeys) and set it as the `EQUIBLES_API_KEY` environment variable:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "equibles": {
-          "url": "https://mcp.equibles.com/mcp",
-          "headers": {
-            "Authorization": "Bearer ${env:EQUIBLES_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    Available tools include `SearchDocuments`, `GetFinancialStatement`, `GetEarningsCallTranscript`, `GetInsiderTransactions` and `GetTopHolders`. The free plan allows 100 requests a day. Portfolio, watchlist and feedback tools write to your own Equibles account, so keep approval prompts on for them. See the [Equibles MCP docs](https://equibles.com/docs/mcp/tools) for the full list.
-
-=== "looot business data"
-
-    [looot](https://looot.ai) gives one API key and prepaid balance for about 2,500 data endpoints via MCP: work email and phone lookup, company and people enrichment, Google SERP, web and news search, and web page reading.
-
-    The server supports OAuth with dynamic client registration, so ECA signs in through the browser with just the URL. For a headless setup, create an API key at [looot.ai](https://looot.ai) and set it as the `LOOOT_API_KEY` environment variable:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "looot": {
-          "url": "https://api.looot.ai/mcp",
-          "headers": {
-            "Authorization": "Bearer ${env:LOOOT_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    Available tools include `find_work_email`, `verify_email`, `enrich_company`, `search_companies`, `google_search_results`, `web_search` and `read_web_page`. Billing is prepaid with no free tier, and each call shows its price first, so keep approval prompts on. See the [looot docs](https://docs.looot.ai) for the full list.
-
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client
@@ -334,6 +177,101 @@ For MCP servers configuration, use the `mcpServers` config, examples:
       }
     }
     ```
+
+### Examples
+
+Ready-to-use configs for some third-party MCP servers. Most remote servers work with just a `url` (OAuth is handled automatically) or a `url` plus an auth header, as shown above.
+
+<!-- Adding an example? Keep it short: one line describing the server, a single config block and one line with notes/docs link. Keep tabs sorted alphabetically. -->
+
+=== "Equibles"
+
+    [Equibles](https://equibles.com/mcp): US stock market data (SEC filings, earnings calls, financial statements, insider trades, prices).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "equibles": {
+          "url": "https://mcp.equibles.com/mcp?auth=oauth"
+        }
+      }
+    }
+    ```
+
+    Signs in via OAuth with a free account. To use an [API key](https://equibles.com/dashboard/apikeys) instead, drop `?auth=oauth` and add an `Authorization: Bearer ${env:EQUIBLES_API_KEY}` header. [Docs](https://equibles.com/docs/mcp/tools).
+
+=== "FXMacroData"
+
+    [FXMacroData](https://fxmacrodata.com): macroeconomic releases, central bank rates, release calendars and FX rates for 22 currencies.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "fxmacrodata": {
+          "url": "https://mcp.fxmacrodata.com",
+          "headers": {
+            "Authorization": "Bearer ${env:FXMACRODATA_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    USD data works without a key (unset env var resolves to empty); other currencies need an [API key](https://fxmacrodata.com/subscribe). [Docs](https://fxmacrodata.com/documentation).
+
+=== "looot"
+
+    [looot](https://looot.ai): ~2,500 business data endpoints (email/phone lookup, company enrichment, web search, page reading).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "looot": {
+          "url": "https://api.looot.ai/mcp"
+        }
+      }
+    }
+    ```
+
+    Signs in via OAuth; for headless setups add an `Authorization: Bearer ${env:LOOOT_API_KEY}` header. Paid per call, keep approval prompts on. [Docs](https://docs.looot.ai).
+
+=== "Serply"
+
+    [Serply](https://serply.io): Google (web, news, scholar, maps, jobs, videos) and Bing search, URL scraping.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "serply": {
+          "url": "https://api.serply.io/mcp",
+          "headers": {
+            "X-Api-Key": "${env:SERPLY_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    [Docs](https://serply.io/docs).
+
+=== "You.com"
+
+    [You.com](https://you.com/?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs): web search with citations, URL content extraction and multi-step research.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "you": {
+          "url": "https://api.you.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:YDC_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Get a key at [you.com/api](https://you.com/api?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs), or use `https://api.you.com/mcp?profile=free` without a key for basic search. Specialized profiles like `?tools=you-finance` are also available.
 
 ## Custom Tools
 
