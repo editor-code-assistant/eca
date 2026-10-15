@@ -6,6 +6,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
@@ -2380,6 +2381,93 @@
                 :role "assistant"}]}
              (h/messages)))))))
 
+(defn ^:private enable-incremental-updates!
+  ([] (enable-incremental-updates! {}))
+  ([capability]
+   (swap! (h/db*) assoc-in
+          [:client-capabilities :code-assistant :chat-capabilities :incremental-updates]
+          capability)))
+
+(defn ^:private two-turn-chat! []
+  (let [api-mock (fn [reply]
+                   (fn [{:keys [on-first-response-received on-message-received]}]
+                     (on-first-response-received {:type :text :text reply})
+                     (on-message-received {:type :text :text reply})
+                     (on-message-received {:type :finish})))
+        {:keys [chat-id]} (prompt! {:message "1"}
+                                   {:all-tools-mock (constantly [])
+                                    :api-mock (api-mock "2")})]
+    (prompt! {:message "3" :chat-id chat-id}
+             {:all-tools-mock (constantly [])
+              :api-mock (api-mock "4")})
+    chat-id))
+
+(deftest rollback-chat-incremental-updates-test
+  (testing "Clients with incrementalUpdates get chat/truncated instead of a replay"
+    (h/reset-components!)
+    (enable-incremental-updates!)
+    (let [chat-id (two-turn-chat!)
+          second-content-id (get-in (h/db) [:chats chat-id :messages 2 :content-id])]
+      (h/reset-messenger!)
+      (f.chat/rollback-chat {:chat-id chat-id
+                             :include ["messages"]
+                             :content-id second-content-id}
+                            (h/db*) (h/messenger) (h/metrics))
+      (is (= 2 (count (get-in (h/db) [:chats chat-id :messages]))))
+      (is (= {:chat-truncated [{:chat-id chat-id :content-id second-content-id}]}
+             (h/messages)))))
+
+  (testing "Unknown content-id changes nothing and sends nothing"
+    (h/reset-components!)
+    (enable-incremental-updates!)
+    (let [chat-id (two-turn-chat!)]
+      (h/reset-messenger!)
+      (f.chat/rollback-chat {:chat-id chat-id
+                             :include ["messages"]
+                             :content-id "missing"}
+                            (h/db*) (h/messenger) (h/metrics))
+      (is (= 4 (count (get-in (h/db) [:chats chat-id :messages]))))
+      (is (= {} (h/messages))))))
+
+(deftest add-flag-test
+  (testing "Legacy clients get chat/cleared and a full replay including the flag"
+    (h/reset-components!)
+    (let [chat-id (two-turn-chat!)
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])]
+      (h/reset-messenger!)
+      (f.chat/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
+                       (h/db*) (h/messenger) (h/metrics))
+      (is (match? [{:role "user"} {:role "flag" :content {:text "here"}}
+                   {:role "assistant"} {:role "user"} {:role "assistant"}]
+                  (get-in (h/db) [:chats chat-id :messages])))
+      (is (match? {:chat-clear [{:chat-id chat-id :messages true}]
+                   :chat-content-received
+                   [{:role "user"}
+                    {:role :system :content {:type :flag :text "here"}}
+                    {:role "assistant"}
+                    {:role "user"}
+                    {:role "assistant"}]}
+                  (h/messages)))))
+
+  (testing "Clients with incrementalUpdates get only the positioned flag"
+    (h/reset-components!)
+    (enable-incremental-updates!)
+    (let [chat-id (two-turn-chat!)
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])]
+      (h/reset-messenger!)
+      (f.chat/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
+                       (h/db*) (h/messenger) (h/metrics))
+      (let [flag-id (get-in (h/db) [:chats chat-id :messages 1 :content-id])]
+        (is (some? flag-id))
+        (is (= {:chat-content-received
+                [{:chat-id chat-id
+                  :role :system
+                  :content {:type :flag
+                            :text "here"
+                            :contentId flag-id
+                            :afterContentId first-content-id}}]}
+               (h/messages)))))))
+
 (deftest prompt-cache-agent-switch-test
   (testing "Static prompt cache is rebuilt when switching agents within the same chat"
     (h/reset-components!)
@@ -3520,6 +3608,66 @@
                     {:role :system :content {:type :progress :state :finished}}]}
                   (h/messages)))
       (is (nil? (get-in (h/db) [:chats chat-id :reason-group]))))))
+
+(deftest fork-chat-paging-test
+  (h/reset-components!)
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :title "Orig"
+          :messages (vec (for [i (range 5)]
+                           {:role "user"
+                            :content [{:type :text :text (str "q" i)}]
+                            :content-id (str "m" i)}))})
+  (testing "incremental clients get only the declared page size, with paging meta"
+    (h/reset-messenger!)
+    (enable-incremental-updates! {:history-page-size 2})
+    (let [{:keys [chat-id meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                                   (h/db*) (h/messenger) (h/metrics))]
+      (is (match? [{:chat-id chat-id :history {:total 4 :returned 2}}]
+                  (:chat-opened (h/messages))))
+      (is (= 4 (count (get-in (h/db) [:chats chat-id :messages])))
+          "the fork keeps the full history")
+      (is (= ["m2" "m3"]
+             (->> (:chat-content-received (h/messages))
+                  (filter #(= chat-id (:chat-id %)))
+                  (keep #(get-in % [:content :content-id])))))
+      (is (match? {:total 4 :returned 2 :before-cursor string? :after-cursor nil}
+                  meta))
+      (testing "the before cursor pages the older kept messages"
+        (is (match? {:contents [{:content {:content-id "m0"}}
+                                {:content {:content-id "m1"}}]}
+                    (f.chat/fetch-history {:chat-id chat-id
+                                           :before (:before-cursor meta)}
+                                          (h/db*)))))))
+  (testing "rolling the fork back to its first loaded message keeps older pages loadable"
+    (h/reset-messenger!)
+    (enable-incremental-updates! {:history-page-size 2})
+    (let [{:keys [chat-id meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                                   (h/db*) (h/messenger) (h/metrics))]
+      (f.chat/rollback-chat {:chat-id chat-id :content-id "m2" :include ["messages"]}
+                            (h/db*) (h/messenger) (h/metrics))
+      (is (match? {:contents [{:content {:content-id "m0"}}
+                              {:content {:content-id "m1"}}]
+                   :meta {:before-cursor nil}}
+                  (f.chat/fetch-history {:chat-id chat-id :before (:before-cursor meta)}
+                                        (h/db*))))))
+  (testing "incremental clients without a page size get the default"
+    (h/reset-messenger!)
+    (with-redefs [history/default-history-page-size 3]
+      (enable-incremental-updates!)
+      (let [{:keys [meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                             (h/db*) (h/messenger) (h/metrics))]
+        (is (match? {:total 4 :returned 3} meta))))
+    (swap! (h/db*) update :client-capabilities dissoc :code-assistant))
+  (testing "other clients get the whole kept history and no meta"
+    (h/reset-messenger!)
+    (let [{:keys [chat-id] :as res} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                                      (h/db*) (h/messenger) (h/metrics))]
+      (is (not (contains? res :meta)))
+      (is (= ["m0" "m1" "m2" "m3"]
+             (->> (:chat-content-received (h/messages))
+                  (filter #(= chat-id (:chat-id %)))
+                  (keep #(get-in % [:content :content-id]))))))))
 
 (deftest tool-call-approve-on-unknown-chat-is-noop-test
   (testing "Approving a tool-call against an unknown chat does not throw or mutate state"
