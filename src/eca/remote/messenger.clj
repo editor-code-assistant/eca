@@ -17,14 +17,15 @@
     ;; must not prevent cleanup of the other handle or completion of the caller.
     (try (future-cancel handle) (catch Exception _ nil))))
 
-(defn ^:private question-result [result]
+(defn ^:private question-result [result cancel!]
   ;; Keep the registry promise raw: late handle attachment must wait for
   ;; publication without rethrowing a winning editor error.
   (let [unwrap (fn [response]
                  (if (instance? Exception response)
                    (throw response)
                    response))
-        timeout-sentinel (Object.)]
+        timeout-sentinel (Object.)
+        cancelled-response {:answer nil :cancelled true}]
     (reify
       clojure.lang.IDeref
       (deref [_] (unwrap @result))
@@ -35,7 +36,19 @@
             timeout-value
             (unwrap response))))
       clojure.lang.IPending
-      (isRealized [_] (realized? result)))))
+      (isRealized [_] (realized? result))
+      ;; Same contract as the jsonrpc4clj PendingRequest it wraps.
+      java.util.concurrent.Future
+      (cancel [_ _interrupt?] (boolean (cancel! cancelled-response)))
+      ;; Only cancel delivers this exact instance.
+      (isCancelled [_] (identical? cancelled-response (deref result 0 nil)))
+      (isDone [_] (realized? result))
+      (get [this] (deref this))
+      (get [this timeout unit]
+        (let [response (deref this (.toMillis unit timeout) timeout-sentinel)]
+          (if (identical? timeout-sentinel response)
+            (throw (java.util.concurrent.TimeoutException.))
+            response))))))
 
 (defn ^:private resolve-question! [pending-questions* request-id response cancel-handles?]
   (let [[old _] (swap-vals! pending-questions* dissoc request-id)]
@@ -141,7 +154,7 @@
       ;; This check does not serialize broadcasting with concurrent resolution.
       (when (identical? result (get-in @pending-questions* [request-id :promise]))
         (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params)))
-      (question-result result))))
+      (question-result result #(resolve-question! pending-questions* request-id % true)))))
 
 (defn make-broadcast-messenger
   "Creates a BroadcastMessenger with a fresh pending-questions registry.

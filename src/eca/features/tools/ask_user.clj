@@ -48,10 +48,11 @@
       normalized)))
 
 (defn ^:private ask-user
-  [arguments {:keys [messenger db* chat-id tool-call-id]}]
+  [arguments {:keys [messenger config db* chat-id tool-call-id trust]}]
   (let [question (get arguments "question")
         options (normalize-options (get arguments "options"))
-        allow-freeform (get arguments "allowFreeform" true)]
+        allow-freeform (get arguments "allowFreeform" true)
+        timeout-secs (get-in config [:toolCall :askUser :trustModeTimeoutSeconds])]
     (if (or (nil? question) (string/blank? question))
       (tools.util/single-text-content "INVALID_ARGS: `question` is required and must not be blank." :error)
       (let [request-id (str (random-uuid))
@@ -68,9 +69,22 @@
                                            {:chat-id chat-id
                                             :role :system
                                             :content {:type :progress :state :running :text "Waiting answer"}})
-          (let [response @(messenger/ask-question messenger params)]
-            (if (:cancelled response)
+          (let [pending (messenger/ask-question messenger params)
+                response (if (and trust (pos-int? timeout-secs))
+                           (deref pending (* 1000 timeout-secs) ::timeout)
+                           @pending)]
+            (cond
+              (= ::timeout response)
+              (do
+                (future-cancel pending)
+                (tools.util/single-text-content
+                 (format "The user did not answer within %s seconds. Continue with your best judgment and state the assumptions you made."
+                         timeout-secs)))
+
+              (:cancelled response)
               (tools.util/single-text-content "User cancelled the question." :error)
+
+              :else
               (tools.util/single-text-content (str "User answered: " (:answer response)))))
           (catch Exception e
             (logger/error logger-tag "Error asking user question: %s" (ex-message e))

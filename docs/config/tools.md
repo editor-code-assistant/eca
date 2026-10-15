@@ -691,6 +691,18 @@ Trust mode auto-accepts all tool calls in a chat (it never overrides `deny`). Ed
 }
 ```
 
+In trust mode, `ask_user` questions still wait for your answer. Set `toolCall.askUser.trustModeTimeoutSeconds` to let the LLM continue without an answer after that many seconds:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "toolCall": {
+    "askUser": {
+      "trustModeTimeoutSeconds": 300
+    }
+  }
+}
+```
+
 ### Default approval rules
 
 Globally ECA allows its read-only builtin tools and asks for everything else:
