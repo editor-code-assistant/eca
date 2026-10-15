@@ -4,6 +4,8 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.tool-calls :as tool-calls]
+   [eca.features.hooks :as hooks]
    [eca.features.tools :as f.tools]
    [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.util :as tools.util]
@@ -349,7 +351,7 @@
                        :call-state-fn (constantly {:status :executing})})]
           (is (match? {:error true
                        :contents [{:type :text
-                                   :text #"(?s)Failed.*rate limit.*Error type: rate-limited.*Status: 429.*Code: rate_limit_error.*Rate limit resets at: 2025-08-26T10:40:00Z.*transient provider error\. Prefer spawning this agent again"}]}
+                                   :text #"(?s)Failed.*rate limit.*Error type: rate-limited.*Status: 429.*Code: rate_limit_error.*Rate limit resets at: 2025-08-26T10:40:00Z.*transient provider error\. Continue this agent with the returned `chat_id`"}]}
                       result))))))
 
   (testing "non-retryable error advises against retrying the same way"
@@ -534,7 +536,8 @@
                         eca.features.chat/prompt-stop
                         (fn [_params _db* _messenger _config _metrics _opts]
                           (swap! stops* inc)
-                          (swap! db* assoc-in [:chats subagent-chat-id :status] :stopping))
+                          ;; The stopped turn unwinds and settles as idle.
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
         (let [result ((spawn-handler)
                       {"agent" "slow" "task" "review" "activity" "reviewing"}
@@ -577,7 +580,8 @@
                         eca.features.chat/prompt-stop
                         (fn [_params _db* _messenger _config _metrics _opts]
                           (swap! stops* inc)
-                          (swap! db* assoc-in [:chats subagent-chat-id :status] :stopping))
+                          ;; The stopped turn unwinds and settles as idle.
+                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
         (let [result ((spawn-handler)
                       {"agent" "slow" "task" "review" "activity" "reviewing"}
@@ -594,6 +598,95 @@
                       result))
           (is (= 2 (count @prompts*)))
           (is (= 2 @stops*)))))))
+
+(defn ^:private spawn-context [db* & {:as overrides}]
+  (merge {:db* db* :config test-config :messenger (h/messenger) :metrics (h/metrics)
+          :chat-id "parent" :tool-call-id "tc-1"
+          :call-state-fn (constantly {:status :executing})}
+         overrides))
+
+(defn ^:private result-text [result]
+  (tools.util/contents->text (:contents result)))
+
+(deftest spawn-agent-timeout-summary-waits-for-settle-test
+  (let [db* (atom {:chats {"parent" {:model "test/model"}}})
+        id "subagent-tc-1"
+        context (spawn-context db* :config timeout-test-config)
+        running! (fn [& _] (swap! db* update-in [:chats id] assoc :status :running :messages [(assistant-msg "Working.")]))]
+    (testing "the summary turn starts only after the stopped turn has unwound"
+      (let [status-at-summary* (promise)]
+        (with-redefs [f.tools.agent/poll-interval-ms 10
+                      f.chat/prompt (fn [{:keys [message]} & _]
+                                      (if (string/includes? message "Without calling any tools")
+                                        (do (deliver status-at-summary* (get-in @db* [:chats id :status]))
+                                            (swap! db* update-in [:chats id]
+                                                   #(-> % (assoc :status :idle)
+                                                        (update :messages conj (assistant-msg "Final report.")))))
+                                        (running!)))
+                      f.chat/prompt-stop (fn [& _]
+                                           (swap! db* assoc-in [:chats id :status] :stopping)
+                                           (future (Thread/sleep 100)
+                                                   (swap! db* assoc-in [:chats id :status] :idle)))]
+          (let [result ((spawn-handler) {"agent" "slow" "task" "review"} context)]
+            (is (= :idle (deref status-at-summary* 0 ::not-called)))
+            (is (re-find #"(?s)Timed out.*Final report\." (result-text result)))))))
+
+    (testing "the summary turn is skipped when the stopped turn does not unwind in time"
+      (reset! db* {:chats {"parent" {:model "test/model"}}})
+      (let [prompts* (atom 0)]
+        (with-redefs [f.tools.agent/poll-interval-ms 10
+                      f.tools.agent/summary-turn-timeout-ms 50
+                      f.chat/prompt (fn [& args] (swap! prompts* inc) (apply running! args))
+                      f.chat/prompt-stop (fn [& _] (swap! db* assoc-in [:chats id :status] :stopping))]
+          (let [result ((spawn-handler) {"agent" "slow" "task" "review"} context)]
+            (is (= 1 @prompts*))
+            (is (re-find #"(?s)Timed out.*Working\." (result-text result)))))))))
+
+(deftest spawn-agent-finished-before-timeout-test
+  (testing "a turn that finished but is still unwinding at the deadline completes instead of timing out"
+    (let [db* (atom {:chats {"parent" {:model "test/model"}}})
+          id "subagent-tc-1"
+          stops* (atom 0)]
+      (with-redefs [f.tools.agent/poll-interval-ms 10
+                    f.chat/prompt (fn [& _]
+                                    (swap! db* #(-> %
+                                                    (update-in [:chats id] assoc :status :idle :messages [(assistant-msg "Done.")])
+                                                    (assoc-in [:managed-chats id :workers] 1)))
+                                    (future (Thread/sleep 1300)
+                                            (swap! db* assoc-in [:managed-chats id :workers] 0)))
+                    f.chat/prompt-stop (fn [& _] (swap! stops* inc))]
+        (let [result ((spawn-handler) {"agent" "slow" "task" "review"} (spawn-context db* :config timeout-test-config))]
+          (is (zero? @stops*))
+          (is (match? {:error false :contents [{:text #"(?s)Result\n\nDone\.$"}]} result)))))))
+
+(deftest spawn-agent-continued-run-texts-are-run-local-test
+  (testing "halted, timed out and stopped texts never show an earlier run's answer"
+    (let [db* (atom {:chats {"parent" {:model "test/model"}}})
+          id "subagent-tc-1"
+          mode* (atom :answer)
+          run-agent (fn [args tool-call-id parent-status]
+                      (result-text ((spawn-handler) args
+                                                    (spawn-context db*
+                                                                   :config (assoc-in timeout-test-config [:agent "slow" :maxSteps] 3)
+                                                                   :tool-call-id tool-call-id
+                                                                   :call-state-fn (constantly {:status parent-status})))))]
+      (with-redefs [f.tools.agent/poll-interval-ms 10
+                    f.tools.agent/summary-turn-timeout-ms 50
+                    f.chat/prompt (fn [& _]
+                                    (case @mode*
+                                      :answer (swap! db* update-in [:chats id] assoc
+                                                     :status :idle :messages [(assistant-msg "Old answer.")])
+                                      :halt (swap! db* update-in [:chats id] assoc :status :idle :max-steps-reached? true)
+                                      :hang (swap! db* assoc-in [:chats id :status] :running)))
+                    f.chat/prompt-stop (fn [& _] (swap! db* assoc-in [:chats id :status] :idle))]
+        (is (string/includes? (run-agent {"agent" "slow" "task" "first"} "tc-1" :executing) "Old answer."))
+        (doseq [[mode tool-call-id parent-status expected] [[:halt "tc-2" :executing #"(?s)Halted.*Agent completed without producing output\."]
+                                                            [:hang "tc-3" :executing #"(?s)Timed out.*Agent produced no output before timing out\."]
+                                                            [:hang "tc-4" :stopping #"was stopped"]]]
+          (reset! mode* mode)
+          (let [text (run-agent {"agent" "slow" "task" "next" "chat_id" id} tool-call-id parent-status)]
+            (is (re-find expected text))
+            (is (not (string/includes? text "Old answer.")))))))))
 
 (deftest spawn-agent-parent-stop-test
   (testing "stops subagent when parent chat is stopped"
@@ -633,6 +726,20 @@
           (testing "preserves subagent chat for resume replay"
             (is (some? (get-in @db* [:chats subagent-chat-id])))))))))
 
+(deftest spawn-agent-setup-cancellation-test
+  (doseq [failure [(InterruptedException.) (ex-info "setup cancelled" {})]]
+    (let [db* (atom {:chats {"parent" {:model "test/model"}}})
+          stopped* (atom false)]
+      (with-redefs [f.chat/prompt (fn [& _]
+                                   (swap! db* assoc-in [:chats "subagent-setup" :status] :running)
+                                   (throw failure))
+                    f.chat/prompt-stop (fn [& _] (reset! stopped* true))]
+        (is (true? (:error ((spawn-handler) {"agent" "explorer" "task" "work"}
+                           {:db* db* :config test-config :chat-id "parent" :tool-call-id "setup"
+                            :call-state-fn (constantly {:status (if (instance? InterruptedException failure)
+                                                                 :executing :stopping)})}))))
+        (is @stopped* "Cancellation during synchronous setup must stop the dispatched child")))))
+
 (deftest spawn-agent-cleanup-on-exception-test
   (testing "preserves subagent state when chat/prompt throws"
     (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
@@ -644,7 +751,7 @@
                         (fn [_params _db* _messenger _config _metrics]
                           (throw (ex-info "LLM provider error" {})))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
-        (is (thrown? Exception
+        (is (match? {:error true :contents [{:text #"(?s)^Subagent chat_id: subagent-tc-1\n\n.*Failed.*LLM provider error"}]}
                      ((spawn-handler)
                       {"agent" "explorer" "task" "explore" "activity" "exploring"}
                       {:db* db*
@@ -1022,36 +1129,35 @@
           (is (= "company-litellm/explorer-small" (:model @chat-prompt-called*))
               "bare alias should resolve to the parent provider's model"))))))
 
-(deftest extract-final-summary-test
+(deftest extract-final-assistant-text-test
   (testing "extracts text from last assistant message"
     (is (= "Hello world"
-           (#'f.tools.agent/extract-final-summary
+           (#'f.tools.agent/extract-final-assistant-text
             [{:role "user" :content [{:type :text :text "Hi"}]}
              {:role "assistant" :content [{:type :text :text "Hello world"}]}]))))
 
   (testing "uses last assistant message when multiple exist"
     (is (= "Final answer"
-           (#'f.tools.agent/extract-final-summary
+           (#'f.tools.agent/extract-final-assistant-text
             [{:role "assistant" :content [{:type :text :text "First response"}]}
              {:role "user" :content [{:type :text :text "More?"}]}
              {:role "assistant" :content [{:type :text :text "Final answer"}]}]))))
 
   (testing "joins multiple text blocks with newline"
     (is (= "Part 1\nPart 2"
-           (#'f.tools.agent/extract-final-summary
+           (#'f.tools.agent/extract-final-assistant-text
             [{:role "assistant" :content [{:type :text :text "Part 1"}
                                           {:type :text :text "Part 2"}]}]))))
 
   (testing "ignores non-text content types"
     (is (= "Text only"
-           (#'f.tools.agent/extract-final-summary
+           (#'f.tools.agent/extract-final-assistant-text
             [{:role "assistant" :content [{:type :tool-use :text "ignored"}
                                           {:type :text :text "Text only"}]}]))))
 
-  (testing "returns default when no assistant messages"
-    (is (= "Agent completed without producing output."
-           (#'f.tools.agent/extract-final-summary
-            [{:role "user" :content [{:type :text :text "Hi"}]}])))))
+  (testing "returns nil when no assistant messages"
+    (is (nil? (#'f.tools.agent/extract-final-assistant-text
+               [{:role "user" :content [{:type :text :text "Hi"}]}])))))
 
 (deftest definitions-test
   (testing "spawn_agent tool definition has correct structure"
@@ -1063,10 +1169,13 @@
                    :properties {"agent" {:type "string"}
                                 "task" {:type "string"}
                                 "activity" {:type "string"}
+                                "chat_id" {:type "string"}
                                 "model" {:type "string"}
                                 "variant" {:type "string"}}
                    :required ["agent" "task"]}
-                  (:parameters tool)))))
+                  (:parameters tool)))
+      (is (= ["agent" "task" "activity" "chat_id" "model" "variant"]
+             (vec (keys (get-in tool [:parameters :properties])))))))
 
   (testing "model and variant enums are absent when no models in db"
     (let [defs (f.tools.agent/definitions test-config {})
@@ -1099,14 +1208,468 @@
       (is (= "Spawning agent"
              (summary-fn {:args {}}))))))
 
+(deftest resume-admission-and-run-isolation-test
+  (let [db* (atom {:chats {"parent" {:model "openai/gpt-4.1"}}})
+        context {:db* db* :config test-config :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "isolation" :trust true
+                 :call-state-fn (constantly {:status :executing})}
+        handler (spawn-handler)
+        args {"agent" "explorer" "task" "next" "chat_id" "subagent-isolation"}]
+    (with-redefs [f.chat/prompt (fn [{:keys [chat-id]} & _]
+                                 (swap! db* update-in [:chats chat-id]
+                                        #(assoc % :status :idle :current-step 5 :max-steps-reached? true
+                                                :messages [{:role "assistant" :content [{:type :text :text "old answer"}]}])))]
+      (handler {"agent" "explorer" "task" "first" "variant" "high"} context))
+    (let [baseline @db*]
+      (with-redefs [f.chat/prompt (fn [& _] (is false "Rejected resume must not prompt"))]
+        (doseq [selector ["" "  " 42 [] "missing" "parent"]]
+          (is (thrown? clojure.lang.ExceptionInfo
+                       (handler (assoc args "chat_id" selector) context)))
+          (is (= baseline @db*))))
+      (doseq [[label change changed-args changed-context linked?]
+              [["foreign parent" identity args (assoc context :chat-id "foreign") false]
+               ["different agent" identity (assoc args "agent" "general") context false]
+               ["authorization" identity args (assoc-in context [:config :agent "explorer" :spawnableBy] "other") false]
+               ["tool future" #(assoc-in % [:chats "subagent-isolation" :tool-calls "old" :future] (delay nil)) args context true]
+               ["tool resources" #(assoc-in % [:chats "subagent-isolation" :tool-calls "old" :resources] {:process :remaining}) args context true]
+               ["outstanding worker" #(assoc-in % [:managed-chats "subagent-isolation" :workers] 1) args context true]
+               ["running" #(assoc-in % [:chats "subagent-isolation" :status] :running) args context true]
+               ["stopping" #(assoc-in % [:chats "subagent-isolation" :status] :stopping) args context true]]]
+        (testing label
+          (reset! db* (change baseline))
+          (let [before @db*]
+            (with-redefs [f.chat/prompt (fn [& _] (is false "Rejected resume must not prompt"))]
+              ;; An agent the parent may not spawn is rejected before the chat_id is looked at.
+              (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                    #"Agent not found|(?s)'subagent-isolation' cannot be continued.*Omit chat_id to spawn a new subagent"
+                                    (handler changed-args changed-context)))
+              (is (= before @db*))))
+          (testing "tool-call details link only a child of this parent, never disclosing another's settings"
+            (let [details (tools.util/tool-call-details-before-invocation
+                           :spawn_agent changed-args nil {:db @db* :config (:config changed-context)
+                                                          :chat-id (:chat-id changed-context) :tool-call-id "x"})]
+              (if linked?
+                (is (= "subagent-isolation" (:subagent-chat-id details)))
+                (is (match? {:subagent-chat-id nil :model nil} details)))))))
+      (reset! db* baseline)
+      (testing "settled interruption resets its outcome and ignores unstarted cleanup promises"
+        (swap! db* assoc-in [:managed-chats "subagent-isolation" :interrupted?] true)
+        (swap! db* assoc-in [:chats "subagent-isolation" :tool-calls "rejected"]
+               {:status :rejected :future-cleanup-complete?* (promise)})
+        (with-redefs [f.chat/prompt (fn [params & _]
+                                     (is (= "high" (:variant params)))
+                                     (swap! db* assoc-in [:chats "subagent-isolation" :status] :idle))]
+          (let [result (handler args (assoc context :tool-call-id "empty"))]
+            (is (false? (:error result)))
+            (is (string/ends-with? (get-in result [:contents 0 :text])
+                                   "Agent completed without producing output."))
+            (is (not (string/includes? (tools.util/contents->text (:contents result)) "old answer"))))))
+      (testing "immediate prompt errors finish without polling and allow settled reuse"
+        (with-redefs [f.chat/prompt (constantly {:status :error})]
+          (let [run (future (handler args (assoc context :tool-call-id "error")))]
+            (try
+              (is (match? {:error true :contents [{:text #"(?s)^Subagent chat_id: subagent-isolation\n\n.*Failed.*setup failed"}]}
+                          (deref run 5000 ::timeout)))
+              (is (true? (:error (handler args context))))
+              (finally (when-not (realized? run) (future-cancel run)))))))
+      (testing "a run that was only interrupted says so instead of a generic failure"
+        (reset! db* baseline)
+        (with-redefs [f.chat/prompt (fn [& _]
+                                     (swap! db* #(-> %
+                                                     (assoc-in [:chats "subagent-isolation" :status] :idle)
+                                                     (assoc-in [:managed-chats "subagent-isolation" :interrupted?] true))))]
+          (is (match? {:error true :contents [{:text #"Failed\n\nThe sub-agent was stopped before it finished\."}]}
+                      (handler args (assoc context :tool-call-id "interrupted")))))))))
+
+(deftest spawn-agent-replay-per-call-test
+  (let [id "subagent-first"
+        answer #(assoc (assistant-msg %) :content-id %)
+        db {:chats {id {:messages [(answer "run 1") (answer "run 2")]}}}
+        output (fn [call-id arguments details]
+                 {:role "tool_call_output"
+                  :content {:id call-id :name "spawn_agent" :arguments arguments :error false
+                            :details (merge {:type :subagent :agent-name "explorer" :subagent-chat-id id} details)
+                            :output {:contents [{:type :text :text "Tool result"}]}}})
+        child-texts (fn [message]
+                      (->> (f.chat/messages->contents [message] {:chat-id "parent" :db db})
+                           (filter #(= id (:chat-id %)))
+                           (keep #(get-in % [:content :text]))
+                           (map string/trim)))]
+    (testing "each call replays only the part of the child chat it ran"
+      (is (= ["run 1"] (child-texts (output "first" {"agent" "explorer"} {:subagent-message-range [0 1]}))))
+      (is (= ["run 2"] (child-texts (output "second" {"agent" "explorer" "chat_id" id} {:subagent-message-range [1 2]})))))
+    (testing "a call that did not run replays nothing"
+      (is (empty? (child-texts (output "busy" {"agent" "explorer" "chat_id" id} {:subagent-message-range [0 0]})))))
+    (testing "a history from before continuation replays the whole child chat"
+      (is (= ["run 1" "run 2"] (child-texts (output "old" {"agent" "explorer"} {})))))
+    (testing "a range past a rolled-back child chat is cut to what exists"
+      (is (= ["run 2"] (child-texts (output "rolled" {"agent" "explorer"} {:subagent-message-range [1 5]})))))))
+
+(deftest spawn-agent-records-message-range-test
+  (let [db* (atom {:chats {"parent" {:model "openai/gpt-4.1"}}})
+        context {:db* db* :config test-config :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "first"
+                 :call-state-fn (constantly {:status :executing})}
+        details (fn [tool-call-id arguments]
+                  (tools.util/tool-call-details-after-invocation
+                   :spawn_agent arguments
+                   (tools.util/tool-call-details-before-invocation :spawn_agent arguments nil
+                                                                   {:db @db* :config test-config :chat-id "parent"
+                                                                    :tool-call-id tool-call-id})
+                   nil {:db @db* :chat-id "parent" :tool-call-id tool-call-id}))]
+    (with-redefs [f.chat/prompt (fn [{:keys [chat-id message]} & _]
+                                 (swap! db* update-in [:chats chat-id]
+                                        ;; Like prompt-messages!, it stores the variant even when nil.
+                                        #(-> % (assoc :status :idle :variant nil)
+                                             (update :messages (fnil conj []) (assistant-msg message)))))]
+      ((spawn-handler) {"agent" "explorer" "task" "first"} context)
+      (let [first-details (details "first" {"agent" "explorer"})]
+        (is (= [0 1] (:subagent-message-range first-details)))
+        (is (not (contains? first-details :variant)) "No variant, no null on the wire"))
+      (let [args {"agent" "explorer" "task" "next" "chat_id" "subagent-first"}]
+        ((spawn-handler) args (assoc context :tool-call-id "next"))
+        (is (= [1 2] (:subagent-message-range (details "next" args)))))
+      (testing "a call that did not run gets an empty range"
+        (is (= [0 0] (:subagent-message-range (details "never" {"agent" "explorer"}))))))))
+
+(deftest managed-subagent-direct-prompt-test
+  (testing "a live subagent chat cannot be prompted directly, only by its parent through spawn_agent"
+    (swap! (h/db*) assoc-in [:chats "subagent-live"] {:id "subagent-live" :subagent {:name "explorer"} :status :idle})
+    (swap! (h/db*) assoc-in [:managed-chats "subagent-live"] {:workers 0})
+    (let [before @(h/db*)]
+      (is (match? {:chat-id "subagent-live" :status :error}
+                  (f.chat/prompt {:chat-id "subagent-live" :message "hi"}
+                                 (h/db*) (h/messenger) (h/config) (h/metrics))))
+      (is (= before @(h/db*))))))
+
+(deftest spawn-agent-continue-model-override-test
+  (let [db* (atom {:chats {"parent" {:model "anthropic/claude-sonnet-4-6"}}})
+        prompts* (atom [])
+        context {:db* db* :config test-config :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "first"
+                 :call-state-fn (constantly {:status :executing})}
+        continue! (fn [tool-call-id overrides]
+                    ((spawn-handler) (merge {"agent" "explorer" "task" "next" "chat_id" "subagent-first"} overrides)
+                                     (assoc context :tool-call-id tool-call-id)))]
+    (with-redefs [f.chat/prompt (fn [{:keys [chat-id model variant] :as params} & _]
+                                 (swap! prompts* conj params)
+                                 ;; Like prompt-messages!, the chat keeps the model it last used.
+                                 (swap! db* update-in [:chats chat-id] assoc :status :idle :model model :variant variant))]
+      ((spawn-handler) {"agent" "explorer" "task" "first" "variant" "high"} context)
+      (testing "without overrides it keeps its model and variant"
+        (continue! "keep" {})
+        (is (match? {:model "anthropic/claude-sonnet-4-6" :variant "high"} (last @prompts*))))
+      (testing "a variant override alone keeps the model"
+        (continue! "variant" {"variant" "low"})
+        (is (match? {:model "anthropic/claude-sonnet-4-6" :variant "low"} (last @prompts*))))
+      (testing "a new model drops the old variant"
+        (continue! "model" {"model" "openai/gpt-4.1"})
+        (is (= "openai/gpt-4.1" (:model (last @prompts*))))
+        (is (nil? (:variant (last @prompts*))))
+        (testing "and is kept by later continues"
+          (continue! "after" {})
+          (is (= "openai/gpt-4.1" (:model (last @prompts*))))))
+      (testing "the variant is validated against the final model"
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Variant 'nope' is not available"
+                              (continue! "bad" {"model" "anthropic/claude-opus-4-6" "variant" "nope"})))))))
+
+(deftest spawn-agent-stop-waits-for-late-messages-test
+  (testing "a parent stop waits for the cancelled tool's result, so the call's replay range includes it"
+    (let [db* (atom {:chats {"parent" {:model "openai/gpt-4.1"}}})
+          id "subagent-stop"
+          call-state* (atom {:status :executing})]
+      (with-redefs [f.chat/prompt (fn [& _]
+                                    (swap! db* update-in [:chats id] assoc :status :running :messages [(assistant-msg "Working.")])
+                                    (reset! call-state* {:status :stopping}))
+                    f.chat/prompt-stop (fn [& _]
+                                         (swap! db* assoc-in [:chats id :status] :stopping)
+                                         (future (Thread/sleep 100)
+                                                 (swap! db* update-in [:chats id] #(-> %
+                                                                                       (update :messages conj {:role "tool_call_output"})
+                                                                                       (assoc :status :idle)))))]
+        (let [started (System/currentTimeMillis)
+              result ((spawn-handler) {"agent" "explorer" "task" "t"}
+                      (spawn-context db* :tool-call-id "stop" :call-state-fn #(deref call-state*)))]
+          (is (< (- (System/currentTimeMillis) started) 800) "Returns soon after the subagent settles")
+          (is (string/includes? (result-text result) "was stopped"))
+          (is (= [0 2] (get-in @db* [:chats "parent" :tool-calls "stop" :subagent-message-range]))))))))
+
+(deftest spawn-agent-empty-chat-id-spawns-fresh-test
+  (h/config! {:agent {"explorer" {:mode "subagent" :description "Explorer"}}})
+  (doseq [chat-id ["" nil]]
+    (testing (str "chat_id " (pr-str chat-id) " is treated as absent")
+      (let [prompted* (promise)]
+        (with-redefs [f.chat/prompt (fn [{:keys [chat-id]} & _]
+                                      (deliver prompted* chat-id)
+                                      (swap! (h/db*) assoc-in [:chats chat-id :status] :idle))]
+          (let [tool-call-id (str "empty-" (count (pr-str chat-id)))
+                result (f.tools/call-tool! "eca__spawn_agent" {"agent" "explorer" "task" "work" "chat_id" chat-id "model" nil}
+                                           "parent" tool-call-id "code" (h/db*) (h/config) (h/messenger) (h/metrics)
+                                           (constantly {:status :executing}) (fn [& _]) {})]
+            (is (false? (:error result)))
+            (is (= (str "subagent-" tool-call-id) (deref prompted* 0 ::not-prompted)))))))))
+
+(deftest spawn-agent-resume-uses-current-agent-config-test
+  (let [db* (atom {:chats {"parent" {:model "openai/gpt-4.1"}}})
+        prompts* (atom [])
+        context {:db* db* :config test-config :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "limits"
+                 :call-state-fn (constantly {:status :executing})}]
+    (with-redefs [f.chat/prompt (fn [{:keys [chat-id] :as params} & _]
+                                 (swap! prompts* conj params)
+                                 (swap! db* update-in [:chats chat-id] assoc :status :idle :current-step 4))]
+      ((spawn-handler) {"agent" "explorer" "task" "first"} context)
+      (let [config (assoc-in test-config [:agent "explorer" :maxSteps] 2)]
+        ((spawn-handler) {"agent" "explorer" "task" "next" "chat_id" "subagent-limits"}
+                         (assoc context :config config :tool-call-id "next"))
+        (is (string/includes? (:message (first @prompts*)) "maximum of 5 steps"))
+        (is (string/includes? (:message (second @prompts*)) "maximum of 2 steps"))
+        (is (= 2 (get-in @db* [:chats "subagent-limits" :max-steps])))
+        (is (= 2 (get-in @db* [:chats "subagent-limits" :subagent :max-steps]))
+            "The step check reads the limit from the refreshed agent config")))))
+
+(deftest managed-subagent-followup-workers-test
+  (h/config! {:env "dev" :hooks {"status" {:type "chatStatusChanged"}}
+              :agent {"explorer" {:mode "subagent" :description "Explorer"}}})
+  (swap! (h/db*) assoc-in [:chats "parent"] {:model "openai/gpt-5.2"})
+  (let [idle (promise) release-idle (promise) polled (promise)
+        second-finished (promise) release-worker (promise)
+        requests* (atom 0) idle-count* (atom 0)
+        context {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "workers"
+                 :call-state-fn (fn []
+                                  (when (= :idle (get-in @(h/db*) [:chats "subagent-workers" :status]))
+                                    (deliver polled true))
+                                  {:status :executing})}
+        handler (spawn-handler)]
+    (with-redefs [llm-api/sync-prompt! (constantly nil)
+                  config/await-plugins-resolved! (constantly true)
+                  f.tools/all-tools (constantly [])
+                  hooks/trigger-if-matches!
+                  (fn [type data callbacks & _]
+                    (when (and (= :subagentPostRequest type) (not (:follow-up-active data)))
+                      ((:on-after-action callbacks) {:name "follow" :exit 0 :parsed {"followUp" "continue"}}))
+                    (when (and (= :chatStatusChanged type) (= :idle (:status data))
+                               (= 1 (swap! idle-count* inc)))
+                      (deliver idle true)
+                      (is (= true (deref release-idle 10000 ::timeout)))))
+                  llm-api/sync-or-async-prompt!
+                  (fn [{:keys [on-first-response-received on-message-received]}]
+                    (let [n (swap! requests* inc)]
+                      (on-first-response-received {:type :text :text "answer"})
+                      (on-message-received {:type :text :text (str "answer " n)})
+                      (on-message-received {:type :finish})
+                      (when (= 2 n)
+                        (deliver second-finished true)
+                        (is (= true (deref release-worker 10000 ::timeout))))))]
+      (let [run (future (handler {"agent" "explorer" "task" "work"} context))]
+        (try
+          (is (= true (deref idle 10000 ::timeout)))
+          (is (= true (deref polled 10000 ::timeout)))
+          (is (not (realized? run)))
+          (doseq [args [{"agent" "explorer" "task" "duplicate"}
+                       {"agent" "explorer" "task" "resume" "chat_id" "subagent-workers"}]]
+            (is (thrown? clojure.lang.ExceptionInfo (handler args context))))
+          (let [before @(h/db*)]
+            (is (match? {:status :error}
+                        (f.chat/prompt {:chat-id "subagent-workers" :message "bypass"}
+                                       (h/db*) (h/messenger) (h/config) (h/metrics))))
+            (is (= before @(h/db*))))
+          (deliver release-idle true)
+          (is (= true (deref second-finished 10000 ::timeout)))
+          (is (not (realized? run)))
+          (deliver release-worker true)
+          (let [result (deref run 10000 ::timeout)]
+            (is (map? result))
+            (is (string/includes? (tools.util/contents->text (:contents result)) "answer 2")))
+          (finally
+            (deliver release-idle true)
+            (deliver release-worker true)
+            (when (= ::timeout (deref run 10000 ::timeout)) (future-cancel run))))))))
+
+(deftest spawn-agent-real-max-steps-resume-test
+  (h/config! {:env "test"
+              :agent {"explorer" {:mode "subagent" :description "Explorer" :maxSteps 1}}})
+  (swap! (h/db*) assoc-in [:chats "parent"] {:model "openai/gpt-5.2"})
+  (let [requests* (atom [])
+        id "subagent-budget"
+        context {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "budget"
+                 :call-state-fn (constantly {:status :executing})}]
+    (with-redefs [llm-api/sync-prompt! (constantly nil)
+                  config/await-plugins-resolved! (constantly true)
+                  f.tools/all-tools (constantly [])
+                  llm-api/sync-or-async-prompt!
+                  (fn [{:keys [on-first-response-received on-message-received on-tools-called] :as request}]
+                    (swap! requests* conj request)
+                    (on-first-response-received {:type :text :text "Findings"})
+                    (on-message-received {:type :text :text "Findings"})
+                    (case (count @requests*)
+                      1 (on-tools-called [{:id "lookup" :full-name "eca__lookup" :arguments {}}])
+                      ;; The no-tools summary turn after the max steps halt.
+                      2 (do
+                          (is (true? (get-in @(h/db*) [:chats id :summary-requested?])))
+                          (on-message-received {:type :finish}))
+                      (do
+                        (is (= 0 (get-in @(h/db*) [:chats id :current-step])))
+                        (is (nil? (get-in @(h/db*) [:chats id :max-steps-reached?])))
+                        (is (nil? (get-in @(h/db*) [:chats id :summary-requested?]))
+                            "A continued child may call tools again")
+                        (is (string/includes? (pr-str (:user-messages request)) "Tool calls are allowed again."))
+                        (on-message-received {:type :finish}))))]
+      (let [halted ((spawn-handler) {"agent" "explorer" "task" "find"} context)
+            history (get-in @(h/db*) [:chats id :messages])]
+        (is (true? (:error halted)))
+        (is (re-find #"^Subagent chat_id: subagent-budget\n\n## Agent 'explorer' Halted"
+                     (tools.util/contents->text (:contents halted))))
+        (is (true? (get-in @(h/db*) [:chats id :max-steps-reached?])))
+        (is (= 1 (get-in @(h/db*) [:chats id :current-step])))
+        (let [resumed ((spawn-handler) {"agent" "explorer" "task" "finish" "chat_id" id}
+                       (assoc context :tool-call-id "continued"))]
+          (is (false? (:error resumed)))
+          (is (re-find #"^Subagent chat_id: subagent-budget\n\n## Agent 'explorer' Result"
+                       (tools.util/contents->text (:contents resumed))))
+          (is (= 3 (count @requests*)))
+          (is (seq history))
+          (is (= history (take (count history) (get-in @(h/db*) [:chats id :messages]))))
+          (is (some #(= "assistant" (:role %)) (:past-messages (last @requests*)))))))))
+
+(deftest spawn-agent-provider-failure-resume-test
+  (h/config! {:env "test" :providers {"openai" {:retry {:maxAutoContinues 0}}}
+              :agent {"explorer" {:mode "subagent" :description "Explorer"}}})
+  (swap! (h/db*) assoc-in [:chats "parent"] {:model "openai/gpt-5.2"})
+  (let [requests* (atom [])
+        context {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                 :chat-id "parent" :tool-call-id "network" :call-state-fn (constantly {:status :executing})}
+        handler (spawn-handler)]
+    (with-redefs [llm-api/sync-prompt! (constantly nil)
+                  config/await-plugins-resolved! (constantly true)
+                  f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
+                                                  :server {:name "eca"} :origin :native}])
+                  f.tools/approval (constantly :allow)
+                  f.tools/call-tool! (constantly {:contents [{:type :text :text "earlier tool result"}]})
+                  llm-api/sync-or-async-prompt!
+                  (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call
+                               on-tools-called on-error] :as request}]
+                    (swap! requests* conj request)
+                    (on-first-response-received {:type :text :text "started"})
+                    (case (count @requests*)
+                      1 (do (on-prepare-tool-call {:id "lookup" :full-name "eca__lookup" :arguments-text "{}"})
+                            (on-tools-called [{:id "lookup" :full-name "eca__lookup" :arguments {}}])
+                            (on-message-received {:type :text :text "partial finding"})
+                            (on-error {:message "Connection lost" :exception (java.net.ConnectException. "Connection refused")}))
+                      (do (is (nil? (get-in @(h/db*) [:chats "subagent-network" :prompt-error])))
+                          (on-message-received {:type :text :text "recovered answer"})
+                          (on-message-received {:type :finish}))))]
+      (let [failed (handler {"agent" "explorer" "task" "find"} context)
+            history (get-in @(h/db*) [:chats "subagent-network" :messages])]
+        (is (true? (:error failed)))
+        (is (string/includes? (tools.util/contents->text (:contents failed)) "returned `chat_id`"))
+        (let [result (handler {"agent" "explorer" "task" "continue" "chat_id" "subagent-network"} context)
+              past (:past-messages (last @requests*))]
+          (is (false? (:error result)))
+          (is (string/includes? (tools.util/contents->text (:contents result)) "recovered answer"))
+          (is (= 2 (count @requests*)))
+          (is (some #(= "earlier tool result" (get-in % [:content :output :contents 0 :text])) past))
+          (is (some #(= "partial finding" (get-in % [:content 0 :text])) past))
+          (is (= history (take (count history) (get-in @(h/db*) [:chats "subagent-network" :messages])))))))))
+
+(deftest spawn-agent-stopped-tool-resume-test
+  (doseq [phase [:dispatch :uninterruptible]]
+    (testing (name phase)
+      (h/reset-components!)
+      (h/config! {:env "dev" :agent {"explorer" {:mode "subagent" :description "Explorer"}}})
+      (swap! (h/db*) assoc-in [:chats "parent"] {:model "openai/gpt-5.2"})
+      (let [entered (promise) release (promise) stopped (promise) joining (promise) tool-ended (promise)
+            requests* (atom []) call-state* (atom {:status :executing}) callback* (atom nil)
+            id "subagent-cancel"
+            context {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                     :chat-id "parent" :tool-call-id "cancel" :call-state-fn #(deref call-state*)}
+            handler (spawn-handler)
+            transition tool-calls/transition-tool-call!
+            active tool-calls/get-active-tool-calls
+            ;; Ignore cancellation only until the test explicitly releases old work.
+            wait! (fn [] (loop []
+                           (let [result (try (deref release 30000 ::timeout)
+                                             (catch InterruptedException _ ::interrupted))]
+                             (if (= ::interrupted result)
+                               (recur)
+                               (is (= true result))))))
+            settled? (fn [] (loop [n 1000]
+                             (cond (zero? (get-in @(h/db*) [:managed-chats id :workers] 0)) true
+                                   (zero? n) false
+                                   :else (do (Thread/sleep 10) (recur (dec n))))))
+            stop! (fn []
+                    (reset! call-state* {:status :stopping})
+                    (f.chat/prompt-stop {:chat-id id} (h/db*) (h/messenger) (h/config) (h/metrics) {:silent? true})
+                    (deliver stopped true))]
+        (with-redefs [f.tools.agent/stop-settle-timeout-ms 100
+                      llm-api/sync-prompt! (constantly nil)
+                      config/await-plugins-resolved! (constantly true)
+                      f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
+                                                      :server {:name "eca"} :origin :native}])
+                      f.tools/approval (constantly :allow)
+                      tool-calls/get-active-tool-calls (fn [db chat-id]
+                                                        (when (realized? stopped) (deliver joining true))
+                                                        (active db chat-id))
+                      tool-calls/transition-tool-call!
+                      (fn [db* ctx tool-id event & data]
+                        (try
+                          (let [result (apply transition db* ctx tool-id event data)]
+                            (when (and (= phase :dispatch) (= event :execution-start))
+                              (is (= true (deref entered 10000 ::timeout)))
+                              (stop!))
+                            result)
+                          (finally
+                            (when (#{:execution-end :stop-attempted} event) (deliver tool-ended true)))))
+                      f.tools/call-tool!
+                      (fn [& args]
+                        (reset! callback* (nth args 9))
+                        (deliver entered true)
+                        (wait!)
+                        {:contents [{:type :text :text "old tool result"}]})
+                      llm-api/sync-or-async-prompt!
+                      (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called]
+                            :as request}]
+                        (swap! requests* conj request)
+                        (on-first-response-received {:type :text :text "start"})
+                        (if (= 1 (count @requests*))
+                          (do (on-prepare-tool-call {:id "lookup" :full-name "eca__lookup" :arguments-text "{}"})
+                              (on-tools-called [{:id "lookup" :full-name "eca__lookup" :arguments {}}]))
+                          (do (on-message-received {:type :text :text "corrected answer"})
+                              (on-message-received {:type :finish}))))]
+          (let [run (future (handler {"agent" "explorer" "task" "work"} context))]
+            (try
+              (is (= true (deref entered 10000 ::timeout)))
+              (when-not (= phase :dispatch) (stop!))
+              (is (= true (deref stopped 10000 ::timeout)))
+              (is (= :stopping (:status (@callback*))) "Tool observes live state")
+              (when (= phase :dispatch) (is (= true (deref joining 1000 ::timeout))))
+              (is (map? (deref run 10000 ::timeout)))
+              (is (thrown? clojure.lang.ExceptionInfo
+                           (handler {"agent" "explorer" "task" "too soon" "chat_id" id} context)))
+              (deliver release true)
+              (is (map? (deref run 10000 ::timeout)))
+              (is (settled?))
+              (reset! call-state* {:status :executing})
+              (let [history (get-in @(h/db*) [:chats id :messages])
+                    resumed (handler {"agent" "explorer" "task" "correct course" "chat_id" id} context)
+                    past (:past-messages (last @requests*))]
+                (is (false? (:error resumed)))
+                (is (string/includes? (tools.util/contents->text (:contents resumed)) "corrected answer"))
+                (is (= 2 (count @requests*)) "No provider continuation after stop")
+                (is (every? (set (map :role past)) ["tool_call" "tool_call_output"]))
+                (is (some #(= "old tool result" (get-in % [:content :output :contents 0 :text])) past))
+                (is (= history (take (count history) (get-in @(h/db*) [:chats id :messages])))))
+              (finally
+                (deliver release true)
+                (is (= true (deref tool-ended 10000 ::timeout)))
+                (is (not= ::timeout (deref run 10000 ::timeout)))
+                (is (settled?))))))))))
+
 (deftest spawn-agent-real-chat-prompt-test
-  ;; Regression test for v0.133.1 -> v0.133.2: spawn_agent failed end-to-end
-  ;; because chat/prompt's validate-client-chat-id rejected the deterministic
-  ;; "subagent-..." chat id used internally by spawn-agent. Every other test
-  ;; in this namespace mocks chat/prompt via with-redefs of requiring-resolve,
-  ;; so the validator path was never exercised. This test runs the REAL
-  ;; chat/prompt and only mocks the LLM transport, asserting the spawn handler
-  ;; reaches success through the chat layer.
+  ;; Regression: chat/prompt must accept the server-managed "subagent-..." ID.
+  ;; Exercise the real chat layer for both fresh and resumed delegation.
   (testing "spawn handler drives real chat/prompt to success"
     (h/reset-components!)
     (h/config! {:env "test"
@@ -1117,7 +1680,9 @@
            (fn [models] (merge {"openai/gpt-5.2" {:tools true}} (or models {}))))
     (swap! (h/db*) assoc-in [:chats "parent-1"]
            {:id "parent-1" :model "openai/gpt-5.2"})
-    (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+    (let [requests* (atom [])
+          api-mock (fn [{:keys [on-first-response-received on-message-received] :as request}]
+                     (swap! requests* conj request)
                      (on-first-response-received {:type :text :text "Found it"})
                      (on-message-received {:type :text :text "Found it"})
                      (on-message-received {:type :finish}))]
@@ -1127,16 +1692,8 @@
                     f.tools/approval (constantly :allow)
                     config/await-plugins-resolved! (constantly true)]
         (let [handler (get-in (f.tools.agent/definitions (h/config) (h/db)) ["spawn_agent" :handler])
-              ;; Run in a future with a timeout so a regression that causes
-              ;; chat/prompt to reject the subagent chat-id (and thus never
-              ;; flip the chat to :idle) fails the test instead of hanging
-              ;; the polling loop forever. The budget is generous because
-              ;; chat/prompt does its real work in a future* and the agent
-              ;; polling loop in agent.clj sleeps 1s between status checks,
-              ;; so on slower CI runners (notably macOS GitHub runners with
-              ;; cold JIT) a healthy run can still take a few polling
-              ;; iterations. A genuine regression hangs forever, so 30s is
-              ;; still a fast failure for that case.
+              ;; Bound the wait so a stalled prompt fails the test; allow headroom
+              ;; for slower CI runners.
               result-fut (future
                            (handler
                             {"agent" "explorer" "task" "find files" "activity" "exploring"}
@@ -1154,16 +1711,33 @@
                                          :messages (h/messages)}))]
           (when (identical? ::timeout result)
             (future-cancel result-fut))
-          (testing "spawn handler completes (regression would hang the polling loop)"
+          (testing "spawn handler completes within the timeout"
             (is (not (identical? ::timeout result))
-                (str "spawn handler did not complete in 30s — chat/prompt likely rejected the subagent chat-id. "
-                     timeout-details)))
+                (str "spawn handler did not complete in 30s. " timeout-details)))
           (when (map? result)
-            (testing "spawn handler returns success (would be :error true under v0.133.1)"
+            (testing "spawn handler returns success"
               (is (match? {:error false
                            :contents [{:type :text
-                                       :text #"^## Agent 'explorer' Result"}]}
+                                       :text #"^Subagent chat_id: subagent-tc-1\n\n## Agent 'explorer' Result"}]}
                           result)))
+            (testing "resume retains the real transcript and original selections"
+              (let [child (get-in @(h/db*) [:chats "subagent-tc-1"])
+                    history (:messages child)
+                    cache (:prompt-cache child)]
+                (is (every? (set (map :role history)) ["user" "assistant"]))
+                (swap! (h/db*) assoc-in [:chats "parent-1" :model] "other/model")
+                (let [resumed (handler {"agent" "explorer" "task" "Explain that finding" "chat_id" "subagent-tc-1"}
+                                       {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                                        :chat-id "parent-1" :tool-call-id "tc-2"
+                                        :call-state-fn (constantly {:status :executing})})]
+                  (is (false? (:error resumed)))
+                  (is (= history (take (count history) (get-in @(h/db*) [:chats "subagent-tc-1" :messages]))))
+                  (is (every? (set (map :role (:past-messages (last @requests*))))
+                              ["user" "assistant"]))
+                  (is (= "Explain that finding"
+                         (get-in (last @requests*) [:user-messages 0 :content 0 :text])))
+                  (is (= "gpt-5.2" (:model (last @requests*))))
+                  (is (= cache (get-in @(h/db*) [:chats "subagent-tc-1" :prompt-cache]))))))
             (testing "subagent chat reaches :idle through real chat/prompt"
               (is (= :idle (get-in @(h/db*) [:chats "subagent-tc-1" :status]))))
             (testing "subagent chat carries the parent-chat-id"
@@ -1173,8 +1747,4 @@
                                      (= "parent-1" (:parent-chat-id m))
                                      (= :assistant (:role m))
                                      (= {:type :text :text "Found it"} (:content m))))
-                        (:chat-content-received (h/messages)))))))))
-    ;; Reference f.chat to keep the require non-unused; the actual
-    ;; eca.features.chat/prompt is invoked indirectly via requiring-resolve
-    ;; inside spawn-agent.
-    (is (var? #'f.chat/prompt))))
+                        (:chat-content-received (h/messages)))))))))))
