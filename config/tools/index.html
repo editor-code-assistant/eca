@@ -846,6 +846,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="MCP">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1497,6 +1512,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="MCP">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      Examples
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1672,7 +1702,7 @@
 </ul>
 <h2 id="mcp">MCP<a class="headerlink" href="#mcp" title="Permanent link">#</a></h2>
 <p>For MCP servers configuration, use the <code>mcpServers</code> config, examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:13"><input checked="checked" id="stdio" name="__tabbed_1" type="radio" /><input id="http-streamable-or-sse" name="__tabbed_1" type="radio" /><input id="oauth-with-pre-registered-client" name="__tabbed_1" type="radio" /><input id="confidential-oauth-eg-slack" name="__tabbed_1" type="radio" /><input id="static-auth-header" name="__tabbed_1" type="radio" /><input id="youcom-web-search--research" name="__tabbed_1" type="radio" /><input id="serply-web-search" name="__tabbed_1" type="radio" /><input id="fxmacrodata-macro-data" name="__tabbed_1" type="radio" /><input id="equibles-stock-market-data" name="__tabbed_1" type="radio" /><input id="looot-business-data" name="__tabbed_1" type="radio" /><input id="advanced--dcr-client-name-override" name="__tabbed_1" type="radio" /><input id="per-project-auth--authscope" name="__tabbed_1" type="radio" /><input id="disabling-a-mcp" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="stdio">Stdio</label><label for="http-streamable-or-sse">HTTP (streamable or sse)</label><label for="oauth-with-pre-registered-client">OAuth with pre-registered client</label><label for="confidential-oauth-eg-slack">Confidential OAuth (e.g. Slack)</label><label for="static-auth-header">Static auth header</label><label for="youcom-web-search--research">You.com web search &amp; research</label><label for="serply-web-search">Serply web search</label><label for="fxmacrodata-macro-data">FXMacroData macro data</label><label for="equibles-stock-market-data">Equibles stock market data</label><label for="looot-business-data">looot business data</label><label for="advanced--dcr-client-name-override">Advanced — DCR client name override</label><label for="per-project-auth--authscope">Per-project auth — authScope</label><label for="disabling-a-mcp">Disabling a MCP</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:8"><input checked="checked" id="stdio" name="__tabbed_1" type="radio" /><input id="http-streamable-or-sse" name="__tabbed_1" type="radio" /><input id="oauth-with-pre-registered-client" name="__tabbed_1" type="radio" /><input id="confidential-oauth-eg-slack" name="__tabbed_1" type="radio" /><input id="static-auth-header" name="__tabbed_1" type="radio" /><input id="advanced--dcr-client-name-override" name="__tabbed_1" type="radio" /><input id="per-project-auth--authscope" name="__tabbed_1" type="radio" /><input id="disabling-a-mcp" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="stdio">Stdio</label><label for="http-streamable-or-sse">HTTP (streamable or sse)</label><label for="oauth-with-pre-registered-client">OAuth with pre-registered client</label><label for="confidential-oauth-eg-slack">Confidential OAuth (e.g. Slack)</label><label for="static-auth-header">Static auth header</label><label for="advanced--dcr-client-name-override">Advanced — DCR client name override</label><label for="per-project-auth--authscope">Per-project auth — authScope</label><label for="disabling-a-mcp">Disabling a MCP</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -1756,124 +1786,6 @@ set the <code>Authorization</code> header directly. This skips OAuth entirely.</
 </code></pre></div>
 </div>
 <div class="tabbed-block">
-<p><a href="https://you.com/?utm_source=editor-code-assistant-eca&amp;utm_medium=2026-08-oss-integrations&amp;utm_content=docs">You.com</a> provides web search, URL content extraction, and AI-powered research via MCP.</p>
-<p><strong>Option 1: Authenticated (full features)</strong></p>
-<p>Get your API key from <a href="https://you.com/api?utm_source=editor-code-assistant-eca&amp;utm_medium=2026-08-oss-integrations&amp;utm_content=docs">you.com/api</a> and set it as <code>YDC_API_KEY</code> environment variable:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;you-search&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.you.com/mcp&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:YDC_API_KEY}&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p><strong>Option 2: Keyless (basic web search)</strong></p>
-<p>Try You.com search without an API key using the free profile:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;you-search-free&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.you.com/mcp?profile=free&quot;</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p><strong>Option 3: Specialized profiles</strong></p>
-<p>Use focused endpoints for specific domains:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;you-finance&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.you.com/mcp?tools=you-finance&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:YDC_API_KEY}&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="s2">&quot;you-docs&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://you.com/docs/_mcp/server&quot;</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p>Available tools include <code>you_search</code> (web search with citations), <code>you_url_contents</code> (webpage content extraction), and <code>you_research</code> (multi-step research workflows).</p>
-</div>
-<div class="tabbed-block">
-<p><a href="https://serply.io">Serply</a> provides Google web, news, scholar, maps, jobs and video search, Bing search, URL scraping and Reddit lookups via MCP.</p>
-<p>Get an API key from <a href="https://serply.io">serply.io</a> and set it as the <code>SERPLY_API_KEY</code> environment variable. Serply reads the key from the <code>X-Api-Key</code> header:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;serply&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.serply.io/mcp&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;X-Api-Key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:SERPLY_API_KEY}&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p>Available tools include <code>google_search</code>, <code>google_news_search</code>, <code>google_scholar_search</code>, <code>bing_search</code> and <code>scrape_url</code>. See the <a href="https://serply.io/docs">Serply docs</a> for the full list.</p>
-</div>
-<div class="tabbed-block">
-<p><a href="https://fxmacrodata.com">FXMacroData</a> provides official-source macroeconomic releases, central bank policy rates, economic release calendars and FX rates for 22 currencies via MCP.</p>
-<p>USD releases, the USD calendar and the USD catalogue work without a key; other currencies, FX rates and the rest need a key. For full access, get an API key from <a href="https://fxmacrodata.com/subscribe">fxmacrodata.com</a> and set it as the <code>FXMACRODATA_API_KEY</code> environment variable. When the variable is unset, <code>${env:FXMACRODATA_API_KEY}</code> resolves to an empty string and the server treats the empty bearer token as keyless, so the same config works either way:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;fxmacrodata&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://mcp.fxmacrodata.com&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:FXMACRODATA_API_KEY}&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p>Available tools include <code>latest_announcements</code>, <code>release_calendar</code>, <code>data_catalogue</code>, <code>indicator_query</code> and <code>forex</code>. See the <a href="https://fxmacrodata.com/documentation">FXMacroData docs</a> for the full list.</p>
-</div>
-<div class="tabbed-block">
-<p><a href="https://equibles.com/mcp">Equibles</a> provides US stock market data via MCP: full-text search across SEC filings and earnings call transcripts, XBRL financial statements, insider and congressional trades, 13F institutional holdings, short interest, end-of-day prices and macroeconomic series.</p>
-<p><strong>Option 1: OAuth (no API key)</strong></p>
-<p>The <code>?auth=oauth</code> parameter makes the server ask for sign-in during discovery, so ECA registers a client via DCR and marks the server as requiring authentication until you sign in with a free Equibles account:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;equibles&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://mcp.equibles.com/mcp?auth=oauth&quot;</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p><strong>Option 2: API key</strong></p>
-<p>Create a key at <a href="https://equibles.com/dashboard/apikeys">equibles.com/dashboard/apikeys</a> and set it as the <code>EQUIBLES_API_KEY</code> environment variable:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;equibles&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://mcp.equibles.com/mcp&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:EQUIBLES_API_KEY}&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p>Available tools include <code>SearchDocuments</code>, <code>GetFinancialStatement</code>, <code>GetEarningsCallTranscript</code>, <code>GetInsiderTransactions</code> and <code>GetTopHolders</code>. The free plan allows 100 requests a day. Portfolio, watchlist and feedback tools write to your own Equibles account, so keep approval prompts on for them. See the <a href="https://equibles.com/docs/mcp/tools">Equibles MCP docs</a> for the full list.</p>
-</div>
-<div class="tabbed-block">
-<p><a href="https://looot.ai">looot</a> gives one API key and prepaid balance for about 2,500 data endpoints via MCP: work email and phone lookup, company and people enrichment, Google SERP, web and news search, and web page reading.</p>
-<p>The server supports OAuth with dynamic client registration, so ECA signs in through the browser with just the URL. For a headless setup, create an API key at <a href="https://looot.ai">looot.ai</a> and set it as the <code>LOOOT_API_KEY</code> environment variable:</p>
-<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="s2">&quot;looot&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.looot.ai/mcp&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:LOOOT_API_KEY}&quot;</span>
-<span class="w">      </span><span class="p">}</span>
-<span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</code></pre></div>
-<p>Available tools include <code>find_work_email</code>, <code>verify_email</code>, <code>enrich_company</code>, <code>search_companies</code>, <code>google_search_results</code>, <code>web_search</code> and <code>read_web_page</code>. Billing is prepaid with no free tier, and each call shows its price first, so keep approval prompts on. See the <a href="https://docs.looot.ai">looot docs</a> for the full list.</p>
-</div>
-<div class="tabbed-block">
 <p>Some OAuth-protected MCP servers allowlist clients during Dynamic Client
 Registration (DCR) by <code>client_name</code>. If the server rejects ECA's default
 registration with a 403, set <code>clientName</code> to a value the server accepts.</p>
@@ -1929,6 +1841,83 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 </div>
 </div>
 </div>
+<h3 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">#</a></h3>
+<p>Ready-to-use configs for some third-party MCP servers. Most remote servers work with just a <code>url</code> (OAuth is handled automatically) or a <code>url</code> plus an auth header, as shown above.</p>
+<!-- Adding an example? Keep it short: one line describing the server, a single config block and one line with notes/docs link. Keep tabs sorted alphabetically. -->
+
+<div class="tabbed-set tabbed-alternate" data-tabs="2:5"><input checked="checked" id="equibles" name="__tabbed_2" type="radio" /><input id="fxmacrodata" name="__tabbed_2" type="radio" /><input id="looot" name="__tabbed_2" type="radio" /><input id="serply" name="__tabbed_2" type="radio" /><input id="youcom" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="equibles">Equibles</label><label for="fxmacrodata">FXMacroData</label><label for="looot">looot</label><label for="serply">Serply</label><label for="youcom">You.com</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<p><a href="https://equibles.com/mcp">Equibles</a>: US stock market data (SEC filings, earnings calls, financial statements, insider trades, prices).</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;equibles&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://mcp.equibles.com/mcp?auth=oauth&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Signs in via OAuth with a free account. To use an <a href="https://equibles.com/dashboard/apikeys">API key</a> instead, drop <code>?auth=oauth</code> and add an <code>Authorization: Bearer ${env:EQUIBLES_API_KEY}</code> header. <a href="https://equibles.com/docs/mcp/tools">Docs</a>.</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://fxmacrodata.com">FXMacroData</a>: macroeconomic releases, central bank rates, release calendars and FX rates for 22 currencies.</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;fxmacrodata&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://mcp.fxmacrodata.com&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:FXMACRODATA_API_KEY}&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>USD data works without a key (unset env var resolves to empty); other currencies need an <a href="https://fxmacrodata.com/subscribe">API key</a>. <a href="https://fxmacrodata.com/documentation">Docs</a>.</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://looot.ai">looot</a>: ~2,500 business data endpoints (email/phone lookup, company enrichment, web search, page reading).</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;looot&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.looot.ai/mcp&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Signs in via OAuth; for headless setups add an <code>Authorization: Bearer ${env:LOOOT_API_KEY}</code> header. Paid per call, keep approval prompts on. <a href="https://docs.looot.ai">Docs</a>.</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://serply.io">Serply</a>: Google (web, news, scholar, maps, jobs, videos) and Bing search, URL scraping.</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;serply&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.serply.io/mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;X-Api-Key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:SERPLY_API_KEY}&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p><a href="https://serply.io/docs">Docs</a>.</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://you.com/?utm_source=editor-code-assistant-eca&amp;utm_medium=2026-08-oss-integrations&amp;utm_content=docs">You.com</a>: web search with citations, URL content extraction and multi-step research.</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;you&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://api.you.com/mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:YDC_API_KEY}&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Get a key at <a href="https://you.com/api?utm_source=editor-code-assistant-eca&amp;utm_medium=2026-08-oss-integrations&amp;utm_content=docs">you.com/api</a>, or use <code>https://api.you.com/mcp?profile=free</code> without a key for basic search. Specialized profiles like <code>?tools=you-finance</code> are also available.</p>
+</div>
+</div>
+</div>
 <h2 id="custom-tools">Custom Tools<a class="headerlink" href="#custom-tools" title="Permanent link">#</a></h2>
 <p>You can define your own command-line tools that the LLM can use. These are configured via the <code>customTools</code> key in your <code>config.json</code>.</p>
 <p>The <code>customTools</code> value is an object where each key is the name of your tool. Each tool definition has the following properties:</p>
@@ -1942,7 +1931,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 </li>
 </ul>
 <p>Placeholders in the format <code>{{argument_name}}</code> within the <code>command</code> string will be replaced by the values provided by the LLM.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="example-1" name="__tabbed_2" type="radio" /><input id="example-2" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="example-1">Example 1</label><label for="example-2">Example 2</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:2"><input checked="checked" id="example-1" name="__tabbed_3" type="radio" /><input id="example-2" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="example-1">Example 1</label><label for="example-2">Example 2</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -2027,7 +2016,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <li>A regex matched against the tool full name <code>server__tool</code>: <code>clojure-mcp__eval.*</code>, <code>my-mcp__dangerous_tool</code>.</li>
 </ol>
 <p>Regexes must match the whole name (anchored). It can be set globally, per agent or in the <a href="../agents/">agent markdown frontmatter</a>.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="global" name="__tabbed_3" type="radio" /><input id="per-agent" name="__tabbed_3" type="radio" /><input id="whole-mcp-server-per-agent" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="global">Global</label><label for="per-agent">Per agent</label><label for="whole-mcp-server-per-agent">Whole MCP server per agent</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:3"><input checked="checked" id="global" name="__tabbed_4" type="radio" /><input id="per-agent" name="__tabbed_4" type="radio" /><input id="whole-mcp-server-per-agent" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="global">Global</label><label for="per-agent">Per agent</label><label for="whole-mcp-server-per-agent">Whole MCP server per agent</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -2076,7 +2065,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 </ul>
 <p>So a tool is deferred when it is over the automatic limit <strong>or</strong> matches <code>includePattern</code>, and does not match <code>excludePattern</code>.</p>
 <p>The two patterns use the same matching as <a href="#disabled-tools"><code>disabledTools</code></a> — an exact MCP server name (all its tools) or an anchored regex against the tool full name <code>server__tool</code>.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="4:5"><input checked="checked" id="defer-once-mcp-gets-expensive" name="__tabbed_4" type="radio" /><input id="defer-all-mcp-tools" name="__tabbed_4" type="radio" /><input id="defer-all-but-one-mcp-server" name="__tabbed_4" type="radio" /><input id="defer-one-noisy-mcp-server" name="__tabbed_4" type="radio" /><input id="per-agent_1" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="defer-once-mcp-gets-expensive">Defer once MCP gets expensive</label><label for="defer-all-mcp-tools">Defer all MCP tools</label><label for="defer-all-but-one-mcp-server">Defer all but one MCP server</label><label for="defer-one-noisy-mcp-server">Defer one noisy MCP server</label><label for="per-agent_1">Per agent</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="5:5"><input checked="checked" id="defer-once-mcp-gets-expensive" name="__tabbed_5" type="radio" /><input id="defer-all-mcp-tools" name="__tabbed_5" type="radio" /><input id="defer-all-but-one-mcp-server" name="__tabbed_5" type="radio" /><input id="defer-one-noisy-mcp-server" name="__tabbed_5" type="radio" /><input id="per-agent_1" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="defer-once-mcp-gets-expensive">Defer once MCP gets expensive</label><label for="defer-all-mcp-tools">Defer all MCP tools</label><label for="defer-all-but-one-mcp-server">Defer all but one MCP server</label><label for="defer-one-noisy-mcp-server">Defer one noisy MCP server</label><label for="per-agent_1">Per agent</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -2152,7 +2141,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <p>Approval rules are enforced by the ECA process itself. For OS-level isolation on top of them, check <a href="../sandboxing/">Sandboxing</a>.</p>
 </div>
 <p>Check some examples:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="5:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_5" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_5" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_5" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_5" type="radio" /><input id="denying-a-tool" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="6:5"><input checked="checked" id="allow-any-tools-by-default" name="__tabbed_6" type="radio" /><input id="allow-all-but-some-tools" name="__tabbed_6" type="radio" /><input id="ask-all-but-all-tools-from-some-mcps" name="__tabbed_6" type="radio" /><input id="matching-by-a-tool-argument" name="__tabbed_6" type="radio" /><input id="denying-a-tool" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="allow-any-tools-by-default">Allow any tools by default</label><label for="allow-all-but-some-tools">Allow all but some tools</label><label for="ask-all-but-all-tools-from-some-mcps">Ask all but all tools from some mcps</label><label for="matching-by-a-tool-argument">Matching by a tool argument</label><label for="denying-a-tool">Denying a tool</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
@@ -2390,7 +2379,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 15, 2026 13:09:02 UTC">October 15, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 15, 2026 13:45:09 UTC">October 15, 2026</span>
   </span>
 
     
