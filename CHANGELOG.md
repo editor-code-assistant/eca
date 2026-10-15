@@ -3,7 +3,19 @@
 ## Unreleased
 
 - Add `toolCall.askUser.trustModeTimeoutSeconds`: in trust mode, an unanswered `ask_user` question times out and the LLM continues with its best judgment.
+
+## 0.165.0
+
 - Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
+- Retry or auto-continue Anthropic streams that fail mid-response with an `api_error`, `overloaded_error` or `timeout_error` SSE event, instead of ending the prompt.
+- Refill the `maxAutoContinues` recovery budget once a response completes and its tools run, so long turns aren't stopped by failures spread across many steps.
+- Show consecutive thinking blocks as a single block in chat, live and on resume, without changing the history sent to providers. #643
+- Show subscription quota (Claude Pro/Max, ChatGPT, GitHub Copilot) with reset times instead of costs in chat usage and provider status, plus a `/quota` command. #641
+
+## 0.164.0
+
+- Fix "Waiting for tool call approval" progress being replaced by "Generating" when another tool call finishes while one still waits for approval. eca-emacs#334
+- Scope "approve & remember" approvals to the chat and its subagents instead of all chats, add `/approvals` and `/forget-approvals` commands to list and forget them. #639
 
 ## 0.163.1
 

@@ -793,6 +793,10 @@ interface ChatProgressContent {
 /**
  * A reason started from the LLM
  *
+ * Consecutive reasoning blocks with no other visible content between them
+ * are merged by the server into a single reason: one id, texts joined by a
+ * blank line and a single `reasonFinished` with the summed time, sent right
+ * before the next visible content or when the prompt finishes.
  */
 interface ChatReasonStartedContent {
     type: 'reasonStarted';
@@ -962,13 +966,26 @@ interface ChatUsageContent {
     
     /**
      * The cost of the last sent message summing input + output tokens.
+     * Absent when the model has no pricing or the chat uses a subscription
+     * login (see `quota`).
      */
     lastMessageCost?: string; 
     
     /**
      * The cost of the whole chat session so far.
+     * Absent when the model has no pricing or the chat uses a subscription
+     * login (see `quota`).
      */
     sessionCost?: string;
+
+    /**
+     * Subscription quota of the provider behind the chat's model, sent instead
+     * of the costs when logged in with a subscription (Claude Pro/Max, ChatGPT,
+     * GitHub Copilot), as the provider has no per-token cost. Absent until the
+     * provider reports it. Same value as the provider's `ProviderStatus.quota`
+     * when this usage was sent.
+     */
+    quota?: ProviderQuota;
     
     /**
      * Information about limits.
@@ -1474,7 +1491,8 @@ interface ShellCommandBreakdown {
     approvalKey?: string;
 
     /**
-     * Whether approvalKey is already remembered for this session.
+     * Whether approvalKey is already remembered for this chat session
+     * (the chat and its subagents).
      * Only present when approvalKey is present.
      */
     remembered?: boolean;
@@ -1532,6 +1550,8 @@ interface ChatToolCallApproveParams {
     
     /**
      * The approach to save this tool call.
+     * 'session' remembers the approval for the chat session: the chat and its subagents,
+     * in memory only, until the chat is cleared or the server restarts.
      * For tools with granular approval (eca shell_command and git), 'session' remembers
      * the specific approved commands (e.g. "git checkout") instead of the whole tool.
      */
@@ -1754,7 +1774,8 @@ the running task, instead of injecting the command text into the conversation.
 
 Other native commands that do not affect the running turn (`/sync-system-prompt`, `/costs`,
 `/context`, `/chats`, `/skills`, `/rules`, `/subagents`, `/plugins`, `/hooks`, `/prompt-show`,
-`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`) are also queued and
+`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
+`/forget-approvals`) are also queued and
 executed at the turn boundary: their output is shown and the task resumes. Native commands that
 would change the chat or start another prompt (`/model`, `/agent`, `/fork`, `/resume`,
 `/delete-chat`, `/login`, `/init`, ...) are refused with a system message and not queued.
@@ -1857,7 +1878,8 @@ interface ChatClearParams {
     chatId: string;
 
     /**
-     * Whether to clear the messages and tool calls of the chat.
+     * Whether to clear the messages and tool calls of the chat,
+     * also forgetting its remembered tool call approvals.
      */
     messages?: boolean;
 }
@@ -3539,6 +3561,41 @@ interface ProviderStatus {
     models: ProviderModel[];
     /** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */
     settings?: Record<string, any>;
+    /**
+     * Latest subscription quota, only for subscription logins (`auth.type`
+     * "oauth") once the provider reported it, either on a request or via its
+     * usage endpoint fetched after login, on startup and by `/quota`.
+     */
+    quota?: ProviderQuota;
+}
+
+/**
+ * Account-level subscription quota reported by the provider (e.g. Claude
+ * Pro/Max, ChatGPT, GitHub Copilot). Unrelated to chat tokens or API billing.
+ */
+interface ProviderQuota {
+    /** When this snapshot was captured, epoch seconds. */
+    updatedAt: number;
+    /**
+     * Quota windows as reported by the provider, shortest first. Ids, labels
+     * and durations come from the provider, clients should not assume fixed
+     * windows. A window whose `resetsAt` already passed is stale until the next
+     * update.
+     */
+    windows: ProviderQuotaWindow[];
+}
+
+interface ProviderQuotaWindow {
+    /** Stable id derived from the provider data (e.g. "5h", "7d", "primary", "premium_interactions"). */
+    id: string;
+    /** Short display label (e.g. "5h", "7d", "Premium"). */
+    label: string;
+    /** Used share of the window, 0-100. May exceed 100 when the provider allows overage. */
+    usedPercent: number;
+    /** When the window resets, epoch seconds. */
+    resetsAt?: number;
+    /** Window duration in minutes, when reported. */
+    windowMinutes?: number;
 }
 
 interface ProviderAuth {
@@ -3702,8 +3759,8 @@ _Response:_
 
 ### Provider Updated (⬅️)
 
-A server notification sent when a provider's authentication state or available models change.
-Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+A server notification sent when a provider's authentication state, available models or subscription quota change.
+Sent after login completion, logout, token renewal, model sync, or when the quota clients display changes. Contains the full provider
 status (same shape as items in `providers/list` response).
 
 _Notification:_

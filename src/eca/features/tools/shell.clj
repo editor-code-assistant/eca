@@ -4,6 +4,7 @@
    [babashka.process :as p]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.background-tasks :as bg]
    [eca.features.tools.shell-parser :as shell-parser]
    [eca.features.tools.util :as tools.util]
@@ -20,11 +21,14 @@
 
 (defn shell-command-details
   "Builds the shellCommand tool call details for a command string, marking
-   each command with whether its approval key is already remembered for
-   `tool-name`. Returns nil when the command cannot be parsed."
-  [tool-name command db]
+   each command with whether its approval key is already remembered for the
+   `full-tool-name` tool in `chat-id`'s chat session. Returns nil when the
+   command cannot be parsed."
+  [full-tool-name command db chat-id]
   (when-let [parsed (shell-parser/parse command)]
-    (let [remembered-keys (get-in db [:tool-calls tool-name :remembered-command-keys] #{})]
+    (let [remembered-keys (get-in (db/remembered-approvals db chat-id)
+                                  [full-tool-name :remembered-command-keys]
+                                  #{})]
       (-> parsed
           (update :commands (fn [commands]
                               (mapv (fn [{:keys [approvalKey] :as cmd}]
@@ -34,9 +38,9 @@
           (assoc :type :shellCommand)))))
 
 (defmethod tools.util/tool-call-details-before-invocation :shell_command
-  [_name arguments _server {:keys [db]}]
+  [_name arguments _server {:keys [db chat-id]}]
   (let [background? (boolean (get arguments "background"))]
-    (if-let [details (shell-command-details "shell_command" (get arguments "command") db)]
+    (if-let [details (shell-command-details "eca__shell_command" (get arguments "command") db chat-id)]
       (cond-> details
         background? (assoc :background true))
       (when background?

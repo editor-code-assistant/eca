@@ -4,7 +4,25 @@
    [clojure.test :refer [are deftest is testing]]
    [eca.shared :as shared]
    [eca.test-helper :as h]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
+
+(deftest usage-sumary-test
+  (let [db {:chats {"c1" {:usage {:last-input-tokens 10 :last-output-tokens 5
+                                  :total-input-tokens 100 :total-output-tokens 50}}}
+            :models {"anthropic/claude" {:input-token-cost 0.01 :output-token-cost 0.02
+                                         :limit {:context 1000 :output 100}}}
+            :provider-quotas {"anthropic" {:updated-at 1 :windows [{:id "5h" :label "5h" :used-percent 42.0}]}}}]
+    (testing "API billing shows costs"
+      (is (match? {:session-tokens 15 :last-message-cost "0.20" :session-cost "2.00" :quota m/absent}
+                  (shared/usage-sumary "c1" "anthropic/claude" db))))
+    (testing "subscription logins show the provider quota instead of costs"
+      (is (match? {:session-tokens 15
+                   :limit {:context 1000}
+                   :quota {:windows [{:id "5h" :used-percent 42.0}]}
+                   :last-message-cost m/absent
+                   :session-cost m/absent}
+                  (shared/usage-sumary "c1" "anthropic/claude" db {:subscription? true}))))))
 
 (deftest uri->filename-test
   (testing "should decode special characters in file URI"

@@ -627,8 +627,8 @@ __The `manualApproval` setting was deprecated and replaced by the `approval` one
 
 For each tool call, ECA checks the following in order, and the first match wins:
 
-1. __`deny` rules__: always win, even over session-remembered approvals and trust mode.
-2. __Session-remembered approvals__: what you approved with "approve and remember for this session" ([below](#approve-remember-for-this-session)).
+1. __`deny` rules__: always win, even over remembered approvals and trust mode.
+2. __Remembered approvals__: what you approved in the current chat with "approve and remember for this session" ([below](#approve-remember-for-this-session)).
 3. __Tool built-in checks__: some native tools force asking in risky cases regardless of `allow` rules, e.g. filesystem tools and `shell_command` when the path or working directory is outside the workspace roots.
 4. __`ask` rules__.
 5. __`allow` rules__.
@@ -669,11 +669,13 @@ Config `argsMatchers` are tested against the __full command string__ — there i
 
 ### Approve & remember for this session
 
-When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool by name: future calls of it are auto-approved. Remembered approvals live in memory only — they apply to all chats of the running ECA process, are not written to any config file, and are lost on restart. `deny` rules still win over them.
+When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool (by its full `server__tool` name) for the chat session: future calls of it in the same chat, including its subagents, are auto-approved, while other chats keep asking. Remembered approvals live in memory only: they are not written to any config file, and are lost when the chat is cleared or ECA restarts. `deny` rules still win over them.
+
+Run `/approvals` to list the approvals remembered in the current chat and `/forget-approvals` to forget them without losing the conversation. A `/btw` side chat starts with the approvals of the chat it was asked from, like its trust mode. For tools you always want auto-approved, prefer an `allow` rule.
 
 #### Granular approve & remember for shell commands
 
-When you approve a `eca__shell_command` or `eca__git` tool call choosing "approve and remember", ECA remembers the approved commands for the session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (`&&`, `||`, `;`, `|`) produces a key — command + subcommand for multi-command tools (`git checkout`, `npm install`), the plain command otherwise (`rg`). A future shell call runs automatically only when all its commands were already remembered.
+When you approve a `eca__shell_command` or `eca__git` tool call choosing "approve and remember", ECA remembers the approved commands for the chat session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (`&&`, `||`, `;`, `|`) produces a key — command + subcommand for multi-command tools (`git checkout`, `npm install`), the plain command otherwise (`rg`). A future shell call runs automatically only when all its commands were already remembered.
 
 ECA fails closed: commands it cannot safely reason about always ask again, like command/process substitution (`$(...)`, backticks), subshells, heredocs, output redirections to files (except `/dev/null`), and wrapper commands that execute arbitrary code (`sudo`, `bash -c`, `xargs`, `env`, ...).
 
@@ -741,7 +743,7 @@ Start the server with `--log-level debug` ([how to per editor](../troubleshootin
 | `:source` | The decision came from |
 |-----------|------------------------|
 | `:config-deny`, `:config-ask`, `:config-allow` | your `approval` rules; `:selector` and `:args-matcher` show the exact rule |
-| `:session-remember` | an "approve and remember for this session" approval |
+| `:session-remember` | an "approve and remember for this session" approval of the current chat |
 | `:tool-built-in-check` | the tool itself, e.g. path outside the workspace roots |
 | `:legacy-manual-approval` | the deprecated `manualApproval` config |
 | `:by-default` | the `byDefault` config |

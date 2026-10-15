@@ -228,18 +228,26 @@
                           :db db}))))))
 
 (deftest shell-command-details-test
-  (let [db {:tool-calls {"shell_command" {:remembered-command-keys #{"git status"}}}}]
+  (let [db {:chats {"c1" {:id "c1"
+                          :remembered-approvals {"eca__shell_command" {:remembered-command-keys #{"git status"}}}}
+                    "c1-sub" {:id "c1-sub" :parent-chat-id "c1"}
+                    "c2" {:id "c2"}}}]
     (testing "marks remembered and not remembered commands"
       (is (= {:type :shellCommand
               :commands [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}
                          {:command "rg" :args ["foo"] :approvalKey "rg" :remembered false}]}
-             (f.tools.shell/shell-command-details "shell_command" "git status && rg foo" db))))
+             (f.tools.shell/shell-command-details "eca__shell_command" "git status && rg foo" db "c1"))))
     (testing "remembered set is per tool name"
       (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
-             (:commands (f.tools.shell/shell-command-details "git" "git status" db)))))
+             (:commands (f.tools.shell/shell-command-details "eca__git" "git status" db "c1")))))
+    (testing "remembered set is per chat session, shared with its subagents"
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}]
+             (:commands (f.tools.shell/shell-command-details "eca__shell_command" "git status" db "c1-sub"))))
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
+             (:commands (f.tools.shell/shell-command-details "eca__shell_command" "git status" db "c2")))))
     (testing "commands without approval key have no remembered flag"
       (is (= {:type :shellCommand
               :commands [{:command "sudo" :args ["ls"]}]}
-             (f.tools.shell/shell-command-details "shell_command" "sudo ls" db))))
+             (f.tools.shell/shell-command-details "eca__shell_command" "sudo ls" db "c1"))))
     (testing "unparseable command returns nil"
-      (is (nil? (f.tools.shell/shell-command-details "shell_command" "echo $(x)" db))))))
+      (is (nil? (f.tools.shell/shell-command-details "eca__shell_command" "echo $(x)" db "c1"))))))

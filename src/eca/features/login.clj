@@ -221,6 +221,9 @@
                            skip-models-sync? false}}]
   (when (get-in @db* [:auth provider])
     (db/update-global-auth-cache! @db* provider metrics))
+  ;; Silent logins are token renewals, keeping the same account and quota.
+  (when-not silent?
+    (f.providers/reset-quota! provider db* (config/all @db*) messenger))
   (when-not skip-models-sync?
     (models/sync-models! db*
                          (config/all @db*) ;; force get updated config

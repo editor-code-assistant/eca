@@ -213,6 +213,41 @@
                     {:role :system :content {:type :progress :state :finished}}]}
                   (h/messages))))))
 
+(deftest prompt-subscription-quota-test
+  (let [api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated on-response-headers]}]
+                   (on-response-headers {"x-codex-primary-used-percent" "42"
+                                         "x-codex-primary-window-minutes" "300"
+                                         "x-codex-primary-reset-at" "1900000000"})
+                   (on-first-response-received {:type :text :text "Hey"})
+                   (on-message-received {:type :text :text "Hey"})
+                   (on-usage-updated {:input-tokens 10 :output-tokens 5})
+                   (on-message-received {:type :finish}))
+        usage-contents #(->> (:chat-content-received (h/messages))
+                             (map :content)
+                             (filter (comp #{:usage} :type)))
+        priced-models {"openai/gpt-5.2" {:tools true :input-token-cost 0.000001 :output-token-cost 0.000002}}]
+    (testing "subscription logins get the quota instead of costs and notify the provider status"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/oauth :mode :pro :api-key "oauth-token"})
+      (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
+      (is (match? [{:session-tokens 15
+                    :quota {:windows [{:id "primary" :label "5h" :used-percent 42.0 :resets-at 1900000000}]}
+                    :last-message-cost m/absent
+                    :session-cost m/absent}]
+                  (usage-contents)))
+      (is (match? [{:id "openai" :quota {:windows [{:id "primary" :used-percent 42.0}]}}]
+                  (:provider-updated (h/messages)))))
+    (testing "API key logins keep costs and ignore quota headers"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/token :api-key "sk-key"})
+      (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
+      (is (match? [{:session-tokens 15 :session-cost "0.00" :quota m/absent}]
+                  (usage-contents)))
+      (is (empty? (:provider-updated (h/messages))))
+      (is (nil? (get-in (h/db) [:provider-quotas "openai"]))))))
+
 (deftest prompt-basic-test
   (testing "Simple hello"
     (h/reset-components!)
@@ -435,7 +470,7 @@
                                            :text #(and (string/includes? % "bad_record_mac")
                                                        (string/includes? % (if (zero? limit)
                                                                              "Automatic recovery is disabled"
-                                                                             (format "Automatic recovery limit reached (%d/%d for this turn)" limit limit))))}}])}
+                                                                             (format "Automatic recovery limit reached (%d/%d in a row)" limit limit))))}}])}
                     (h/messages)))))))
 
 (deftest truncated-response-shares-recovery-budget-test
@@ -460,7 +495,37 @@
                  (m/embeds [{:role :system
                              :content {:type :progress :text #"Response interrupted.*recovery 1/1"}}
                             {:role :system
-                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 for this turn\).*"}}])}
+                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 in a row\).*"}}])}
+                (h/messages)))))
+
+(deftest recovery-budget-resets-after-completed-step-test
+  (h/config! {:providers {"openai" {:retry {:maxAutoContinues 1}}}})
+  (let [attempts* (atom 0)
+        exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")
+        fail! (fn [on-error]
+                (on-error {:exception exception
+                           :message (llm-util/connection-error-message exception)}))
+        {:keys [chat-id]}
+        (prompt!
+         {:message "Keep working"}
+         {:all-tools-mock (constantly [{:name "list_allowed_directories" :full-name "eca__list_allowed_directories" :server {:name "eca"}}])
+          :call-tool-mock (constantly {:error false :contents [{:type :text :text "ok"}]})
+          :api-mock (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called on-error]}]
+                      (let [attempt (swap! attempts* inc)]
+                        (on-first-response-received)
+                        (on-message-received {:type :text :text "Partial"})
+                        (case attempt
+                          1 (fail! on-error)
+                          2 (do
+                              (on-prepare-tool-call {:id "call-1" :full-name "eca__list_allowed_directories" :arguments-text ""})
+                              (on-tools-called [{:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}])
+                              (fail! on-error))
+                          (on-message-received {:type :finish}))))})]
+    (is (= 3 @attempts*) "a completed step refills the budget, so the second failure is recovered")
+    (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
+    (is (match? {:chat-content-received
+                 (m/embeds [{:role :system :content {:type :progress :text #"recovery 1/1"}}
+                            {:role :system :content {:type :progress :text #"recovery 1/1"}}])}
                 (h/messages)))))
 
 (deftest stream-error-rejects-preparing-tool-calls-test
@@ -3375,6 +3440,87 @@
     (is (= {} (f.chat/fork-chat {:chat-id "c1" :content-id "nope"}
                                 (h/db*) (h/messenger) (h/metrics))))))
 
+(deftest messages->contents-merges-adjacent-reasons-test
+  (let [reason (fn [id text ms] {:role "reason" :content {:id id :external-id (str "enc-" id) :text text :total-time-ms ms}})
+        assistant {:role "assistant" :content [{:type :text :text "Hi"}]}
+        contents (fn [messages]
+                   (mapv :content (f.chat/messages->contents messages {:chat-id "c1" :db {}})))]
+    (testing "a run of reasons renders as one block with the first id, joined texts and summed time"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonText :id "r1" :text "Plan\n\nAct"}
+              {:type :reasonFinished :id "r1" :total-time-ms 1750}
+              {:type :text :text "\nHi"}]
+             (contents [(reason "r1" nil 1000) (reason "r2" "Plan" 500) (reason "r3" " " 0)
+                        (reason "r4" "Act" 250) assistant]))))
+
+    (testing "a run of empty reasons renders as one empty block"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonFinished :id "r1" :total-time-ms 3}]
+             (contents [(reason "r1" nil 1) (reason "r2" nil 2)]))))
+
+    (testing "reasons separated by other messages stay separate and single reasons are unchanged"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonText :id "r1" :text "a"}
+              {:type :reasonFinished :id "r1" :total-time-ms 1}
+              {:type :text :text "\nHi"}
+              {:type :reasonStarted :id "r2"}
+              {:type :reasonFinished :id "r2" :total-time-ms nil}]
+             (contents [(reason "r1" "a" 1) assistant (reason "r2" nil nil)]))))))
+
+(deftest flag-and-fork-after-merged-reasons-test
+  (let [messages [{:role "user" :content [{:type :text :text "q"}] :content-id "u1"}
+                  {:role "reason" :content {:id "r1" :text nil :total-time-ms 1}}
+                  {:role "reason" :content {:id "r2" :text "plan" :total-time-ms 2}}
+                  {:role "assistant" :content [{:type :text :text "a"}]}]
+        seed! (fn []
+                (h/reset-components!)
+                (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "Orig" :messages messages}))]
+    (testing "a flag added on a merged block lands after the whole run"
+      (seed!)
+      (f.chat/add-flag {:chat-id "c1" :content-id "r1" :text "checkpoint"} (h/db*) (h/messenger) (h/metrics))
+      (is (= ["user" "reason" "reason" "flag" "assistant"]
+             (mapv :role (get-in (h/db) [:chats "c1" :messages])))))
+
+    (testing "a fork from a merged block keeps the whole run"
+      (seed!)
+      (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "c1" :content-id "r1"} (h/db*) (h/messenger) (h/metrics))]
+        (is (= ["user" "reason" "reason"]
+               (mapv :role (get-in (h/db) [:chats chat-id :messages]))))))))
+
+(deftest prompt-groups-consecutive-reasoning-test
+  (testing "consecutive reasoning blocks show as one block while history keeps every block"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Hey!"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received on-reason]}]
+              (on-first-response-received {:type :reason})
+              (on-reason {:status :started :id "r1"})
+              (on-reason {:status :finished :id "r1" :external-id "enc-1"})
+              (on-reason {:status :started :id "r2"})
+              (on-reason {:status :thinking :id "r2" :text "Planning"})
+              (on-reason {:status :finished :id "r2" :external-id "enc-2"})
+              (on-message-received {:type :text :text "Done"})
+              (on-message-received {:type :finish}))})]
+      (is (match? {:messages [{:role "user"}
+                              {:role "reason" :content {:id "r1" :external-id "enc-1" :text nil}}
+                              {:role "reason" :content {:id "r2" :external-id "enc-2" :text "Planning"}}
+                              {:role "assistant" :content [{:type :text :text "Done"}]}]}
+                  (get-in (h/db) [:chats chat-id])))
+      (is (match? {:chat-content-received
+                   [{:role :user :content {:type :text :text "Hey!\n"}}
+                    {:role :system :content {:type :progress :state :running :text "Waiting model"}}
+                    {:role :system :content {:type :progress :state :running :text "Generating"}}
+                    {:role :assistant :content {:type :reasonStarted :id "r1"}}
+                    {:role :assistant :content {:type :reasonText :id "r1" :text "Planning"}}
+                    {:role :assistant :content {:type :reasonFinished :id "r1" :total-time-ms number?}}
+                    {:role :assistant :content {:type :text :text "Done"}}
+                    {:role :system :content {:type :progress :state :finished}}]}
+                  (h/messages)))
+      (is (nil? (get-in (h/db) [:chats chat-id :reason-group]))))))
+
 (deftest tool-call-approve-on-unknown-chat-is-noop-test
   (testing "Approving a tool-call against an unknown chat does not throw or mutate state"
     (h/reset-components!)
@@ -3382,6 +3528,74 @@
                               (h/db*) (h/messenger) (h/config) (h/metrics))
     (is (= {} (:chats (h/db))))
     (is (= {} (h/messages)))))
+
+(deftest tool-call-approve-remembers-in-chat-session-test
+  (let [waiting-tool-call (fn [tool-call]
+                            (merge {:status :waiting-approval
+                                    :approved?* (promise)
+                                    :future-cleanup-complete?* (promise)}
+                                   tool-call))
+        shell-call (waiting-tool-call {:name "shell_command" :full-name "eca__shell_command" :server "eca"
+                                       :origin :native :arguments {"command" "git status && rg foo"}})
+        approve! (fn [chat-id save]
+                   (f.chat/tool-call-approve {:chat-id chat-id :tool-call-id "t1" :save save}
+                                             (h/db*) (h/messenger) (h/config) (h/metrics)))]
+    (testing "granular native tools remember the approved command keys in the chat only"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" shell-call}}
+                                   "c2" {:id "c2"}})
+      (approve! "c1" "session")
+      (is (= {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}}
+             (db/remembered-approvals (h/db) "c1")))
+      (is (nil? (db/remembered-approvals (h/db) "c2")) "Other chats are untouched")
+      (is (not (contains? (h/db) :tool-calls)) "Nothing is remembered server-wide"))
+
+    (testing "other tools are remembered as a whole by full tool name"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" (waiting-tool-call {:name "write_file" :full-name "fs__write_file"
+                                                                                         :server "fs" :origin :mcp
+                                                                                         :arguments {"path" "/tmp/a"}})}}})
+      (approve! "c1" "session")
+      (is (= {"fs__write_file" {:remember-to-approve? true}}
+             (db/remembered-approvals (h/db) "c1"))))
+
+    (testing "an MCP tool named like a native granular tool is remembered as a whole tool"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" (waiting-tool-call {:name "git" :full-name "gitmcp__git"
+                                                                                         :server "gitmcp" :origin :mcp
+                                                                                         :arguments {"command" "git status"}})}}})
+      (approve! "c1" "session")
+      (is (= {"gitmcp__git" {:remember-to-approve? true}}
+             (db/remembered-approvals (h/db) "c1"))))
+
+    (testing "approving a subagent tool call remembers it in the parent chat"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"parent" {:id "parent"}
+                                   "sub" {:id "sub" :parent-chat-id "parent" :tool-calls {"t1" shell-call}}})
+      (approve! "sub" "session")
+      (is (= {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}}
+             (get-in (h/db) [:chats "parent" :remembered-approvals])))
+      (is (not (contains? (get-in (h/db) [:chats "sub"]) :remembered-approvals))))
+
+    (testing "approving without save remembers nothing"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" shell-call}}})
+      (approve! "c1" nil)
+      (is (nil? (db/remembered-approvals (h/db) "c1"))))))
+
+(deftest clear-chat-resets-remembered-approvals-test
+  (testing "Clearing the chat messages forgets its remembered approvals (#639)"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"
+                                       :messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                                       :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}
+                                 "c2" {:id "c2"
+                                       :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}})
+    (f.chat/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
+    (is (nil? (db/remembered-approvals (h/db) "c1")))
+    (is (= {"eca__write_file" {:remember-to-approve? true}}
+           (db/remembered-approvals (h/db) "c2"))
+        "Other chats keep their approvals")))
 
 (deftest tool-call-reject-on-unknown-chat-is-noop-test
   (testing "Rejecting a tool-call against an unknown chat does not throw or mutate state"

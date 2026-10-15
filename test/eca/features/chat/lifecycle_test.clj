@@ -402,6 +402,112 @@
         (is (nil? (:chat-content-received (h/messages)))
             "exit 2 hook produces no chat content")))))
 
+(deftest send-content!-groups-consecutive-reasoning-test
+  (let [contents #(mapv :content (:chat-content-received (h/messages)))
+        setup! (fn []
+                 (h/reset-components!)
+                 (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :status :running})
+                 {:chat-id chat-id :db* (h/db*) :messenger (h/messenger)})
+        send! (fn [ctx role content] (lifecycle/send-content! ctx role content))]
+    (testing "adjacent blocks render as one block with the first id, empty or not"
+      (let [ctx (setup!)]
+        (send! ctx :assistant {:type :reasonStarted :id "r1"})
+        (send! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 1000})
+        (send! ctx :assistant {:type :reasonStarted :id "r2"})
+        (send! ctx :assistant {:type :reasonText :id "r2" :text "Plan"})
+        (send! ctx :assistant {:type :reasonText :id "r2" :text "ning"})
+        (send! ctx :assistant {:type :reasonFinished :id "r2" :total-time-ms 500})
+        (send! ctx :system {:type :progress :state :running :text "Generating"})
+        (send! ctx :system {:type :usage :session-tokens 10})
+        (send! ctx :assistant {:type :reasonStarted :id "r3"})
+        (send! ctx :assistant {:type :reasonText :id "r3" :text "Done"})
+        (send! ctx :assistant {:type :reasonFinished :id "r3" :total-time-ms 250})
+        (is (= [{:type :reasonStarted :id "r1"}
+                {:type :reasonText :id "r1" :text "Plan"}
+                {:type :reasonText :id "r1" :text "ning"}
+                {:type :progress :state :running :text "Generating"}
+                {:type :usage :session-tokens 10}
+                {:type :reasonText :id "r1" :text "\n\nDone"}]
+               (contents))
+            "progress/usage don't close the group and reasonFinished waits for visible content")
+        (testing "the next visible content closes the group with the summed time"
+          (send! ctx :assistant {:type :text :text "Hello"})
+          (is (= [{:type :reasonFinished :id "r1" :total-time-ms 1750}
+                  {:type :text :text "Hello"}]
+                 (subvec (contents) 6)))
+          (is (nil? (get-in @(h/db*) [:chats chat-id :reason-group]))))
+        (testing "a late reasonFinished after the group closed is dropped"
+          (send! ctx :assistant {:type :reasonFinished :id "r3" :total-time-ms 1})
+          (is (= 8 (count (contents)))))))
+
+    (testing "blocks separated by visible content stay separate"
+      (let [ctx (setup!)]
+        (send! ctx :assistant {:type :reasonStarted :id "r1"})
+        (send! ctx :assistant {:type :reasonText :id "r1" :text "a"})
+        (send! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 100})
+        (send! ctx :assistant {:type :toolCallPrepare :id "t1"})
+        (send! ctx :assistant {:type :reasonStarted :id "r2"})
+        (send! ctx :assistant {:type :reasonFinished :id "r2" :total-time-ms 50})
+        (send! ctx :assistant {:type :text :text "x"})
+        (is (= [{:type :reasonStarted :id "r1"}
+                {:type :reasonText :id "r1" :text "a"}
+                {:type :reasonFinished :id "r1" :total-time-ms 100}
+                {:type :toolCallPrepare :id "t1"}
+                {:type :reasonStarted :id "r2"}
+                {:type :reasonFinished :id "r2" :total-time-ms 50}
+                {:type :text :text "x"}]
+               (contents)))))
+
+    (testing "a block still in flight counts its elapsed time when the group closes"
+      (let [ctx (setup!)]
+        (send! ctx :assistant {:type :reasonStarted :id "r1"})
+        (send! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 100})
+        (send! ctx :assistant {:type :reasonStarted :id "r2"})
+        (send! ctx :system {:type :text :text "Prompt stopped"})
+        (is (match? [{:type :reasonStarted :id "r1"}
+                     {:type :reasonFinished :id "r1" :total-time-ms #(>= % 100)}
+                     {:type :text :text "Prompt stopped"}]
+                    (contents)))))
+
+    (testing "text without a started block opens the group"
+      (let [ctx (setup!)]
+        (send! ctx :assistant {:type :reasonText :id "r1" :text "a"})
+        (is (= [{:type :reasonStarted :id "r1"}
+                {:type :reasonText :id "r1" :text "a"}]
+               (contents)))))
+
+    (testing "content for chats missing from db, or without db, passes through untouched"
+      (h/reset-components!)
+      (doseq [ctx [{:chat-id "unknown" :db* (h/db*) :messenger (h/messenger)}
+                   {:chat-id chat-id :messenger (h/messenger)}]]
+        (send! ctx :assistant {:type :reasonStarted :id "r1"})
+        (send! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 5}))
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonFinished :id "r1" :total-time-ms 5}
+              {:type :reasonStarted :id "r1"}
+              {:type :reasonFinished :id "r1" :total-time-ms 5}]
+             (contents)))
+      (is (= {} (:chats (h/db)))))))
+
+(deftest finish-chat-prompt!-closes-open-reason-group-test
+  (h/reset-components!)
+  (let [db* (h/db*)
+        ctx {:chat-id chat-id
+             :db* db*
+             :messenger (h/messenger)
+             :config (h/config)
+             :metrics (h/metrics)
+             :agent "default"}]
+    (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running})
+    (lifecycle/send-content! ctx :assistant {:type :reasonStarted :id "r1"})
+    (lifecycle/send-content! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 42})
+    (lifecycle/finish-chat-prompt! :idle ctx)
+    (is (match? [{:content {:type :reasonStarted :id "r1"}}
+                 {:content {:type :reasonFinished :id "r1" :total-time-ms 42}}
+                 {:content {:type :progress :state :finished}}]
+                (:chat-content-received (h/messages))))
+    (is (nil? (get-in @db* [:chats chat-id :reason-group])))))
+
 (deftest finish-chat-prompt!-always-emits-protocol-status-test
   (testing "every turn finish emits the protocol chat/statusChanged even when the aggregate is unchanged (command-only turns stay idle throughout)"
     (h/reset-components!)

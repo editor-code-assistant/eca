@@ -6,6 +6,7 @@
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.llm-providers.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -270,6 +271,19 @@
           (throw (ex-info (format "Error on copilot login: %s" body)
                           {:status status
                            :body body})))))))
+
+(defmethod f.quota/fetch-quota "github-copilot" [{:keys [provider provider-auth config]}]
+  (let [url (str (github-api-base-url (get-in config [:providers provider])) "/copilot_internal/user")
+        {:keys [status body]} (http/get url
+                                        {:headers (merge (auth-headers)
+                                                         {"authorization" (str "token " (:access-token provider-auth))})
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout 10000})]
+    (if (= 200 status)
+      (f.quota/copilot-user->snapshot body)
+      (throw (ex-info (format "Copilot user endpoint returned status %s" status) {:status status})))))
 
 ;; --- Settings-based login (providers/login flow) ---
 

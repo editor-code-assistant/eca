@@ -59,8 +59,9 @@ tools. Once output has started, or request retries are exhausted, ECA falls back
 chat-level recovery when safe.
 
 Chat-level recovery is limited by `providers.<provider>.retry.maxAutoContinues`
-(default `3`) **per user turn**, not per connection. Truncated-response continuations
-share this budget. Progress shows the recovery count, and the terminal error explains
+(default `3`) **consecutive recoveries**, not per connection; the budget refills once a
+response completes and its tools run. Truncated-response continuations share this
+budget. Progress shows the recovery count, and the terminal error explains
 when recovery is exhausted or disabled (`maxAutoContinues: 0`). A new user message
 starts a fresh budget. See [Retry Policy and Rules](models.md#retry-policy-and-rules).
 

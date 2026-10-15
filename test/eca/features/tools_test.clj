@@ -344,6 +344,11 @@
              (deferred-names (defer-all-db big)
                              {:agent {"code" {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}}}}))))))
 
+(defn ^:private db-remembering
+  "A db whose chat \"c1\" remembered `approvals` via approve & remember."
+  [approvals]
+  {:chats {"c1" {:id "c1" :remembered-approvals approvals}}})
+
 (deftest approval-test
   (let [read-tool {:name "read" :server {:name "eca"} :origin :native}
         write-tool {:name "write" :server {:name "eca"} :origin :native}
@@ -358,9 +363,11 @@
     (testing "tool has require-approval-fn which returns false we ignore it"
       (is (= :ask (f.tools/approval all-tools plan-tool {} {} {} nil))))
     (testing "tool was remembered to approve by user"
-      (is (= :allow (f.tools/approval all-tools plan-tool {} {:tool-calls {"plan" {:remember-to-approve? true}}} {} nil))))
+      (is (= :allow (f.tools/approval all-tools plan-tool {} (db-remembering {"eca__plan" {:remember-to-approve? true}}) {} nil
+                                      {:chat-id "c1"}))))
     (testing "remember-to-approve takes precedence over require-approval-fn"
-      (is (= :allow (f.tools/approval all-tools shell-tool {} {:tool-calls {"shell" {:remember-to-approve? true}}} {} nil))))
+      (is (= :allow (f.tools/approval all-tools shell-tool {} (db-remembering {"eca__shell" {:remember-to-approve? true}}) {} nil
+                                      {:chat-id "c1"}))))
     (testing "if legacy-manual-approval present, considers it"
       (is (= :ask (f.tools/approval all-tools request-tool {} {} {:toolCall {:manualApproval true}} nil))))
     (testing "if approval config is provided"
@@ -422,7 +429,8 @@
                                         {:toolCall {:approval {:allow {"web__request" {:argsMatchers {"url" [".*bar.*" ".*foo.*"]}}}}}} nil))))
     (testing "session remember"
       (is (= {:decision :allow :rule {:source :session-remember}}
-             (f.tools/approval-decision all-tools read-tool {} {:tool-calls {"read" {:remember-to-approve? true}}} {} nil))))
+             (f.tools/approval-decision all-tools read-tool {} (db-remembering {"eca__read" {:remember-to-approve? true}}) {} nil
+                                        {:chat-id "c1"}))))
     (testing "tool built-in check"
       (is (= {:decision :ask :rule {:source :tool-built-in-check}}
              (f.tools/approval-decision all-tools shell-tool {} {} {} nil))))
@@ -443,7 +451,8 @@
   (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native
                     :approval-keys-fn #(f.tools/tool-approval-keys "shell_command" %)}
         all-tools [shell-tool]
-        remembered-db {:tool-calls {"shell_command" {:remembered-command-keys #{"git status" "rg"}}}}]
+        remembered-db (db-remembering {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}})
+        opts {:chat-id "c1"}]
     (testing "tool-approval-keys derives keys from native definitions"
       (is (= {:keys #{"git status" "rg"} :complete? true}
              (f.tools/tool-approval-keys "shell_command" {"command" "git status && rg foo"})))
@@ -453,23 +462,49 @@
              (f.tools/tool-approval-keys "git" {"command" "cd /workspace && git log -1"})))
       (is (nil? (f.tools/tool-approval-keys "read_file" {"path" "/foo"}))))
     (testing "all commands remembered approves"
-      (is (= :allow (f.tools/approval all-tools shell-tool {"command" "git status | rg foo"} remembered-db {} nil))))
+      (is (= :allow (f.tools/approval all-tools shell-tool {"command" "git status | rg foo"} remembered-db {} nil opts))))
     (testing "partially remembered command asks"
-      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status && git push"} remembered-db {} nil))))
+      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status && git push"} remembered-db {} nil opts))))
     (testing "dynamic constructs ask even when commands remembered"
-      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status $(evil)"} remembered-db {} nil))))
+      (is (= :ask (f.tools/approval all-tools shell-tool {"command" "git status $(evil)"} remembered-db {} nil opts))))
     (testing "blanket remember-to-approve? is ignored for granular tools"
       (is (= :ask (f.tools/approval all-tools shell-tool {"command" "ls"}
-                                    {:tool-calls {"shell_command" {:remember-to-approve? true}}} {} nil))))
+                                    (db-remembering {"eca__shell_command" {:remember-to-approve? true}}) {} nil opts))))
     (testing "config deny beats remembered commands"
       (is (= :deny (f.tools/approval all-tools shell-tool {"command" "git status"} remembered-db
-                                     {:toolCall {:approval {:deny {"shell_command" {}}}}} nil))))
+                                     {:toolCall {:approval {:deny {"shell_command" {}}}}} nil opts))))
     (testing "config deny beats legacy remember-to-approve?"
       (is (= :deny (f.tools/approval all-tools {:name "request" :server {:name "web"} :origin :mcp} {}
-                                     {:tool-calls {"request" {:remember-to-approve? true}}}
-                                     {:toolCall {:approval {:deny {"web__request" {}}}}} nil))))
+                                     (db-remembering {"web__request" {:remember-to-approve? true}})
+                                     {:toolCall {:approval {:deny {"web__request" {}}}}} nil opts))))
     (testing "missing command args ask"
-      (is (= :ask (f.tools/approval all-tools shell-tool {} remembered-db {} nil))))))
+      (is (= :ask (f.tools/approval all-tools shell-tool {} remembered-db {} nil opts))))))
+
+(deftest chat-scoped-remembered-approvals-test
+  (let [write-tool {:name "write_file" :server {:name "eca"} :origin :native}
+        mcp-write-tool {:name "write_file" :server {:name "fs"} :origin :mcp}
+        shell-tool {:name "shell_command" :server {:name "eca"} :origin :native
+                    :approval-keys-fn #(f.tools/tool-approval-keys "shell_command" %)}
+        all-tools [write-tool mcp-write-tool shell-tool]
+        db {:chats {"a" {:id "a" :remembered-approvals {"eca__write_file" {:remember-to-approve? true}
+                                                        "eca__shell_command" {:remembered-command-keys #{"rg"}}}}
+                    "a-sub" {:id "a-sub" :parent-chat-id "a"}
+                    "b" {:id "b"}}}
+        approval (fn [tool args chat-id]
+                   (f.tools/approval all-tools tool args db {} nil {:chat-id chat-id}))]
+    (testing "remembered approvals apply to the chat that remembered them"
+      (is (= :allow (approval write-tool {} "a")))
+      (is (= :allow (approval shell-tool {"command" "rg foo"} "a"))))
+    (testing "a remembered approval in chat A does not auto-approve in chat B"
+      (is (= :ask (approval write-tool {} "b")))
+      (is (= :ask (approval shell-tool {"command" "rg foo"} "b"))))
+    (testing "a subagent inherits the remembered approvals of its parent chat"
+      (is (= :allow (approval write-tool {} "a-sub")))
+      (is (= :allow (approval shell-tool {"command" "rg foo"} "a-sub"))))
+    (testing "without a chat no remembered approval applies"
+      (is (= :ask (approval write-tool {} nil))))
+    (testing "approvals are remembered by full tool name, a same-named tool of another server still asks"
+      (is (= :ask (approval mcp-write-tool {} "a"))))))
 
 (deftest approval-trust-test
   (let [request-tool {:name "request" :server {:name "web"} :origin :mcp}
