@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `toolCall.askUser.trustModeTimeoutSeconds`: in trust mode, an unanswered `ask_user` question times out and the LLM continues with its best judgment.
+- Fix OpenAI-compatible chat splitting text around a duplicate thinking block, or dropping a few characters, when one stream chunk carries both reasoning and text.
 
 ## 0.165.0
 
