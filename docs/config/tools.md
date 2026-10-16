@@ -184,6 +184,22 @@ Ready-to-use configs for some third-party MCP servers. Most remote servers work 
 
 <!-- Adding an example? Keep it short: one line describing the server, a single config block and one line with notes/docs link. Keep tabs sorted alphabetically. -->
 
+=== "Cohesivity"
+
+    [Cohesivity](https://cohesivity.ai?ref=gh-eca): backend services for the apps you build (Postgres, Redis, object storage, hosting, auth).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "cohesivity": {
+          "url": "https://cohesivity.ai/mcp"
+        }
+      }
+    }
+    ```
+
+    No account or API key needed: the agent creates a temporary project with `create_tenant`, which you can claim later to keep it. [Docs](https://cohesivity.ai/docs?ref=gh-eca).
+
 === "Equibles"
 
     [Equibles](https://equibles.com/mcp): US stock market data (SEC filings, earnings calls, financial statements, insider trades, prices).
