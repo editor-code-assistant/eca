@@ -198,6 +198,21 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
       }
     }
     ```
+
+=== "llama.cpp"
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+	    "llama.cpp": {
+		  "api": "openai-responses",
+	      "url": "http://localhost:1234/v1",
+	      "key": "your-api-key",
+	      "models": {}
+	    }
+	  }
+    }
+    ```
     
 === "LM Studio"
 
