@@ -1,16 +1,27 @@
 (ns eca.features.commands-test
   (:require
    [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.commands :as f.commands]
+   [eca.features.memory :as memory]
+   [eca.features.memory.usage :as usage]
+   [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
+   [eca.logger :as logger]
    [eca.shared :as shared]
    [eca.test-helper :as h]
-   [matcher-combinators.test :refer [match?]]))
+   [matcher-combinators.test :refer [match?]])
+  (:import
+   [java.nio.file Files]
+   [java.nio.file.attribute FileAttribute]))
+
+(set! *warn-on-reflection* true)
 
 (h/reset-components-before-test)
 
@@ -28,7 +39,7 @@
 
 (deftest subagents-msg-parent-visibility-test
   (let [config {:agent {"explorer" {:mode "subagent"
-                                     :description "Unrestricted explorer"}
+                                    :description "Unrestricted explorer"}
                         "duel-worker" {:mode "subagent"
                                        :description "Private duel worker"
                                        :spawnableBy "duel"}
@@ -466,7 +477,235 @@
                    :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
                    :arguments [{:name "full-model"}]}
                   %)
-              commands))))
+              commands))
+    (is (empty? (->> commands
+                     (map :name)
+                     (filter #{"memory-status"})
+                     set))
+        "the legacy /memory-status command is gone")
+    (is (empty? (->> commands
+                     (map :name)
+                     (filter #{"memory-consolidate"})
+                     set))
+        "/memory-consolidate is hidden with default config (memory disabled)")))
+
+(deftest memory-consolidate-command-gating-test
+  (let [names (fn [config]
+                (->> (f.commands/all-commands {:workspace-folders []} config)
+                     (map :name)
+                     set))]
+    (is (not (contains? (names {:memory {:enabled false}}) "memory-consolidate")))
+    (is (contains? (names {:memory {:enabled true}}) "memory-consolidate"))
+    (is (contains? (names {:memory {:enabled true :writeMode "explicit"}}) "memory-consolidate"))
+    (is (contains? (names {:memory {:enabled true :writeMode "typo"}}) "memory-consolidate")
+        "listed whenever memory is enabled; invalid writeMode fails safe to explicit")))
+
+(def ^:private consolidate-config
+  {:memory {:enabled true :writeMode "agent"}
+   :prompts {:memoryConsolidate "TEST: consolidate my memories"}})
+
+(defn ^:private temp-dir []
+  (.toFile (Files/createTempDirectory "eca-commands-test" (make-array FileAttribute 0))))
+
+(defn ^:private write-memory-file! [f]
+  (fs/create-dirs (fs/parent f))
+  (spit (str f) "---\nname: Note\ndescription: D\n---\n\nbody\n"))
+
+;; Redirect the memory root to a temp dir and isolate the process-wide usage
+;; ledger so /memory-consolidate's snapshot never touches real user state.
+(defn ^:private with-isolated-memory [f]
+  (let [root (temp-dir)]
+    (with-redefs [memory/memory-root-dir (fn [] root)]
+      (reset! @#'usage/ledger* {})
+      (reset! @#'usage/loaded?* false)
+      (f root))))
+
+(deftest handle-memory-consolidate-command-test
+  (with-isolated-memory
+    (fn [root]
+      (let [workspace-root (temp-dir)
+            personal-dir (fs/file root "projects" (memory/project-slug (str workspace-root)))
+            personal-f (fs/file personal-dir "docker-ipv6.md")
+            global-dir (fs/file root "global")
+            global-f (fs/file global-dir "team.md")
+            db* (atom {:workspace-folders [{:uri (shared/filename->uri (str workspace-root))}]})
+            _ (write-memory-file! personal-f)
+            _ (write-memory-file! global-f)
+            _ (usage/record-read! {:chat-id "chat-1" :db @db* :config consolidate-config}
+                                  (str personal-f))
+            result (f.commands/handle-command!
+                    "memory-consolidate"
+                    ["focus on docker"]
+                    {:chat-id "chat-1"
+                     :db* db*
+                     :config consolidate-config
+                     :messenger (h/messenger)
+                     :full-model "openai/gpt-5.2"
+                     :agent "code"
+                     :all-tools []
+                     :instructions {}
+                     :user-messages []
+                     :metrics (h/metrics)})
+            prompt (:prompt result)]
+        (testing "composes the base prompt with the injected snapshot"
+          (is (= :send-prompt (:type result)))
+          (is (string/includes? prompt "TEST: consolidate my memories"))
+          (is (string/includes? prompt "## Memory directories and usage snapshot"))
+          (is (string/includes? prompt (str (fs/absolutize personal-dir)))
+              "personal memory dir path is injected")
+          (is (string/includes? prompt (str (fs/absolutize (fs/parent global-f))))
+              "global memory dir path is injected"))
+        (testing "usage snapshot lines per file with reads and last-read age"
+          (is (re-find #"- Note \[note\] \(docker-ipv6\.md\) — age 0d, reads 1, last read 0d ago"
+                       prompt)))
+        (testing "a never-read entry renders zeros, never an n/a special case"
+          (is (string/includes? prompt
+                                "- Note [note] (team.md) — age 0d, reads 0, last read never")))
+        (testing "usage note explains the numbers"
+          (is (string/includes? prompt
+                                "_Note: reads and last-read ages count local `read_file` consultations only._")))
+        (testing "additional input is appended as its own section"
+          (is (string/includes? prompt "## Additional instructions from the user"))
+          (is (string/includes? prompt "focus on docker")))
+        (testing "Step 1 flag machinery is intact"
+          (is (true? (get-in @db* [:chats "chat-1" :memory-consolidating?]))
+              "consolidating flag is set on dispatch")
+          (is (fn? (:on-finished-side-effect result)))
+          ((:on-finished-side-effect result))
+          (is (not (contains? (get-in @db* [:chats "chat-1"]) :memory-consolidating?))
+              "on-finished side effect clears the flag"))))))
+
+(deftest handle-memory-consolidate-scope-test
+  (with-isolated-memory
+    (fn [root]
+      (let [workspace-root (temp-dir)
+            personal-dir (fs/file root "projects" (memory/project-slug (str workspace-root)))
+            global-dir (fs/file root "global")
+            write-bad! (fn [f]
+                         (fs/create-dirs (fs/parent f))
+                         (spit (str f) "---\nname: [unclosed\n---\n"))
+            _ (write-memory-file! (fs/file personal-dir "project-note.md"))
+            _ (write-memory-file! (fs/file global-dir "global-note.md"))
+            _ (write-bad! (fs/file personal-dir "project-bad.md"))
+            _ (write-bad! (fs/file global-dir "global-bad.md"))
+            run (fn [args]
+                  (:prompt (f.commands/handle-command!
+                            "memory-consolidate"
+                            args
+                            {:chat-id "chat-1"
+                             :db* (atom {:workspace-folders [{:uri (shared/filename->uri (str workspace-root))}]})
+                             :config consolidate-config
+                             :messenger (h/messenger)
+                             :full-model "openai/gpt-5.2"
+                             :agent "code"
+                             :all-tools []
+                             :instructions {}
+                             :user-messages []
+                             :metrics (h/metrics)})))
+            has? (fn [prompt text] (string/includes? prompt text))]
+        (testing "no scope keeps both tiers, broken files included"
+          (let [prompt (run [])]
+            (is (has? prompt "Scope: project + global\n\n"))
+            (is (every? #(has? prompt %) ["project-note.md" "global-note.md" "project-bad.md" "global-bad.md"]))))
+        (testing "project keeps only the personal dir and its broken files"
+          (let [prompt (run ["project"])]
+            (is (has? prompt "Scope: project\n\n"))
+            (is (every? #(has? prompt %) ["project-note.md" "project-bad.md"]))
+            (is (not-any? #(has? prompt %) ["global-note.md" "global-bad.md"]))
+            (is (not (has? prompt (str (fs/absolutize global-dir)))) "global dir path is not listed")
+            (is (not (has? prompt "## Additional instructions from the user")))))
+        (testing "global keeps only the global dir; the scope word is case-insensitive"
+          (let [prompt (run ["GLOBAL"])]
+            (is (has? prompt "Scope: global\n\n"))
+            (is (every? #(has? prompt %) ["global-note.md" "global-bad.md"]))
+            (is (not-any? #(has? prompt %) ["project-note.md" "project-bad.md"]))))
+        (testing "the text after the scope word stays a request"
+          (let [prompt (run ["global" "only entries changed in the last 14 days"])]
+            (is (has? prompt "Scope: global\n\n"))
+            (is (has? prompt "## Additional instructions from the user\nonly entries changed in the last 14 days"))
+            (is (not (has? prompt "project-note.md")))))
+        (testing "only the first token is a scope word"
+          (let [prompt (run ["project" "global"])]
+            (is (has? prompt "Scope: project\n\n"))
+            (is (has? prompt "## Additional instructions from the user\nglobal"))
+            (is (not (has? prompt "global-note.md")))))
+        (testing "a quoted multi-word value starting with a scope word is a request"
+          (let [prompt (run ["project notes are too long"])]
+            (is (has? prompt "Scope: project + global\n\n"))
+            (is (has? prompt "## Additional instructions from the user\nproject notes are too long"))))
+        (testing "a typo keeps both tiers and reaches the model as a request"
+          (let [prompt (run ["globl"])]
+            (is (has? prompt "Scope: project + global\n\n"))
+            (is (has? prompt "## Additional instructions from the user\nglobl"))
+            (is (has? prompt "project-note.md"))))))))
+
+(deftest memory-consolidate-declared-arguments-test
+  (let [command (->> (f.commands/all-commands {:workspace-folders []} {:memory {:enabled true}})
+                     (filter #(= "memory-consolidate" (:name %)))
+                     first)]
+    (is (= ["scope" "instructions"] (mapv :name (:arguments command))))
+    (is (every? false? (map :required (:arguments command)))
+        "both arguments are optional")
+    (is (string/includes? (-> command :arguments first :description) "default")
+        "the scope description names its default")))
+
+(deftest handle-memory-consolidate-omits-additional-input-test
+  (with-isolated-memory
+    (fn [_root]
+      (let [result (f.commands/handle-command!
+                    "memory-consolidate"
+                    []
+                    {:chat-id "chat-1"
+                     :db* (atom {:workspace-folders []})
+                     :config consolidate-config
+                     :messenger (h/messenger)
+                     :full-model "openai/gpt-5.2"
+                     :agent "code"
+                     :all-tools []
+                     :instructions {}
+                     :user-messages []
+                     :metrics (h/metrics)})]
+        (is (= :send-prompt (:type result)))
+        (is (string/includes? (:prompt result) "TEST: consolidate my memories"))
+        (is (string/includes? (:prompt result) "## Memory directories and usage snapshot"))
+        (is (not (string/includes? (:prompt result) "## Additional instructions from the user"))
+            "no additional-input section without trailing args")
+        (is (not (string/includes? (:prompt result) "usage snapshot unavailable"))
+            "the empty snapshot still builds")))))
+
+(deftest handle-memory-consolidate-snapshot-error-isolation-test
+  (let [warns* (atom [])
+        db* (atom {:workspace-folders []})]
+    (with-redefs [memory/scan-memories (fn [& _] (throw (ex-info "ledger exploded" {})))
+                  logger/warn (fn [& args] (swap! warns* conj args))]
+      (let [result (f.commands/handle-command!
+                    "memory-consolidate"
+                    []
+                    {:chat-id "chat-1"
+                     :db* db*
+                     :config consolidate-config
+                     :messenger (h/messenger)
+                     :full-model "openai/gpt-5.2"
+                     :agent "code"
+                     :all-tools []
+                     :instructions {}
+                     :user-messages []
+                     :metrics (h/metrics)})]
+        (is (= :send-prompt (:type result)))
+        (is (string/includes? (:prompt result) "TEST: consolidate my memories"))
+        (is (string/includes? (:prompt result) "usage snapshot unavailable")
+            "snapshot failure degrades to a note, the command never crashes")
+        (is (seq @warns*) "the snapshot failure logs a warning")
+        (is (true? (get-in @db* [:chats "chat-1" :memory-consolidating?]))
+            "dispatch still sets the consolidating flag")
+        ((:on-finished-side-effect result))
+        (is (not (contains? (get-in @db* [:chats "chat-1"]) :memory-consolidating?)))))))
+
+(deftest default-memory-consolidate-prompt-test
+  (let [resource (slurp (io/resource "prompts/memory_consolidate.md"))]
+    (is (not (string/blank? resource)))
+    (is (= resource
+           (f.prompt/memory-consolidate-prompt "code" (config/initial-config))))))
 
 (deftest all-commands-include-agent-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]
@@ -700,15 +939,15 @@
                                          :select-variant "medium"
                                          :select-trust false}}
            :chats {"chat-a" {:id "chat-a"
-                              :created-at 1
-                              :model "anthropic/claude-sonnet-4-5"
-                              :variant "low"
-                              :trust true
-                              :messages []}
+                             :created-at 1
+                             :model "anthropic/claude-sonnet-4-5"
+                             :variant "low"
+                             :trust true
+                             :messages []}
                    "chat-b" {:id "chat-b"
-                              :created-at 2
-                              :model "openai/gpt-5.2"
-                              :messages []}})
+                             :created-at 2
+                             :model "openai/gpt-5.2"
+                             :messages []}})
     (let [session-defaults (:last-config-notified (h/db))]
       (with-redefs [db/save-chat! (fn [& _])
                     db/delete-chat-from-cache! (fn [& _])]

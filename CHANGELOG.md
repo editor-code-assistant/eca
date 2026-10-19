@@ -8,6 +8,10 @@
 - Fix context-overflow auto-recovery not triggering for llama.cpp's `llama-server`, whose "exceeds the available context size" error went unrecognized.
 - Speed up rollback, flags and forks on long chats via the `incrementalUpdates` capability: `chat/truncated`, positioned flags, and paged `/fork`, `/btw` and `chat/fork`.
 - `grep` no longer reports no matches as a failed tool call; backend errors still fail with the backend message.
+- Memory index: reserve 30% for global entries, mark tags that have unlisted memories with `*`. Write guidance now favors recurring knowledge and single-quoted YAML descriptions.
+- `/memory-consolidate`: optional `project`/`global` scope and request args, writes ask for approval during the run, no plan step, snapshot shows body size and description.
+- Memory usage ledger now records write provenance (`:last-write`: chat id, tool call id, time, consolidation flag), re-keyed on renames.
+- Memory prompts: consolidation reads every body and verifies repo-tied entries with one cheap command; guidance records stale conditions for state-tied memories.
 
 ## 0.165.1
 
@@ -183,7 +187,6 @@
 - Store chats in per-chat cache files with a lazy-loaded index instead of one whole-workspace blob, fixing CPU spikes and slow startup as history grows; legacy caches migrate automatically. #557
 - Hooks `db_cache_path` now points at the workspace cache dir instead of `db.transit.json`; `read-chat --db-cache-path` accepts the dir or a legacy file. #557
 - Keep `compact_chat` in the tool schema across normal and compact requests, preserving prompt-cache prefixes while rejecting calls outside active compaction.
-
 - Provide token metrics for ollama provider. #567.
 
 ## 0.152.0

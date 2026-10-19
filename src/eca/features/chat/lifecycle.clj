@@ -544,18 +544,24 @@
 (defn record-unsent-user-messages!
   "User messages only reach the chat history once the LLM starts responding.
    Adds the ones of a turn that ended (stopped, failed or superseded) before
-   that, so the next prompt and a resumed chat still have them."
+   that, so the next prompt and a resumed chat still have them. When they
+   carry the current-date stamp, records it as injected so the next turn does
+   not send it again."
   [db* chat-id]
   (when (get-in @db* [:chats chat-id :unsent-user-messages])
     (swap! db* update-in [:chats chat-id]
            (fn [{:keys [unsent-user-messages messages] :as chat}]
-             (let [{:keys [content-id] user-messages :messages} unsent-user-messages]
-               (cond-> (dissoc chat :unsent-user-messages)
-                 (and (seq user-messages)
-                      (not-any? #(= content-id (:content-id %)) messages))
-                 (update :messages (fnil into [])
-                         (map #(assoc % :content-id content-id :created-at (System/currentTimeMillis)))
-                         user-messages)))))))
+             (let [{:keys [content-id date-context] user-messages :messages} unsent-user-messages]
+               (if (and (seq user-messages)
+                        (not-any? #(= content-id (:content-id %)) messages))
+                 (-> (dissoc chat :unsent-user-messages)
+                     (update :messages (fnil into [])
+                             (map #(assoc % :content-id content-id :created-at (System/currentTimeMillis)))
+                             user-messages)
+                     (cond->
+                      (some #(= {:type :text :text date-context} %) (mapcat :content user-messages))
+                       (assoc :last-injected-date date-context)))
+                 (dissoc chat :unsent-user-messages)))))))
 
 (defn ^:private dispatch-finish-callbacks!
   "Dispatch finish-flow callbacks. `on-finished-side-effect` always runs first
@@ -577,7 +583,7 @@
 
       (and follow-up-text on-follow-up)
       (do
-        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
+        (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting? :memory-consolidating?)
         (swap! db* assoc-in [:chats chat-id :follow-up-active?] true)
         (on-follow-up follow-up-text chat-ctx))
 
@@ -597,7 +603,8 @@
             stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
-          (swap! db* update-in [:chats chat-id] dissoc :steer-message)
+          ;; Turn cleanup must not depend on callbacks stripped by stop paths.
+          (swap! db* update-in [:chats chat-id] dissoc :steer-message :memory-consolidating?)
           (record-unsent-user-messages! db* chat-id)
           (apply-status-transition! chat-ctx status))
         ;; A postRequest hook that returned continue:false stops the turn and

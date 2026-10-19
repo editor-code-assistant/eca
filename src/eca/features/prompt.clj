@@ -4,6 +4,8 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
+   [eca.features.memory :as memory]
+   [eca.features.memory.render :as memory.render]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.util :as tools.util]
@@ -289,6 +291,19 @@
      "</deferred-tools>"
      ""]))
 
+(defn ^:private memory-guidance-section
+  "Memory write guidance for the static instructions block. It is session-stable
+   (dirs and write-mode are fixed at chat start), so it joins the cached prefix;
+   the per-turn memory INDEX (dirs + entries) stays a tail injection because it
+   changes as memory files are written. Mirrors the per-turn gating: memory
+   enabled, root (non-subagent) chat."
+  [_agent-name config chat-id db]
+  (when (and (memory/enabled? config)
+             (not (get-in db [:chats chat-id :subagent])))
+    (let [guidance (memory.render/guidance-text {:write-mode (memory/write-mode config)
+                                               :dirs (memory/memory-dirs db config)})]
+      [guidance ""])))
+
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
@@ -342,6 +357,7 @@
         "</skills>"
         ""])
      (deferred-tools-section all-tools)
+     (memory-guidance-section agent-name config chat-id db)
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
                                 selmer-ctx "additional-system-info")
      (workspace-roots-section db)
@@ -442,6 +458,9 @@
    (get-config-prompt :init agent-name config)
    (->base-selmer-ctx all-tools db)
    "init-prompt"))
+
+(defn memory-consolidate-prompt [agent-name config]
+  (get-config-prompt :memoryConsolidate agent-name config))
 
 (defn skill-create-prompt [skill-name user-prompt all-tools agent-name db config]
   (shared/safe-selmer-render

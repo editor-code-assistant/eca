@@ -14,6 +14,8 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.render :as f.memory.render]
    [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
@@ -328,6 +330,17 @@
                        :type :native
                        :description "List active hooks grouped by type."
                        :arguments []}]
+        eca-commands (cond-> eca-commands
+                       (f.memory/enabled? config)
+                       (conj {:name "memory-consolidate"
+                              :type :native
+                              :description "Review, merge and clean up durable memory files"
+                              :arguments [{:name "scope"
+                                           :description "project or global (default: both)"
+                                           :required false}
+                                          {:name "instructions"
+                                           :description "Your request, e.g. only entries changed in the last 14 days"
+                                           :required false}]}))
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -361,6 +374,20 @@
                       (string/replace (str "$" (inc i)) arg)))
                 content-with-args
                 (map-indexed vector args))))))
+
+(defn ^:private consolidate-scope
+  "Splits the `/memory-consolidate` args into a scope and the user's request.
+   The scope is the first token when it is exactly `project` or `global` (any
+   case); a multi-word token such as \"project notes\" is a request, because
+   clients quote values that contain spaces. Anything else keeps both tiers and
+   the whole text as the request. `:tier` is the memory-dirs tier to keep, or
+   nil for both."
+  [args]
+  (let [word (some-> (first args) string/trim string/lower-case)]
+    (case word
+      "project" {:tier :personal :label "project" :request (rest args)}
+      "global" {:tier :global :label "global" :request (rest args)}
+      {:tier nil :label "project + global" :request args})))
 
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))
@@ -716,6 +743,35 @@
               :on-finished-side-effect (fn []
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
+      "memory-consolidate" (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
+                             ;; :eca-command dispatches never receive the per-turn memory
+                             ;; index (chat.clj gates it on :prompt-message), so the dir
+                             ;; list + usage snapshot are injected directly into the
+                             ;; prompt text here, where db/config are available.
+                             (let [{:keys [tier request] scope-label :label} (consolidate-scope args)
+                                   args-text (string/join " " request)
+                                   in-scope? #(or (nil? tier) (= tier (:tier %)))
+                                   snapshot (try
+                                              (f.memory.render/consolidate-snapshot-text
+                                               {:dirs (filterv in-scope? (f.memory/memory-dirs db config))
+                                                :entries (f.memory/scan-memories db config)
+                                                :skipped (filterv in-scope? (f.memory/skipped-files db config))})
+                                              (catch Throwable e
+                                                (logger/warn "[commands]"
+                                                             "Could not build memory usage snapshot for /memory-consolidate"
+                                                             (ex-message e))
+                                                "usage snapshot unavailable"))
+                                   prompt (str (f.prompt/memory-consolidate-prompt agent config)
+                                               "\n\n## Memory directories and usage snapshot\n"
+                                               "Scope: " scope-label "\n\n"
+                                               snapshot
+                                               (when-not (string/blank? args-text)
+                                                 (str "\n\n## Additional instructions from the user\n" args-text)))]
+                               (swap! db* assoc-in [:chats chat-id :memory-consolidating?] true)
+                               {:type :send-prompt
+                                :prompt prompt
+                                :on-finished-side-effect (fn []
+                                                           (swap! db* update-in [:chats chat-id] dissoc :memory-consolidating?))}))
       "compact" (let [custom-instructions (string/join " " args)
                       {:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions)]
                   (if blocked?
@@ -910,7 +966,7 @@
                    (let [_ (db/hydrate-chat! db* selected-chat-id metrics)
                          chat (get-in @db* [:chats selected-chat-id])]
                      (swap! db* assoc-in [:chats chat-id] (assoc chat :id chat-id))
-                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting?)
+                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting? :memory-consolidating?)
                      (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
                      ;; The resumed content now lives under chat-id; drop the
                      ;; old id from memory and cache, tombstoning it so peer
@@ -1177,7 +1233,7 @@
                          replaced? (contains? (:chats db) imported-id)
                          model-available? (contains? (:models db) (:model chat))
                          imported-chat (-> chat
-                                           (dissoc :prompt-finished? :auto-compacting? :compacting?
+                                           (dissoc :prompt-finished? :auto-compacting? :compacting? :memory-consolidating?
                                                    :tool-calls :last-status-payload)
                                            (assoc :status :idle :prompt-finished? true))
                          summary (multi-str
