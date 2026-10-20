@@ -273,11 +273,13 @@
                      ["--files-with-matches" "--no-heading"])
         cmd (cond-> (into ["rg"] mode-flags)
               include (concat ["--glob" include])
-              :always (concat ["-e" pattern path]))]
-    (->> (apply shell/sh cmd)
-         :out
-         (string/split-lines)
-         (filterv #(not (string/blank? %))))))
+              :always (concat ["-e" pattern path]))
+        {:keys [exit out err]} (apply shell/sh cmd)]
+    {:exit (long (or exit 0))
+     :err err
+     :lines (->> out
+                 (string/split-lines)
+                 (filterv #(not (string/blank? %))))}))
 
 (defn ^:private run-grep [path pattern ^String include output-mode]
   (let [include-patterns (if (and include (.contains include "{"))
@@ -293,11 +295,13 @@
         cmd (cond-> ["grep" "-E" mode-flag "-r" "--exclude-dir=.*"]
               (and include (> (count include-patterns) 1)) (concat (mapv #(str "--include=" %) include-patterns))
               include (concat [(str "--include=" include)])
-              :always (concat [pattern path]))]
-    (->> (apply shell/sh cmd)
-         :out
-         (string/split-lines)
-         (filterv #(not (string/blank? %))))))
+              :always (concat [pattern path]))
+        {:keys [exit out err]} (apply shell/sh cmd)]
+    {:exit (long (or exit 0))
+     :err err
+     :lines (->> out
+                 (string/split-lines)
+                 (filterv #(not (string/blank? %))))}))
 
 (defn ^:private run-java-grep [path pattern include output-mode]
   (let [include-pattern (when include
@@ -345,8 +349,9 @@
                             (re-matches include-pattern (fs/file-name file))))
                    (search-file file)))
                (fs/list-dir dir)))]
-      (when (fs/exists? path)
-        (flatten (search path))))))
+      {:exit 0
+       :lines (vec (when (fs/exists? path)
+                     (flatten (search path))))})))
 
 (def ^:private valid-output-modes #{"files_with_matches" "content" "count"})
 
@@ -378,21 +383,32 @@
             include (get arguments "include")
             max-results (or (get arguments "max_results") 1000)
             output-mode (or (get arguments "output_mode") "files_with_matches")
-            results
-            (->> (cond
-                   (tools.util/command-available? "rg" "--version")
-                   (run-ripgrep path pattern include output-mode)
+            {:keys [exit err lines]}
+            (cond
+              (tools.util/command-available? "rg" "--version")
+              (run-ripgrep path pattern include output-mode)
 
-                   (tools.util/command-available? "grep" "--version")
-                   (run-grep path pattern include output-mode)
+              (tools.util/command-available? "grep" "--version")
+              (run-grep path pattern include output-mode)
 
-                   :else
-                   (run-java-grep path pattern include output-mode))
-                 (take max-results))]
+              :else
+              (run-java-grep path pattern include output-mode))
+            results (take max-results lines)]
         ;; TODO sort by modification time.
-        (if (seq results)
+        (cond
+          (seq results)
           (tools.util/single-text-content (string/join "\n" results))
-          (tools.util/single-text-content "No files found for given pattern" :error)))))
+
+          ;; rg and grep use exit code 1 for "no match", which is a successful search.
+          (<= exit 1)
+          (tools.util/single-text-content "No files found for given pattern")
+
+          :else
+          (tools.util/single-text-content
+           (if (string/blank? err)
+             (format "Search failed (exit code %d)" exit)
+             (str "Search failed:\n" (string/trim err)))
+           :error)))))
 
 (defn grep-summary [{:keys [args]}]
   (if-let [pattern (get args "pattern")]

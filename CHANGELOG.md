@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `grep` no longer reports no matches as a failed tool call; backend errors still fail with the backend message.
+
 ## 0.165.1
 
 - Add `toolCall.askUser.trustModeTimeoutSeconds`: in trust mode, an unanswered `ask_user` question times out and the LLM continues with its best judgment.
