@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix install script exiting silently when `unzip` is missing; report missing tools and download errors clearly, and keep the existing binary on failure. #655
+- Fix context-overflow auto-recovery not triggering for llama.cpp's `llama-server`, whose "exceeds the available context size" error went unrecognized.
 
 ## 0.165.1
 
