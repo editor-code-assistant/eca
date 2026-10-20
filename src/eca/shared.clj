@@ -330,11 +330,20 @@
         (format "%.2f" (+ input-cost
                           (* output-tokens output-token-cost)))))))
 
+(defn tokens-per-second
+  "Output tokens per second as an integer. Returns nil when the token count or
+   elapsed time is not positive."
+  [tokens elapsed-ms]
+  (when (and (number? tokens) (number? elapsed-ms)
+             (pos? (long tokens)) (pos? (long elapsed-ms)))
+    (Math/round (/ (* 1000.0 tokens) elapsed-ms))))
+
 (defn ^:private usage-sumary* [chat-id full-model db]
   (let [last-input-tokens (or (get-in db [:chats chat-id :usage :last-input-tokens]) 0)
         last-output-tokens (or (get-in db [:chats chat-id :usage :last-output-tokens]) 0)
         last-input-cache-creation-tokens (or (get-in db [:chats chat-id :usage :last-input-cache-creation-tokens]) 0)
         last-input-cache-read-tokens (or (get-in db [:chats chat-id :usage :last-input-cache-read-tokens]) 0)
+        message-output-tps (get-in db [:chats chat-id :usage :last-output-tps])
         total-input-tokens (or (get-in db [:chats chat-id :usage :total-input-tokens]) 0)
         total-input-cache-creation-tokens (or (get-in db [:chats chat-id :usage :total-input-cache-creation-tokens]) 0)
         total-input-cache-read-tokens (or (get-in db [:chats chat-id :usage :total-input-cache-read-tokens]) 0)
@@ -344,6 +353,7 @@
                                     last-input-cache-read-tokens
                                     last-input-cache-creation-tokens
                                     last-output-tokens)}
+                :message-output-tps message-output-tps
                 :limit (:limit model-capabilities)
                 :last-message-cost (tokens->cost last-input-tokens last-input-cache-creation-tokens last-input-cache-read-tokens last-output-tokens model-capabilities)
                 :session-cost (tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities))))
@@ -368,12 +378,14 @@
               tokens considered, but we save them for cost calculation
     - cost: we count the tokens in past requests done + current one"
   [{:keys [input-tokens output-tokens
-           input-cache-creation-tokens input-cache-read-tokens]}
+           input-cache-creation-tokens input-cache-read-tokens
+           message-output-tps]}
    full-model
    {:keys [chat-id db*] :as chat-ctx}]
   (when (and output-tokens input-tokens)
     (swap! db* assoc-in [:chats chat-id :usage :last-input-tokens] input-tokens)
     (swap! db* assoc-in [:chats chat-id :usage :last-output-tokens] output-tokens)
+    (swap! db* assoc-in [:chats chat-id :usage :last-output-tps] message-output-tps)
     (swap! db* update-in [:chats chat-id :usage :total-input-tokens] (fnil + 0) input-tokens)
     (swap! db* update-in [:chats chat-id :usage :total-output-tokens] (fnil + 0) output-tokens)
     (when input-cache-creation-tokens

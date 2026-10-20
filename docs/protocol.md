@@ -963,6 +963,16 @@ interface ChatUsageContent {
      * The total input + output tokens of the whole chat session so far.
      */
     sessionTokens: number;
+
+    /**
+     * Output tokens per second of the last model response, rounded to an
+     * integer. Measured from the first generated token to the end of the
+     * response. Includes reasoning tokens when the provider counts them as
+     * output and server-side tool waits such as web search. Excludes client
+     * tool execution and approval waits. Absent for non-streaming requests or
+     * when usage or timing is unknown.
+     */
+    messageOutputTps?: number;
     
     /**
      * The cost of the last sent message summing input + output tokens.

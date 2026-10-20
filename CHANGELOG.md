@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
+
 ## 0.165.1
 
 - Add `toolCall.askUser.trustModeTimeoutSeconds`: in trust mode, an unanswered `ask_user` question times out and the LLM continues with its best judgment.

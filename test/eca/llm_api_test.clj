@@ -11,6 +11,7 @@
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [eca.secrets :as secrets]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -1213,6 +1214,50 @@
            :on-message-received identity})))
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
+
+(deftest message-output-tps-test
+  (testing "usage gets TPS from output tokens and measured time"
+    (let [usage* (atom nil)
+          tps-args* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-usage-updated]}]
+                                          (on-message-received {:type :text :text "hi"})
+                                          (Thread/sleep 20)
+                                          (on-usage-updated {:input-tokens 1000 :output-tokens 2}))
+                    shared/tokens-per-second (fn [tokens elapsed-ms]
+                                               (reset! tps-args* [tokens elapsed-ms])
+                                               42)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-usage-updated #(reset! usage* %)})))
+      (let [[tokens elapsed-ms] @tps-args*]
+        (is (= 2 tokens) "uses output tokens")
+        (is (and (number? elapsed-ms) (pos? elapsed-ms)) "measures elapsed time"))
+      (is (= 42 (:message-output-tps @usage*)) "attaches the computed TPS")))
+
+  (testing "usage has no TPS without a generation event"
+    (let [usage* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-usage-updated]}]
+                                          (on-usage-updated {:input-tokens 1 :output-tokens 2}))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-usage-updated #(reset! usage* %)})))
+      (is (nil? (:message-output-tps @usage*)))))
+
+  (testing "usage after tools has no TPS because tool time is not generation time"
+    (let [usage* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-tools-called on-usage-updated]}]
+                                          (on-message-received {:type :text :text "hi"})
+                                          (Thread/sleep 20)
+                                          (on-tools-called [])
+                                          (on-usage-updated {:input-tokens 1 :output-tokens 2}))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-tools-called (constantly nil)
+           :on-usage-updated #(reset! usage* %)})))
+      (is (nil? (:message-output-tps @usage*))))))
 
 (deftest async-retry-on-custom-retry-rule-error-pattern-test
   (testing "retries async when custom retryRules errorPattern matches error message"
