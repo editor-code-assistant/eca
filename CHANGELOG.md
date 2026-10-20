@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix install script exiting silently when `unzip` is missing; report missing tools and download errors clearly, and keep the existing binary on failure. #655
+
 ## 0.165.1
 
 - Add `toolCall.askUser.trustModeTimeoutSeconds`: in trust mode, an unanswered `ask_user` question times out and the LLM continues with its best judgment.
