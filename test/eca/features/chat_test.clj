@@ -770,6 +770,43 @@
       (let [{:keys [chat-id]} (run-prompt! {:message "Hey"} nil)]
         (is (nil? (get-in (h/db) [:chats chat-id :variant])))))))
 
+(deftest prompt-persists-chat-agent-test
+  (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                   (on-first-response-received {:type :text :text "ok"})
+                   (on-message-received {:type :text :text "ok"})
+                   (on-message-received {:type :finish}))
+        agents-config {:defaultAgent "plan"
+                       :agent {"plan" {:mode "primary"}
+                               "code" {:mode "primary"}}}
+        run-prompt! (fn [params]
+                      (with-redefs [llm-api/sync-or-async-prompt! api-mock
+                                    llm-api/sync-prompt! (constantly nil)
+                                    f.tools/call-tool! (constantly nil)
+                                    f.tools/all-tools (constantly [])
+                                    f.tools/approval (constantly :allow)
+                                    config/await-plugins-resolved! (constantly true)]
+                        (h/config! (merge {:env "test"} agents-config))
+                        (swap! (h/db*) update :models
+                               (fn [models]
+                                 (merge {"openai/gpt-5.2" {:tools true}}
+                                        (or models {}))))
+                        (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics))))]
+    (testing "Agent sent on the first prompt of a new chat is persisted so resume restores it"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (run-prompt! {:message "Hey" :chat-id "new-chat" :agent "code"})]
+        (is (= "code" (get-in (h/db) [:chats chat-id :agent])))))
+
+    (testing "Prompt without agent keeps the chat's persisted agent instead of the default"
+      (h/reset-components!)
+      (run-prompt! {:message "Hey" :chat-id "agent-chat" :agent "code"})
+      (run-prompt! {:message "Again" :chat-id "agent-chat"})
+      (is (= "code" (get-in (h/db) [:chats "agent-chat" :agent]))))
+
+    (testing "Prompt without agent on a new chat persists the default agent"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (run-prompt! {:message "Hey" :chat-id "default-chat"})]
+        (is (= "plan" (get-in (h/db) [:chats chat-id :agent])))))))
+
 (defn ^:private prompt-with-title!
   "Like prompt! but accepts a :sync-prompt-mock for title generation testing.
    Accepts optional :config in mocks to override default config."

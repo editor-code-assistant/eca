@@ -1106,6 +1106,11 @@
       ;; call is actually using on this prompt, and overwriting on every
       ;; prompt keeps the record in sync with the user's current pick.
       (swap! db* assoc-in [:chats chat-id :variant] (:variant chat-ctx))
+      ;; Same for the agent: a selection made before the chat existed on the
+      ;; server (chat/selectedAgentChanged on an unknown chat is a no-op)
+      ;; would otherwise be lost and resume would fall back to the default.
+      (when agent
+        (swap! db* assoc-in [:chats chat-id :agent] agent))
       (swap! db* update-in [:chats chat-id :user-prompt-count] (fnil inc 0))
       (let [chat-ctx (assoc chat-ctx
                             :prompt-id prompt-id
@@ -2230,6 +2235,7 @@
             (let [config (if resolve-config? (config) config)
                   raw-agent (or agent
                                 behavior ;; backward compat: accept old 'behavior' param
+                                (get-in @db* [:chats chat-id :agent])
                                 (-> config :chat :defaultAgent) ;; legacy
                                 (-> config :defaultAgent))
                   ;; A freshly-created chat with no client-provided trust inherits
