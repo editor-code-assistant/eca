@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.166.0
+
 - Fix resuming a chat restoring the default agent instead of the chat's own agent when it was picked before the first message. #657
 - Fix the "dropped N history entries from a previous provider" note repeating on every prompt after a model swap; it now shows once per swap. #660
 - Fix install script exiting silently when `unzip` is missing; report missing tools and download errors clearly, and keep the existing binary on failure. #655
