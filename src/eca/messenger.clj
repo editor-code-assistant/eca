@@ -7,6 +7,7 @@
 (defprotocol IMessenger
   (chat-content-received [this data])
   (chat-cleared [this params])
+  (chat-truncated [this params])
   (chat-status-changed [this params])
   (chat-deleted [this params])
   (chat-opened [this params])

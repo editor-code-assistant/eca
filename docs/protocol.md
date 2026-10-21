@@ -235,6 +235,24 @@ interface ClientCapabilities {
              * during a chat session.
              */
             askQuestion?: boolean;
+
+            /**
+             * Present when the client applies chat history changes in place
+             * instead of needing a full `chat/cleared` + replay. Then
+             * `chat/rollback` emits `chat/truncated`, `chat/addFlag` emits a
+             * single flag `chat/contentReceived` carrying `afterContentId`, and
+             * chats the server creates (`/fork`, `/btw`, `chat/fork`) stream
+             * only their newest messages, with `chat/opened` `history`
+             * describing the rest. Remote (SSE) clients keep receiving the
+             * full replays.
+             */
+            incrementalUpdates?: {
+                /**
+                 * Max messages to stream into a chat the server creates.
+                 * Defaults to 50.
+                 */
+                historyPageSize?: number;
+            };
         }
     }
 }
@@ -1536,6 +1554,15 @@ interface ChatFlagContent {
      * Unique identifier for this flag.
      */
     contentId: string;
+
+    /**
+     * Id of the message the flag belongs after (message contentId or
+     * content id). Only sent by `chat/addFlag` to clients with the
+     * `incrementalUpdates` capability; when absent, render the flag at the
+     * current position. Clients may skip rendering when that message is not
+     * loaded (e.g. on an unloaded history page).
+     */
+    afterContentId?: string;
 }
 
 ```
@@ -1834,7 +1861,8 @@ interface ChatPromptSteerRemoveParams {
 A client request to rollback chat messages to before a specific user sent message using `contentId`.
 Clients should show an option close to user sent messages in chat to rollback, calling this method.
 Server will then remove the messages from its memory after that contentId and produce `chat/cleared` followed 
-with `chat/contentReceived` with the kept messages.
+with `chat/contentReceived` with the kept messages. Clients with the `incrementalUpdates` capability receive
+a single `chat/truncated` instead.
 
 _Request:_ 
 
@@ -1907,6 +1935,8 @@ The flag is inserted after the message identified by the given `contentId`.
 The `contentId` matches against both message-level `contentId` (user messages) and
 content `id` fields (tool calls, reasons, etc), allowing placement between any message types.
 Flags are persisted as messages and propagate automatically with fork and resume.
+Server then emits `chat/cleared` followed by the full history via `chat/contentReceived`, or, for clients with
+the `incrementalUpdates` capability, a single flag `chat/contentReceived` carrying `afterContentId`.
 
 _Request:_
 
@@ -1974,7 +2004,9 @@ interface ChatRemoveFlagResponse {}
 A client request to fork the chat into a new chat with messages up to and including
 the message identified by the given `contentId`. The server creates the new chat,
 sends a `chat/opened` notification with the new chat, then streams the kept messages
-via `chat/contentReceived`. A system message is also sent to the original chat.
+(only the newest page of them for clients with the `incrementalUpdates` capability) via
+`chat/contentReceived`. The fork always keeps the full history. A system message is
+also sent to the original chat.
 
 _Request:_
 
@@ -2004,6 +2036,12 @@ interface ChatForkResponse {
      * Absent when the given contentId was not found.
      */
     chatId?: string;
+
+    /**
+     * Pagination info for the streamed messages, present when the client has
+     * the `incrementalUpdates` capability. Same as `chat/opened` `history`.
+     */
+    meta?: ChatHistoryMeta;
 }
 ```
 
@@ -2031,12 +2069,38 @@ interface ChatClearedParams {
 }
 ```
 
+### Chat truncated (⬅️)
+
+A server notification to remove a message and everything after it from a chat UI, keeping the earlier
+messages as they are. Only sent to clients with the `incrementalUpdates` capability, currently after
+`chat/rollback`. When the message is not loaded in the client (e.g. it is on an unloaded history page),
+clients should re-open the chat via `chat/open`.
+
+_Notification:_ 
+
+* method: `chat/truncated`
+* params: `ChatTruncatedParams` defined as follows:
+
+```typescript
+interface ChatTruncatedParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The contentId of the first removed message.
+     */
+    contentId: string;
+}
+```
+
 ### Chat opened (⬅️)
 
 A server notification indicating that a chat exists or was just materialized
 server-side. Emitted when:
 
-- a chat is forked via `/fork` or the `chat/fork` request,
+- a chat is forked via `/fork`, `/btw` or the `chat/fork` request,
 - a persisted chat is replayed via `chat/open`,
 - a client-supplied `chatId` is seen for the first time on `chat/prompt`
   (the legacy null-`chatId` path does not emit this).
@@ -2064,6 +2128,14 @@ interface ChatOpenedParams {
      * not yet have a title.
      */
     title?: string;
+
+    /**
+     * Pagination info when only the newest page of the chat's messages
+     * follows, for chats the server creates (`/fork`, `/btw`, `chat/fork`)
+     * for clients with the `incrementalUpdates` capability. Older messages
+     * can be paged via `chat/history` using `beforeCursor`.
+     */
+    history?: ChatHistoryMeta;
 }
 ```
 
@@ -2346,8 +2418,10 @@ the selected window; an opaque `after` cursor pages forward instead. The literal
 sentinel `"lastCompaction"` may be passed as `before`/`after`: `after: "lastCompaction"`
 returns the messages since the last compaction (the active context),
 `before: "lastCompaction"` the summarized-away history. Cursors are ephemeral —
-a cursor whose message no longer exists (e.g. after a rollback or clear) returns
-a `cursor_expired` error, prompting the client to refetch the latest page.
+a cursor whose message no longer exists returns a `cursor_expired` error,
+prompting the client to refetch the latest page. The exception is a cursor whose
+message was cut off by a rollback: everything left is older than it, so a
+`before` page returns the newest remaining messages.
 
 _Request:_
 

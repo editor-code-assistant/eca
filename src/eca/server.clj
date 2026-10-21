@@ -288,6 +288,9 @@
   (chat-cleared [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/cleared" params)))
+  (chat-truncated [_this params]
+    (jsonrpc.server/discarding-stdout
+     (jsonrpc.server/send-notification server "chat/truncated" params)))
   (chat-status-changed [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/statusChanged" params)))
@@ -348,7 +351,7 @@
         ;; HTTP server can be started later (e.g. when local project config
         ;; enables it after initialize). Broadcasting to an empty set is a no-op.
         sse-connections* (atom #{})
-        messenger (remote.messenger/make-broadcast-messenger stdio-messenger sse-connections*)
+        messenger (remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
         start-remote-server!
         (fn [components]
           (when-let [rs (remote.server/start! components sse-connections*)]
