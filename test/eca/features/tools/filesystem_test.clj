@@ -298,15 +298,15 @@
              "pattern" ".*"
              "include" " "}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
-  (testing "no files found"
+  (testing "no files found is not an error"
     (is (match?
-         {:error true
+         {:error false
           :contents [{:type :text
                       :text "No files found for given pattern"}]}
          (with-redefs [fs/exists? (constantly true)
                        fs/readable? (constantly true)
                        tools.util/command-available? (fn [command & _args] (= "rg" command))
-                       shell/sh (constantly {:out ""})]
+                       shell/sh (constantly {:exit 1 :out ""})]
            ((get-in f.tools.filesystem/definitions ["grep" :handler])
             {"path" (h/file-path "/project/foo")
              "pattern" ".*"}

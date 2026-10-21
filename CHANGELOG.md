@@ -3,10 +3,10 @@
 ## Unreleased
 
 - Fix resuming a chat restoring the default agent instead of the chat's own agent when it was picked before the first message. #657
-
 - Fix install script exiting silently when `unzip` is missing; report missing tools and download errors clearly, and keep the existing binary on failure. #655
 - Fix context-overflow auto-recovery not triggering for llama.cpp's `llama-server`, whose "exceeds the available context size" error went unrecognized.
 - Speed up rollback, flags and forks on long chats via the `incrementalUpdates` capability: `chat/truncated`, positioned flags, and paged `/fork`, `/btw` and `chat/fork`.
+- `grep` no longer reports no matches as a failed tool call; backend errors still fail with the backend message.
 
 ## 0.165.1
 
