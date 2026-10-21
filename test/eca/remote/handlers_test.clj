@@ -303,7 +303,9 @@
       
           (testing "expired cursor returns 409"
             (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
-            (let [bogus (#'f.chat.history/encode-cursor 99 {:role "x" :content "gone" :created-at 999999})
+            ;; In range but not matching any message (past-the-end cursors
+            ;; resolve to the end, as after a rollback).
+            (let [bogus (#'f.chat.history/encode-cursor 1 {:role "x" :content "gone" :created-at 999999})
                   response (handlers/handle-get-chat (components) {:params {:before bogus}} "c1")
                   body (json/parse-string (:body response) true)]
               (is (= 409 (:status response)))

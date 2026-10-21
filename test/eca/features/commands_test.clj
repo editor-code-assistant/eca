@@ -9,7 +9,8 @@
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.shared :as shared]
-   [eca.test-helper :as h]))
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
 
@@ -419,6 +420,44 @@
         (is (= {:static "cached"} (:prompt-cache new-chat)))
         (is (= [{:chat-id new-id :title "btw: who is foo?"}]
                (:chat-opened (h/messages))))))))
+
+(deftest fork-commands-page-history-test
+  (let [messages (vec (for [i (range 60)]
+                        {:role "user" :content [{:type :text :text (str "q" i)}]}))
+        setup! (fn [incremental?]
+                 (h/reset-components!)
+                 (when incremental?
+                   (swap! (h/db*) assoc-in
+                          [:client-capabilities :code-assistant :chat-capabilities :incremental-updates]
+                          {:history-page-size 50}))
+                 (swap! (h/db*) assoc-in [:chats "chat-1"]
+                        {:id "chat-1" :title "My chat" :messages messages}))]
+    (with-redefs [db/save-chat! (fn [& _])]
+      (testing "/fork sends only the newest page to incremental clients"
+        (setup! true)
+        (let [result (f.commands/handle-command! "fork" [] (command-context "chat-1"))
+              [new-id {new-messages :messages}] (first (dissoc (:chats result) "chat-1"))]
+          (is (= 60 (count (get-in (h/db) [:chats new-id :messages]))))
+          (is (= (subvec messages 10) new-messages))
+          (is (match? [{:chat-id new-id
+                        :history {:total 60 :returned 50 :before-cursor string?}}]
+                      (:chat-opened (h/messages))))))
+
+      (testing "/btw sends only the newest page to incremental clients"
+        (setup! true)
+        (let [result (f.commands/handle-command! "btw" ["why?"]
+                                                 (assoc (command-context "chat-1")
+                                                        :message "/btw why?"))]
+          (is (= (subvec messages 10) (:target-messages result)))
+          (is (match? [{:history {:total 60 :returned 50}}]
+                      (:chat-opened (h/messages))))))
+
+      (testing "other clients get the whole history and no history meta"
+        (setup! false)
+        (let [result (f.commands/handle-command! "fork" [] (command-context "chat-1"))
+              [_ {new-messages :messages}] (first (dissoc (:chats result) "chat-1"))]
+          (is (= messages new-messages))
+          (is (not (contains? (first (:chat-opened (h/messages))) :history))))))))
 
 (deftest all-commands-include-model-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]

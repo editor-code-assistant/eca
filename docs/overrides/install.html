@@ -1494,7 +1494,7 @@
                 <span class="eca-code__dot eca-code__dot--green"></span>
                 <span class="eca-code__title">bash</span>
               </div>
-<pre>bash &lt;(curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/master/install)</pre>
+<pre>bash &lt;(curl -fsSL https://raw.githubusercontent.com/editor-code-assistant/eca/master/install)</pre>
             </div>
             <p>Or if you face permission issues with the command above:</p>
             <div class="eca-code">
@@ -1504,7 +1504,7 @@
                 <span class="eca-code__dot eca-code__dot--green"></span>
                 <span class="eca-code__title">bash</span>
               </div>
-<pre>curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/master/install | sudo bash</pre>
+<pre>curl -fsSL https://raw.githubusercontent.com/editor-code-assistant/eca/master/install | sudo bash</pre>
             </div>
             <p>Nightly build:</p>
             <div class="eca-code">
@@ -1514,8 +1514,9 @@
                 <span class="eca-code__dot eca-code__dot--green"></span>
                 <span class="eca-code__title">bash</span>
               </div>
-<pre>bash &lt;(curl -s https://raw.githubusercontent.com/editor-code-assistant/eca/master/install) <span class="hl-flag">--version</span> nightly <span class="hl-flag">--dir</span> ~/</pre>
+<pre>bash &lt;(curl -fsSL https://raw.githubusercontent.com/editor-code-assistant/eca/master/install) <span class="hl-flag">--version</span> nightly <span class="hl-flag">--dir</span> ~/</pre>
             </div>
+            <p class="eca-install-note">The script requires <code>curl</code> and <code>unzip</code>.</p>
           </div>
 
           <!-- Homebrew -->

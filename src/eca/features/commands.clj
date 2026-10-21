@@ -9,6 +9,7 @@
    [eca.db :as db]
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
+   [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
@@ -72,7 +73,9 @@
 (defn ^:private fork-chat!
   "Creates a new chat copying `chat`'s history (sanitized) and base settings
    plus `extra-copied-keys`, persists it and notifies the client.
-   Returns the new chat."
+   Returns `{:chat new-chat :replay-messages msgs}`, where `msgs` are the
+   messages to send to the client: only the newest page for clients
+   supporting incremental updates, announced in `chat/opened` `:history`."
   [chat new-title extra-copied-keys {:keys [db* messenger metrics]}]
   (let [new-id (str (random-uuid))
         now (System/currentTimeMillis)
@@ -85,11 +88,17 @@
                          :last-api (:last-api chat)
                          :messages (drop-dangling-tool-calls (vec (:messages chat)))
                          :prompt-finished? true}
-                        (select-keys chat extra-copied-keys))]
+                        (select-keys chat extra-copied-keys))
+        messages (:messages new-chat)
+        page (history/server-created-page @db* messages)]
     (swap! db* assoc-in [:chats new-id] new-chat)
     (db/save-chat! @db* new-id metrics)
-    (messenger/chat-opened messenger {:chat-id new-id :title new-title})
-    new-chat))
+    (messenger/chat-opened messenger
+                           (shared/assoc-some {:chat-id new-id :title new-title}
+                                              :history (when page
+                                                         (history/page-meta page messages))))
+    {:chat new-chat
+     :replay-messages (if page (:messages page) messages)}))
 
 (defn ^:private normalize-command-name [f]
   (string/lower-case (fs/strip-ext (fs/file-name f))))
@@ -827,7 +836,7 @@
                     (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
                     (chat-message (str "Selected agent: `" selected-agent "`.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
-                   {new-id :id new-title :title new-messages :messages}
+                   {{new-id :id new-title :title} :chat new-messages :replay-messages}
                    (fork-chat! chat (fork-title (:title chat)) [] chat-ctx)]
                {:type :chat-messages
                 :chats {new-id {:messages new-messages
@@ -842,7 +851,7 @@
                 {:type :side-prompt
                  :notice-text "Usage: /btw <prompt>. Asks a side question in a forked chat, keeping this chat history clean."}
                 (let [chat (get-in @db* [:chats chat-id])
-                      {new-id :id new-title :title new-messages :messages}
+                      {{new-id :id new-title :title} :chat new-messages :replay-messages}
                       (fork-chat! chat (btw-title question)
                                   [:variant :trust :remembered-approvals :prompt-cache :startup-context]
                                   chat-ctx)]
