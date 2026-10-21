@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix resuming a chat restoring the default agent instead of the chat's own agent when it was picked before the first message. #657
+- Fix the "dropped N history entries from a previous provider" note repeating on every prompt after a model swap; it now shows once per swap. #660
 - Fix install script exiting silently when `unzip` is missing; report missing tools and download errors clearly, and keep the existing binary on failure. #655
 - Fix context-overflow auto-recovery not triggering for llama.cpp's `llama-server`, whose "exceeds the available context size" error went unrecognized.
 - Speed up rollback, flags and forks on long chats via the `incrementalUpdates` capability: `chat/truncated`, positioned flags, and paged `/fork`, `/btw` and `chat/fork`.

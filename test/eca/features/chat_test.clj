@@ -735,6 +735,56 @@
                 :role :system}]}
              (h/messages)))))))
 
+(deftest prompt-history-sanitized-notice-test
+  (testing "cross-api history notice is shown on the first prompt after an api swap only (#660)"
+    (h/reset-components!)
+    (let [chat-id "api-swap-chat"
+          notices (fn []
+                    (->> (:chat-content-received (h/messages))
+                         (keep #(get-in % [:content :text]))
+                         (filterv #(string/includes? % "from a previous provider"))))
+          ;; Mirrors eca.llm-api/prompt!: the sanitizer only filters the request,
+          ;; so foreign entries kept in history are dropped again on every prompt.
+          api-mock (fn [{:keys [provider model model-capabilities config past-messages
+                                on-history-sanitized on-first-response-received on-message-received]}]
+                     (let [target-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
+                           {:keys [dropped-count dropped-apis]} (llm-api/sanitize-past-messages-for-api target-api past-messages)]
+                       (when (pos? dropped-count)
+                         (on-history-sanitized {:dropped-count dropped-count
+                                                :dropped-apis dropped-apis
+                                                :target-api target-api})))
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          mocks {:all-tools-mock (constantly []) :api-mock api-mock}]
+      (swap! (h/db*) update :models #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :model "anthropic/claude-opus-4"
+              :last-api :anthropic
+              :messages [{:role "user" :content [{:type :text :text "read foo"}]}
+                         {:role "tool_call" :content {:id "toolu_1" :full-name "eca__read_file" :arguments {} :api :anthropic}}
+                         {:role "tool_call_output" :content {:id "toolu_1" :output {:contents []} :api :anthropic}}
+                         {:role "assistant" :content [{:type :text :text "done"}]}]})
+
+      (prompt! {:message "first after swap" :chat-id chat-id :model "openai/gpt-5.2"} mocks)
+      (is (match? [#"^Note: dropped 2 history entries from a previous provider \(anthropic\)"] (notices)))
+      (is (= :openai-responses (get-in (h/db) [:chats chat-id :last-api])))
+
+      (h/reset-messenger!)
+      (prompt! {:message "second" :chat-id chat-id :model "openai/gpt-5.2"} mocks)
+      (is (empty? (notices)) "same api as the last prompt: entries are still dropped but not re-announced")
+      (is (match? (m/embeds [{:role "tool_call" :content {:api :anthropic}}])
+                  (get-in (h/db) [:chats chat-id :messages]))
+          "history itself keeps the foreign entries")
+
+      (testing "swapping api again notifies again"
+        (swap! (h/db*) update-in [:chats chat-id :messages] conj
+               {:role "reason" :content {:id "rs_1" :external-id "enc" :text "thinking" :api :openai-responses}})
+        (h/reset-messenger!)
+        (prompt! {:message "back to claude" :chat-id chat-id :model "anthropic/claude-opus-4"} mocks)
+        (is (match? [#"^Note: dropped 1 history entry from a previous provider \(openai-responses\)"] (notices)))))))
+
 (deftest prompt-persists-chat-variant-test
   (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
                    (on-first-response-received {:type :text :text "ok"})

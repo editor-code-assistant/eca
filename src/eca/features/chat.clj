@@ -789,7 +789,8 @@
    `:last-api`. Cross-api history reconciliation is handled by
    `eca.llm-api/sanitize-past-messages-for-api`, which drops entries whose
    opaque ids the new provider would reject and triggers a chat-visible
-   notice via `:on-history-sanitized`. This used to throw outright (#209)."
+   notice via `:on-history-sanitized`, shown only on the first prompt after
+   the swap (#660). This used to throw outright (#209)."
   [db chat-id provider model config]
   (let [model-capabilities (get-in db [:models (str provider "/" model)])
         current-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
@@ -1276,26 +1277,30 @@
                                                                         attempt max-retries)
                                                                 (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
                                                                         reason (quot delay-ms 1000) attempt max-retries))})))
+                ;; History keeps the foreign entries (only the request is filtered),
+                ;; so they are dropped again on every later prompt: notify only on
+                ;; the first prompt after swapping to a different api. #660
                 :on-history-sanitized (fn [{:keys [dropped-count dropped-apis target-api]}]
-                                        (let [from-label (->> dropped-apis
-                                                              (remove nil?)
-                                                              (map name)
-                                                              sort
-                                                              (string/join ", "))]
-                                          (logger/info logger-tag
-                                                       (format "Dropped %d cross-provider history entries on switch to %s"
-                                                               dropped-count (some-> target-api name))
-                                                       {:chat-id chat-id
-                                                        :dropped-count dropped-count
-                                                        :dropped-apis dropped-apis})
-                                          (lifecycle/send-content!
-                                           chat-ctx :system
-                                           {:type :text
-                                            :text (format "Note: dropped %d history %s from a previous provider (%s) because the current model (%s) cannot reuse its opaque ids. Reasoning context is lost across providers; tool calls were also removed if they originated elsewhere."
-                                                          dropped-count
-                                                          (if (= 1 dropped-count) "entry" "entries")
-                                                          (if (seq from-label) from-label "unknown")
-                                                          (some-> target-api name))})))
+                                        (when (not= target-api (get-in db [:chats chat-id :last-api]))
+                                          (let [from-label (->> dropped-apis
+                                                                (remove nil?)
+                                                                (map name)
+                                                                sort
+                                                                (string/join ", "))]
+                                            (logger/info logger-tag
+                                                         (format "Dropped %d cross-provider history entries on switch to %s"
+                                                                 dropped-count (some-> target-api name))
+                                                         {:chat-id chat-id
+                                                          :dropped-count dropped-count
+                                                          :dropped-apis dropped-apis})
+                                            (lifecycle/send-content!
+                                             chat-ctx :system
+                                             {:type :text
+                                              :text (format "Note: dropped %d history %s from a previous provider (%s) because the current model (%s) cannot reuse its opaque ids. Reasoning context is lost across providers; tool calls were also removed if they originated elsewhere."
+                                                            dropped-count
+                                                            (if (= 1 dropped-count) "entry" "entries")
+                                                            (if (seq from-label) from-label "unknown")
+                                                            (some-> target-api name))}))))
                 :on-first-response-received (fn [& _]
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
