@@ -5,6 +5,10 @@ site_url: https://eca.dev
 repo_name: editor-code-assistant/eca
 repo_url: https://github.com/editor-code-assistant/eca
 
+# Internal notes and visual changelog related to developing the docs site, not published
+exclude_docs: |
+  evolution/
+
 nav:
   - Home:
     - index.md
