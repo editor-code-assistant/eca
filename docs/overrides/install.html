@@ -41,13 +41,13 @@
 
   /* ── 1. Custom Properties ── */
   :root {
-    --eca-brand: #007a94;
-    --eca-brand-light: #00a5b8;
-    --eca-brand-hover: #004d5e;
-    --eca-brand-bg: #e3f6f9;
-    --eca-brand-shadow: rgba(0,122,148,0.08);
-    --eca-brand-shadow-md: rgba(0,122,148,0.15);
-    --eca-brand-gradient: linear-gradient(90deg, #007a94, #00a5b8);
+    --eca-brand: #1f1f1f;
+    --eca-brand-light: #4a4a4a;
+    --eca-brand-hover: #000000;
+    --eca-brand-bg: #f0f0f0;
+    --eca-brand-shadow: rgba(0,0,0,0.08);
+    --eca-brand-shadow-md: rgba(0,0,0,0.15);
+    --eca-brand-gradient: linear-gradient(90deg, #1f1f1f, #5a5a5a);
 
     --eca-text: #1a2b3c;
     --eca-text-secondary: #5a6a7a;
@@ -69,13 +69,13 @@
   }
 
   [data-md-color-scheme="slate"] {
-    --eca-brand: #00a5b8;
-    --eca-brand-light: #00a5b8;
-    --eca-brand-hover: #7dd8e6;
-    --eca-brand-bg: #0a2a30;
-    --eca-brand-shadow: rgba(0,165,184,0.1);
-    --eca-brand-shadow-md: rgba(0,165,184,0.2);
-    --eca-brand-gradient: linear-gradient(90deg, #00a5b8, #007a94);
+    --eca-brand: #e6e6e6;
+    --eca-brand-light: #e6e6e6;
+    --eca-brand-hover: #ffffff;
+    --eca-brand-bg: #262626;
+    --eca-brand-shadow: rgba(0,0,0,0.2);
+    --eca-brand-shadow-md: rgba(0,0,0,0.3);
+    --eca-brand-gradient: linear-gradient(90deg, #e6e6e6, #8a8a8a);
 
     --eca-text: #e0e4ea;
     --eca-text-secondary: #8a9ab0;
@@ -110,8 +110,10 @@
     background: var(--eca-bg-primary);
   }
 
+  /* Same width as .eca-install-picker__inner so the intro, the
+     question and the tabs share one left edge */
   .eca-install-intro__inner {
-    max-width: 48rem;
+    max-width: 60rem;
     margin: 0 auto;
   }
 
@@ -126,7 +128,7 @@
     display: flex;
     align-items: flex-start;
     gap: 0.6rem;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 11rem 0.75rem 1rem;
     border-radius: 10px;
     background: var(--eca-brand-bg);
     border: 1px solid var(--eca-border);
@@ -135,10 +137,13 @@
     line-height: 1.55;
   }
 
+  /* Box is one text line tall so the icon centers on the first line */
   .eca-install-intro__callout-icon {
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    height: calc(0.9rem * 1.55);
     font-size: 1.05rem;
-    line-height: 1.3;
   }
 
   .eca-install-intro__callout strong {
@@ -163,13 +168,13 @@
     pointer-events: none;
   }
 
+  /* Matches the h1 on doc pages (layout.css) */
   .eca-install-picker__question {
-    text-align: center;
-    font-size: 2.15rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
-    color: var(--eca-text);
+    font-size: 1.8rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.3;
+    color: var(--eca-heading-fg-color);
     margin: 0.5rem 0 1.75rem;
   }
 
@@ -190,7 +195,7 @@
     margin-bottom: -1px; /* overlap the container's bottom-border */
     font-size: 0.92rem;
     font-weight: 600;
-    color: var(--eca-text-secondary);
+    color: var(--eca-teal);
     background: transparent;
     border: none;
     border-bottom: 3px solid transparent;
@@ -208,7 +213,6 @@
   }
 
   .eca-install-tab:hover {
-    color: var(--eca-text);
     background: var(--eca-bg-secondary);
   }
 
@@ -216,9 +220,13 @@
   #eca-install-vscode:checked   ~ .eca-install-tabs label[for="eca-install-vscode"],
   #eca-install-neovim:checked   ~ .eca-install-tabs label[for="eca-install-neovim"],
   #eca-install-intellij:checked ~ .eca-install-tabs label[for="eca-install-intellij"],
-  #eca-install-desktop:checked  ~ .eca-install-tabs label[for="eca-install-desktop"] {
-    color: var(--eca-brand);
-    border-bottom-color: var(--eca-brand);
+  #eca-install-desktop:checked  ~ .eca-install-tabs label[for="eca-install-desktop"],
+  #eca-manual-script:checked    ~ .eca-install-subtabs label[for="eca-manual-script"],
+  #eca-manual-brew:checked      ~ .eca-install-subtabs label[for="eca-manual-brew"],
+  #eca-manual-mise:checked      ~ .eca-install-subtabs label[for="eca-manual-mise"],
+  #eca-manual-releases:checked  ~ .eca-install-subtabs label[for="eca-manual-releases"] {
+    color: var(--eca-teal);
+    border-bottom-color: var(--eca-teal);
     background: transparent;
   }
 
@@ -255,7 +263,7 @@
     font-size: 1.25rem;
     font-weight: 700;
     color: var(--eca-text);
-    margin: 0 0 0.35rem;
+    margin: 0 0 1.35rem;
     display: flex;
     align-items: center;
     gap: 0.55rem;
@@ -272,6 +280,11 @@
     color: var(--eca-text-secondary);
     line-height: 1.6;
     margin: 0 0 1.25rem;
+  }
+
+  /* First of two paragraphs: tighter gap before the second */
+  .eca-install-panel__desc--lead {
+    margin-bottom: 0.6rem;
   }
 
   .eca-install-panel__desc code {
@@ -338,45 +351,6 @@
     position: absolute;
     opacity: 0;
     pointer-events: none;
-  }
-
-  .eca-install-subtabs {
-    display: flex;
-    gap: 0.4rem;
-    flex-wrap: wrap;
-    margin-bottom: 1rem;
-    border-bottom: 1px solid var(--eca-border);
-    padding-bottom: 0.75rem;
-  }
-
-  .eca-install-subtab {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.45rem 0.95rem;
-    border-radius: 6px;
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--eca-text-secondary);
-    background: transparent;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    user-select: none;
-  }
-
-  .eca-install-subtab:hover {
-    color: var(--eca-text);
-    background: var(--eca-bg-secondary);
-  }
-
-  #eca-manual-script:checked   ~ .eca-install-subtabs label[for="eca-manual-script"],
-  #eca-manual-brew:checked     ~ .eca-install-subtabs label[for="eca-manual-brew"],
-  #eca-manual-mise:checked     ~ .eca-install-subtabs label[for="eca-manual-mise"],
-  #eca-manual-releases:checked ~ .eca-install-subtabs label[for="eca-manual-releases"] {
-    color: var(--eca-brand);
-    background: var(--eca-brand-bg);
-    border-color: var(--eca-brand);
   }
 
   .eca-install-subpanels {
@@ -477,8 +451,9 @@
     border-top: 1px solid var(--eca-border);
   }
 
+  /* Same width as the picker so everything shares one left edge */
   .eca-install-advanced__inner {
-    max-width: 52rem;
+    max-width: 60rem;
     margin: 0 auto;
   }
 
@@ -486,25 +461,7 @@
     display: flex;
     align-items: center;
     gap: 0.65rem;
-    padding: 0.65rem 0.75rem;
-    border-radius: 8px;
-    list-style: none;
-    cursor: pointer;
-    user-select: none;
-    transition: background 0.18s ease;
-  }
-
-  /* Hide the default disclosure triangle across browsers. */
-  .eca-install-advanced__summary::-webkit-details-marker { display: none; }
-  .eca-install-advanced__summary::marker                  { content: ''; }
-
-  .eca-install-advanced__summary:hover {
-    background: var(--eca-bg-card);
-  }
-
-  .eca-install-advanced__summary:focus-visible {
-    outline: 2px solid var(--eca-brand);
-    outline-offset: 2px;
+    padding: 0;
   }
 
   .eca-install-advanced__summary-icon {
@@ -547,30 +504,19 @@
     border-color: rgba(255, 169, 77, 0.3);
   }
 
+  /* Same as .eca-install-help__title */
+  .eca-install-advanced__label h3 {
+    margin: 0;
+  }
+
   .eca-install-advanced__title {
-    font-size: 0.92rem;
-    font-weight: 600;
+    font-size: 1.15rem;
+    font-weight: 700;
     color: var(--eca-text);
   }
 
-  .eca-install-advanced__chevron {
-    width: 18px;
-    height: 18px;
-    fill: var(--eca-text-muted);
-    transition: transform 0.2s ease;
-    flex-shrink: 0;
-  }
-
-  .eca-install-advanced__details[open] .eca-install-advanced__chevron {
-    transform: rotate(180deg);
-  }
-
-  .eca-install-advanced__details[open] .eca-install-advanced__summary {
-    background: var(--eca-bg-card);
-  }
-
   .eca-install-advanced__content {
-    padding: 1.25rem 0.75rem 0.25rem;
+    padding: 1.25rem 0 0.25rem;
   }
 
   .eca-install-advanced__desc {
@@ -905,11 +851,10 @@
     padding: 2.5rem 2rem 3rem;
     background: var(--eca-bg-secondary);
     border-top: 1px solid var(--eca-border);
-    text-align: center;
   }
 
   .eca-install-help__inner {
-    max-width: 44rem;
+    max-width: 60rem;
     margin: 0 auto;
   }
 
@@ -920,21 +865,25 @@
     margin: 0 0 0.5rem;
   }
 
-  .eca-install-help__desc {
+  .eca-install-help__list {
     font-size: 0.95rem;
     color: var(--eca-text-secondary);
     line-height: 1.6;
     margin: 0;
+    padding-left: 1.25rem;
   }
 
-  .eca-install-help__desc a {
-    color: var(--eca-brand);
-    text-decoration: none;
+  /* Same link style as the doc pages (layout.css) */
+  .eca-install-help__list a {
+    color: var(--eca-text);
+    text-decoration: underline;
+    text-decoration-color: var(--eca-link-underline-color);
+    text-underline-offset: 0.25em;
     font-weight: 600;
   }
 
-  .eca-install-help__desc a:hover {
-    text-decoration: underline;
+  .eca-install-help__list a:hover {
+    text-decoration-color: var(--eca-text);
   }
 
   /* ── 7. Responsive ── */
@@ -1007,15 +956,6 @@
       margin: 0.5rem 0 0;
     }
 
-    .eca-install-subtabs {
-      gap: 0.25rem;
-    }
-
-    .eca-install-subtab {
-      padding: 0.4rem 0.7rem;
-      font-size: 0.76rem;
-    }
-
     .eca-code pre {
       font-size: 0.72rem;
       padding: 0.7rem 0.85rem;
@@ -1055,9 +995,6 @@
       padding: 2rem 1rem 2.25rem;
     }
 
-    .eca-install-advanced__title {
-      font-size: 1.05rem;
-    }
   }
 </style>
 {% endblock %}
@@ -1124,10 +1061,12 @@
           {{ icon_macro_html|safe }}
           ECA in {{ display_name }}
         </h3>
-        <p class="eca-install-panel__desc">
+        <p class="eca-install-panel__desc eca-install-panel__desc--lead">
           The <strong>{{ plugin_name }}</strong> plugin bundles and keeps the ECA binary up-to-date
-          automatically. Install the plugin for {{ display_name }} and you're done &mdash; no separate
-          server install is needed.
+          automatically.
+        </p>
+        <p class="eca-install-panel__desc">
+          Install the plugin for {{ display_name }} and you're done. No separate server install is needed.
         </p>
         <a href="{{ plugin_repo }}" class="eca-install-btn eca-install-btn--primary" target="_blank" rel="noopener">
           Install {{ plugin_name }} plugin
@@ -1148,7 +1087,7 @@
         ECA is written in Clojure and compiled into a native binary via GraalVM.
       </p>
       <div class="eca-install-intro__callout">
-        <span class="eca-install-intro__callout-icon">ℹ️</span>
+        <span class="eca-install-intro__callout-icon">{% include ".icons/lucide/info.svg" %}</span>
         <div>
           <strong>Auto install</strong> &mdash; ECA is already downloaded and updated automatically
           by all official editor plugins, so you don't need to handle it manually. The tabs
@@ -1336,7 +1275,7 @@
                 <!-- Windows -->
                 <div class="eca-install-os__panel eca-install-os__panel--windows">
                   <div class="eca-install-coming-soon">
-                    <div class="eca-install-coming-soon__emoji">🔮</div>
+                    <div class="eca-install-coming-soon__emoji">{% include ".icons/lucide/wand-sparkles.svg" %}</div>
                     <h4 class="eca-install-coming-soon__title">Windows builds are planned</h4>
                     <p class="eca-install-coming-soon__desc">
                       Native Windows installers aren't shipping yet. In the meantime, you can
@@ -1453,16 +1392,13 @@
   <!-- ── Install manually (secondary, collapsed by default) ── -->
   <section class="eca-install-advanced">
     <div class="eca-install-advanced__inner">
-      <details class="eca-install-advanced__details">
-        <summary class="eca-install-advanced__summary">
-          <svg class="eca-install-advanced__summary-icon" viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zM6.5 10.5l1.06-1.06L10.5 12l-2.94 2.56L6.5 13.5 8.38 12 6.5 10.5zM12 14h5.5v1.5H12V14z"/></svg>
+      <div class="eca-install-advanced__details">
+        <div class="eca-install-advanced__summary">
           <span class="eca-install-advanced__label">
-            <span class="eca-install-advanced__kicker">Manual</span>
+            <h3><span class="eca-install-advanced__title">Install the ECA server manually</span></h3>
             <span class="eca-install-advanced__kicker eca-install-advanced__kicker--warning">Not recommended</span>
-            <span class="eca-install-advanced__title">Install the ECA server manually</span>
           </span>
-          <svg class="eca-install-advanced__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
-        </summary>
+        </div>
         <div class="eca-install-advanced__content">
           <p class="eca-install-advanced__desc">
             Most users don't need this &mdash; editor plugins auto-download the server.
@@ -1476,11 +1412,11 @@
         <input type="radio" name="eca-manual" id="eca-manual-mise">
         <input type="radio" name="eca-manual" id="eca-manual-releases">
 
-        <div class="eca-install-subtabs">
-          <label for="eca-manual-script"   class="eca-install-subtab">Install Script</label>
-          <label for="eca-manual-brew"     class="eca-install-subtab">Homebrew</label>
-          <label for="eca-manual-mise"     class="eca-install-subtab">mise</label>
-          <label for="eca-manual-releases" class="eca-install-subtab">GitHub Releases</label>
+        <div class="eca-install-tabs eca-install-subtabs">
+          <label for="eca-manual-script"   class="eca-install-tab eca-install-subtab">Install Script</label>
+          <label for="eca-manual-brew"     class="eca-install-tab eca-install-subtab">Homebrew</label>
+          <label for="eca-manual-mise"     class="eca-install-tab eca-install-subtab">mise</label>
+          <label for="eca-manual-releases" class="eca-install-tab eca-install-subtab">GitHub Releases</label>
         </div>
 
         <div class="eca-install-subpanels">
@@ -1571,7 +1507,7 @@ eca --version</pre>
         </div>
           </div>
         </div>
-      </details>
+      </div>
     </div>
   </section>
 
@@ -1579,11 +1515,11 @@ eca --version</pre>
   <section class="eca-install-help">
     <div class="eca-install-help__inner">
       <h3 class="eca-install-help__title">Something not working?</h3>
-      <p class="eca-install-help__desc">
-        Check the <a href="troubleshooting">Troubleshooting</a> page,
-        browse the <a href="config/introduction">Configuration</a> docs to hook up your first model,
-        or <a href="https://github.com/editor-code-assistant/eca/issues" target="_blank" rel="noopener">open an issue on GitHub</a>.
-      </p>
+      <ul class="eca-install-help__list">
+        <li>Check the <a href="troubleshooting">Troubleshooting</a> page</li>
+        <li>Browse the <a href="config/introduction">Configuration</a> docs to hook up your first model</li>
+        <li>Open an <a href="https://github.com/editor-code-assistant/eca/issues" target="_blank" rel="noopener">issue on GitHub</a></li>
+      </ul>
     </div>
   </section>
 {% endblock %}
