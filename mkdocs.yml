@@ -53,7 +53,7 @@ theme:
     - content.code.copy
     - content.code.select
 
-copyright: Copyright &copy; 2026 ECA Contributors — Free & Open Source
+copyright: Copyright &copy; 2026 ECA Contributors. Free & Open Source.
 
 extra:
   analytics:
