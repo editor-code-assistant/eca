@@ -1,3 +1,5 @@
+/* Header, tabs bar and footer stay teal to match the homepage hero.
+   Hover and focus accents are black */
 :root {
   --md-primary-fg-color: #007a94;
   --md-accent-fg-color: #000000;
@@ -134,8 +136,43 @@
   max-width: 70rem;
 }
 
-.md-typeset a {
-  color: #026378;
+/* Body links: text color, semibold, medium gray underline that
+   darkens to the text color on hover */
+.md-typeset a:not(.headerlink) {
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--eca-link-underline-color);
+  text-underline-offset: 0.25em;
+}
+
+.md-typeset a:not(.headerlink):focus,
+.md-typeset a:not(.headerlink):hover {
+  color: var(--md-default-fg-color);
+  text-decoration-color: var(--md-default-fg-color);
+}
+
+/* Content tab labels keep the teal they had before the neutral palette */
+.md-typeset .tabbed-labels > label {
+  color: var(--eca-teal);
+}
+
+/* Content tab labels wrap their text in a link. Keep Material's tab
+   styling instead of the body link style */
+.md-typeset .tabbed-labels > label > a {
+  font-weight: inherit;
+  text-decoration: none;
+}
+
+.md-typeset a:focus code,
+.md-typeset a:hover code {
+  background-color: var(--md-code-bg-color);
+}
+
+.md-typeset .headerlink:focus,
+.md-typeset .headerlink:hover,
+.md-typeset :target > .headerlink {
+  color: var(--md-default-fg-color);
 }
 
 .tabbed-content {
@@ -144,4 +181,189 @@
   padding: 0.5em;
   border-bottom-right-radius: 0.3em;
   border-bottom-left-radius: 0.3em;
+}
+
+:root {
+  --eca-heading-fg-color: #333333;
+  --eca-nav-fg-color: #555555;
+  --eca-link-underline-color: #9e9e9e;
+}
+
+/* Article column: fixed max width and body text size */
+.md-content__inner {
+  max-width: 700px;
+}
+
+.md-content__inner.md-typeset {
+  font-size: 0.85rem;
+  line-height: 1.7;
+}
+
+/* Headings: one weight and color. Sizes are in rem so they don't
+   change with the article text size. Pixel sizes assume the default
+   20px root */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  color: var(--eca-heading-fg-color);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset h1 {
+  font-size: 1.8rem; /* 36px */
+}
+
+.md-typeset h2 {
+  font-size: 1.2rem; /* 24px */
+}
+
+.md-typeset h3 {
+  font-size: 1rem; /* 20px */
+}
+
+.md-typeset h4 {
+  font-size: 1.125rem; /* 22.5px */
+}
+
+.md-typeset h5,
+.md-typeset h6 {
+  font-size: 0.9rem; /* 18px */
+}
+
+/* Sidebars: items indented 1.3em from the section heading, with a faint
+   left rule that lines up with the heading. Vertical padding replaces
+   Material's .625em top margin so the rule is continuous. Each item is
+   ~20% taller than Material's default. Desktop layouts only, the mobile
+   drawer keeps Material's styling */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary .md-nav__item:not(.md-nav__item--section) > .md-nav__link {
+    border-left: 0.05rem solid var(--md-default-fg-color--lightest);
+    margin-top: 0;
+    padding-block: 0.52em;
+    padding-left: 1.3em;
+  }
+
+  .md-nav--primary .md-nav__item:not(.md-nav__item--section) > .md-nav__link--active {
+    border-left-color: var(--eca-heading-fg-color);
+  }
+}
+
+@media screen and (min-width: 60em) {
+  .md-nav--secondary .md-nav__item > .md-nav__link {
+    border-left: 0.05rem solid var(--md-default-fg-color--lightest);
+    margin-top: 0;
+    padding-block: 0.52em;
+    padding-left: 1.3em;
+  }
+
+  .md-nav--secondary .md-nav__item > .md-nav__link--active {
+    border-left-color: var(--eca-heading-fg-color);
+  }
+}
+
+/* Sidebars: black and grays only. Section headings match the article
+   headings, items are dark gray, hover is black */
+.md-nav .md-nav__title,
+.md-nav .md-nav__item--section > .md-nav__link,
+.md-nav--lifted > .md-nav__list > .md-nav__item > .md-nav__link {
+  color: var(--eca-heading-fg-color);
+}
+
+.md-nav__link,
+.md-nav__link--passed {
+  color: var(--eca-nav-fg-color);
+}
+
+.md-nav__link[for]:focus,
+.md-nav__link[for]:hover,
+.md-nav__link[href]:focus,
+.md-nav__link[href]:hover,
+.md-nav--primary .md-nav__item--active > .md-nav__link:focus,
+.md-nav--primary .md-nav__item--active > .md-nav__link:hover {
+  color: #000000;
+}
+
+/* Left sidebar section heading (e.g. "Configuration"): its own
+   indent and never a left border */
+@media screen and (min-width: 76.25em) {
+  .md-nav--primary .md-nav__item--section > .md-nav__link,
+  .md-nav--lifted > .md-nav__list > .md-nav__item > .md-nav__link {
+    border-left: none;
+    padding-left: 0.9em;
+  }
+}
+
+/* Top-level links (pages in the left sidebar, h2 entries in the table
+   of contents) are medium weight. Nested links are regular weight and
+   slightly faded. :where() keeps these selectors weak so the active
+   link rule below still wins */
+:where(.md-nav--primary .md-nav__item--section > .md-nav > .md-nav__list > .md-nav__item) > .md-nav__link,
+:where(.md-nav--secondary > .md-nav__list > .md-nav__item) > .md-nav__link {
+  font-weight: 500;
+}
+
+:where(.md-nav--primary .md-nav__item--section > .md-nav .md-nav .md-nav__item) > .md-nav__link,
+:where(.md-nav--secondary .md-nav .md-nav__item) > .md-nav__link {
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+/* Active page and current table-of-contents entry: bold instead of
+   the link color */
+.md-nav__item .md-nav__link--active,
+.md-nav__item .md-nav__link--active code {
+  color: var(--md-default-fg-color);
+  font-weight: 700;
+  opacity: 1;
+}
+
+/* Header: larger logo with the title closer to it. Below 76.25em
+   Material hides the logo, so the title keeps its default margin */
+/* Less vertical padding keeps the header at Material's 2.4rem height:
+   1.5rem logo + 2 x 0.25rem padding + 2 x 0.2rem margin */
+.md-header__button.md-logo {
+  padding-block: 0.25rem;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.5rem;
+}
+
+@media screen and (min-width: 76.25em) {
+  [dir=ltr] .md-header__title {
+    margin-left: 0.3rem;
+  }
+}
+
+/* Tabs bar: links one pixel larger and brighter */
+.md-tabs__link {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+
+/* Lucide icons (docs/overrides/.icons/lucide) scale with the font size
+   of their container, like the emoji they replaced. Stroke 1.5 instead
+   of Lucide's 2 draws about a 1px line at these sizes */
+.lucide {
+  width: 1em;
+  height: 1em;
+  flex-shrink: 0;
+  stroke-width: 1.5;
+}
+
+/* Footer copyright: the credit wraps below the copyright text as one
+   unit instead of breaking mid-phrase */
+.md-copyright__highlight {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.5em;
+}
+
+.eca-footer-credit {
+  white-space: nowrap;
 }
