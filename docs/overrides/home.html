@@ -1566,35 +1566,35 @@
         </div>
         <div class="eca-why__advantages">
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">📄</div>
+            <div class="eca-why__item-icon">{% include ".icons/lucide/file-text.svg" %}</div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Editor-Agnostic Protocol</span>
               <span class="eca-why__item-desc">Inspired by LSP &mdash; any editor can integrate. One server, many clients.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">⚙️</div>
+            <div class="eca-why__item-icon">{% include ".icons/lucide/settings.svg" %}</div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Single Configuration</span>
               <span class="eca-why__item-desc">Configure once, same experience everywhere &mdash; global or per-project.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">🚀</div>
+            <div class="eca-why__item-icon">{% include ".icons/lucide/rocket.svg" %}</div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Multi-Model Support</span>
               <span class="eca-why__item-desc">OpenAI, Anthropic, Copilot, Ollama, and many more. Switch freely.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon"><svg viewBox="0 0 24 24"><path fill="#3DA639" d="M11.959.447A11.938 11.938 0 000 12.407c0 5.576 3.874 10.097 7.783 11.114.193.05.392-.05.467-.234l2.771-6.822a.396.396 0 00-.246-.528C9.365 15.47 8.53 14.32 8.48 12.4c-.024-1.828 1.5-3.45 3.561-3.447 1.931.003 3.479 1.632 3.479 3.453 0 .966-.203 1.687-.575 2.238-.371.552-.922.951-1.695 1.239a.396.396 0 00-.23.515l2.685 6.903a.396.396 0 00.465.24C20.163 22.534 24 18.062 24 12.406 24 5.804 18.603.447 11.959.447zm0 .791c6.22 0 11.25 4.997 11.25 11.168 0 5.138-3.423 9.208-6.895 10.272L13.9 16.47c.703-.308 1.302-.79 1.702-1.384.477-.708.709-1.602.709-2.68 0-2.266-1.898-4.24-4.27-4.244-2.48-.004-4.382 1.976-4.352 4.25.023 1.995.934 3.492 2.451 4.13L7.648 22.66C4.251 21.592.791 17.458.791 12.406A11.13 11.13 0 0111.959 1.238z"/></svg></div>
+            <div class="eca-why__item-icon">{% include ".icons/lucide/git-fork.svg" %}</div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Free &amp; Open Source</span>
               <span class="eca-why__item-desc">Built with Clojure. Community-driven, transparent, and extensible.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">📊</div>
+            <div class="eca-why__item-icon">{% include ".icons/lucide/chart-bar.svg" %}</div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">OpenTelemetry</span>
               <span class="eca-why__item-desc">Export metrics of tools, prompts, and server performance.</span>
@@ -1616,7 +1616,7 @@
       <!-- Hero row: the 3 core interactions -->
       <div class="eca-features__hero">
         <a href="features" class="eca-feature--hero">
-          <span class="eca-feature--hero__icon">💬</span>
+          <span class="eca-feature--hero__icon">{% include ".icons/lucide/message-square.svg" %}</span>
           <h3 class="eca-feature--hero__title">Chat</h3>
           <p class="eca-feature--hero__desc">
             Pair program with an AI agent that can read, write, and refactor your code.
@@ -1627,7 +1627,7 @@
           </span>
         </a>
         <a href="config/rewrite" class="eca-feature--hero">
-          <span class="eca-feature--hero__icon">✏️</span>
+          <span class="eca-feature--hero__icon">{% include ".icons/lucide/pencil.svg" %}</span>
           <h3 class="eca-feature--hero__title">Rewrite</h3>
           <p class="eca-feature--hero__desc">
             Select code, describe the change, accept or reject the diff.
@@ -1638,7 +1638,7 @@
           </span>
         </a>
         <a href="config/completion" class="eca-feature--hero">
-          <span class="eca-feature--hero__icon">⚡</span>
+          <span class="eca-feature--hero__icon">{% include ".icons/lucide/zap.svg" %}</span>
           <h3 class="eca-feature--hero__title">Completion</h3>
           <p class="eca-feature--hero__desc">
             Inline AI-powered code suggestions as you type &mdash;
@@ -1655,21 +1655,21 @@
         <div class="eca-features__group-label">Agents &amp; Intelligence</div>
         <div class="eca-features__grid">
           <a href="config/agents" class="eca-feature">
-            <div class="eca-feature__icon">🤖</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/bot.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Agents &amp; Subagents</h3>
               <p class="eca-feature__desc">Built-in <em>code</em> and <em>plan</em> agents, with subagents for isolated parallel tasks and context window savings.</p>
             </div>
           </a>
           <a href="config/tools" class="eca-feature">
-            <div class="eca-feature__icon">🔧</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/wrench.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Tools &amp; MCP</h3>
               <p class="eca-feature__desc">Native file/shell/editor tools, MCP server integration, and custom tool definitions with fine-grained approval control.</p>
             </div>
           </a>
           <div class="eca-feature">
-            <div class="eca-feature__icon">📎</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/paperclip.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Context</h3>
               <p class="eca-feature__desc">Attach files, directories, cursor position, MCP resources, or AGENTS.md auto-context to any prompt.</p>
@@ -1683,56 +1683,56 @@
         <div class="eca-features__group-label">Customization &amp; Extensibility</div>
         <div class="eca-features__grid">
           <a href="config/rules" class="eca-feature">
-            <div class="eca-feature__icon">📐</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/ruler.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Rules</h3>
               <p class="eca-feature__desc">Define coding standards, conventions, and constraints the LLM must follow &mdash; globally or per project.</p>
             </div>
           </a>
           <a href="config/skills" class="eca-feature">
-            <div class="eca-feature__icon">🎯</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/target.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Skills</h3>
               <p class="eca-feature__desc">Structured knowledge units that teach the LLM how to handle specific tasks. Follows the agentskills.io spec.</p>
             </div>
           </a>
           <a href="config/commands" class="eca-feature">
-            <div class="eca-feature__icon">⌨️</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/keyboard.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Commands</h3>
               <p class="eca-feature__desc">Slash commands like <em>/init</em>, <em>/compact</em>, <em>/resume</em>, and custom commands you define yourself.</p>
             </div>
           </a>
           <a href="config/hooks" class="eca-feature">
-            <div class="eca-feature__icon">🪝</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/webhook.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Hooks</h3>
               <p class="eca-feature__desc">Before/after event callbacks to validate, notify, or trigger side effects on tool calls and prompts.</p>
             </div>
           </a>
           <a href="config/variants" class="eca-feature">
-            <div class="eca-feature__icon">🔀</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/shuffle.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Variants</h3>
               <p class="eca-feature__desc">Switch between configuration presets on the fly &mdash; different models, reasoning effort, or custom setups.</p>
             </div>
           </a>
           <a href="config/metrics" class="eca-feature">
-            <div class="eca-feature__icon">📊</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/chart-bar.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Metrics</h3>
               <p class="eca-feature__desc">OpenTelemetry integration for exporting tool usage, prompt performance, and server metrics.</p>
             </div>
           </a>
           <a href="config/plugins" class="eca-feature">
-            <div class="eca-feature__icon">🧩</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/puzzle.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Plugins</h3>
               <p class="eca-feature__desc">Extend ECA with community plugins &mdash; bundles of tools, rules, skills, and more from the marketplace.</p>
             </div>
           </a>
           <a href="config/remote" class="eca-feature">
-            <div class="eca-feature__icon">🌐</div>
+            <div class="eca-feature__icon">{% include ".icons/lucide/globe.svg" %}</div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Remote</h3>
               <p class="eca-feature__desc">Observe and control your chat session from a browser via an embedded web server and web.eca.dev.</p>
@@ -1763,16 +1763,16 @@
         <input type="radio" name="eca-sc" id="eca-sc-8">
 
         <div class="eca-showcase__dots">
-          <label for="eca-sc-1" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🌐</span> Any Provider</label>
-          <label for="eca-sc-2" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🎯</span> Skills</label>
-          <label for="eca-sc-3" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🪝</span> Hooks</label>
-          <label for="eca-sc-4" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🔗</span> MCP Servers</label>
+          <label for="eca-sc-1" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/globe.svg" %}</span> Any Provider</label>
+          <label for="eca-sc-2" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/target.svg" %}</span> Skills</label>
+          <label for="eca-sc-3" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/webhook.svg" %}</span> Hooks</label>
+          <label for="eca-sc-4" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/link.svg" %}</span> MCP Servers</label>
           <span class="eca-showcase__dot-group">
             <span class="eca-showcase__dot-group-label">Custom</span>
-            <label for="eca-sc-5" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🤖</span> Agents</label>
-            <label for="eca-sc-6" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">⌨️</span> Commands</label>
-            <label for="eca-sc-7" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🔧</span> Tools</label>
-            <label for="eca-sc-8" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🧩</span> Plugins</label>
+            <label for="eca-sc-5" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/bot.svg" %}</span> Agents</label>
+            <label for="eca-sc-6" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/keyboard.svg" %}</span> Commands</label>
+            <label for="eca-sc-7" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/wrench.svg" %}</span> Tools</label>
+            <label for="eca-sc-8" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">{% include ".icons/lucide/puzzle.svg" %}</span> Plugins</label>
           </span>
         </div>
 
