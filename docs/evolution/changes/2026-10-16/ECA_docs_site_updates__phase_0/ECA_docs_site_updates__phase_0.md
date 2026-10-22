@@ -30,7 +30,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Roboto typeface and accent (teal).<br>
 **After**: Inter typeface and neutral.<br>
-<img src="ECA_docs_site_updates__phase_0----01_Documentation_page_typography----04_Docs_page----01_Before_After.webp" alt="Before: Roboto typeface and accent (teal). After: Inter typeface and neutral." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----01_Documentation_page_typography----04_Docs_page----01_Before_After.webp" alt="Before: Roboto typeface and accent (teal). After: Inter typeface and neutral." width="798">
 
 <br>
 
@@ -40,7 +40,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Accent (teal) headings and links.<br>
 **After**: Inter typeface and underlined links.<br>
-<img src="ECA_docs_site_updates__phase_0----01_Documentation_page_typography----07_Article----01_Before_After.webp" alt="Before: Accent (teal) headings and links. After: Inter typeface and underlined links." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----01_Documentation_page_typography----07_Article----01_Before_After.webp" alt="Before: Accent (teal) headings and links. After: Inter typeface and underlined links." width="798">
 
 <br>
 
@@ -60,7 +60,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Accent (teal) and flat.<br>
 **After**: Indented with rule.<br>
-<img src="ECA_docs_site_updates__phase_0----02_Sidebars_and_table_of_contents----04_Sidebar----01_Before_After.webp" alt="Before: Accent (teal) and flat. After: Indented with rule." width="346">
+<br><img src="ECA_docs_site_updates__phase_0----02_Sidebars_and_table_of_contents----04_Sidebar----01_Before_After.webp" alt="Before: Accent (teal) and flat. After: Indented with rule." width="346">
 
 <br>
 
@@ -70,7 +70,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Accent (teal).<br>
 **After**: Indented with rule.<br>
-<img src="ECA_docs_site_updates__phase_0----02_Sidebars_and_table_of_contents----07_Table_of_contents----01_Before_After.webp" alt="Before: Accent (teal). After: Indented with rule." width="346">
+<br><img src="ECA_docs_site_updates__phase_0----02_Sidebars_and_table_of_contents----07_Table_of_contents----01_Before_After.webp" alt="Before: Accent (teal). After: Indented with rule." width="346">
 
 <br>
 
@@ -90,7 +90,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Emoji icons.<br>
 **After**: Lucide icons.<br>
-<img src="ECA_docs_site_updates__phase_0----03_Homepage_icons_and_feature_cards----04__DQUOTE_Why_ECA_QMARK__DQUOTE_----01_Before_After.webp" alt="Before: Emoji icons. After: Lucide icons." width="796">
+<br><img src="ECA_docs_site_updates__phase_0----03_Homepage_icons_and_feature_cards----04__DQUOTE_Why_ECA_QMARK__DQUOTE_----01_Before_After.webp" alt="Before: Emoji icons. After: Lucide icons." width="796">
 
 <br>
 
@@ -100,7 +100,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Emoji icons and stacked.<br>
 **After**: Lucide icons and two columns.<br>
-<img src="ECA_docs_site_updates__phase_0----03_Homepage_icons_and_feature_cards----07_Feature_cards----01_Before_After.webp" alt="Before: Emoji icons and stacked. After: Lucide icons and two columns." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----03_Homepage_icons_and_feature_cards----07_Feature_cards----01_Before_After.webp" alt="Before: Emoji icons and stacked. After: Lucide icons and two columns." width="798">
 
 <br>
 
@@ -110,7 +110,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Emoji icons.<br>
 **After**: Lucide icons.<br>
-<img src="ECA_docs_site_updates__phase_0----03_Homepage_icons_and_feature_cards----10_Config_tabs----01_Before_After.webp" alt="Before: Emoji icons. After: Lucide icons." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----03_Homepage_icons_and_feature_cards----10_Config_tabs----01_Before_After.webp" alt="Before: Emoji icons. After: Lucide icons." width="798">
 
 <br>
 
@@ -132,7 +132,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Centered intro.<br>
 **After**: Left aligned.<br>
-<img src="ECA_docs_site_updates__phase_0----04_Install_page----04_Install_page----01_Before_After.webp" alt="Before: Centered intro. After: Left aligned." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----04_Install_page----04_Install_page----01_Before_After.webp" alt="Before: Centered intro. After: Left aligned." width="798">
 
 <br>
 
@@ -142,7 +142,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Centered and narrow.<br>
 **After**: Left aligned and full width.<br>
-<img src="ECA_docs_site_updates__phase_0----04_Install_page----07_Install_intro----01_Before_After.webp" alt="Before: Centered and narrow. After: Left aligned and full width." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----04_Install_page----07_Install_intro----01_Before_After.webp" alt="Before: Centered and narrow. After: Left aligned and full width." width="798">
 
 <br>
 
@@ -152,7 +152,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: One paragraph.<br>
 **After**: Two paragraphs.<br>
-<img src="ECA_docs_site_updates__phase_0----04_Install_page----10_Plugin_copy----01_Before_After.webp" alt="Before: One paragraph. After: Two paragraphs." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----04_Install_page----10_Plugin_copy----01_Before_After.webp" alt="Before: One paragraph. After: Two paragraphs." width="798">
 
 <br>
 
@@ -162,7 +162,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Collapsed toggle click target is too distant, small, and faint: the user may miss it.<br>
 **After**: The instructions are always open and visible. Reduced noise on the section heading.<br>
-<img src="ECA_docs_site_updates__phase_0----04_Install_page----13_Manual_install----01_Before_After.webp" alt="Before: Collapsed toggle click target is too distant, small, and faint: the user may miss it. After: The instructions are always open and visible. Reduced noise on the section heading." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----04_Install_page----13_Manual_install----01_Before_After.webp" alt="Before: Collapsed toggle click target is too distant, small, and faint: the user may miss it. After: The instructions are always open and visible. Reduced noise on the section heading." width="798">
 
 <br>
 
@@ -172,7 +172,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Centered sentence.<br>
 **After**: Bulleted list with aligned hyperlink styling.<br>
-<img src="ECA_docs_site_updates__phase_0----04_Install_page----16_Help----01_Before_After.webp" alt="Before: Centered sentence. After: Bulleted list with aligned hyperlink styling." width="798">
+<br><img src="ECA_docs_site_updates__phase_0----04_Install_page----16_Help----01_Before_After.webp" alt="Before: Centered sentence. After: Bulleted list with aligned hyperlink styling." width="798">
 
 <br>
 
@@ -188,7 +188,7 @@ Screenshots compare the last commit (before) with the working tree (after), both
 
 **Before**: Emoji arrows.<br>
 **After**: Text arrows.<br>
-<img src="ECA_docs_site_updates__phase_0----05_Protocol_page_arrows----04_Protocol_headings----01_Before_After.webp" alt="Before: Emoji arrows. After: Text arrows." width="336">
+<br><img src="ECA_docs_site_updates__phase_0----05_Protocol_page_arrows----04_Protocol_headings----01_Before_After.webp" alt="Before: Emoji arrows. After: Text arrows." width="336">
 
 <br>
 
