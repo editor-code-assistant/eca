@@ -61,3 +61,43 @@ jobs:
           git add .
           git commit -m "Bump to version: ${{ env.VERSION }}"
           git push
+
+  bump-sandbox-image:
+    name: Bump sandbox docker image
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Get latest tag
+        id: latest-tag
+        uses: WyriHaximus/github-action-get-previous-tag@v1
+
+      - name: Checkout eca-sandbox-image
+        uses: actions/checkout@v4
+        with:
+          repository: editor-code-assistant/eca-sandbox-image
+          ssh-key: ${{ secrets.ECA_COMMIT_KEY }}
+          path: eca-sandbox-image
+
+      # The pushed commit is what triggers the image build in eca-sandbox-image,
+      # and also keeps that repo active so GitHub never disables its workflow.
+      - name: Bump ECA version in Dockerfile
+        working-directory: eca-sandbox-image
+        env:
+          VERSION: ${{ steps.latest-tag.outputs.tag }}
+        run: |
+          sed -i -E "s/^ARG ECA_VERSION=.*/ARG ECA_VERSION=${VERSION}/" Dockerfile
+          if ! grep -qxF "ARG ECA_VERSION=${VERSION}" Dockerfile; then
+            echo "::error::'ARG ECA_VERSION=' not found in eca-sandbox-image Dockerfile"
+            exit 1
+          fi
+          if git diff --quiet; then
+            echo "eca-sandbox-image already at ${VERSION}, nothing to bump"
+            exit 0
+          fi
+          git config user.name "Eric Dallo (ECA)"
+          git config user.email "ercdll1337+eca@gmail.com"
+          git commit -am "Bump to version: ${VERSION}"
+          git push origin HEAD
