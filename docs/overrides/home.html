@@ -647,8 +647,16 @@
     background: var(--eca-bg-card);
     transition: all 0.25s ease;
     text-decoration: none;
-    display: block;
+    /* Same layout as .eca-feature: icon alone in the first column */
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.75rem;
+    align-content: start;
     overflow: hidden;
+  }
+
+  .eca-feature--hero > * {
+    grid-column: 2;
   }
 
   .eca-feature--hero::before {
@@ -674,10 +682,18 @@
   }
 
   .eca-feature--hero__icon {
-    font-size: 1.75rem;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--eca-brand-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
     line-height: 1;
-    margin-bottom: 0.75rem;
-    display: block;
+    margin-top: 1px;
   }
 
   .eca-feature--hero__title {
@@ -690,11 +706,12 @@
   .eca-feature--hero__desc {
     font-size: 0.85rem;
     color: var(--eca-text-secondary);
-    line-height: 1.55;
+    line-height: 1.45;
     margin: 0;
   }
 
   .eca-feature--hero__link {
+    justify-self: start;
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
@@ -788,7 +805,7 @@
   .eca-feature__desc {
     font-size: 0.78rem;
     color: var(--eca-text-secondary);
-    line-height: 1.5;
+    line-height: 1.4;
     margin: 0;
   }
 
@@ -843,6 +860,7 @@
   }
 
   .eca-showcase__dot-emoji {
+    line-height: 0;
     font-size: 0.85rem;
   }
 
