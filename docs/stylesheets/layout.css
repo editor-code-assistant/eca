@@ -1,7 +1,8 @@
 :root {
   --md-primary-fg-color: #007a94;
-  --md-accent-fg-color: #026378;
-  --md-default-fg-color--light: #026378;
+  --md-accent-fg-color: #000000;
+  --md-accent-fg-color--transparent: rgba(0, 0, 0, 0.07);
+  --eca-teal: #026378;
 }
 
 .md-footer {
