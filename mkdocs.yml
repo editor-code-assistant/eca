@@ -44,6 +44,8 @@ theme:
   custom_dir: docs/overrides
   logo: images/logo.svg
   favicon: images/logo.svg
+  font:
+    text: Inter
   icon:
     repo: fontawesome/brands/github
   features:
