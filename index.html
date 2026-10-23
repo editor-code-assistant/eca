@@ -40,10 +40,12 @@
         
         
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=fallback">
     
       <link rel="stylesheet" href="stylesheets/layout.css">
     
@@ -141,14 +143,14 @@
 
   /* ── 1. Custom Properties ── */
   :root {
-    --eca-brand: #007a94;
-    --eca-brand-light: #00a5b8;
-    --eca-brand-hover: #004d5e;
-    --eca-brand-bg: #e3f6f9;
-    --eca-brand-shadow: rgba(0,122,148,0.08);
-    --eca-brand-shadow-md: rgba(0,122,148,0.1);
-    --eca-brand-shadow-lg: rgba(0,122,148,0.25);
-    --eca-brand-gradient: linear-gradient(90deg, #007a94, #00a5b8);
+    --eca-brand: #1f1f1f;
+    --eca-brand-light: #4a4a4a;
+    --eca-brand-hover: #000000;
+    --eca-brand-bg: #f0f0f0;
+    --eca-brand-shadow: rgba(0,0,0,0.08);
+    --eca-brand-shadow-md: rgba(0,0,0,0.1);
+    --eca-brand-shadow-lg: rgba(0,0,0,0.25);
+    --eca-brand-gradient: linear-gradient(90deg, #1f1f1f, #5a5a5a);
 
     --eca-text: #1a2b3c;
     --eca-text-secondary: #5a6a7a;
@@ -188,11 +190,11 @@
     --eca-dot-bg: #f0f2f5;
     --eca-dot-hover-color: #1a2b3c;
     --eca-dot-hover-bg: #e4e8ec;
-    --eca-dot-active-color: #007a94;
-    --eca-dot-active-bg: #e3f6f9;
-    --eca-dot-active-border: #007a94;
+    --eca-dot-active-color: #1f1f1f;
+    --eca-dot-active-bg: #f0f0f0;
+    --eca-dot-active-border: #1f1f1f;
     --eca-dot-group-border: #d0d5dc;
-    --eca-dot-group-bg: rgba(0,122,148,0.03);
+    --eca-dot-group-bg: rgba(0,0,0,0.03);
     --eca-dot-group-label: #8a9ab0;
 
     /* Community buttons */
@@ -218,17 +220,17 @@
     --eca-community-bg: linear-gradient(180deg, #f6f8fa 0%, #eef1f4 100%);
     --eca-community-btn-shadow: rgba(0,0,0,0.06);
     --eca-avatar-shadow: 0 1px 4px rgba(0,0,0,0.1);
-    --eca-avatar-hover-shadow: 0 3px 12px rgba(0,122,148,0.25);
+    --eca-avatar-hover-shadow: 0 3px 12px rgba(0,0,0,0.25);
   }
 
   [data-md-color-scheme="slate"] {
-    --eca-brand: #00a5b8;
-    --eca-brand-light: #00a5b8;
-    --eca-brand-bg: #0a2a30;
-    --eca-brand-shadow: rgba(0,165,184,0.1);
-    --eca-brand-shadow-md: rgba(0,165,184,0.12);
-    --eca-brand-shadow-lg: rgba(0,165,184,0.3);
-    --eca-brand-gradient: linear-gradient(90deg, #00a5b8, #007a94);
+    --eca-brand: #e6e6e6;
+    --eca-brand-light: #e6e6e6;
+    --eca-brand-bg: #262626;
+    --eca-brand-shadow: rgba(0,0,0,0.2);
+    --eca-brand-shadow-md: rgba(0,0,0,0.25);
+    --eca-brand-shadow-lg: rgba(0,0,0,0.35);
+    --eca-brand-gradient: linear-gradient(90deg, #e6e6e6, #8a8a8a);
 
     --eca-text: #e0e4ea;
     --eca-text-secondary: #8a9ab0;
@@ -261,11 +263,11 @@
     --eca-dot-bg: #22223a;
     --eca-dot-hover-color: #e0e4ea;
     --eca-dot-hover-bg: #2a2a3e;
-    --eca-dot-active-color: #00a5b8;
-    --eca-dot-active-bg: #0a2a30;
-    --eca-dot-active-border: #00a5b8;
+    --eca-dot-active-color: #e6e6e6;
+    --eca-dot-active-bg: #262626;
+    --eca-dot-active-border: #e6e6e6;
     --eca-dot-group-border: #3a3a4e;
-    --eca-dot-group-bg: rgba(0,165,184,0.04);
+    --eca-dot-group-bg: rgba(255,255,255,0.03);
     --eca-dot-group-label: #5a6a7a;
 
     --eca-btn-github-bg: #c8cdd4;
@@ -290,7 +292,7 @@
     --eca-community-bg: linear-gradient(180deg, #1a1a2e 0%, #12121e 100%);
     --eca-community-btn-shadow: rgba(0,0,0,0.2);
     --eca-avatar-shadow: 0 1px 4px rgba(0,0,0,0.3);
-    --eca-avatar-hover-shadow: 0 3px 12px rgba(0,165,184,0.3);
+    --eca-avatar-hover-shadow: 0 3px 12px rgba(0,0,0,0.4);
   }
 
   /* ── 2. Reset / Page Chrome ── */
@@ -350,12 +352,13 @@
     height: 72px;
     margin-bottom: 1.25rem;
     filter: brightness(0) invert(1);
+    opacity: 0.75;
     animation: eca-float 6s ease-in-out infinite;
   }
 
   .eca-hero__title {
     font-size: 2.75rem;
-    font-weight: 800;
+    font-weight: 700;
     letter-spacing: -0.02em;
     line-height: 1.1;
     margin: 0 0 0.75rem;
@@ -364,11 +367,11 @@
 
   .eca-hero__title span {
     display: block;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 500;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    opacity: 0.7;
+    color: #a6f0f7;
     margin-bottom: 0.5rem;
   }
 
@@ -403,14 +406,14 @@
 
   .eca-btn--primary {
     background: #fff;
-    color: #007a94;
+    color: #161616;
     box-shadow: 0 4px 14px rgba(0,0,0,0.15);
   }
 
   .eca-btn--primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(0,0,0,0.2);
-    color: #004d5e;
+    color: #000;
   }
 
   .eca-btn--secondary {
@@ -710,8 +713,16 @@
     background: var(--eca-bg-card);
     transition: all 0.25s ease;
     text-decoration: none;
-    display: block;
+    /* Same layout as .eca-feature: icon alone in the first column */
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.75rem;
+    align-content: start;
     overflow: hidden;
+  }
+
+  .eca-feature--hero > * {
+    grid-column: 2;
   }
 
   .eca-feature--hero::before {
@@ -737,10 +748,18 @@
   }
 
   .eca-feature--hero__icon {
-    font-size: 1.75rem;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--eca-brand-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
     line-height: 1;
-    margin-bottom: 0.75rem;
-    display: block;
+    margin-top: 1px;
   }
 
   .eca-feature--hero__title {
@@ -753,11 +772,12 @@
   .eca-feature--hero__desc {
     font-size: 0.85rem;
     color: var(--eca-text-secondary);
-    line-height: 1.55;
+    line-height: 1.45;
     margin: 0;
   }
 
   .eca-feature--hero__link {
+    justify-self: start;
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
@@ -851,7 +871,7 @@
   .eca-feature__desc {
     font-size: 0.78rem;
     color: var(--eca-text-secondary);
-    line-height: 1.5;
+    line-height: 1.4;
     margin: 0;
   }
 
@@ -906,6 +926,7 @@
   }
 
   .eca-showcase__dot-emoji {
+    line-height: 0;
     font-size: 0.85rem;
   }
 
@@ -1919,35 +1940,120 @@
         </div>
         <div class="eca-why__advantages">
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">📄</div>
+            <div class="eca-why__item-icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-file-text"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+  <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+  <path d="M10 9H8" />
+  <path d="M16 13H8" />
+  <path d="M16 17H8" />
+</svg></div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Editor-Agnostic Protocol</span>
               <span class="eca-why__item-desc">Inspired by LSP &mdash; any editor can integrate. One server, many clients.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">⚙️</div>
+            <div class="eca-why__item-icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-settings"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
+  <circle cx="12" cy="12" r="3" />
+</svg></div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Single Configuration</span>
               <span class="eca-why__item-desc">Configure once, same experience everywhere &mdash; global or per-project.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">🚀</div>
+            <div class="eca-why__item-icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-rocket"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
+  <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09" />
+  <path d="M9 12a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.4 22.4 0 0 1-4 2z" />
+  <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 .05 5 .05" />
+</svg></div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Multi-Model Support</span>
               <span class="eca-why__item-desc">OpenAI, Anthropic, Copilot, Ollama, and many more. Switch freely.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon"><svg viewBox="0 0 24 24"><path fill="#3DA639" d="M11.959.447A11.938 11.938 0 000 12.407c0 5.576 3.874 10.097 7.783 11.114.193.05.392-.05.467-.234l2.771-6.822a.396.396 0 00-.246-.528C9.365 15.47 8.53 14.32 8.48 12.4c-.024-1.828 1.5-3.45 3.561-3.447 1.931.003 3.479 1.632 3.479 3.453 0 .966-.203 1.687-.575 2.238-.371.552-.922.951-1.695 1.239a.396.396 0 00-.23.515l2.685 6.903a.396.396 0 00.465.24C20.163 22.534 24 18.062 24 12.406 24 5.804 18.603.447 11.959.447zm0 .791c6.22 0 11.25 4.997 11.25 11.168 0 5.138-3.423 9.208-6.895 10.272L13.9 16.47c.703-.308 1.302-.79 1.702-1.384.477-.708.709-1.602.709-2.68 0-2.266-1.898-4.24-4.27-4.244-2.48-.004-4.382 1.976-4.352 4.25.023 1.995.934 3.492 2.451 4.13L7.648 22.66C4.251 21.592.791 17.458.791 12.406A11.13 11.13 0 0111.959 1.238z"/></svg></div>
+            <div class="eca-why__item-icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-git-fork"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="18" r="3" />
+  <circle cx="6" cy="6" r="3" />
+  <circle cx="18" cy="6" r="3" />
+  <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
+  <path d="M12 12v3" />
+</svg></div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">Free &amp; Open Source</span>
               <span class="eca-why__item-desc">Built with Clojure. Community-driven, transparent, and extensible.</span>
             </div>
           </div>
           <div class="eca-why__item">
-            <div class="eca-why__item-icon">📊</div>
+            <div class="eca-why__item-icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-chart-bar"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+  <path d="M7 16h8" />
+  <path d="M7 11h12" />
+  <path d="M7 6h3" />
+</svg></div>
             <div class="eca-why__item-text">
               <span class="eca-why__item-title">OpenTelemetry</span>
               <span class="eca-why__item-desc">Export metrics of tools, prompts, and server performance.</span>
@@ -1969,7 +2075,21 @@
       <!-- Hero row: the 3 core interactions -->
       <div class="eca-features__hero">
         <a href="features" class="eca-feature--hero">
-          <span class="eca-feature--hero__icon">💬</span>
+          <span class="eca-feature--hero__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-message-square"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+</svg></span>
           <h3 class="eca-feature--hero__title">Chat</h3>
           <p class="eca-feature--hero__desc">
             Pair program with an AI agent that can read, write, and refactor your code.
@@ -1980,7 +2100,22 @@
           </span>
         </a>
         <a href="config/rewrite" class="eca-feature--hero">
-          <span class="eca-feature--hero__icon">✏️</span>
+          <span class="eca-feature--hero__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-pencil"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+  <path d="m15 5 4 4" />
+</svg></span>
           <h3 class="eca-feature--hero__title">Rewrite</h3>
           <p class="eca-feature--hero__desc">
             Select code, describe the change, accept or reject the diff.
@@ -1991,7 +2126,21 @@
           </span>
         </a>
         <a href="config/completion" class="eca-feature--hero">
-          <span class="eca-feature--hero__icon">⚡</span>
+          <span class="eca-feature--hero__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-zap"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M15.914 4a1.5 1.5 0 00-2.474-1.561l-9 9A1.5 1.5 0 005.5 14h4.002a.5.5 0 01.471.666L8.086 20a1.5 1.5 0 002.475 1.56l9-9A1.5 1.5 0 0018.5 10h-3.997a.5.5 0 01-.472-.667z" />
+</svg></span>
           <h3 class="eca-feature--hero__title">Completion</h3>
           <p class="eca-feature--hero__desc">
             Inline AI-powered code suggestions as you type &mdash;
@@ -2008,21 +2157,68 @@
         <div class="eca-features__group-label">Agents &amp; Intelligence</div>
         <div class="eca-features__grid">
           <a href="config/agents" class="eca-feature">
-            <div class="eca-feature__icon">🤖</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-bot"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 8V4H8" />
+  <rect width="16" height="12" x="4" y="8" rx="2" />
+  <path d="M2 14h2" />
+  <path d="M20 14h2" />
+  <path d="M15 13v2" />
+  <path d="M9 13v2" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Agents &amp; Subagents</h3>
               <p class="eca-feature__desc">Built-in <em>code</em> and <em>plan</em> agents, with subagents for isolated parallel tasks and context window savings.</p>
             </div>
           </a>
           <a href="config/tools" class="eca-feature">
-            <div class="eca-feature__icon">🔧</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-wrench"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Tools &amp; MCP</h3>
               <p class="eca-feature__desc">Native file/shell/editor tools, MCP server integration, and custom tool definitions with fine-grained approval control.</p>
             </div>
           </a>
           <div class="eca-feature">
-            <div class="eca-feature__icon">📎</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-paperclip"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Context</h3>
               <p class="eca-feature__desc">Attach files, directories, cursor position, MCP resources, or AGENTS.md auto-context to any prompt.</p>
@@ -2036,56 +2232,193 @@
         <div class="eca-features__group-label">Customization &amp; Extensibility</div>
         <div class="eca-features__grid">
           <a href="config/rules" class="eca-feature">
-            <div class="eca-feature__icon">📐</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-ruler"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" />
+  <path d="m14.5 12.5 2-2" />
+  <path d="m11.5 9.5 2-2" />
+  <path d="m8.5 6.5 2-2" />
+  <path d="m17.5 15.5 2-2" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Rules</h3>
               <p class="eca-feature__desc">Define coding standards, conventions, and constraints the LLM must follow &mdash; globally or per project.</p>
             </div>
           </a>
           <a href="config/skills" class="eca-feature">
-            <div class="eca-feature__icon">🎯</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-target"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <circle cx="12" cy="12" r="6" />
+  <circle cx="12" cy="12" r="2" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Skills</h3>
               <p class="eca-feature__desc">Structured knowledge units that teach the LLM how to handle specific tasks. Follows the agentskills.io spec.</p>
             </div>
           </a>
           <a href="config/commands" class="eca-feature">
-            <div class="eca-feature__icon">⌨️</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-keyboard"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 8h.01" />
+  <path d="M12 12h.01" />
+  <path d="M14 8h.01" />
+  <path d="M16 12h.01" />
+  <path d="M18 8h.01" />
+  <path d="M6 8h.01" />
+  <path d="M7 16h10" />
+  <path d="M8 12h.01" />
+  <rect width="20" height="16" x="2" y="4" rx="2" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Commands</h3>
               <p class="eca-feature__desc">Slash commands like <em>/init</em>, <em>/compact</em>, <em>/resume</em>, and custom commands you define yourself.</p>
             </div>
           </a>
           <a href="config/hooks" class="eca-feature">
-            <div class="eca-feature__icon">🪝</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-webhook"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2" />
+  <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
+  <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Hooks</h3>
               <p class="eca-feature__desc">Before/after event callbacks to validate, notify, or trigger side effects on tool calls and prompts.</p>
             </div>
           </a>
           <a href="config/variants" class="eca-feature">
-            <div class="eca-feature__icon">🔀</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-shuffle"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m18 14 4 4-4 4" />
+  <path d="m18 2 4 4-4 4" />
+  <path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22" />
+  <path d="M2 6h1.972a4 4 0 0 1 3.6 2.2" />
+  <path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Variants</h3>
               <p class="eca-feature__desc">Switch between configuration presets on the fly &mdash; different models, reasoning effort, or custom setups.</p>
             </div>
           </a>
           <a href="config/metrics" class="eca-feature">
-            <div class="eca-feature__icon">📊</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-chart-bar"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+  <path d="M7 16h8" />
+  <path d="M7 11h12" />
+  <path d="M7 6h3" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Metrics</h3>
               <p class="eca-feature__desc">OpenTelemetry integration for exporting tool usage, prompt performance, and server metrics.</p>
             </div>
           </a>
           <a href="config/plugins" class="eca-feature">
-            <div class="eca-feature__icon">🧩</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-puzzle"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Plugins</h3>
               <p class="eca-feature__desc">Extend ECA with community plugins &mdash; bundles of tools, rules, skills, and more from the marketplace.</p>
             </div>
           </a>
           <a href="config/remote" class="eca-feature">
-            <div class="eca-feature__icon">🌐</div>
+            <div class="eca-feature__icon"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg></div>
             <div class="eca-feature__body">
               <h3 class="eca-feature__title">Remote</h3>
               <p class="eca-feature__desc">Observe and control your chat session from a browser via an embedded web server and web.eca.dev.</p>
@@ -2116,16 +2449,148 @@
         <input type="radio" name="eca-sc" id="eca-sc-8">
 
         <div class="eca-showcase__dots">
-          <label for="eca-sc-1" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🌐</span> Any Provider</label>
-          <label for="eca-sc-2" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🎯</span> Skills</label>
-          <label for="eca-sc-3" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🪝</span> Hooks</label>
-          <label for="eca-sc-4" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🔗</span> MCP Servers</label>
+          <label for="eca-sc-1" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-globe"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg></span> Any Provider</label>
+          <label for="eca-sc-2" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-target"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <circle cx="12" cy="12" r="6" />
+  <circle cx="12" cy="12" r="2" />
+</svg></span> Skills</label>
+          <label for="eca-sc-3" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-webhook"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2" />
+  <path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06" />
+  <path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8" />
+</svg></span> Hooks</label>
+          <label for="eca-sc-4" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-link"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+</svg></span> MCP Servers</label>
           <span class="eca-showcase__dot-group">
             <span class="eca-showcase__dot-group-label">Custom</span>
-            <label for="eca-sc-5" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🤖</span> Agents</label>
-            <label for="eca-sc-6" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">⌨️</span> Commands</label>
-            <label for="eca-sc-7" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🔧</span> Tools</label>
-            <label for="eca-sc-8" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji">🧩</span> Plugins</label>
+            <label for="eca-sc-5" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-bot"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 8V4H8" />
+  <rect width="16" height="12" x="4" y="8" rx="2" />
+  <path d="M2 14h2" />
+  <path d="M20 14h2" />
+  <path d="M15 13v2" />
+  <path d="M9 13v2" />
+</svg></span> Agents</label>
+            <label for="eca-sc-6" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-keyboard"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 8h.01" />
+  <path d="M12 12h.01" />
+  <path d="M14 8h.01" />
+  <path d="M16 12h.01" />
+  <path d="M18 8h.01" />
+  <path d="M6 8h.01" />
+  <path d="M7 16h10" />
+  <path d="M8 12h.01" />
+  <rect width="20" height="16" x="2" y="4" rx="2" />
+</svg></span> Commands</label>
+            <label for="eca-sc-7" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-wrench"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
+</svg></span> Tools</label>
+            <label for="eca-sc-8" class="eca-showcase__dot"><span class="eca-showcase__dot-emoji"><!-- @license lucide-static v1.57.0 - ISC -->
+<svg
+  class="lucide lucide-puzzle"
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M15.39 4.39a1 1 0 0 0 1.68-.474 2.5 2.5 0 1 1 3.014 3.015 1 1 0 0 0-.474 1.68l1.683 1.682a2.414 2.414 0 0 1 0 3.414L19.61 15.39a1 1 0 0 1-1.68-.474 2.5 2.5 0 1 0-3.014 3.015 1 1 0 0 1 .474 1.68l-1.683 1.682a2.414 2.414 0 0 1-3.414 0L8.61 19.61a1 1 0 0 0-1.68.474 2.5 2.5 0 1 1-3.014-3.015 1 1 0 0 0 .474-1.68l-1.683-1.682a2.414 2.414 0 0 1 0-3.414L4.39 8.61a1 1 0 0 1 1.68.474 2.5 2.5 0 1 0 3.014-3.015 1 1 0 0 1-.474-1.68l1.683-1.682a2.414 2.414 0 0 1 3.414 0z" />
+</svg></span> Plugins</label>
           </span>
         </div>
 
@@ -3502,7 +3967,8 @@ git changes.</pre></div>
       <div class="md-copyright">
         
           <div class="md-copyright__highlight">
-            Copyright &copy; 2026 ECA Contributors — Free & Open Source
+            Copyright &copy; 2026 ECA Contributors. Free & Open Source.
+            <span class="eca-footer-credit">Icons courtesy of <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a>.</span>
           </div>
         
       </div>

@@ -38,10 +38,12 @@
         
         
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
-        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"Roboto Mono"}</style>
       
     
+    
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=fallback">
     
       <link rel="stylesheet" href="../stylesheets/layout.css">
     
@@ -1355,6 +1357,39 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#working-on-the-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      Working on the docs
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Working on the docs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#with-docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      With Docker
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#without-docker" class="md-nav__link">
+    <span class="md-ellipsis">
+      Without Docker
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1605,6 +1640,25 @@
 </code></pre></div>
 <p>Create a issue to help track the effort copying and pasting these check box to help track progress, <a href="https://github.com/editor-code-assistant/eca/issues/5">example</a>.</p>
 <p>Please provide feedback of the difficulties implementing your server, especially missing docs, to make next integrations smoother!</p>
+<h2 id="working-on-the-docs">Working on the docs<a class="headerlink" href="#working-on-the-docs" title="Permanent link">#</a></h2>
+<p>The site at https://eca.dev is built with <a href="https://squidfunk.github.io/mkdocs-material/">MkDocs Material</a> from <code>docs/</code> and <code>mkdocs.yml</code>. Both options below serve it at http://localhost:8000 and reload on save.</p>
+<h3 id="with-docker">With Docker<a class="headerlink" href="#with-docker" title="Permanent link">#</a></h3>
+<p>Uses the same image as CI, so plugins and versions match the published site.</p>
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-it<span class="w"> </span>-p<span class="w"> </span><span class="m">8000</span>:8000<span class="w"> </span>-v<span class="w"> </span><span class="si">${</span><span class="nv">PWD</span><span class="si">}</span>:/docs<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>ghcr.io/editor-code-assistant/docs-image/docs-image<span class="w"> </span>serve<span class="w"> </span>-a<span class="w"> </span><span class="m">0</span>.0.0.0:8000
+</code></pre></div>
+<p>To check a full build, as CI does:</p>
+<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-v<span class="w"> </span><span class="si">${</span><span class="nv">PWD</span><span class="si">}</span>:/docs<span class="w"> </span>ghcr.io/editor-code-assistant/docs-image/docs-image<span class="w"> </span>--<span class="w"> </span>build
+</code></pre></div>
+<h3 id="without-docker">Without Docker<a class="headerlink" href="#without-docker" title="Permanent link">#</a></h3>
+<p>Install <a href="https://docs.astral.sh/uv/">uv</a>, then run from the repo root:</p>
+<div class="highlight"><pre><span></span><code>uvx<span class="w"> </span>--with<span class="w"> </span><span class="s1">&#39;mkdocs-material==9.6.*&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--with<span class="w"> </span>mkdocs-awesome-pages-plugin<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--with<span class="w"> </span>mkdocs-git-revision-date-localized-plugin<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>mkdocs<span class="w"> </span>serve
+</code></pre></div>
+<p>The <code>--with</code> list mirrors <code>plugins:</code> in <code>mkdocs.yml</code>. If you add a plugin there, add it here too. The revision-date plugin reads git history, so run this from a git checkout.</p>
+<p><code>mkdocs-material</code> is pinned to 9.6 because the CI image is built on <code>squidfunk/mkdocs-material:9.6</code>. Without the pin, <code>uvx</code> installs the newest release, which can render differently from the published site. When the image moves to a new Material version, change the pin to match.</p>
 
 
 
@@ -1625,7 +1679,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 22, 2026 18:22:03 UTC">October 22, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 23, 2026 14:34:27 UTC">October 23, 2026</span>
   </span>
 
     
@@ -1665,7 +1719,8 @@
       <div class="md-copyright">
         
           <div class="md-copyright__highlight">
-            Copyright &copy; 2026 ECA Contributors — Free & Open Source
+            Copyright &copy; 2026 ECA Contributors. Free & Open Source.
+            <span class="eca-footer-credit">Icons courtesy of <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a>.</span>
           </div>
         
       </div>
