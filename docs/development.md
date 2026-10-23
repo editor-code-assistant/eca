@@ -135,3 +135,38 @@ This step-by-step feature implementation help track progress and next steps:
 Create a issue to help track the effort copying and pasting these check box to help track progress, [example](https://github.com/editor-code-assistant/eca/issues/5).
 
 Please provide feedback of the difficulties implementing your server, especially missing docs, to make next integrations smoother!
+
+
+## Working on the docs
+
+The site at https://eca.dev is built with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/) from `docs/` and `mkdocs.yml`. Both options below serve it at http://localhost:8000 and reload on save.
+
+### With Docker
+
+Uses the same image as CI, so plugins and versions match the published site.
+
+```sh
+docker run --rm -it -p 8000:8000 -v ${PWD}:/docs \
+  ghcr.io/editor-code-assistant/docs-image/docs-image serve -a 0.0.0.0:8000
+```
+
+To check a full build, as CI does:
+
+```sh
+docker run --rm -v ${PWD}:/docs ghcr.io/editor-code-assistant/docs-image/docs-image -- build
+```
+
+### Without Docker
+
+Install [uv](https://docs.astral.sh/uv/), then run from the repo root:
+
+```sh
+uvx --with 'mkdocs-material==9.6.*' \
+    --with mkdocs-awesome-pages-plugin \
+    --with mkdocs-git-revision-date-localized-plugin \
+    mkdocs serve
+```
+
+The `--with` list mirrors `plugins:` in `mkdocs.yml`. If you add a plugin there, add it here too. The revision-date plugin reads git history, so run this from a git checkout.
+
+`mkdocs-material` is pinned to 9.6 because the CI image is built on `squidfunk/mkdocs-material:9.6`. Without the pin, `uvx` installs the newest release, which can render differently from the published site. When the image moves to a new Material version, change the pin to match.

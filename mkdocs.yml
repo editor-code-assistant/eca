@@ -5,6 +5,10 @@ site_url: https://eca.dev
 repo_name: editor-code-assistant/eca
 repo_url: https://github.com/editor-code-assistant/eca
 
+# Internal notes and visual changelog related to developing the docs site, not published
+exclude_docs: |
+  evolution/
+
 nav:
   - Home:
     - index.md
@@ -44,6 +48,8 @@ theme:
   custom_dir: docs/overrides
   logo: images/logo.svg
   favicon: images/logo.svg
+  font:
+    text: Inter
   icon:
     repo: fontawesome/brands/github
   features:
@@ -53,7 +59,7 @@ theme:
     - content.code.copy
     - content.code.select
 
-copyright: Copyright &copy; 2026 ECA Contributors — Free & Open Source
+copyright: Copyright &copy; 2026 ECA Contributors. Free & Open Source.
 
 extra:
   analytics:
@@ -68,6 +74,8 @@ extra:
       link: https://github.com/sponsors/editor-code-assistant
 
 extra_css:
+  # Material loads Inter at 300/400/700 only. Headings use 600.
+  - https://fonts.googleapis.com/css2?family=Inter:wght@600&display=fallback
   - stylesheets/layout.css
 
 markdown_extensions:
