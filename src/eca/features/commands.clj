@@ -726,13 +726,16 @@
                         (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)}))
                       {:type :new-chat-status :status :idle})
                     (do
-                      (swap! db* assoc-in [:chats chat-id :compacting?] true)
+                      (swap! db* update-in [:chats chat-id]
+                             #(-> %
+                                  (dissoc :last-summary :compact-done?)
+                                  (assoc :compacting? true)))
                       {:type :send-prompt
-                       :on-finished-side-effect #(let [{:keys [stop-turn? stop-reason stop-hook-name]}
+                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]}
                                                        (lifecycle/complete-compact! chat-ctx "manual")]
                                                    (when stop-turn?
                                                      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
-                                                   {:stop-after-finish? stop-turn?})
+                                                   {:stop-after-finish? (or stop-turn? (not compacted?))})
                        :prompt (f.prompt/compact-prompt custom-instructions all-tools agent config db)})))
       "login" (do
                 (messenger/chat-content-received

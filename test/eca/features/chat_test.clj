@@ -1887,6 +1887,57 @@
       (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
       (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
 
+(deftest steered-compact-text-response-does-not-reuse-stale-summary-test
+  (h/reset-components!)
+  (h/config! {:prompts {:compact "Summarize the chat. {{additionalUserInput}}"}})
+  (let [chat-id "steered-compact-text-only-chat"
+        api-calls* (atom [])]
+    (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+      (prompt!
+       {:message "Rename rfq to query" :chat-id chat-id}
+       {:all-tools-mock (constantly steered-compact-tools)
+        :call-tool-mock steered-compact-call-tool-mock
+        :api-mock
+        (fn [{:keys [user-messages on-first-response-received on-message-received
+                     on-prepare-tool-call on-tools-called]}]
+          (swap! api-calls* conj user-messages)
+          (case (count @api-calls*)
+            1 (do
+                (on-first-response-received {:type :text :text "Reading"})
+                (on-message-received {:type :text :text "Reading"})
+                (on-prepare-tool-call {:id "call-1"
+                                       :full-name "eca__read_file"
+                                       :arguments-text "{\"path\":\"/foo\"}"})
+                (swap! (h/db*) assoc-in [:chats chat-id :last-summary] "stale summary")
+                (f.chat/prompt-steer {:chat-id chat-id :message "/compact Keep only the rename details"}
+                                     (h/db*) (h/messenger) (h/config) (h/metrics))
+                (on-tools-called [{:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {"path" "/foo"}}]))
+            2 (do
+                (on-first-response-received)
+                (on-message-received {:type :text :text "A summary without the compact tool call."})
+                (on-message-received {:type :finish}))))}))
+    (let [messages (get-in (h/db) [:chats chat-id :messages])
+          content (:chat-content-received (h/messages))]
+      (is (= 2 (count @api-calls*))
+          "the original task must not resume after a failed compaction")
+      (is (not-any? #(= "compact_marker" (:role %)) messages)
+          "a textual response must not create a compact marker")
+      (is (not-any? #(string/includes? (pr-str (:content %)) "stale summary") messages)
+          "the prior summary must not be inserted into history")
+      (is (nil? (get-in (h/db) [:chats chat-id :last-summary])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compacting?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))
+      (is (match? (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text #(and (string/includes? % "Compaction failed: the model did not submit a summary")
+                                                    (string/includes? % "The conversation was not compacted."))}}])
+                  content)
+          "the user should see why the compaction did not happen"))))
+
 (deftest steered-compact-blocked-by-hook-test
   (testing "a preCompact hook blocking (exit 2) a steered /compact keeps the turn going without compacting"
     (h/reset-components!)
