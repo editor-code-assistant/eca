@@ -10,6 +10,7 @@
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
    [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -128,7 +129,10 @@
                 ;; The callback re-reads config, so plugin agents are included
                 ;; when plugin resolution finishes before model sync.
                 (models/sync-models! db* config (fn [_models]
-                                                  (notify-chat-config-state! db* messenger))))))]
+                                                  (notify-chat-config-state! db* messenger)))
+                ;; Show subscription quotas before the first request; tokens were just renewed.
+                (doseq [provider (f.quota/subscription-providers @db* config)]
+                  (f.providers/refresh-quota! provider db* config messenger)))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models]
              (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
       (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]

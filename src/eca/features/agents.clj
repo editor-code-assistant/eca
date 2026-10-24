@@ -137,11 +137,22 @@
          include (assoc :includePattern include)
          exclude (assoc :excludePattern exclude))))))
 
+(defn ^:private normalize-timeout-seconds
+  "Coerces the YAML `timeoutSeconds:` value into a positive long, ignoring malformed values."
+  [timeout-seconds]
+  (cond
+    (nil? timeout-seconds) nil
+    (and (number? timeout-seconds) (pos? timeout-seconds)) (long timeout-seconds)
+    :else (do
+            (logger/warn logger-tag (format "Ignoring malformed timeoutSeconds value: %s" (pr-str timeout-seconds)))
+            nil)))
+
 (defn ^:private md->agent-config
-  [{:keys [description mode model variant maxSteps steps tools body inherit spawnableBy
+  [{:keys [description mode model variant maxSteps steps timeoutSeconds tools body inherit spawnableBy
            disabledTools mcpToolSearch]}]
   (let [agent-variant (normalize-agent-variant variant)
         max-steps (or maxSteps steps)
+        timeout-seconds (normalize-timeout-seconds timeoutSeconds)
         tools-map (normalize-tools tools)
         spawnable-by (normalize-spawnable-by spawnableBy)
         disabled-tools (normalize-tool-patterns "disabledTools" disabledTools)
@@ -158,6 +169,7 @@
       model (assoc :defaultModel (str model))
       agent-variant (assoc :variant agent-variant)
       max-steps (assoc :maxSteps (long max-steps))
+      timeout-seconds (assoc :timeoutSeconds timeout-seconds)
       (seq body) (assoc :systemPrompt body)
       tools-map (assoc :toolCall
                        (cond-> {:approval {}}

@@ -9,7 +9,8 @@
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.shared :as shared]
-   [eca.test-helper :as h]))
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
 
@@ -388,6 +389,7 @@
             :title "My chat"
             :model "openai/gpt-5.2"
             :trust true
+            :remembered-approvals {"eca__shell_command" {:remembered-command-keys #{"rg"}}}
             :variant "high"
             :prompt-cache {:static "cached"}
             :messages [{:role "user" :content [{:type :text :text "hello"}]}
@@ -411,10 +413,51 @@
         (is (= "btw: who is foo?" (:title new-chat)))
         (is (= "openai/gpt-5.2" (:model new-chat)))
         (is (true? (:trust new-chat)))
+        (is (= {"eca__shell_command" {:remembered-command-keys #{"rg"}}}
+               (:remembered-approvals new-chat))
+            "Like trust, the side chat keeps the remembered approvals")
         (is (= "high" (:variant new-chat)))
         (is (= {:static "cached"} (:prompt-cache new-chat)))
         (is (= [{:chat-id new-id :title "btw: who is foo?"}]
                (:chat-opened (h/messages))))))))
+
+(deftest fork-commands-page-history-test
+  (let [messages (vec (for [i (range 60)]
+                        {:role "user" :content [{:type :text :text (str "q" i)}]}))
+        setup! (fn [incremental?]
+                 (h/reset-components!)
+                 (when incremental?
+                   (swap! (h/db*) assoc-in
+                          [:client-capabilities :code-assistant :chat-capabilities :incremental-updates]
+                          {:history-page-size 50}))
+                 (swap! (h/db*) assoc-in [:chats "chat-1"]
+                        {:id "chat-1" :title "My chat" :messages messages}))]
+    (with-redefs [db/save-chat! (fn [& _])]
+      (testing "/fork sends only the newest page to incremental clients"
+        (setup! true)
+        (let [result (f.commands/handle-command! "fork" [] (command-context "chat-1"))
+              [new-id {new-messages :messages}] (first (dissoc (:chats result) "chat-1"))]
+          (is (= 60 (count (get-in (h/db) [:chats new-id :messages]))))
+          (is (= (subvec messages 10) new-messages))
+          (is (match? [{:chat-id new-id
+                        :history {:total 60 :returned 50 :before-cursor string?}}]
+                      (:chat-opened (h/messages))))))
+
+      (testing "/btw sends only the newest page to incremental clients"
+        (setup! true)
+        (let [result (f.commands/handle-command! "btw" ["why?"]
+                                                 (assoc (command-context "chat-1")
+                                                        :message "/btw why?"))]
+          (is (= (subvec messages 10) (:target-messages result)))
+          (is (match? [{:history {:total 60 :returned 50}}]
+                      (:chat-opened (h/messages))))))
+
+      (testing "other clients get the whole history and no history meta"
+        (setup! false)
+        (let [result (f.commands/handle-command! "fork" [] (command-context "chat-1"))
+              [_ {new-messages :messages}] (first (dissoc (:chats result) "chat-1"))]
+          (is (= messages new-messages))
+          (is (not (contains? (first (:chat-opened (h/messages))) :history))))))))
 
 (deftest all-commands-include-model-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]
@@ -433,6 +476,44 @@
                    :arguments [{:name "agent-name"}]}
                  %)
               commands))))
+
+(deftest approvals-commands-test
+  (let [command-text (fn [command chat-id]
+                       (-> (f.commands/handle-command! command [] (command-context chat-id))
+                           (get-in [:chats chat-id :messages 0 :content 0 :text])))
+        approvals {"eca__shell_command" {:remembered-command-keys #{"rg" "git status"}}
+                   "my-mcp__my_tool" {:remember-to-approve? true}}]
+    (testing "both commands are listed"
+      (is (every? (set (map :name (f.commands/all-commands {:workspace-folders []} {})))
+                  ["approvals" "forget-approvals"])))
+
+    (testing "/approvals lists the current chat remembered approvals, sorted"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :remembered-approvals approvals}})
+      (is (= (str "Tool call approvals remembered in this chat:\n\n"
+                  "- `eca__shell_command`: `git status`, `rg`\n"
+                  "- `my-mcp__my_tool`: all calls\n\n"
+                  "Run `/forget-approvals` to forget them.")
+             (command-text "approvals" "chat-1"))))
+
+    (testing "/approvals without remembered approvals"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1"}})
+      (is (= "No tool call approvals remembered in this chat."
+             (command-text "approvals" "chat-1"))))
+
+    (testing "/forget-approvals forgets only the current chat remembered approvals"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"chat-1" {:id "chat-1" :remembered-approvals approvals}
+                                   "chat-2" {:id "chat-2" :remembered-approvals approvals}})
+      (is (= (str "Forgot the tool call approvals remembered in this chat:\n\n"
+                  "- `eca__shell_command`: `git status`, `rg`\n"
+                  "- `my-mcp__my_tool`: all calls")
+             (command-text "forget-approvals" "chat-1")))
+      (is (not (contains? (get-in (h/db) [:chats "chat-1"]) :remembered-approvals)))
+      (is (= approvals (db/remembered-approvals (h/db) "chat-2")) "Other chats are untouched")
+      (is (= "No tool call approvals remembered in this chat."
+             (command-text "forget-approvals" "chat-1"))))))
 
 (deftest handle-sync-system-prompt-command-test
   (testing "clears the chat prompt cache and confirms"

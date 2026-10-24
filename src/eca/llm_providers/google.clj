@@ -14,7 +14,7 @@
 (defmethod f.login/login-step ["google" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
   (if (not (string/blank? input))
     (do
-      (config/update-global-config! {:providers {"google" {:key input}}})
+      (config/update-global-config! {:providers {provider {:key input}}})
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))

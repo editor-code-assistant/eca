@@ -105,6 +105,8 @@ The major advantages of subagents are:
 - __Less context window usage__: Since subagents work as different chats/context/cleaner context, they have their own context window and when done the tools and process done there doesn't affect the primary agent context window, resulting and bigger conversations and less compaction needed.
 - __Parallel subagents__: subagents are spawned as tools, and ECA supports parallel tool calls if LLM supports, this increase speed of task solution if LLM needs for example to explore 2-3 different things with `explorer` subagent, spawning those in parallel.
 
+Parents can continue a subagent conversation once its prior work has settled by passing its returned `chat_id` to `spawn_agent`, preserving its context. It keeps its model and variant unless `model` or `variant` is given; a new `model` gets the agent's configured variant. Continuation is limited to the same parent chat. Subagents from before an ECA restart cannot be continued, even if their IDs are still in the parent's saved history. Each continued run gets a fresh `maxSteps` and `timeoutSeconds` budget, and its limits, tools and approval rules follow the current config; the system prompt stays as it was unless `chat.autoSyncSystemPrompt` is enabled. A subagent halted by a limit can also be continued after its final summary. While it is continuable, a subagent chat can only be prompted by its parent, through `spawn_agent`.
+
 Subagents can be configured in config or markdown and support/require these fields:
 
 - `mode`: set to `"subagent"` (or `["subagent"]`) to restrict an agent to subagent use only. Omit or include `"primary"` to also allow chat use.
@@ -119,6 +121,22 @@ Subagents can be configured in config or markdown and support/require these fiel
 - `disabledTools` (optional): tools to hide from this agent entirely. Same matching as the global [`disabledTools`](tools.md#disabled-tools): a builtin tool name or regex (no `eca__` prefix needed), an exact MCP server name (all its tools), or a regex against the tool full name `server__tool`.
 - `mcpToolSearch` (optional): MCP tools this agent loads on demand via `eca__search_tools` instead of keeping in context. See [MCP tool search](#mcp-tool-search) below.
 - `maxSteps` (optional): set a max limit of turns/steps that his subagent must finish and return an answer.
+- `timeoutSeconds` (optional): wall-clock limit in seconds for a subagent run. See [Limits and final summary](#limits-and-final-summary).
+
+### Limits and final summary
+
+`maxSteps` and `timeoutSeconds` keep a subagent from running forever. When a subagent reaches either limit, ECA stops it (on timeout, its running tool calls are cancelled) and prompts it one last time, with tool calls refused, to report what it found, what it didn't get to and any open questions. That report goes back to the parent flagged as `Halted` (max steps) or `Timed out`.
+
+The final summary turn has up to 2 minutes, after that the subagent is stopped and its last output is returned instead.
+
+```yaml
+---
+mode: subagent
+description: Reviews the changes for bugs
+maxSteps: 80
+timeoutSeconds: 1200
+---
+```
 
 ### Parent-scoped subagents
 
@@ -281,7 +299,8 @@ The `/config` command intentionally remains an administrative, raw resolved-conf
           "defaultModel": "anthropic/sonnet-4.5",
           "variant": "high",
           "toolCall": {...},
-          "maxSteps": 25 // Optional: to limit turns in subagent
+          "maxSteps": 25, // Optional: to limit turns in subagent
+          "timeoutSeconds": 1200 // Optional: wall-clock limit for the subagent run
         }
       }
     }

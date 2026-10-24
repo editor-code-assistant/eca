@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -46,9 +47,8 @@
 ;; the Codex CLI request identity and supports a Responses Lite payload shape
 ;; for some models. All Codex specifics live in the `codex-` fns below.
 
-;; Keep >= the `minimal_client_version` of the newest model we want the Codex
-;; /models endpoint to list (gpt-6-sol/gpt-6-luna require 0.155.0).
-(def ^:private codex-compatibility-version "0.155.1")
+;; Keep >= the newest model's `minimal_client_version`; the live gate is stricter than the catalog, so pin a recent released Codex version.
+(def ^:private codex-compatibility-version "0.160.0")
 
 (def ^:private codex-responses-url "https://chatgpt.com/backend-api/codex/responses")
 
@@ -57,9 +57,10 @@
        codex-compatibility-version))
 
 (defn ^:private codex-request?
-  "Codex requests are exclusive to the built-in openai provider authenticated
-   via OAuth (ChatGPT subscription). Custom Responses API providers never hit
-   the Codex backend, whatever their auth."
+  "Codex requests are exclusive to the built-in openai provider (or providers
+   inheriting it, `provider` being the provider base) authenticated via OAuth
+   (ChatGPT subscription). Custom Responses API providers never hit the Codex
+   backend, whatever their auth."
   [provider auth-type]
   (and (= "openai" provider)
        (= :auth/oauth auth-type)))
@@ -302,6 +303,24 @@
         (jwt-payload->account-id payload)))
     (catch Exception _)))
 
+(def ^:private codex-usage-url "https://chatgpt.com/backend-api/wham/usage")
+
+(defmethod f.quota/fetch-quota "openai" [{:keys [provider-auth]}]
+  (let [api-key (:api-key provider-auth)
+        {:keys [status body]} (http/get codex-usage-url
+                                        {:headers (merge
+                                                   {"Authorization" (str "Bearer " api-key)}
+                                                   (codex-request-headers
+                                                    {:account-id (or (:account-id provider-auth)
+                                                                     (jwt-token->account-id api-key))}))
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout codex-models-timeout-ms})]
+    (if (= 200 status)
+      (f.quota/codex-usage->snapshot body)
+      (throw (ex-info (format "ChatGPT usage endpoint returned status %s" status) {:status status})))))
+
 (defn ^:private response-body->result [body]
   {:output-text (reduce
                  #(str %1 (:text %2))
@@ -371,7 +390,7 @@
 
 (defn ^:private base-responses-request!
   [{:keys [rid body api-url codex? url-relative-path api-key account-id
-           turn-context responses-lite? on-error on-stream http-client extra-headers
+           turn-context responses-lite? on-error on-stream on-response-headers http-client extra-headers
            cancelled? stream-idle-timeout-seconds]}]
   (let [stream? (and on-stream (not= false (:stream body)))
         url (if codex?
@@ -405,6 +424,8 @@
                                                           :throw-exceptions? false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if stream? :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
         (when (and codex? (= 200 status))
           (capture-codex-turn-state!
            turn-context
@@ -455,8 +476,7 @@
                               (throw (ex-info "Stream cancelled" {:silent? true}))
 
                               :idle-timeout
-                              {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                (or stream-idle-timeout-seconds 120))}
+                              (llm-util/idle-timeout-error stream-idle-timeout-seconds nil)
 
                               (assoc-some
                                {:message "Stream disconnected before completion: stream closed before response.completed"
@@ -473,9 +493,7 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                  (or stream-idle-timeout-seconds 120))
-                                 :exception e})
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
 
                       :else
                       (throw e))))
@@ -626,7 +644,7 @@
                                 provider auth-type provider-data account-id http-client prompt-cache-key cancelled?
                                 stream-idle-timeout-seconds]}
                         {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
-                                on-server-web-search on-server-image-generation retry-request] :as callbacks}]
+                                on-server-web-search on-server-image-generation on-response-headers retry-request] :as callbacks}]
   (let [codex? (codex-request? provider auth-type)
         provider-data (when codex?
                         (merge (:discovered-provider-data (codex-model-fallback-discovery model))
@@ -817,6 +835,7 @@
                         :cancelled? cancelled?
                         :stream-idle-timeout-seconds stream-idle-timeout-seconds
                         :on-error on-error
+                        :on-response-headers on-response-headers
                         :on-stream handle-stream
                         :retry-request retry-request})))
                   (on-message-received {:type :finish
@@ -846,6 +865,7 @@
                  :cancelled? cancelled?
                  :stream-idle-timeout-seconds stream-idle-timeout-seconds
                  :on-error on-error
+                 :on-response-headers on-response-headers
                  :on-stream on-stream-fn})]
     (if callbacks
       result
@@ -919,7 +939,7 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["openai" "pro"] [_ _ db* _config messenger metrics]
+(defmethod f.providers/start-login! ["openai" "pro"] [provider _ db* _config messenger metrics]
   (let [local-server-port 1455
         server-url (str "http://localhost:" local-server-port "/auth/callback")
         {:keys [verifier url]} (oauth-url server-url)]
@@ -929,7 +949,7 @@
                     (try
                       (let [{:keys [access-token refresh-token account-id expires-at]}
                             (oauth-authorize server-url code verifier)]
-                        (swap! db* update-in [:auth "openai"] merge
+                        (swap! db* update-in [:auth provider] merge
                                {:step :login/done
                                 :type :auth/oauth
                                 :mode :pro
@@ -937,7 +957,7 @@
                                 :api-key access-token
                                 :account-id account-id
                                 :expires-at expires-at})
-                        (f.providers/sync-and-notify! "openai" db* messenger metrics))
+                        (f.providers/sync-and-notify! provider db* messenger metrics))
                       (catch Exception e
                         (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
                       (finally
@@ -999,7 +1019,7 @@
 
 (defmethod f.login/login-step ["openai" :login/waiting-api-key] [{:keys [input db* provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
-    (do (config/update-global-config! {:providers {"openai" {:key input}}})
+    (do (config/update-global-config! {:providers {provider {:key input}}})
         (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
         (send-msg! (str "API key saved in " (.getCanonicalPath (config/global-config-file))))
         (f.login/login-done! ctx))

@@ -1,6 +1,7 @@
 (ns eca.features.chat.tool-calls
   (:require
    [clojure.string :as string]
+   [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.hooks :as f.hooks]
@@ -116,6 +117,18 @@
                  (#{:completed :rejected} (:status state))))
        (into {})))
 
+(def ^:private waiting-approval-progress-text "Waiting for tool call approval")
+
+(defn ^:private progress-text
+  "Progress text for a tool call transition of `chat-id`. While any of its tool
+   calls waits for approval that is shown instead of `text`, so an approved
+   tool call finishing in the background doesn't hide the pending approval."
+  [db chat-id text]
+  (if (some #(= :waiting-approval (:status %))
+            (vals (get-in db [:chats chat-id :tool-calls])))
+    waiting-approval-progress-text
+    text))
+
 (defn ^:private run-post-tool-call-hooks!
   "Run postToolCall hooks and append any additionalContext to the tool output.
    Returns {:stop-turn? boolean :stop-reason string-or-nil} when a hook returns
@@ -228,6 +241,8 @@
    Note: All actions are run in the order specified.
    Note: The :send-* actions should be last, so that they have the latest values of the state context.
    Note: The :status is updated before any actions are run, so the actions are in the context of the latest :status.
+   Note: :finally-actions run after the actions and the status hook, even when they throw.
+   The future-cleanup promise is delivered there, so a stop joins the post-tool hooks too.
 
    Note: all choices (i.e. conditionals) have to be made in code and result
    in different events being sent to the state machine.
@@ -277,7 +292,8 @@
 
    [:executing :execution-end]
    {:status :cleanup
-    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]}
+    :actions [:save-execution-result :send-toolCalled :log-metrics :send-progress :trigger-post-tool-call-hook]
+    :finally-actions [:deliver-future-cleanup-completed]}
 
    [:cleanup :cleanup-finished]
    {:status :completed
@@ -297,7 +313,8 @@
 
    [:stopping :stop-attempted]
    {:status :cleanup
-    :actions [:save-execution-result :deliver-future-cleanup-completed :send-toolCallRejected :trigger-post-tool-call-hook]}
+    :actions [:save-execution-result :send-toolCallRejected :trigger-post-tool-call-hook]
+    :finally-actions [:deliver-future-cleanup-completed]}
 
    ;; And now all the :stop-requested transitions
 
@@ -355,7 +372,7 @@
     (lifecycle/send-content! chat-ctx :system
                              {:type :progress
                               :state :running
-                              :text (:progress-text event-data)})
+                              :text (progress-text @db* (:chat-id chat-ctx) (:progress-text event-data))})
 
     :send-toolCallPrepare
     (lifecycle/send-content! chat-ctx :assistant
@@ -573,7 +590,8 @@
    - event: Event keyword (e.g., :tool-prepare, :tool-run, :user-approve)
    - event-data: Optional map with event-specific data
 
-   Returns: {:status new-status :actions actions-executed}
+   Returns: the transition, {:status new-status :actions actions-executed}
+   plus its :finally-actions, if any.
 
    Throws: ex-info if the transition is invalid for the current state.
 
@@ -583,7 +601,7 @@
   (let [current-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)
         current-status (:status current-state :initial) ; Default to :initial if no state
         transition-key [current-status event]
-        {:keys [status actions]} (get tool-call-state-machine transition-key)]
+        {:keys [status actions finally-actions] :as transition} (get tool-call-state-machine transition-key)]
 
     (logger/debug logger-tag "Tool call transition"
                   {:tool-call-id tool-call-id :current-status current-status :event event :status status})
@@ -600,13 +618,15 @@
     ;; Atomic status update
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :status] status)
 
-    ;; Execute all actions sequentially
-    (doseq [action actions]
-      (execute-action! action db* chat-ctx tool-call-id event-data))
+    (try
+      (doseq [action actions]
+        (execute-action! action db* chat-ctx tool-call-id event-data))
+      (lifecycle/trigger-chat-status-hook! (assoc chat-ctx :db* db*))
+      (finally
+        (doseq [action finally-actions]
+          (execute-action! action db* chat-ctx tool-call-id event-data))))
 
-    (lifecycle/trigger-chat-status-hook! (assoc chat-ctx :db* db*))
-
-    {:status status :actions actions}))
+    transition))
 
 (def ^:private hook-approval-rank
   {"allow" 1
@@ -680,10 +700,11 @@
         native-tools (filter #(= :native (:origin %)) all-tools)
 
         ;; 1. Determine approval (trust promotion handled inside f.tools/approval)
-        approval (f.tools/approval all-tools tool arguments db config agent-name {:trust trust})
+        approval-opts {:trust trust :chat-id chat-id}
+        approval (f.tools/approval all-tools tool arguments db config agent-name approval-opts)
         ;; Which rule caused the decision, to help debugging approval configs. #536
         _ (logger/debug logger-tag "Tool call approval decision"
-                        (assoc (f.tools/approval-decision all-tools tool arguments db config agent-name {:trust trust})
+                        (assoc (f.tools/approval-decision all-tools tool arguments db config agent-name approval-opts)
                                :tool full-name
                                :agent agent-name))
         trusted? (= :trust/allow approval)
@@ -798,13 +819,20 @@
     ;; postToolCall hooks report continue:false through the tool call state,
     ;; accumulated per-tool by the state machine action :trigger-post-tool-call-hook.
     (let [all-tools (f.tools/all-tools chat-id agent @db* config)
-          max-steps-reached? (check-subagent-max-steps! db* chat-id)]
+          ;; Checked first so the final summary turn doesn't count as a step.
+          summary-requested? (get-in @db* [:chats chat-id :summary-requested?])
+          max-steps-reached? (and (not summary-requested?)
+                                  (check-subagent-max-steps! db* chat-id))]
       (lifecycle/assert-chat-not-stopped! chat-ctx)
-      ;; Check subagent max steps - if reached, finish without executing more tools
-      (if max-steps-reached?
+      ;; Subagent reached max steps or was asked for its final summary,
+      ;; finish without executing more tools
+      (if (or summary-requested? max-steps-reached?)
         (do
-          (logger/info logger-tag "Subagent reached max steps, finishing" {:chat-id chat-id})
-          (swap! db* assoc-in [:chats chat-id :max-steps-reached?] true)
+          (if summary-requested?
+            (logger/info logger-tag "Subagent tried to call tools during its final summary, finishing" {:chat-id chat-id})
+            (do
+              (logger/info logger-tag "Subagent reached max steps, finishing" {:chat-id chat-id})
+              (swap! db* assoc-in [:chats chat-id :max-steps-reached?] true)))
           (when-not (string/blank? @received-msgs*)
             (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]}))
           (lifecycle/finish-chat-prompt! :idle chat-ctx)
@@ -863,7 +891,7 @@
                                                                             :summary                   summary}))
                         (when-not (#{:stopping :cleanup :rejected} (:status (get-tool-call-state @db* chat-id id)))
                           (case decision
-                            :ask   (transition-tool-call! db* chat-ctx id :approval-ask {:progress-text "Waiting for tool call approval"})
+                            :ask   (transition-tool-call! db* chat-ctx id :approval-ask {:progress-text waiting-approval-progress-text})
                             :allow (transition-tool-call! db* chat-ctx id :approval-allow {:reason reason})
                             :deny  (transition-tool-call! db* chat-ctx id :approval-deny {:reason reason})
                             (logger/warn logger-tag "Unknown value of approval" {:approval decision :tool-call-id id})))
@@ -882,7 +910,7 @@
                                                                                      config
                                                                                      messenger
                                                                                      metrics
-                                                                                     (partial get-tool-call-state @db* chat-id id)
+                                                                                     #(get-tool-call-state @db* chat-id id)
                                                                                      (partial transition-tool-call! db* chat-ctx id)
                                                                                      {:trust (db/resolve-trust @db* chat-id)})
                                             details              (f.tools/tool-call-details-after-invocation name arguments details result
@@ -972,7 +1000,6 @@
                           (reduced nil))))
                     nil
                     tool-calls)
-            (lifecycle/assert-chat-not-stopped! chat-ctx)
             (doseq [[tool-call-id state] (get-active-tool-calls @db* chat-id)]
               (when-let [f (:future state)]
                 (try (deref f)
@@ -1003,6 +1030,7 @@
                                                     :ex-data (ex-data t)
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
+            (lifecycle/assert-chat-not-stopped! chat-ctx)
             (f.tools.mcp/await-pending-tools-refresh @db* 5000)
             ;; Token can expire during long tool calls (e.g. spawn_agent),
             ;; so renew before any continuation branch.
@@ -1011,7 +1039,7 @@
                   refreshed-provider-auth (get-in @db* [:auth (:provider chat-ctx)])
                   [_ refreshed-api-key] (llm-util/provider-api-key (:provider chat-ctx)
                                                                    refreshed-provider-auth
-                                                                   config)
+                                                                   (config/all @db*))
                   with-fresh-auth #(some-> % (assoc :fresh-api-key refreshed-api-key
                                                     :provider-auth refreshed-provider-auth))]
               (if-let [blocked-info @blocked-tool-call-info*]

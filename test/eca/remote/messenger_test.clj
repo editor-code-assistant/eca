@@ -61,6 +61,55 @@
 
     (sse/close-all! sse-connections*)))
 
+(deftest incremental-notifications-replay-for-sse-test
+  (let [user-msg (fn [i] {:role "user" :content [{:type :text :text (str "q" i)}]
+                          :content-id (str "m" i)})
+        inner (h/messenger)
+        sent (fn [k] (get @(:messages* inner) k))
+        sse-connections* (sse/create-connections)
+        broadcast-messenger (remote.messenger/make-broadcast-messenger
+                             inner sse-connections* (h/db*))
+        sse-output (fn [f]
+                     (let [os (java.io.ByteArrayOutputStream.)
+                           client (sse/add-client! sse-connections* os)]
+                       (f)
+                       (Thread/sleep 100)
+                       (sse/remove-client! sse-connections* client)
+                       (.toString os "UTF-8")))]
+    (swap! (h/db*) assoc-in [:chats "c1"]
+           {:id "c1" :messages [(user-msg 0) (user-msg 1) (user-msg 2)]})
+
+    (testing "chat-truncated reaches the editor, SSE clients get a clear and replay"
+      (reset! (:messages* inner) {})
+      (let [output (sse-output #(messenger/chat-truncated
+                                 broadcast-messenger {:chat-id "c1" :content-id "m3"}))]
+        (is (= [{:chat-id "c1" :content-id "m3"}] (sent :chat-truncated)))
+        (is (not (.contains output "chat:truncated")))
+        (is (.contains output "chat:cleared"))
+        (is (every? #(.contains output %) ["q0" "q1" "q2"]))))
+
+    (testing "a positioned flag reaches the editor, SSE clients get a clear and replay"
+      (reset! (:messages* inner) {})
+      (let [data {:chat-id "c1" :role :system
+                  :content {:type :flag :text "here" :contentId "f1" :afterContentId "m0"}}
+            output (sse-output #(messenger/chat-content-received broadcast-messenger data))]
+        (is (= [data] (sent :chat-content-received)))
+        (is (not (.contains output "afterContentId")))
+        (is (.contains output "chat:cleared"))
+        (is (every? #(.contains output %) ["q0" "q1" "q2"]))))
+
+    (testing "a paged chat-opened sends SSE clients the messages older than the page"
+      (reset! (:messages* inner) {})
+      (let [params {:chat-id "c1" :title "Fork" :history {:total 3 :returned 1}}
+            output (sse-output #(messenger/chat-opened broadcast-messenger params))]
+        (is (= [params] (sent :chat-opened)))
+        (is (.contains output "chat:opened"))
+        (is (not (.contains output "history")))
+        (is (every? #(.contains output %) ["q0" "q1"]))
+        (is (not (.contains output "q2")) "the page itself streams afterwards")))
+
+    (sse/close-all! sse-connections*)))
+
 (deftest ask-question-broadcasts-and-resolves-via-answer-test
   (testing "ask-question registers a promise, broadcasts SSE, and answer-question! resolves it"
     (let [inner (h/messenger)
@@ -438,6 +487,22 @@
       (is (= {:answer "via-sse" :cancelled false} (deref result 1000 :timeout)))
       (is (future-cancelled? inner-result)
           "the editor's pending request must be cancelled so the server retracts it"))))
+
+(deftest ask-question-future-cancel-resolves-question-test
+  (testing "future-cancel resolves the question as cancelled, cancels the editor request and follows the Future contract"
+    (let [inner-result (java.util.concurrent.CompletableFuture.)
+          inner (reify messenger/IMessenger
+                  (ask-question [_ _params] inner-result))
+          broadcast-messenger (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
+          result (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Q?" :request-id "req-1"})]
+      (is (not (future-done? result)))
+      (is (true? (future-cancel result)))
+      (is (future-done? result))
+      (is (future-cancelled? result))
+      (is (= {:answer nil :cancelled true} (deref result 0 :pending)))
+      (is (future-cancelled? inner-result))
+      (is (nil? (remote.messenger/answer-question! broadcast-messenger "req-1" "late" false))
+          "a late remote answer finds no pending question"))))
 
 (deftest ask-question-editor-answer-wins-test
   (testing "an editor answer resolves the call and cleans up the SSE pending entry"

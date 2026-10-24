@@ -23,14 +23,14 @@
 
 (defmethod f.login/login-step ["litellm" :login/waiting-models] [{:keys [input db* provider send-msg!] :as ctx}]
   (let [{:keys [api-key url]} (get-in @db* [:auth provider])]
-    (config/update-global-config! {:providers {"litellm" {:api "openai-responses"
-                                                          :url url
-                                                          :models (reduce
-                                                                   (fn [models model-str]
-                                                                     (assoc models (string/trim model-str) {}))
-                                                                   {}
-                                                                   (string/split input #","))
-                                                          :key api-key}}}))
+    (config/update-global-config! {:providers {provider {:api "openai-responses"
+                                                         :url url
+                                                         :models (reduce
+                                                                  (fn [models model-str]
+                                                                    (assoc models (string/trim model-str) {}))
+                                                                  {}
+                                                                  (string/split input #","))
+                                                         :key api-key}}}))
   (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
   (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
   (f.login/login-done! ctx))

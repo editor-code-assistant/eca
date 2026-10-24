@@ -467,6 +467,88 @@
           resolved (#'config/resolve-agent-inheritance agents)]
       (is (not (contains? (get resolved "child") :inherit))))))
 
+(deftest resolve-provider-inheritance-test
+  (testing "child gets parent config without its credentials and keeps inherit"
+    (let [providers {"anthropic" {:api "anthropic"
+                                  :url "https://api.anthropic.com"
+                                  :key "parent-key"
+                                  :keyRc "parent@api.anthropic.com"
+                                  :keyEnv "PARENT_KEY"
+                                  :requiresAuth? true
+                                  :models {"claude-opus-5" {}}}
+                     "anthropic-work" {:inherit "anthropic"
+                                       :models {"claude-sonnet-5" {}}}}
+          resolved (#'config/resolve-provider-inheritance providers)]
+      (is (= (get providers "anthropic") (get resolved "anthropic")))
+      (is (match? {:api "anthropic"
+                   :url "https://api.anthropic.com"
+                   :requiresAuth? true
+                   :inherit "anthropic"
+                   :models {"claude-opus-5" {}
+                            "claude-sonnet-5" {}}}
+                  (get resolved "anthropic-work")))
+      (is (not-any? #(contains? (get resolved "anthropic-work") %) [:key :keyRc :keyEnv]))))
+
+  (testing "child values and credentials win"
+    (let [resolved (#'config/resolve-provider-inheritance
+                    {"openai" {:api "openai-responses" :url "https://api.openai.com" :key "parent-key"}
+                     "openai-work" {:inherit "openai" :url "https://proxy.example.com" :key "work-key"}})]
+      (is (match? {:api "openai-responses" :url "https://proxy.example.com" :key "work-key" :inherit "openai"}
+                  (get resolved "openai-work")))))
+
+  (testing "inherit chains resolve through the parent"
+    (let [resolved (#'config/resolve-provider-inheritance
+                    {"anthropic" {:api "anthropic" :url "https://api.anthropic.com"}
+                     "anthropic-work" {:inherit "anthropic" :cacheRetention "long"}
+                     "anthropic-work-2" {:inherit "anthropic-work"}})]
+      (is (match? {:api "anthropic" :url "https://api.anthropic.com" :cacheRetention "long" :inherit "anthropic-work"}
+                  (get resolved "anthropic-work-2")))
+      (is (= "anthropic" (config/provider-base "anthropic-work-2" {:providers resolved})))))
+
+  (testing "parent name is normalized like provider ids"
+    (is (match? {"anthropic-work" {:api "anthropic" :inherit "nubank-anthropic"}}
+                (#'config/resolve-provider-inheritance
+                 {"nubank-anthropic" {:api "anthropic"}
+                  "anthropic-work" {:inherit "nubankAnthropic"}}))))
+
+  (testing "self, unknown and circular parents are ignored"
+    (with-redefs [logger/warn (fn [& _] nil)]
+      (let [resolved (#'config/resolve-provider-inheritance
+                      {"self" {:inherit "self" :api "anthropic"}
+                       "orphan" {:inherit "nonexistent" :api "openai-chat"}
+                       "a" {:inherit "b" :url "a"}
+                       "b" {:inherit "a" :url "b"}})]
+        (is (= {:api "anthropic"} (get resolved "self")))
+        (is (= {:api "openai-chat"} (get resolved "orphan")))
+        (is (= {:url "a"} (get resolved "a")))
+        (is (= {:url "b"} (get resolved "b"))))))
+
+  (testing "providers without inherit are returned untouched"
+    (let [providers {"anthropic" {:api "anthropic"}}]
+      (is (identical? providers (#'config/resolve-provider-inheritance providers))))))
+
+(deftest provider-base-test
+  (let [config {:providers {"anthropic" {:api "anthropic"}
+                            "anthropic-work" {:api "anthropic" :inherit "anthropic"}}}]
+    (is (= "anthropic" (config/provider-base "anthropic-work" config)))
+    (is (= "anthropic" (config/provider-base "anthropic" config)))
+    (is (= "custom" (config/provider-base "custom" config)))
+    (is (nil? (config/provider-base nil config)))))
+
+(deftest provider-inherit-all-test
+  (testing "an inheriting provider gets the built-in defaults but not the built-in key"
+    (reset! config/initialization-config* {:pureConfig true
+                                           :providers {"anthropicWork" {:inherit "anthropic"}}})
+    (let [providers (:providers (#'config/all* {}))]
+      (is (match? {:api "anthropic"
+                   :url string?
+                   :requiresAuth? true
+                   :inherit "anthropic"
+                   :models {"claude-opus-5" {}}}
+                  (get providers "anthropic-work")))
+      (is (contains? (get providers "anthropic") :key))
+      (is (not (contains? (get providers "anthropic-work") :key))))))
+
 (deftest diff-keeping-vectors-test
   (testing "like clojure.data/diff"
     (is (= {:b 3}

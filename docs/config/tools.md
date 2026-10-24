@@ -45,6 +45,8 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
+    If the server's authorization server supports [Client ID Metadata Documents](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents) (CIMD), ECA identifies itself with `https://eca.dev/oauth/client-metadata.json`; otherwise it registers a client via Dynamic Client Registration (DCR). Setting `clientId`, `clientSecret`, `clientName` or `oauthPort` keeps the pre-registered client or DCR.
+
 === "OAuth with pre-registered client"
 
     Some providers (e.g. Databricks) require a pre-registered OAuth application
@@ -111,84 +113,6 @@ For MCP servers configuration, use the `mcpServers` config, examples:
     }
     ```
 
-=== "You.com web search & research"
-
-    [You.com](https://you.com/?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs) provides web search, URL content extraction, and AI-powered research via MCP.
-
-    **Option 1: Authenticated (full features)**
-    
-    Get your API key from [you.com/api](https://you.com/api?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs) and set it as `YDC_API_KEY` environment variable:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "you-search": {
-          "url": "https://api.you.com/mcp",
-          "headers": {
-            "Authorization": "Bearer ${env:YDC_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    **Option 2: Keyless (basic web search)**
-    
-    Try You.com search without an API key using the free profile:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "you-search-free": {
-          "url": "https://api.you.com/mcp?profile=free"
-        }
-      }
-    }
-    ```
-
-    **Option 3: Specialized profiles**
-    
-    Use focused endpoints for specific domains:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "you-finance": {
-          "url": "https://api.you.com/mcp?tools=you-finance",
-          "headers": {
-            "Authorization": "Bearer ${env:YDC_API_KEY}"
-          }
-        },
-        "you-docs": {
-          "url": "https://you.com/docs/_mcp/server"
-        }
-      }
-    }
-    ```
-
-    Available tools include `you_search` (web search with citations), `you_url_contents` (webpage content extraction), and `you_research` (multi-step research workflows).
-
-=== "Serply web search"
-
-    [Serply](https://serply.io) provides Google web, news, scholar, maps, jobs and video search, Bing search, URL scraping and Reddit lookups via MCP.
-
-    Get an API key from [serply.io](https://serply.io) and set it as the `SERPLY_API_KEY` environment variable. Serply reads the key from the `X-Api-Key` header:
-
-    ```javascript title="~/.config/eca/config.json"
-    {
-      "mcpServers": {
-        "serply": {
-          "url": "https://api.serply.io/mcp",
-          "headers": {
-            "X-Api-Key": "${env:SERPLY_API_KEY}"
-          }
-        }
-      }
-    }
-    ```
-
-    Available tools include `google_search`, `google_news_search`, `google_scholar_search`, `bing_search` and `scrape_url`. See the [Serply docs](https://serply.io/docs) for the full list.
-
 === "Advanced — DCR client name override"
 
     Some OAuth-protected MCP servers allowlist clients during Dynamic Client
@@ -208,6 +132,9 @@ For MCP servers configuration, use the `mcpServers` config, examples:
 
     The DCR attempt, its result and the chosen `client_name` are logged at
     `info`/`warn` level so you can verify behavior in the ECA log.
+
+    Setting `clientName` also makes ECA use DCR when the server supports CIMD,
+    useful if a server rejects ECA's CIMD client.
 
 === "Per-project auth — authScope"
 
@@ -250,6 +177,117 @@ For MCP servers configuration, use the `mcpServers` config, examples:
       }
     }
     ```
+
+### Examples
+
+Ready-to-use configs for some third-party MCP servers. Most remote servers work with just a `url` (OAuth is handled automatically) or a `url` plus an auth header, as shown above.
+
+<!-- Adding an example? Keep it short: one line describing the server, a single config block and one line with notes/docs link. Keep tabs sorted alphabetically. -->
+
+=== "Cohesivity"
+
+    [Cohesivity](https://cohesivity.ai?ref=gh-eca): backend services for the apps you build (Postgres, Redis, object storage, hosting, auth).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "cohesivity": {
+          "url": "https://cohesivity.ai/mcp"
+        }
+      }
+    }
+    ```
+
+    No account or API key needed: the agent creates a temporary project with `create_tenant`, which you can claim later to keep it. [Docs](https://cohesivity.ai/docs?ref=gh-eca).
+
+=== "Equibles"
+
+    [Equibles](https://equibles.com/mcp): US stock market data (SEC filings, earnings calls, financial statements, insider trades, prices).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "equibles": {
+          "url": "https://mcp.equibles.com/mcp?auth=oauth"
+        }
+      }
+    }
+    ```
+
+    Signs in via OAuth with a free account. To use an [API key](https://equibles.com/dashboard/apikeys) instead, drop `?auth=oauth` and add an `Authorization: Bearer ${env:EQUIBLES_API_KEY}` header. [Docs](https://equibles.com/docs/mcp/tools).
+
+=== "FXMacroData"
+
+    [FXMacroData](https://fxmacrodata.com): macroeconomic releases, central bank rates, release calendars and FX rates for 22 currencies.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "fxmacrodata": {
+          "url": "https://mcp.fxmacrodata.com",
+          "headers": {
+            "Authorization": "Bearer ${env:FXMACRODATA_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    USD data works without a key (unset env var resolves to empty); other currencies need an [API key](https://fxmacrodata.com/subscribe). [Docs](https://fxmacrodata.com/documentation).
+
+=== "looot"
+
+    [looot](https://looot.ai): ~2,500 business data endpoints (email/phone lookup, company enrichment, web search, page reading).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "looot": {
+          "url": "https://api.looot.ai/mcp"
+        }
+      }
+    }
+    ```
+
+    Signs in via OAuth; for headless setups add an `Authorization: Bearer ${env:LOOOT_API_KEY}` header. Paid per call, keep approval prompts on. [Docs](https://docs.looot.ai).
+
+=== "Serply"
+
+    [Serply](https://serply.io): Google (web, news, scholar, maps, jobs, videos) and Bing search, URL scraping.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "serply": {
+          "url": "https://api.serply.io/mcp",
+          "headers": {
+            "X-Api-Key": "${env:SERPLY_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    [Docs](https://serply.io/docs).
+
+=== "You.com"
+
+    [You.com](https://you.com/?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs): web search with citations, URL content extraction and multi-step research.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "you": {
+          "url": "https://api.you.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:YDC_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Get a key at [you.com/api](https://you.com/api?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs), or use `https://api.you.com/mcp?profile=free` without a key for basic search. Specialized profiles like `?tools=you-finance` are also available.
 
 ## Custom Tools
 
@@ -564,8 +602,8 @@ __The `manualApproval` setting was deprecated and replaced by the `approval` one
 
 For each tool call, ECA checks the following in order, and the first match wins:
 
-1. __`deny` rules__: always win, even over session-remembered approvals and trust mode.
-2. __Session-remembered approvals__: what you approved with "approve and remember for this session" ([below](#approve-remember-for-this-session)).
+1. __`deny` rules__: always win, even over remembered approvals and trust mode.
+2. __Remembered approvals__: what you approved in the current chat with "approve and remember for this session" ([below](#approve-remember-for-this-session)).
 3. __Tool built-in checks__: some native tools force asking in risky cases regardless of `allow` rules, e.g. filesystem tools and `shell_command` when the path or working directory is outside the workspace roots.
 4. __`ask` rules__.
 5. __`allow` rules__.
@@ -606,11 +644,13 @@ Config `argsMatchers` are tested against the __full command string__ — there i
 
 ### Approve & remember for this session
 
-When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool by name: future calls of it are auto-approved. Remembered approvals live in memory only — they apply to all chats of the running ECA process, are not written to any config file, and are lost on restart. `deny` rules still win over them.
+When you approve a tool call choosing "approve and remember for this session", ECA whitelists that tool (by its full `server__tool` name) for the chat session: future calls of it in the same chat, including its subagents, are auto-approved, while other chats keep asking. Remembered approvals live in memory only: they are not written to any config file, and are lost when the chat is cleared or ECA restarts. `deny` rules still win over them.
+
+Run `/approvals` to list the approvals remembered in the current chat and `/forget-approvals` to forget them without losing the conversation. A `/btw` side chat starts with the approvals of the chat it was asked from, like its trust mode. For tools you always want auto-approved, prefer an `allow` rule.
 
 #### Granular approve & remember for shell commands
 
-When you approve a `eca__shell_command` or `eca__git` tool call choosing "approve and remember", ECA remembers the approved commands for the session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (`&&`, `||`, `;`, `|`) produces a key — command + subcommand for multi-command tools (`git checkout`, `npm install`), the plain command otherwise (`rg`). A future shell call runs automatically only when all its commands were already remembered.
+When you approve a `eca__shell_command` or `eca__git` tool call choosing "approve and remember", ECA remembers the approved commands for the chat session instead of whitelisting the whole tool: the command string is parsed and each command in a chain (`&&`, `||`, `;`, `|`) produces a key — command + subcommand for multi-command tools (`git checkout`, `npm install`), the plain command otherwise (`rg`). A future shell call runs automatically only when all its commands were already remembered.
 
 ECA fails closed: commands it cannot safely reason about always ask again, like command/process substitution (`$(...)`, backticks), subshells, heredocs, output redirections to files (except `/dev/null`), and wrapper commands that execute arbitrary code (`sudo`, `bash -c`, `xargs`, `env`, ...).
 
@@ -622,6 +662,18 @@ Trust mode auto-accepts all tool calls in a chat (it never overrides `deny`). Ed
 {
   "chat": {
     "defaultTrust": true
+  }
+}
+```
+
+In trust mode, `ask_user` questions still wait for your answer. Set `toolCall.askUser.trustModeTimeoutSeconds` to let the LLM continue without an answer after that many seconds:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "toolCall": {
+    "askUser": {
+      "trustModeTimeoutSeconds": 300
+    }
   }
 }
 ```
@@ -666,7 +718,7 @@ Start the server with `--log-level debug` ([how to per editor](../troubleshootin
 | `:source` | The decision came from |
 |-----------|------------------------|
 | `:config-deny`, `:config-ask`, `:config-allow` | your `approval` rules; `:selector` and `:args-matcher` show the exact rule |
-| `:session-remember` | an "approve and remember for this session" approval |
+| `:session-remember` | an "approve and remember for this session" approval of the current chat |
 | `:tool-built-in-check` | the tool itself, e.g. path outside the workspace roots |
 | `:legacy-manual-approval` | the deprecated `manualApproval` config |
 | `:by-default` | the `byDefault` config |

@@ -25,7 +25,30 @@ print_help() {
         echo " * Checksum: ${checksum}"
     fi
     echo " * Version: <Latest release on github>"
+    echo -e
+    echo "Requires curl and unzip (plus sha256sum or shasum when using --checksum)."
     exit 1
+}
+
+# Prints an error (and an optional hint) to stderr and exits.
+error() {
+    >&2 echo "Error: $1"
+    if [[ -n "${2:-}" ]]; then
+        >&2 echo "$2"
+    fi
+    exit 1
+}
+
+has() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+file_sha256() {
+    if has shasum; then
+        shasum -a 256 < "$1" | cut -d' ' -f1
+    else
+        sha256sum < "$1" | cut -d' ' -f1
+    fi
 }
 
 while [[ $# -gt 0 ]]
@@ -68,17 +91,28 @@ if [[ -z "$download_dir" ]]; then
 fi
 
 if [[ "$checksum" != "" ]] && [[ "$version" == "" ]]; then
-    >&2 echo "Options --checksum and --version should be provided together!"
-    exit 1
+    error "options --checksum and --version should be provided together!"
 fi
 
-if [[ "$version" == "" ]]; then
-  version="$(curl -sL https://raw.githubusercontent.com/editor-code-assistant/eca/master/resources/ECA_VERSION)"
+# Check required commands upfront, otherwise `set -e` would make the script
+# exit halfway through without saying why when one of them is missing.
+missing=""
+for cmd in curl unzip; do
+    has "$cmd" || missing="$missing $cmd"
+done
+if [[ -n "$checksum" ]] && ! has shasum && ! has sha256sum; then
+    missing="$missing sha256sum"
+fi
+if [[ -n "$missing" ]]; then
+    error "required command(s) not found:$missing" \
+          "Please install the missing command(s) using your system package manager and run this script again."
 fi
 
 case "$(uname -s)" in
     Linux*)  platform=linux;;
     Darwin*) platform=macos;;
+    *)       error "unsupported OS: $(uname -s)" \
+                   "Please download eca manually from https://github.com/editor-code-assistant/eca/releases";;
 esac
 
 case "$(uname -m)" in
@@ -87,8 +121,15 @@ case "$(uname -m)" in
     *)       arch=amd64;;
 esac
 
+if [[ "$version" == "" ]]; then
+    version_url="https://raw.githubusercontent.com/editor-code-assistant/eca/master/resources/ECA_VERSION"
+    if ! version="$(curl -fsSL "$version_url")" || [[ -z "$version" ]]; then
+        error "failed to fetch the latest eca version from $version_url" \
+              "Check your internet connection or pass a specific version with --version."
+    fi
+fi
+
 ext="zip"
-util="$(which unzip) -qqo"
 
 case "$platform-$arch" in
     linux-amd64)   filename="eca-native-static-$platform-$arch."$ext
@@ -103,23 +144,29 @@ else
     download_url="https://github.com/editor-code-assistant/eca/releases/download/$version/$filename"
 fi
 
-# Running this part in a subshell so when it finishes we go back to the previous directory
-mkdir -p "$download_dir" && (
-    cd "$download_dir"
-    echo -e "Downloading $download_url to $download_dir"
+# No subshell here on purpose: bash 3.2 (macOS default) doesn't stop on a failing
+# subshell even with `set -e`, which would let the script continue after an error.
+mkdir -p "$download_dir"
+archive="$download_dir/$filename"
+echo -e "Downloading $download_url to $download_dir"
 
-    curl -o "$filename" -sL "$download_url"
-    if [[ -n "$checksum" ]]; then
-        if ! echo "$checksum *$filename" | shasum -a 256 --check --status; then
-            >&2 echo "Failed checksum on $filename"
-            >&2 echo "Got: $(shasum -a 256 "$filename" | cut -d' ' -f1)"
-            >&2 echo "Expected: $checksum"
-            exit 1
-        fi
+if ! curl -fsSL -o "$archive" "$download_url"; then
+    rm -f "$archive"
+    error "failed to download $download_url" \
+          "Check your internet connection and that eca version '$version' is available for $platform-$arch."
+fi
+if [[ -n "$checksum" ]]; then
+    actual_checksum="$(file_sha256 "$archive")"
+    expected_checksum="$(echo "$checksum" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+        >&2 echo "Error: failed checksum on $filename"
+        >&2 echo "Got: $actual_checksum"
+        >&2 echo "Expected: $expected_checksum"
+        exit 1
     fi
-    $util "$filename"
-    rm -f "$filename"
-)
+fi
+unzip -qqo "$archive" -d "$download_dir"
+rm -f "$archive"
 
 if [[ "$download_dir" != "$install_dir" ]]
 then

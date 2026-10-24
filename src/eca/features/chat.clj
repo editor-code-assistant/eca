@@ -16,9 +16,12 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
+   [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.task :as f.tools.task]
    [eca.llm-api :as llm-api]
@@ -389,11 +392,33 @@
                        :text (:text message-content)
                        :contentId content-id}}]))
 
+(defn ^:private merge-adjacent-reasons
+  "Display-only: collapses each run of consecutive reason messages into one,
+   mirroring the live grouping in `lifecycle/send-content!`. Keeps the first
+   block id, joins non-blank texts with a blank line and sums the times."
+  [messages]
+  (into []
+        (mapcat (fn [[first-message :as run]]
+                  (if (and (= "reason" (:role first-message)) (next run))
+                    [(assoc first-message
+                            :content {:id (get-in first-message [:content :id])
+                                      :text (some->> run
+                                                     (keep #(shared/not-blank (get-in % [:content :text])))
+                                                     seq
+                                                     (string/join "\n\n"))
+                                      :total-time-ms (some->> run
+                                                              (keep #(get-in % [:content :total-time-ms]))
+                                                              seq
+                                                              (reduce +))})]
+                    run)))
+        (partition-by #(= "reason" (:role %)) messages)))
+
 (defn messages->contents
   "Pure transform of persisted `messages` into the flat sequence of chat-content
    notification payloads ({:chat-id :role :content :parent-chat-id?}) that the
    streaming replay sends, including nested subagent expansion. `db` is a plain
-   db snapshot used only to resolve subagent message histories.
+   db snapshot used only to resolve subagent message histories. Consecutive
+   reason messages render as a single reasoning block, like live streaming.
 
    Shared by the streaming replay (`send-chat-contents!`) and the request/response
    `chat/history` method so both render identical content."
@@ -408,7 +433,8 @@
                    subagent-chat-id (when (= "tool_call_output" (:role message))
                                       (get-in message [:content :details :subagent-chat-id]))
                    subagent-messages (when subagent-chat-id
-                                       (get-in db [:chats subagent-chat-id :messages]))]
+                                       (f.tools.agent/replayed-messages (get-in db [:chats subagent-chat-id :messages])
+                                                                        (:content message)))]
                (if (some? subagent-messages)
                  ;; For subagent tool calls: toolCallRun + toolCallRunning, then
                  ;; subagent messages, then toolCalled — matching live execution order.
@@ -419,7 +445,7 @@
                                               :db db})
                          [(->payload (last chat-contents))])
                  (map ->payload chat-contents))))
-           messages))))
+           (merge-adjacent-reasons messages)))))
 
 (defn ^:private send-chat-contents! [messages chat-ctx]
   (doseq [payload (messages->contents messages {:chat-id (:chat-id chat-ctx)
@@ -667,6 +693,17 @@
   (when-not (string/blank? text)
     (odd? (count (re-seq #"(?m)^```" text)))))
 
+(def ^:private interrupted-tool-call-reason
+  {:code :interrupted
+   :text "Tool call interrupted because the LLM response failed"})
+
+(defn ^:private reject-active-tool-calls!
+  "Requests a stop for every unfinished tool call of the chat, so the ones
+   that won't make progress anymore are rejected for clients."
+  [db* {:keys [chat-id] :as chat-ctx} reason]
+  (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
+    (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested {:reason reason})))
+
 (defn ^:private compact-finished-side-effect!
   "on-finished-side-effect for a mid-turn compaction: clear the auto-compacting
    flag, apply the compact side effects and run postCompact hooks for `trigger`
@@ -752,7 +789,8 @@
    `:last-api`. Cross-api history reconciliation is handled by
    `eca.llm-api/sanitize-past-messages-for-api`, which drops entries whose
    opaque ids the new provider would reject and triggers a chat-visible
-   notice via `:on-history-sanitized`. This used to throw outright (#209)."
+   notice via `:on-history-sanitized`, shown only on the first prompt after
+   the swap (#660). This used to throw outright (#209)."
   [db chat-id provider model config]
   (let [model-capabilities (get-in db [:models (str provider "/" model)])
         current-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
@@ -829,15 +867,17 @@
 
 (def ^:private steer-boundary-commands
   "Native commands that can run while a prompt is in flight without touching the
-   running turn: read-only ones and /sync-system-prompt, which only drops the
-   prompt cache read by the next prompt. All return :chat-messages. Steered, they
-   are queued and executed at the next turn boundary with the running turn's
-   context, then the task resumes; any other steered native command is refused
-   (see `steer-refused-command`). /btw runs immediately instead
-   (`steer-divertible-commands`) and /compact has its own boundary handling. #610"
+   running turn: read-only ones, /sync-system-prompt, which only drops the
+   prompt cache read by the next prompt, and /forget-approvals, which only drops
+   remembered approvals read by the next tool calls. All return :chat-messages.
+   Steered, they are queued and executed at the next turn boundary with the
+   running turn's context, then the task resumes; any other steered native
+   command is refused (see `steer-refused-command`). /btw runs immediately
+   instead (`steer-divertible-commands`) and /compact has its own boundary
+   handling. #610"
   #{"sync-system-prompt" "costs" "context" "chats" "skills" "rules" "subagents"
     "plugins" "hooks" "prompt-show" "repo-map-show" "doctor" "config" "remote"
-    "debug-chat" "export"})
+    "debug-chat" "export" "approvals" "forget-approvals"})
 
 (defn ^:private send-command-chat-messages!
   "Emits a command's :chat-messages result to the client, per target chat."
@@ -982,6 +1022,18 @@
           (string/trim)
           (as-> t (subs t 0 (min (count t) 40)))))))
 
+(defn ^:private start-prompt-worker!
+  "Runs `thunk` in a prompt worker thread. For a managed chat (see
+   `:managed-chats` in the db), counts the worker from before dispatch until its
+   whole cleanup has unwound, since the chat may publish idle earlier."
+  [{:keys [db* config chat-id]} thunk]
+  (if-not (contains? (:managed-chats @db*) chat-id)
+    (future* config (thunk))
+    (do (swap! db* update-in [:managed-chats chat-id :workers] inc)
+        (future* config
+          (try (thunk)
+               (finally (swap! db* update-in [:managed-chats chat-id :workers] dec)))))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -1036,6 +1088,13 @@
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+      (when (and run-hooks? (:user-content-id chat-ctx))
+        ;; Kept until the LLM responds, so a turn that is stopped, fails or is
+        ;; superseded before that doesn't lose what the user typed.
+        (lifecycle/record-unsent-user-messages! db* chat-id)
+        (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
+               {:content-id (:user-content-id chat-ctx)
+                :messages user-messages}))
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)
@@ -1048,14 +1107,24 @@
       ;; call is actually using on this prompt, and overwriting on every
       ;; prompt keeps the record in sync with the user's current pick.
       (swap! db* assoc-in [:chats chat-id :variant] (:variant chat-ctx))
+      ;; Same for the agent: a selection made before the chat existed on the
+      ;; server (chat/selectedAgentChanged on an unknown chat is a no-op)
+      ;; would otherwise be lost and resume would fall back to the default.
+      (when agent
+        (swap! db* assoc-in [:chats chat-id :agent] agent))
       (swap! db* update-in [:chats chat-id :user-prompt-count] (fnil inc 0))
-      (let [chat-ctx (assoc chat-ctx :prompt-id prompt-id)
+      (let [chat-ctx (assoc chat-ctx
+                            :prompt-id prompt-id
+                            ;; Subscription logins have no per-token cost, usage shows their quota instead.
+                            :subscription? (f.quota/subscription? provider @db* config))
             _ (lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
             db @db*
             model-capabilities (get-in db [:models full-model])
             provider-auth (get-in @db* [:auth provider])
             all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
             auto-continue-limit (provider-max-auto-continues config provider)
+            ;; Consecutive recoveries; reset when a response completes and its tools run.
+            auto-continue-count* (atom (:auto-continue-count chat-ctx 0))
             received-msgs* (atom "")
             reasonings* (atom {})
             server-tool-times* (atom {})
@@ -1085,6 +1154,14 @@
                                 ;; triggers the save in their place.
                                 (when-not (#{"tool_call" "server_tool_use"} role)
                                   (db/save-chat! @db* chat-id metrics))))
+            on-response-headers (fn [headers]
+                                  (when (:subscription? chat-ctx)
+                                    ;; Display-only, so never let it break the request.
+                                    (try
+                                      (when (f.quota/update-from-headers! db* provider headers)
+                                        (f.providers/notify-provider-updated! provider db* config messenger))
+                                      (catch Exception e
+                                        (logger/warn logger-tag "Failed to update provider quota" e)))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
                                  ;; Never let the context-breakdown (a display-only
@@ -1154,7 +1231,8 @@
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
                  (not (:auto-compacted? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
-          (future* config
+          (start-prompt-worker! chat-ctx
+           (fn []
             (try
               (llm-api/sync-or-async-prompt!
                {:model model
@@ -1199,26 +1277,30 @@
                                                                         attempt max-retries)
                                                                 (format "⏳ %s. Retrying in %ds (attempt %d/%d)"
                                                                         reason (quot delay-ms 1000) attempt max-retries))})))
+                ;; History keeps the foreign entries (only the request is filtered),
+                ;; so they are dropped again on every later prompt: notify only on
+                ;; the first prompt after swapping to a different api. #660
                 :on-history-sanitized (fn [{:keys [dropped-count dropped-apis target-api]}]
-                                        (let [from-label (->> dropped-apis
-                                                              (remove nil?)
-                                                              (map name)
-                                                              sort
-                                                              (string/join ", "))]
-                                          (logger/info logger-tag
-                                                       (format "Dropped %d cross-provider history entries on switch to %s"
-                                                               dropped-count (some-> target-api name))
-                                                       {:chat-id chat-id
-                                                        :dropped-count dropped-count
-                                                        :dropped-apis dropped-apis})
-                                          (lifecycle/send-content!
-                                           chat-ctx :system
-                                           {:type :text
-                                            :text (format "Note: dropped %d history %s from a previous provider (%s) because the current model (%s) cannot reuse its opaque ids. Reasoning context is lost across providers; tool calls were also removed if they originated elsewhere."
-                                                          dropped-count
-                                                          (if (= 1 dropped-count) "entry" "entries")
-                                                          (if (seq from-label) from-label "unknown")
-                                                          (some-> target-api name))})))
+                                        (when (not= target-api (get-in db [:chats chat-id :last-api]))
+                                          (let [from-label (->> dropped-apis
+                                                                (remove nil?)
+                                                                (map name)
+                                                                sort
+                                                                (string/join ", "))]
+                                            (logger/info logger-tag
+                                                         (format "Dropped %d cross-provider history entries on switch to %s"
+                                                                 dropped-count (some-> target-api name))
+                                                         {:chat-id chat-id
+                                                          :dropped-count dropped-count
+                                                          :dropped-apis dropped-apis})
+                                            (lifecycle/send-content!
+                                             chat-ctx :system
+                                             {:type :text
+                                              :text (format "Note: dropped %d history %s from a previous provider (%s) because the current model (%s) cannot reuse its opaque ids. Reasoning context is lost across providers; tool calls were also removed if they originated elsewhere."
+                                                            dropped-count
+                                                            (if (= 1 dropped-count) "entry" "entries")
+                                                            (if (seq from-label) from-label "unknown")
+                                                            (some-> target-api name))}))))
                 :on-first-response-received (fn [& _]
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
                                               (doseq [message user-messages]
@@ -1229,6 +1311,7 @@
                                                                                          :state :running
                                                                                          :text "Generating"}))
                 :on-usage-updated on-usage-updated
+                :on-response-headers on-response-headers
                 :on-message-received (fn [{:keys [type] :as msg}]
                                        (lifecycle/assert-chat-not-stopped! chat-ctx)
                                        (case type
@@ -1267,7 +1350,8 @@
                                                                    " Try rephrasing or switching to a different model.")})
                                                       (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
                                                       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
-                                         :finish (let [response-text @received-msgs*
+                                         :finish (let [chat-ctx (assoc chat-ctx :auto-continue-count @auto-continue-count*)
+                                                       response-text @received-msgs*
                                                        stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
                                                    (when-not (string/blank? response-text)
                                                      (add-to-history! {:role "assistant"
@@ -1326,7 +1410,9 @@
                 :on-tools-called (tc/on-tools-called!
                                   (assoc chat-ctx :continue-fn
                                          (fn [tc-all-tools tc-user-messages]
-                                           (let [continue-turn! (fn []
+                                           (reset! auto-continue-count* 0)
+                                           (let [chat-ctx (assoc chat-ctx :auto-continue-count 0)
+                                                 continue-turn! (fn []
                                                                   (consume-steer-message! chat-id db* chat-ctx add-to-history!)
                                                                   (consume-pending-job-notifications! chat-id db* add-to-history!)
                                                                   {:tools tc-all-tools
@@ -1504,8 +1590,9 @@
                                                               (tc/transition-tool-call! db* chat-ctx id :cleanup-finished
                                                                                         {:name resolved-name}))
                                                   nil)))
-                :on-error (fn [{:keys [message exception] :as error-data}]
-                            (let [{error-type :error/type} (llm-providers.errors/classify-error error-data)
+                :on-error (fn [{:keys [message exception idle-timeout?] :as error-data}]
+                            (let [chat-ctx (assoc chat-ctx :auto-continue-count @auto-continue-count*)
+                                  {error-type :error/type} (llm-providers.errors/classify-error error-data)
                                   db @db*
                                   ;; A dead shared connection makes every stacked tool-continuation
                                   ;; request fail: only the first error belongs to this prompt, later
@@ -1521,6 +1608,11 @@
                                   ;; under a new prompt-id and the error would never surface to the user. (#491)
                                   compactable? (boolean (seq (shared/messages-after-last-compact-marker
                                                               (get-in db [:chats chat-id :messages] []))))]
+                              ;; Tool calls the failed response was still streaming are never
+                              ;; resumed (a retry starts new ones), so reject them or clients
+                              ;; keep showing them as in progress forever.
+                              (when-not stale?
+                                (reject-active-tool-calls! db* chat-ctx interrupted-tool-call-reason))
                               (cond
                                 stale?
                                 (logger/info logger-tag "Ignoring error for finished or superseded prompt"
@@ -1589,11 +1681,13 @@
                                 (and (not compacting?)
                                      (not (:error-recovery-attempted? chat-ctx))
                                      (llm-providers.errors/recoverable-error? {:provider provider
+                                                                               :provider-base (config/provider-base provider config)
                                                                                :error-data error-data
                                                                                :db db}))
                                 (let [real-model (or (get-in db [:models full-model :model-name]) model)
                                       {:keys [retry? notice retry-user-message]}
                                       (llm-providers.errors/recover-error! {:provider provider
+                                                                            :provider-base (config/provider-base provider config)
                                                                             :model real-model
                                                                             :error-data error-data
                                                                             :db db
@@ -1640,7 +1734,7 @@
                                 :else
                                 (let [partial-text @received-msgs*
                                       transient-error? (or (contains? #{:overloaded :premature-stop :network} error-type)
-                                                           (string/includes? (or message "") "idle timeout"))
+                                                           idle-timeout?)
                                       auto-continue-count (:auto-continue-count chat-ctx 0)
                                       stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))
                                       user-messages-recorded? (boolean
@@ -1652,7 +1746,8 @@
                                       retry-messages (if continue-existing-response?
                                                        [{:role "user"
                                                          :content [{:type :text
-                                                                    :text "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."}]}]
+                                                                    :text (cond-> "Your previous response was interrupted mid-stream. Continue from where you left off, do not redo completed steps."
+                                                                            idle-timeout? (str " If you were writing a large file or edit, split it into a few smaller calls."))}]}]
                                                        user-messages)
                                       retry-source-type (if continue-existing-response?
                                                           :auto-continue
@@ -1717,7 +1812,7 @@
                                                                           (str "\n\n" (or message (str "Error: " (or (ex-message exception) (.getName (class exception)))))
                                                                                (case recovery-blocked-reason
                                                                                  :disabled "\nAutomatic recovery is disabled for this provider (retry.maxAutoContinues: 0)."
-                                                                                 :limit-reached (format "\nAutomatic recovery limit reached (%d/%d for this turn). Send a new message to continue."
+                                                                                 :limit-reached (format "\nAutomatic recovery limit reached (%d/%d in a row). Send a new message to continue."
                                                                                                         auto-continue-count auto-continue-limit)
                                                                                  nil)
                                                                                (when-let [resets-at (:rate-limit-resets-at error-data)]
@@ -1734,6 +1829,7 @@
               (catch Exception e
                 (when-not (:silent? (ex-data e))
                   (logger/error e)
+                  (reject-active-tool-calls! db* chat-ctx interrupted-tool-call-reason)
                   (swap! db* assoc-in [:chats chat-id :prompt-error]
                          (prompt-error-data {:exception e} :unknown))
                   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
@@ -1752,9 +1848,11 @@
                   ;; Only notify client if finish-chat-prompt! hasn't already run,
                   ;; otherwise the belated statusChanged causes duplicate finished handling.
                   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
+                    (when (contains? (:managed-chats @db*) chat-id)
+                      (swap! db* assoc-in [:managed-chats chat-id :interrupted?] true))
                     (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
                     (lifecycle/trigger-chat-status-hook! chat-ctx))
-                  (db/save-chat! @db* chat-id metrics))))))))))
+                  (db/save-chat! @db* chat-id metrics)))))))))))
 
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
@@ -2085,12 +2183,21 @@
    config should pass the map."
   [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
   (let [provided-chat-id chat-id
-        invalid-id-reason (when (and (some? provided-chat-id)
-                                     (not (server-managed-subagent-chat-id? @db* provided-chat-id)))
+        managed (get-in @db* [:managed-chats chat-id])
+        invalid-id-reason (cond
+                            ;; Only the run holding the owner token may prompt a managed chat.
+                            (and managed
+                                 (not (and (:token managed)
+                                           (identical? (:token managed) (:owner-token params)))))
+                            "this chat is managed (e.g. a subagent) and can only be prompted by its owner"
+
+                            (and (some? provided-chat-id)
+                                 (not (server-managed-subagent-chat-id? @db* provided-chat-id)))
                             (validate-client-chat-id provided-chat-id))]
     (if invalid-id-reason
-      (do (logger/warn logger-tag "Rejected chat/prompt with invalid chat-id"
-                       {:chat-id provided-chat-id :reason invalid-id-reason})
+      (do (logger/with-chat-context provided-chat-id (db/parent-chat-id @db* provided-chat-id)
+            (logger/warn logger-tag "Rejected chat/prompt with invalid chat-id"
+                         {:chat-id provided-chat-id :reason invalid-id-reason}))
           {:chat-id provided-chat-id
            :model "error"
            :status :error})
@@ -2133,6 +2240,7 @@
             (let [config (if resolve-config? (config) config)
                   raw-agent (or agent
                                 behavior ;; backward compat: accept old 'behavior' param
+                                (get-in @db* [:chats chat-id :agent])
                                 (-> config :chat :defaultAgent) ;; legacy
                                 (-> config :defaultAgent))
                   ;; A freshly-created chat with no client-provided trust inherits
@@ -2243,7 +2351,8 @@
                                       (merge {:last-api (:last-api source-chat)
                                               :messages (f.commands/drop-dangling-tool-calls
                                                          (vec (:messages source-chat)))}
-                                             (select-keys source-chat [:trust :prompt-cache :startup-context])))
+                                             (select-keys source-chat [:trust :remembered-approvals
+                                                                       :prompt-cache :startup-context])))
                              ;; Mirror prompt's default-trust seeding for brand-new
                              ;; chats: explicit trust param wins, then the source
                              ;; chat's trust, then chat.defaultTrust.
@@ -2305,14 +2414,21 @@
                                   {:reason {:code :user-choice-allow
                                             :text "Tool call allowed by user choice"}})
         (when (= "session" save)
-          (let [{tool-call-name :name arguments :arguments} (get-in @db* [:chats chat-id :tool-calls tool-call-id])]
-            (if-let [{keys' :keys} (f.tools/tool-approval-keys tool-call-name arguments)]
+          ;; Remembered for the chat session (the root chat, shared with its
+          ;; subagents) by full tool name, never server-wide. #639
+          (let [{tool-call-name :name :keys [full-name origin arguments]}
+                (get-in @db* [:chats chat-id :tool-calls tool-call-id])]
+            ;; Granular keys only exist for native tools, an MCP tool named
+            ;; like one (e.g. `git`) is remembered as a whole tool.
+            (if-let [{keys' :keys} (when (= :native origin)
+                                     (f.tools/tool-approval-keys tool-call-name arguments))]
               ;; Granular remember (e.g. shell commands): remember only the
               ;; derived keys instead of whitelisting the whole tool. #153
               (when (seq keys')
-                (swap! db* update-in [:tool-calls tool-call-name :remembered-command-keys]
-                       (fnil into #{}) keys'))
-              (swap! db* assoc-in [:tool-calls tool-call-name :remember-to-approve?] true))))))))
+                (swap! db* db/update-remembered-approvals chat-id
+                       update-in [full-name :remembered-command-keys] (fnil into #{}) keys'))
+              (swap! db* db/update-remembered-approvals chat-id
+                     assoc-in [full-name :remember-to-approve?] true))))))))
 
 (defn tool-call-reject
   [{:keys [chat-id tool-call-id]} db* messenger config metrics]
@@ -2437,7 +2553,10 @@
     (when (identical? :running (get-in @db* [:chats chat-id :status]))
       ;; Set :stopping immediately to prevent race with stream callbacks
       ;; that check status via assert-chat-not-stopped! or cancelled?
-      (swap! db* assoc-in [:chats chat-id :status] :stopping)
+      (swap! db* (fn [db]
+                   (cond-> (assoc-in db [:chats chat-id :status] :stopping)
+                     (contains? (:managed-chats db) chat-id)
+                     (assoc-in [:managed-chats chat-id :interrupted?] true))))
       (let [chat-ctx {:chat-id chat-id
                       :db* db*
                       :config config
@@ -2448,11 +2567,8 @@
           (lifecycle/send-content! chat-ctx :system {:type :text
                                                      :text "\nPrompt stopped\n"}))
 
-        ;; Handle each active tool call
-        (doseq [[tool-call-id _] (tc/get-active-tool-calls @db* chat-id)]
-          (tc/transition-tool-call! db* chat-ctx tool-call-id :stop-requested
-                                    {:reason {:code :user-prompt-stop
-                                              :text "Tool call rejected because of user prompt stop"}}))
+        (reject-active-tool-calls! db* chat-ctx {:code :user-prompt-stop
+                                                 :text "Tool call rejected because of user prompt stop"})
         ;; Clear compacting flags so finish-chat-prompt! isn't blocked
         (swap! db* update-in [:chats chat-id] dissoc :auto-compacting? :compacting?)
         (lifecycle/finish-chat-prompt! :stopping (lifecycle/strip-hook-callbacks chat-ctx))))))
@@ -2496,10 +2612,12 @@
              (cond-> chat
                ;; A cleared chat is a fresh conversation: drop the prompt cache
                ;; so the next prompt rebuilds the system prompt silently instead
-               ;; of warning about an invalidated cache that no longer exists. #530
+               ;; of warning about an invalidated cache that no longer exists
+               ;; (#530), and the "approve & remember" approvals too (#639).
                messages (-> (assoc :messages [])
                             (dissoc :tool-calls :last-api :usage :task
-                                    :prompt-cache :last-editor-state)))))
+                                    :prompt-cache :last-editor-state
+                                    :remembered-approvals)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/save-chat! @db* chat-id metrics)))
 
@@ -2525,7 +2643,8 @@
 
 (defn rollback-chat
   "Remove messages from chat in db until content-id matches.
-   Then notify to clear chat and then the kept messages."
+   Then notify the client: `chat/truncated` when it supports incremental
+   updates, otherwise `chat/cleared` followed by the kept messages."
   [{:keys [chat-id content-id include]} db* messenger metrics]
   (db/hydrate-chat! db* chat-id metrics)
   (let [include (if (seq include)
@@ -2554,34 +2673,49 @@
       ;; state. Persist immediately so the cleaned-up history survives a
       ;; restart instead of relying on the next unrelated save.
       (db/save-chat! @db* chat-id metrics)
-      (messenger/chat-cleared
-       messenger
-       {:chat-id chat-id
-        :messages true})
-      (send-chat-contents!
-       new-messages
-       {:chat-id chat-id
-        :db* db*
-        :messenger messenger}))
+      (if (history/incremental-updates? @db*)
+        (when (< (count new-messages) (count all-messages))
+          (messenger/chat-truncated messenger {:chat-id chat-id
+                                               :content-id content-id}))
+        (do
+          (messenger/chat-cleared
+           messenger
+           {:chat-id chat-id
+            :messages true})
+          (send-chat-contents!
+           new-messages
+           {:chat-id chat-id
+            :db* db*
+            :messenger messenger}))))
     {}))
 
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both
-   :content-id (user messages) and [:content :id] (tool calls, etc)."
+   :content-id (user messages) and [:content :id] (tool calls, etc).
+   A matched reason message extends to the end of its run of adjacent reason
+   messages, as clients show the whole run as one block with the first id."
   [messages content-id]
-  (loop [i (dec (count messages))]
-    (cond
-      (neg? i) nil
-      (let [msg (messages i)]
-        (or (= content-id (:content-id msg))
-            (= content-id (get-in msg [:content :id])))) i
-      :else (recur (dec i)))))
+  (when-let [idx (loop [i (dec (count messages))]
+                   (cond
+                     (neg? i) nil
+                     (let [msg (messages i)]
+                       (or (= content-id (:content-id msg))
+                           (= content-id (get-in msg [:content :id])))) i
+                     :else (recur (dec i))))]
+    (if (= "reason" (:role (messages idx)))
+      (loop [i idx]
+        (if (= "reason" (:role (get messages (inc i))))
+          (recur (inc i))
+          i))
+      idx)))
 
 (defn add-flag
   "Add a named flag after the message identified by content-id.
    Searches both :content-id and [:content :id] to support placement
    after any message type (user, tool call, reason, etc).
-   Clears and replays the chat to render the flag at the correct position."
+   Clients supporting incremental updates receive only the flag, with
+   `afterContentId` telling where to render it; others get a clear and
+   full replay so the flag renders at the correct position."
   [{:keys [chat-id content-id text]} db* messenger metrics]
   (db/hydrate-chat! db* chat-id metrics)
   (let [messages (vec (get-in @db* [:chats chat-id :messages]))
@@ -2594,8 +2728,17 @@
                                (cons flag-msg (subvec messages insert-after)))]
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
         (db/save-chat! @db* chat-id metrics)
-        (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
-        (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))
+        (if (history/incremental-updates? @db*)
+          (messenger/chat-content-received messenger
+                                           {:chat-id chat-id
+                                            :role :system
+                                            :content {:type :flag
+                                                      :text text
+                                                      :contentId flag-id
+                                                      :afterContentId content-id}})
+          (do
+            (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
+            (send-chat-contents! new-messages {:chat-id chat-id :db* db* :messenger messenger})))))
     {}))
 
 (defn remove-flag
@@ -2613,7 +2756,10 @@
 
 (defn fork-chat
   "Fork the chat creating a new chat with messages up to and including
-   the message identified by content-id."
+   the message identified by content-id.
+   Clients supporting incremental updates get only the newest page of kept
+   messages; the paging meta is returned as `:meta` and in `chat/opened` so
+   the client can page older via `chat/history`."
   [{:keys [chat-id content-id]} db* messenger metrics]
   (db/hydrate-chat! db* chat-id metrics)
   (let [chat (get-in @db* [:chats chat-id])
@@ -2633,19 +2779,23 @@
                       :model (:model chat)
                       :last-api (:last-api chat)
                       :messages kept-messages
-                      :prompt-finished? true}]
+                      :prompt-finished? true}
+            page (history/server-created-page @db* kept-messages)
+            meta (when page (history/page-meta page kept-messages))]
         (swap! db* assoc-in [:chats new-id] new-chat)
         (mark-editor-open! db* new-id)
         (db/save-chat! @db* new-id metrics)
-        (messenger/chat-opened messenger {:chat-id new-id :title new-title})
-        (send-chat-contents! kept-messages {:chat-id new-id :db* db* :messenger messenger})
+        (messenger/chat-opened messenger (assoc-some {:chat-id new-id :title new-title}
+                                                     :history meta))
+        (send-chat-contents! (if page (:messages page) kept-messages)
+                             {:chat-id new-id :db* db* :messenger messenger})
         (lifecycle/send-content! {:messenger messenger :chat-id new-id}
                                  :system
                                  (assoc-some {:type :metadata} :title new-title))
         (lifecycle/send-content! {:messenger messenger :chat-id chat-id}
                                  :system
                                  {:type :text :text (str "Chat forked to: " new-title)})
-        {:chat-id new-id}))))
+        (assoc-some {:chat-id new-id} :meta meta)))))
 
 (defn list-chats
   "Pure projection over `(:chats db)`: returns a summary list intended for the
@@ -2737,11 +2887,7 @@
                         :title title
                         :selection selection}
                        :meta (when windowed?
-                               {:total (:total page)
-                                :returned (:returned page)
-                                :before-cursor (:before-cursor page)
-                                :after-cursor (:after-cursor page)
-                                :compaction-cursor (history/compaction-cursor (:messages chat))}))))))))
+                               (history/page-meta page (:messages chat))))))))))
 
 (defn fetch-history
   "Window a chat's persisted messages and return the transformed content items
@@ -2765,8 +2911,4 @@
                     :message "Cursor no longer points to an existing message; refetch the latest page"}}
            {:contents (messages->contents (:messages result)
                                           {:chat-id chat-id :parent-chat-id nil :db db})
-            :meta {:total (:total result)
-                   :returned (:returned result)
-                   :before-cursor (:before-cursor result)
-                   :after-cursor (:after-cursor result)
-                   :compaction-cursor (history/compaction-cursor messages)}}))))))
+            :meta (history/page-meta result messages)}))))))

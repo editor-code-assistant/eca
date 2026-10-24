@@ -219,6 +219,53 @@
                  true (conj [:finish finish-reason]))
                @events*))))))
 
+(deftest chat-completion-stream-reasoning-before-text-test
+  (doseq [[label deltas events text]
+          [["a mixed chunk ends the open reasoning before its text"
+            [{:reasoning "No em-d"} {:content "Summary" :reasoning "ashes."} {:content ":"}]
+            [:started [:thinking "No em-d"] [:thinking "ashes."] :finished :text :finish]
+            "Summary:"]
+           ["a mixed chunk with no open reasoning keeps all of its text after the reasoning"
+            [{:content "line 130. Next" :reasoning "Step 3"} {:content " I will look"}]
+            [:started [:thinking "Step 3"] :finished :text :finish]
+            "line 130. Next I will look"]
+           ["empty reasoning strings open no block"
+            [{:content "Hel" :reasoning ""} {:content "lo" :reasoning_content ""}]
+            [:text :finish]
+            "Hello"]
+           ["think tags in content"
+            [{:content "<think>Pl"} {:content "an</think>Ans"} {:content "wer"}]
+            [:started [:thinking "Plan"] :finished :text :finish]
+            "Answer"]
+           ["a reasoning field inside think tags does not cut the tag block"
+            [{:content "<think>first"} {:content " last</think>" :reasoning "extra"} {:content "Answer"}]
+            [:started [:thinking "first last"] :finished :started [:thinking "extra"] :finished :text :finish]
+            "Answer"]]]
+    (testing label
+      (let [events* (atom [])
+            text* (atom "")
+            sse (str (apply str (map #(str "data: " (json/generate-string {:choices [{:delta %}]}) "\n\n") deltas))
+                     "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   :body (java.io.ByteArrayInputStream.
+                                          (.getBytes ^String sse java.nio.charset.StandardCharsets/UTF_8))})]
+          (llm-providers.openai-chat/chat-completion!
+           {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+            :user-messages [{:role "user" :content "hello"}]}
+           {:on-message-received (fn [{:keys [type text]}]
+                                   (swap! events* conj type)
+                                   (swap! text* str text))
+            :on-error (fn [error] (swap! events* conj [:error error]))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_])
+            :on-reason (fn [{:keys [status text]}]
+                         (swap! events* conj (if text [status text] status)))
+            :on-usage-updated (fn [_])}))
+        (is (= events (dedupe @events*)))
+        (is (= text @text*))))))
+
 (deftest chat-completion-stream-usage-before-error-test
   (doseq [reason [nil :cancelled :idle-timeout]
           tool-call? [true false]]
@@ -261,8 +308,9 @@
         (is (= 1 (count @errors*)))
         (case reason
           :cancelled (is (true? (:silent? (ex-data (:exception (first @errors*))))))
-          :idle-timeout (is (= "Stream idle timeout: no data received for 120 seconds"
-                              (:message (first @errors*))))
+          :idle-timeout (is (match? {:idle-timeout? true
+                                     :message "Stream idle timeout: no data received for 300 seconds"}
+                                    (first @errors*)))
           (is (= "test read failure" (ex-message (:exception (first @errors*))))))))))
 
 (defn ^:private input-stream [^String s]

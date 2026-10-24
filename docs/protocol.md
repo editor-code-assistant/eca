@@ -115,7 +115,7 @@ interface Range {
 ```
 
 
-### Initialize (↩️)
+### Initialize (↩)
 
 The first request sent from client to server. This message:
 - Establishes the connection
@@ -235,6 +235,24 @@ interface ClientCapabilities {
              * during a chat session.
              */
             askQuestion?: boolean;
+
+            /**
+             * Present when the client applies chat history changes in place
+             * instead of needing a full `chat/cleared` + replay. Then
+             * `chat/rollback` emits `chat/truncated`, `chat/addFlag` emits a
+             * single flag `chat/contentReceived` carrying `afterContentId`, and
+             * chats the server creates (`/fork`, `/btw`, `chat/fork`) stream
+             * only their newest messages, with `chat/opened` `history`
+             * describing the rest. Remote (SSE) clients keep receiving the
+             * full replays.
+             */
+            incrementalUpdates?: {
+                /**
+                 * Max messages to stream into a chat the server creates.
+                 * Defaults to 50.
+                 */
+                historyPageSize?: number;
+            };
         }
     }
 }
@@ -268,7 +286,7 @@ interface InitializeResponse {
 }
 ```
 
-### Initialized (➡️)
+### Initialized (→)
 
 A notification sent from the client to the server after receiving the initialize response. This message:
 - Confirms that the client is ready to receive requests
@@ -284,7 +302,7 @@ _Notification:_
 interface InitializedParams {}
 ```
 
-### Shutdown (↩️)
+### Shutdown (↩)
 
 A request sent from the client to the server to gracefully shut down the connection. This message:
 - Allows the server to clean up resources
@@ -301,7 +319,7 @@ _Response:_
 * result: null
 * error: code and message set in case an exception happens during shutdown request.
 
-### Exit (➡️)
+### Exit (→)
 
 A notification sent from the client to the server to terminate the connection. This message:
 - Should be sent after a shutdown request
@@ -374,7 +392,7 @@ _Notification:_
         S->>C: chat/contentReceived (system: finished)
     ```
 
-### Chat Prompt (↩️)
+### Chat Prompt (↩)
 
 A request sent from client to server, starting or continuing a chat in natural language as an agent.
 Used for broader questions or continuous discussion of project/files.
@@ -634,7 +652,7 @@ interface ChatPromptResponse {
 }
 ```
 
-### Chat Inline Prompt (↩️)
+### Chat Inline Prompt (↩)
 
 A request sent from client to server for prompts whose answer is rendered inline
 in the editor (e.g. an overlay or inlay near the cursor) while being backed by a
@@ -695,7 +713,7 @@ interface ChatInlinePromptParams {
 
 _Response:_ `ChatPromptResponse`
 
-### Chat Content Received (⬅️)
+### Chat Content Received (←)
 
 A server notification with a new content returned from the LLM or server.
 
@@ -793,6 +811,10 @@ interface ChatProgressContent {
 /**
  * A reason started from the LLM
  *
+ * Consecutive reasoning blocks with no other visible content between them
+ * are merged by the server into a single reason: one id, texts joined by a
+ * blank line and a single `reasonFinished` with the summed time, sent right
+ * before the next visible content or when the prompt finishes.
  */
 interface ChatReasonStartedContent {
     type: 'reasonStarted';
@@ -962,13 +984,26 @@ interface ChatUsageContent {
     
     /**
      * The cost of the last sent message summing input + output tokens.
+     * Absent when the model has no pricing or the chat uses a subscription
+     * login (see `quota`).
      */
     lastMessageCost?: string; 
     
     /**
      * The cost of the whole chat session so far.
+     * Absent when the model has no pricing or the chat uses a subscription
+     * login (see `quota`).
      */
     sessionCost?: string;
+
+    /**
+     * Subscription quota of the provider behind the chat's model, sent instead
+     * of the costs when logged in with a subscription (Claude Pro/Max, ChatGPT,
+     * GitHub Copilot), as the provider has no per-token cost. Absent until the
+     * provider reports it. Same value as the provider's `ProviderStatus.quota`
+     * when this usage was sent.
+     */
+    quota?: ProviderQuota;
     
     /**
      * Information about limits.
@@ -1269,8 +1304,10 @@ interface ChatToolCallRejectedContent {
     
     /**
      * The reason why this tool call was rejected.
+     * 'interrupted': the LLM response streaming this tool call failed
+     * (e.g. connection dropped), so it will never run.
      */
-    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'userPromptStop' | 'userStop' | 'user';
+    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'userPromptStop' | 'userStop' | 'user' | 'interrupted';
     
     /**
      * Summary text to present about this tool call, 
@@ -1328,9 +1365,18 @@ interface SubagentDetails {
     /**
      * The chatId of this running subagent, useful to link other chat/ContentReceived
      * messages to this tool call.
-     * Available from toolCallRun afterwards
+     * Available from toolCallRun afterwards.
+     * A subagent continued with spawn_agent's `chat_id` keeps its chatId, so several
+     * tool calls of the same parent chat can share it.
      */
     subagentChatId?: string;
+
+    /**
+     * The [start, end) indexes of the subagent chat messages that this tool call ran,
+     * [0, 0] when it did not run. Set on toolCalled. History replay uses it to show
+     * each call's part of a continued subagent.
+     */
+    subagentMessageRange?: [number, number];
 
     /**
      *  The model this subagent is using.
@@ -1472,7 +1518,8 @@ interface ShellCommandBreakdown {
     approvalKey?: string;
 
     /**
-     * Whether approvalKey is already remembered for this session.
+     * Whether approvalKey is already remembered for this chat session
+     * (the chat and its subagents).
      * Only present when approvalKey is present.
      */
     remembered?: boolean;
@@ -1507,11 +1554,20 @@ interface ChatFlagContent {
      * Unique identifier for this flag.
      */
     contentId: string;
+
+    /**
+     * Id of the message the flag belongs after (message contentId or
+     * content id). Only sent by `chat/addFlag` to clients with the
+     * `incrementalUpdates` capability; when absent, render the flag at the
+     * current position. Clients may skip rendering when that message is not
+     * loaded (e.g. on an unloaded history page).
+     */
+    afterContentId?: string;
 }
 
 ```
 
-### Chat approve tool call (➡️)
+### Chat approve tool call (→)
 
 A client notification for server to approve a waiting tool call.
 This will execute the tool call and continue the LLM chat loop.
@@ -1530,6 +1586,8 @@ interface ChatToolCallApproveParams {
     
     /**
      * The approach to save this tool call.
+     * 'session' remembers the approval for the chat session: the chat and its subagents,
+     * in memory only, until the chat is cleared or the server restarts.
      * For tools with granular approval (eca shell_command and git), 'session' remembers
      * the specific approved commands (e.g. "git checkout") instead of the whole tool.
      */
@@ -1542,7 +1600,7 @@ interface ChatToolCallApproveParams {
 }
 ```
 
-### Chat reject tool call (➡️)
+### Chat reject tool call (→)
 
 A client notification for server to reject a waiting tool call.
 This will not execute the tool call and return to the LLM chat loop.
@@ -1566,7 +1624,7 @@ interface ChatToolCallRejectParams {
 }
 ```
 
-### Chat Query Context (↩️)
+### Chat Query Context (↩)
 
 A request sent from client to server, querying for all the available contexts for user add to prompt calls.
 
@@ -1610,7 +1668,7 @@ interface ChatQueryContextResponse {
 }
 ```
 
-### Chat Query Files (↩️)
+### Chat Query Files (↩)
 
 A request sent from client to server, querying for available files for the user to add as context to prompt calls.
 Similar to `chat/queryContext` but returns only file-based contexts.
@@ -1650,7 +1708,7 @@ interface ChatQueryFilesResponse {
 }
 ```
 
-### Chat Query Commands (↩️)
+### Chat Query Commands (↩)
 
 A request sent from client to server, querying for all the available commands for user to call.
 Commands are multiple possible actions like MCP prompts, doctor, costs. Usually the 
@@ -1717,7 +1775,7 @@ interface ChatCommand {
 }
 ```
 
-### Chat stop prompt (➡️)
+### Chat stop prompt (→)
 
 A client notification for server to stop the current chat prompt with LLM if running.
 This will stop LLM loops or ignore subsequent LLM responses so other prompts can be triggered.
@@ -1736,7 +1794,7 @@ interface ChatPromptStopParams {
 }
 ```
 
-### Chat steer prompt (➡️)
+### Chat steer prompt (→)
 
 A client notification to steer the current running prompt by injecting a user message
 at the next LLM loop turn boundary (e.g. after tool calls complete).
@@ -1752,7 +1810,8 @@ the running task, instead of injecting the command text into the conversation.
 
 Other native commands that do not affect the running turn (`/sync-system-prompt`, `/costs`,
 `/context`, `/chats`, `/skills`, `/rules`, `/subagents`, `/plugins`, `/hooks`, `/prompt-show`,
-`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`) are also queued and
+`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
+`/forget-approvals`) are also queued and
 executed at the turn boundary: their output is shown and the task resumes. Native commands that
 would change the chat or start another prompt (`/model`, `/agent`, `/fork`, `/resume`,
 `/delete-chat`, `/login`, `/init`, ...) are refused with a system message and not queued.
@@ -1777,7 +1836,7 @@ interface ChatPromptSteerParams {
 }
 ```
 
-### Chat steer prompt remove (➡️)
+### Chat steer prompt remove (→)
 
 A client notification to discard any pending steer message that has not yet been consumed by the LLM loop.
 The notification is idempotent: if no steer message is pending (or it was already consumed at the next turn boundary),
@@ -1797,12 +1856,13 @@ interface ChatPromptSteerRemoveParams {
 }
 ```
 
-### Chat rollback (↩️)
+### Chat rollback (↩)
 
 A client request to rollback chat messages to before a specific user sent message using `contentId`.
 Clients should show an option close to user sent messages in chat to rollback, calling this method.
 Server will then remove the messages from its memory after that contentId and produce `chat/cleared` followed 
-with `chat/contentReceived` with the kept messages.
+with `chat/contentReceived` with the kept messages. Clients with the `incrementalUpdates` capability receive
+a single `chat/truncated` instead.
 
 _Request:_ 
 
@@ -1836,7 +1896,7 @@ _Response:_
 interface ChatRollbackResponse {}
 ```
 
-### Chat clear (↩️)
+### Chat clear (↩)
 
 A client request to clear specific aspects of an existing chat while keeping the chat entity intact.
 Unlike `chat/delete`, this preserves the chat identity, metadata and any features coupled to it.
@@ -1855,7 +1915,8 @@ interface ChatClearParams {
     chatId: string;
 
     /**
-     * Whether to clear the messages and tool calls of the chat.
+     * Whether to clear the messages and tool calls of the chat,
+     * also forgetting its remembered tool call approvals.
      */
     messages?: boolean;
 }
@@ -1867,13 +1928,15 @@ _Response:_
 interface ChatClearResponse {}
 ```
 
-### Chat add flag (➡️)
+### Chat add flag (→)
 
 A client request to add a named flag (checkpoint) to the chat history.
 The flag is inserted after the message identified by the given `contentId`.
 The `contentId` matches against both message-level `contentId` (user messages) and
 content `id` fields (tool calls, reasons, etc), allowing placement between any message types.
 Flags are persisted as messages and propagate automatically with fork and resume.
+Server then emits `chat/cleared` followed by the full history via `chat/contentReceived`, or, for clients with
+the `incrementalUpdates` capability, a single flag `chat/contentReceived` carrying `afterContentId`.
 
 _Request:_
 
@@ -1906,7 +1969,7 @@ _Response:_
 interface ChatAddFlagResponse {}
 ```
 
-### Chat remove flag (➡️)
+### Chat remove flag (→)
 
 A client request to remove a flag from the chat history.
 The client is responsible for removing the flag from the UI after a successful response.
@@ -1936,12 +1999,14 @@ _Response:_
 interface ChatRemoveFlagResponse {}
 ```
 
-### Chat fork (➡️)
+### Chat fork (→)
 
 A client request to fork the chat into a new chat with messages up to and including
 the message identified by the given `contentId`. The server creates the new chat,
 sends a `chat/opened` notification with the new chat, then streams the kept messages
-via `chat/contentReceived`. A system message is also sent to the original chat.
+(only the newest page of them for clients with the `incrementalUpdates` capability) via
+`chat/contentReceived`. The fork always keeps the full history. A system message is
+also sent to the original chat.
 
 _Request:_
 
@@ -1971,10 +2036,16 @@ interface ChatForkResponse {
      * Absent when the given contentId was not found.
      */
     chatId?: string;
+
+    /**
+     * Pagination info for the streamed messages, present when the client has
+     * the `incrementalUpdates` capability. Same as `chat/opened` `history`.
+     */
+    meta?: ChatHistoryMeta;
 }
 ```
 
-### Chat cleared (⬅️)
+### Chat cleared (←)
 
 A server notification to clear a chat UI, currently supporting removing only messages of the chat.
 
@@ -1998,12 +2069,38 @@ interface ChatClearedParams {
 }
 ```
 
-### Chat opened (⬅️)
+### Chat truncated (←)
+
+A server notification to remove a message and everything after it from a chat UI, keeping the earlier
+messages as they are. Only sent to clients with the `incrementalUpdates` capability, currently after
+`chat/rollback`. When the message is not loaded in the client (e.g. it is on an unloaded history page),
+clients should re-open the chat via `chat/open`.
+
+_Notification:_ 
+
+* method: `chat/truncated`
+* params: `ChatTruncatedParams` defined as follows:
+
+```typescript
+interface ChatTruncatedParams {
+    /**
+     * The chat session identifier.
+     */
+    chatId: string;
+
+    /**
+     * The contentId of the first removed message.
+     */
+    contentId: string;
+}
+```
+
+### Chat opened (←)
 
 A server notification indicating that a chat exists or was just materialized
 server-side. Emitted when:
 
-- a chat is forked via `/fork` or the `chat/fork` request,
+- a chat is forked via `/fork`, `/btw` or the `chat/fork` request,
 - a persisted chat is replayed via `chat/open`,
 - a client-supplied `chatId` is seen for the first time on `chat/prompt`
   (the legacy null-`chatId` path does not emit this).
@@ -2031,10 +2128,18 @@ interface ChatOpenedParams {
      * not yet have a title.
      */
     title?: string;
+
+    /**
+     * Pagination info when only the newest page of the chat's messages
+     * follows, for chats the server creates (`/fork`, `/btw`, `chat/fork`)
+     * for clients with the `incrementalUpdates` capability. Older messages
+     * can be paged via `chat/history` using `beforeCursor`.
+     */
+    history?: ChatHistoryMeta;
 }
 ```
 
-### Chat status changed (⬅️)
+### Chat status changed (←)
 
 A server notification carrying lifecycle transitions for a chat. Clients
 typically use it to drive a "chat is running/idle/stopping" indicator.
@@ -2064,7 +2169,7 @@ interface ChatStatusChangedParams {
 }
 ```
 
-### Chat deleted (⬅️)
+### Chat deleted (←)
 
 A server notification confirming that a chat was deleted (either via the
 `chat/delete` request from this client or via another connected client / a
@@ -2086,7 +2191,7 @@ interface ChatDeletedParams {
 }
 ```
 
-### Chat delete (↩️)
+### Chat delete (↩)
 
 A client request to delete a existing chat, removing all previous messages and used tokens/costs from memory, good for reduce context or start a new clean chat.
 After response, clients should reset chat UI to a clean state.
@@ -2111,7 +2216,7 @@ _Response:_
 interface ChatDeleteResponse {}
 ```
 
-### Chat update (↩️)
+### Chat update (↩)
 
 A client request to update chat metadata like title.
 Server will persist the change, broadcast to all connected clients via `chat/contentReceived` with metadata content, and return an empty response.
@@ -2148,7 +2253,7 @@ _Response:_
 interface ChatUpdateResponse {}
 ```
 
-### Chat list (↩️)
+### Chat list (↩)
 
 A client request to list all persisted chats for the current workspace,
 so a freshly-started client can populate its sidebar without waiting for the
@@ -2214,7 +2319,7 @@ interface ChatSummary {
 }
 ```
 
-### Chat open (↩️)
+### Chat open (↩)
 
 A client request to hydrate a previously-persisted chat so it can be rendered
 in the UI. The server replays the chat by emitting `chat/cleared` (messages),
@@ -2300,7 +2405,7 @@ interface ChatOpenResponse {
 }
 ```
 
-### Chat history (↩️)
+### Chat history (↩)
 
 A client request to fetch a window of a persisted chat's history as a single
 response (no streaming), so an editor can hydrate a bounded view and page older
@@ -2313,8 +2418,10 @@ the selected window; an opaque `after` cursor pages forward instead. The literal
 sentinel `"lastCompaction"` may be passed as `before`/`after`: `after: "lastCompaction"`
 returns the messages since the last compaction (the active context),
 `before: "lastCompaction"` the summarized-away history. Cursors are ephemeral —
-a cursor whose message no longer exists (e.g. after a rollback or clear) returns
-a `cursor_expired` error, prompting the client to refetch the latest page.
+a cursor whose message no longer exists returns a `cursor_expired` error,
+prompting the client to refetch the latest page. The exception is a cursor whose
+message was cut off by a rollback: everything left is older than it, so a
+`before` page returns the newest remaining messages.
 
 _Request:_
 
@@ -2372,7 +2479,7 @@ interface ChatHistoryMeta {
 }
 ```
 
-### Chat selected agent changed (➡️)
+### Chat selected agent changed (→)
 
 A client notification for server telling the user selected a different agent in chat.
 
@@ -2402,7 +2509,7 @@ interface ChatSelectedAgentChanged {
 
 > **Backward compatibility:** The legacy method `chat/selectedBehaviorChanged` with `{ behavior: string }` is still supported.
 
-### Chat selected model changed (➡️)
+### Chat selected model changed (→)
 
 A client notification for server telling the user selected a different model in chat.
 Server will respond with a `config/updated` notification containing the available variants for the selected model
@@ -2439,7 +2546,7 @@ interface ChatSelectedModelChanged {
 }
 ```
 
-### Editor diagnostics (↪️)
+### Editor diagnostics (↪)
 
 A server request to retrieve LSP or any other kind of diagnostics if available from current workspaces.
 Useful for server to provide to LLM information about errors/warnings about current code.
@@ -2502,7 +2609,7 @@ interface EditorDiagnostic {
 }
 ```
 
-### Editor definition (↪️)
+### Editor definition (↪)
 
 A server request to retrieve from the editor the definition location(s) of the symbol
 at a position in a file, typically backed by the editor's language server (LSP).
@@ -2582,7 +2689,7 @@ interface EditorLocation {
 }
 ```
 
-### Editor references (↪️)
+### Editor references (↪)
 
 A server request to retrieve from the editor the references of the symbol
 at a position in a file, typically backed by the editor's language server (LSP).
@@ -2639,7 +2746,7 @@ interface EditorGetReferencesResponse {
 }
 ```
 
-### Chat ask question (↪️)
+### Chat ask question (↪)
 
 A server request to ask the user a question and receive an answer during a chat session.
 This enables the server to present the user with a question (optionally with predefined options)
@@ -2716,7 +2823,7 @@ interface ChatAskQuestionResponse {
 }
 ```
 
-### Completion (↩️)
+### Completion (↩)
 
 A request sent from client to server, asking for a text to be presented to user as a inline completion for the current text code.
 
@@ -2778,7 +2885,7 @@ interface CompletionInlineItem {
 }
 ```
 
-### Rewrite (↩️)
+### Rewrite (↩)
 
 A request sent from client to server, asking to rewrite a piece of code in editor with what LLM respond.
 The response is streamed via `rewrite/contentReceived` server notifications.
@@ -2837,7 +2944,7 @@ interface RewritePromptResponse {
 }
 ```
 
-### Rewrite Content Received (⬅️)
+### Rewrite Content Received (←)
 
 A server notification with a new content from the rewrite LLM request.
 
@@ -2910,7 +3017,7 @@ type RewriteContent =
 
 ## Configuration
 
-### Config updated (⬅️)
+### Config updated (←)
 
 A server notification with the new config server is considering (models, agents etc), usually related to config or auth changes.
 Clients should update UI accordingly, if a field is missing/null, means it had no change since last config updated, so clients should ignore.
@@ -3005,7 +3112,7 @@ interface ConfigUpdatedParams {
 }
 ```
 
-### Tool updated (⬅️)
+### Tool updated (←)
 
 A server notification about a tool status update like a MCP or native tool.
 This is useful for clients present to user the list of configured tools/MCPs,
@@ -3173,7 +3280,7 @@ interface ServerResource {
 }
 ```
 
-### Tool server removed (⬅️)
+### Tool server removed (←)
 
 A server notification that an MCP server has been removed (via `mcp/removeServer`).
 Clients should drop the corresponding entry from any cached server list / UI.
@@ -3192,7 +3299,7 @@ interface ToolServerRemovedParams {
 }
 ```
 
-### Stop MCP server (➡️)
+### Stop MCP server (→)
 
 A client notification for server to stop a MCP server, stopping the process.
 Updates its status via `tool/serverUpdated` notification.
@@ -3211,7 +3318,7 @@ interface MCPStopServerParams {
 }
 ```
 
-### Start MCP server (➡️)
+### Start MCP server (→)
 
 A client notification for server to start a stopped MCP server, starting the process again.
 Updates its status via `tool/serverUpdated` notification.
@@ -3230,7 +3337,7 @@ interface MCPStartServerParams {
 }
 ```
 
-### Connect MCP server (➡️)
+### Connect MCP server (→)
 
 A client notification to initiate OAuth authorization for an MCP server that has `requires-auth` status.
 The server starts a local OAuth callback server and opens the authorization URL in the browser.
@@ -3250,7 +3357,7 @@ interface MCPConnectServerParams {
 }
 ```
 
-### Logout MCP server (➡️)
+### Logout MCP server (→)
 
 A client notification to logout from an MCP server, clearing its stored OAuth credentials
 and restarting the server. The server will re-detect auth requirements and send
@@ -3270,7 +3377,7 @@ interface MCPLogoutServerParams {
 }
 ```
 
-### Disable MCP server (➡️)
+### Disable MCP server (→)
 
 A client notification to disable an MCP server. Persists `disabled: true` in the config file,
 stops the server if running, and sends `tool/serverUpdated` with status `disabled`.
@@ -3289,7 +3396,7 @@ interface MCPDisableServerParams {
 }
 ```
 
-### Enable MCP server (➡️)
+### Enable MCP server (→)
 
 A client notification to enable a disabled MCP server. Removes the `disabled` flag from the config file,
 starts the server, and sends `tool/serverUpdated` with the new status.
@@ -3308,7 +3415,7 @@ interface MCPEnableServerParams {
 }
 ```
 
-### Update MCP Server (↩️)
+### Update MCP Server (↩)
 
 Updates an MCP server's connection configuration (command/args or url), persists the change to the appropriate config file (local or global), and restarts the server.
 
@@ -3342,7 +3449,7 @@ _Response:_
 
 * result: `{}`
 
-### Add MCP Server (↩️)
+### Add MCP Server (↩)
 
 Adds a new MCP server definition at runtime, persists it to the chosen config file
 (global or workspace-local), and starts the server asynchronously. On success the server
@@ -3454,7 +3561,7 @@ interface MCPAddServerResult {
 }
 ```
 
-### Remove MCP Server (↩️)
+### Remove MCP Server (↩)
 
 Removes an MCP server definition at runtime: stops the server if running, deletes the
 entry from the owning config file (global or workspace-local), clears any stored OAuth
@@ -3504,7 +3611,7 @@ interface MCPRemoveServerResult {
 
 ## Provider Management
 
-### List Providers (↩️)
+### List Providers (↩)
 
 Returns all known providers with their current authentication status and available models.
 
@@ -3537,6 +3644,41 @@ interface ProviderStatus {
     models: ProviderModel[];
     /** Provider-level config key-vals (api, url, fetchModels, httpClient, retryRules, etc.). */
     settings?: Record<string, any>;
+    /**
+     * Latest subscription quota, only for subscription logins (`auth.type`
+     * "oauth") once the provider reported it, either on a request or via its
+     * usage endpoint fetched after login, on startup and by `/quota`.
+     */
+    quota?: ProviderQuota;
+}
+
+/**
+ * Account-level subscription quota reported by the provider (e.g. Claude
+ * Pro/Max, ChatGPT, GitHub Copilot). Unrelated to chat tokens or API billing.
+ */
+interface ProviderQuota {
+    /** When this snapshot was captured, epoch seconds. */
+    updatedAt: number;
+    /**
+     * Quota windows as reported by the provider, shortest first. Ids, labels
+     * and durations come from the provider, clients should not assume fixed
+     * windows. A window whose `resetsAt` already passed is stale until the next
+     * update.
+     */
+    windows: ProviderQuotaWindow[];
+}
+
+interface ProviderQuotaWindow {
+    /** Stable id derived from the provider data (e.g. "5h", "7d", "primary", "premium_interactions"). */
+    id: string;
+    /** Short display label (e.g. "5h", "7d", "Premium"). */
+    label: string;
+    /** Used share of the window, 0-100. May exceed 100 when the provider allows overage. */
+    usedPercent: number;
+    /** When the window resets, epoch seconds. */
+    resetsAt?: number;
+    /** Window duration in minutes, when reported. */
+    windowMinutes?: number;
 }
 
 interface ProviderAuth {
@@ -3578,7 +3720,7 @@ interface ProviderModel {
 }
 ```
 
-### Login Provider (↩️)
+### Login Provider (↩)
 
 Initiates a login flow for a provider. Two-round-trip design: calling without a method returns
 available methods to choose from; calling with a method starts the authentication flow and
@@ -3656,7 +3798,7 @@ interface InputField {
 }
 ```
 
-### Login Provider Input (↩️)
+### Login Provider Input (↩)
 
 Submits collected input data (API key, authorization code, URL, models) to complete a login flow.
 
@@ -3678,7 +3820,7 @@ _Response:_
 
 * result: `{ action: 'done' }`
 
-### Logout Provider (↩️)
+### Logout Provider (↩)
 
 Clears authentication for a provider and re-syncs available models.
 
@@ -3698,10 +3840,10 @@ _Response:_
 
 * result: `{}`
 
-### Provider Updated (⬅️)
+### Provider Updated (←)
 
-A server notification sent when a provider's authentication state or available models change.
-Sent after login completion, logout, token renewal, or model sync. Contains the full provider
+A server notification sent when a provider's authentication state, available models or subscription quota change.
+Sent after login completion, logout, token renewal, model sync, or when the quota clients display changes. Contains the full provider
 status (same shape as items in `providers/list` response).
 
 _Notification:_
@@ -3711,7 +3853,7 @@ _Notification:_
 
 ## Background Jobs
 
-### List Jobs (↩️)
+### List Jobs (↩)
 
 Returns all active (non-evicted) background jobs across all chats.
 
@@ -3753,7 +3895,7 @@ interface JobSummary {
 }
 ```
 
-### Kill Job (↩️)
+### Kill Job (↩)
 
 Terminates a running background job.
 
@@ -3773,7 +3915,7 @@ _Response:_
 
 * result: `{ killed: boolean }`
 
-### Read Job Output (↩️)
+### Read Job Output (↩)
 
 Returns the currently buffered output lines for a background job. This is a snapshot read
 that does not affect the LLM's incremental read cursor.
@@ -3812,7 +3954,7 @@ interface OutputLine {
 }
 ```
 
-### Jobs Updated (⬅️)
+### Jobs Updated (←)
 
 A server notification sent when the background jobs list changes. Sent after a job is
 created, completes, fails, is killed, or is evicted. Contains the full list of active jobs.
@@ -3824,7 +3966,7 @@ _Notification:_
 
 ## General features
 
-### progress (⬅️)
+### progress (←)
 
 A notification from the server reporting the progress of an initialization task. Each task
 sends a `start` notification when it begins and a `finish` notification when it completes (or fails).
@@ -3846,7 +3988,7 @@ interface ProgressParams {
 }
 ```
 
-### showMessage (⬅️)
+### showMessage (←)
 
 A notification from server telling client to present a message to user.
 

@@ -6,6 +6,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
@@ -213,6 +214,41 @@
                     {:role :system :content {:type :progress :state :finished}}]}
                   (h/messages))))))
 
+(deftest prompt-subscription-quota-test
+  (let [api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated on-response-headers]}]
+                   (on-response-headers {"x-codex-primary-used-percent" "42"
+                                         "x-codex-primary-window-minutes" "300"
+                                         "x-codex-primary-reset-at" "1900000000"})
+                   (on-first-response-received {:type :text :text "Hey"})
+                   (on-message-received {:type :text :text "Hey"})
+                   (on-usage-updated {:input-tokens 10 :output-tokens 5})
+                   (on-message-received {:type :finish}))
+        usage-contents #(->> (:chat-content-received (h/messages))
+                             (map :content)
+                             (filter (comp #{:usage} :type)))
+        priced-models {"openai/gpt-5.2" {:tools true :input-token-cost 0.000001 :output-token-cost 0.000002}}]
+    (testing "subscription logins get the quota instead of costs and notify the provider status"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/oauth :mode :pro :api-key "oauth-token"})
+      (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
+      (is (match? [{:session-tokens 15
+                    :quota {:windows [{:id "primary" :label "5h" :used-percent 42.0 :resets-at 1900000000}]}
+                    :last-message-cost m/absent
+                    :session-cost m/absent}]
+                  (usage-contents)))
+      (is (match? [{:id "openai" :quota {:windows [{:id "primary" :used-percent 42.0}]}}]
+                  (:provider-updated (h/messages)))))
+    (testing "API key logins keep costs and ignore quota headers"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/token :api-key "sk-key"})
+      (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
+      (is (match? [{:session-tokens 15 :session-cost "0.00" :quota m/absent}]
+                  (usage-contents)))
+      (is (empty? (:provider-updated (h/messages))))
+      (is (nil? (get-in (h/db) [:provider-quotas "openai"]))))))
+
 (deftest prompt-basic-test
   (testing "Simple hello"
     (h/reset-components!)
@@ -263,8 +299,9 @@
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
       (is (match?
-           {chat-id {:id chat-id :messages m/absent}}
-           (:chats (h/db))))
+           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
+           (:chats (h/db)))
+          "the unanswered message is kept so the next prompt and /resume still have it (eca-intellij#27)")
       (is (match?
            {:chat-content-received
             [{:chat-id chat-id
@@ -375,6 +412,24 @@
                                        :text #(string/includes? % "Connection closed unexpectedly")}}])}
                 (h/messages))))))
 
+(deftest idle-timeout-recovery-asks-to-split-large-tool-calls-test
+  (h/reset-components!)
+  (let [requests* (atom [])
+        api-mock (fn [{:keys [user-messages on-first-response-received on-message-received on-error]}]
+                   (if (= 1 (count (swap! requests* conj user-messages)))
+                     (do
+                       (on-first-response-received {:type :text :text "Writing the file"})
+                       (on-message-received {:type :text :text "Writing the file"})
+                       (on-error (llm-util/idle-timeout-error 300 (java.io.IOException. "closed"))))
+                     (on-message-received {:type :finish})))]
+    (prompt! {:message "Write a big file"}
+             {:all-tools-mock (constantly [])
+              :api-mock api-mock})
+    (is (match? [{:role "user"
+                  :content [{:type :text
+                             :text #(string/includes? % "split it into a few smaller calls")}]}]
+                (second @requests*)))))
+
 (deftest transient-tls-recovery-limit-test
   (doseq [[configured limit reason] [[nil 3 :limit-reached] [2 2 :limit-reached] [0 0 :disabled]]]
     (testing (str "bounded TLS recovery with maxAutoContinues=" configured)
@@ -416,7 +471,7 @@
                                            :text #(and (string/includes? % "bad_record_mac")
                                                        (string/includes? % (if (zero? limit)
                                                                              "Automatic recovery is disabled"
-                                                                             (format "Automatic recovery limit reached (%d/%d for this turn)" limit limit))))}}])}
+                                                                             (format "Automatic recovery limit reached (%d/%d in a row)" limit limit))))}}])}
                     (h/messages)))))))
 
 (deftest truncated-response-shares-recovery-budget-test
@@ -441,8 +496,130 @@
                  (m/embeds [{:role :system
                              :content {:type :progress :text #"Response interrupted.*recovery 1/1"}}
                             {:role :system
-                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 for this turn\).*"}}])}
+                             :content {:type :text :text #"(?s).*Automatic recovery limit reached \(1/1 in a row\).*"}}])}
                 (h/messages)))))
+
+(deftest recovery-budget-resets-after-completed-step-test
+  (h/config! {:providers {"openai" {:retry {:maxAutoContinues 1}}}})
+  (let [attempts* (atom 0)
+        exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")
+        fail! (fn [on-error]
+                (on-error {:exception exception
+                           :message (llm-util/connection-error-message exception)}))
+        {:keys [chat-id]}
+        (prompt!
+         {:message "Keep working"}
+         {:all-tools-mock (constantly [{:name "list_allowed_directories" :full-name "eca__list_allowed_directories" :server {:name "eca"}}])
+          :call-tool-mock (constantly {:error false :contents [{:type :text :text "ok"}]})
+          :api-mock (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called on-error]}]
+                      (let [attempt (swap! attempts* inc)]
+                        (on-first-response-received)
+                        (on-message-received {:type :text :text "Partial"})
+                        (case attempt
+                          1 (fail! on-error)
+                          2 (do
+                              (on-prepare-tool-call {:id "call-1" :full-name "eca__list_allowed_directories" :arguments-text ""})
+                              (on-tools-called [{:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}])
+                              (fail! on-error))
+                          (on-message-received {:type :finish}))))})]
+    (is (= 3 @attempts*) "a completed step refills the budget, so the second failure is recovered")
+    (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
+    (is (match? {:chat-content-received
+                 (m/embeds [{:role :system :content {:type :progress :text #"recovery 1/1"}}
+                            {:role :system :content {:type :progress :text #"recovery 1/1"}}])}
+                (h/messages)))))
+
+(deftest stream-error-rejects-preparing-tool-calls-test
+  (let [exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")
+        error-data {:exception exception :message (llm-util/connection-error-message exception)}
+        prepare-write! (fn [on-first-response-received on-prepare-tool-call]
+                         (on-first-response-received)
+                         (on-prepare-tool-call {:id "call-1"
+                                                :full-name "eca__write_file"
+                                                :arguments-text "{\"path\":\"/foo/core.cljs\",\"content\":\"(ns"}))
+        rejections (fn []
+                     (->> (:chat-content-received (h/messages))
+                          (filter #(= :toolCallRejected (get-in % [:content :type])))))]
+    (testing "a tool call still preparing when the stream drops is rejected before the automatic retry"
+      (h/reset-components!)
+      (let [attempts* (atom 0)
+            {:keys [chat-id]}
+            (prompt!
+             {:message "Write the file"}
+             {:all-tools-mock (constantly [])
+              :api-mock (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-error]}]
+                          (if (= 1 (swap! attempts* inc))
+                            (do (prepare-write! on-first-response-received on-prepare-tool-call)
+                                (on-error error-data))
+                            (do (on-first-response-received {:type :text :text "Done"})
+                                (on-message-received {:type :text :text "Done"})
+                                (on-message-received {:type :finish}))))})]
+        (is (= 2 @attempts*))
+        (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
+        (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))
+
+    (testing "a tool call still preparing is rejected when automatic recovery gives up"
+      (h/reset-components!)
+      (h/config! {:providers {"openai" {:retry {:maxAutoContinues 0}}}})
+      (let [{:keys [chat-id]}
+            (prompt!
+             {:message "Write the file"}
+             {:all-tools-mock (constantly [])
+              :api-mock (fn [{:keys [on-first-response-received on-prepare-tool-call on-error]}]
+                          (prepare-write! on-first-response-received on-prepare-tool-call)
+                          (on-error error-data))})]
+        (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
+        (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))
+
+    (testing "a tool call still preparing is rejected when the request throws"
+      (h/reset-components!)
+      (let [{:keys [chat-id]}
+            (prompt!
+             {:message "Write the file"}
+             {:all-tools-mock (constantly [])
+              :api-mock (fn [{:keys [on-first-response-received on-prepare-tool-call]}]
+                          (prepare-write! on-first-response-received on-prepare-tool-call)
+                          (throw (ex-info "boom" {})))})]
+        (is (match? [{:role :assistant :content {:id "call-1" :reason :interrupted}}] (rejections)))
+        (is (not= :preparing (get-in (h/db) [:chats chat-id :tool-calls "call-1" :status])))))))
+
+(deftest unanswered-user-message-is-kept-test
+  (testing "eca-intellij#27: a message the LLM never answered (network down until
+            automatic recovery gave up) stays in history and reaches the model
+            with the next prompt"
+    (h/reset-components!)
+    (h/config! {:providers {"openai" {:retry {:maxAutoContinues 0}}}})
+    (let [exception (java.net.ConnectException. "Connection refused")
+          error-data {:exception exception :message (llm-util/connection-error-message exception)}
+          past-messages* (atom nil)
+          {:keys [chat-id]} (prompt! {:message "hello"}
+                                     {:all-tools-mock (constantly [])
+                                      :api-mock (fn [{:keys [on-error]}] (on-error error-data))})]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+                  (get-in (h/db) [:chats chat-id :messages])))
+      (is (not (contains? (get-in (h/db) [:chats chat-id]) :unsent-user-messages)))
+      (prompt! {:message "second" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock (fn [{:keys [past-messages on-first-response-received on-message-received]}]
+                            (reset! past-messages* past-messages)
+                            (on-first-response-received {:type :text :text "ok"})
+                            (on-message-received {:type :text :text "ok"})
+                            (on-message-received {:type :finish}))})
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"}]}]) @past-messages*))
+      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}
+                   {:role "user" :content [{:type :text :text "second"}]}
+                   {:role "assistant" :content [{:type :text :text "ok"}]}]
+                  (get-in (h/db) [:chats chat-id :messages])))))
+
+  (testing "a message stopped before the LLM answered stays in history"
+    (h/reset-components!)
+    (let [chat-id "stopped-before-response"]
+      (prompt! {:message "hello" :chat-id chat-id}
+               {:all-tools-mock (constantly [])
+                :api-mock (fn [_]
+                            (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics) {}))})
+      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+                  (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest transient-tls-recovery-guards-test
   (doseq [[state reason] [[{:status :stopping} :stopping]
@@ -558,6 +735,56 @@
                 :role :system}]}
              (h/messages)))))))
 
+(deftest prompt-history-sanitized-notice-test
+  (testing "cross-api history notice is shown on the first prompt after an api swap only (#660)"
+    (h/reset-components!)
+    (let [chat-id "api-swap-chat"
+          notices (fn []
+                    (->> (:chat-content-received (h/messages))
+                         (keep #(get-in % [:content :text]))
+                         (filterv #(string/includes? % "from a previous provider"))))
+          ;; Mirrors eca.llm-api/prompt!: the sanitizer only filters the request,
+          ;; so foreign entries kept in history are dropped again on every prompt.
+          api-mock (fn [{:keys [provider model model-capabilities config past-messages
+                                on-history-sanitized on-first-response-received on-message-received]}]
+                     (let [target-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
+                           {:keys [dropped-count dropped-apis]} (llm-api/sanitize-past-messages-for-api target-api past-messages)]
+                       (when (pos? dropped-count)
+                         (on-history-sanitized {:dropped-count dropped-count
+                                                :dropped-apis dropped-apis
+                                                :target-api target-api})))
+                     (on-first-response-received {:type :text :text "ok"})
+                     (on-message-received {:type :text :text "ok"})
+                     (on-message-received {:type :finish}))
+          mocks {:all-tools-mock (constantly []) :api-mock api-mock}]
+      (swap! (h/db*) update :models #(merge % {"anthropic/claude-opus-4" {:tools true}}))
+      (swap! (h/db*) assoc-in [:chats chat-id]
+             {:id chat-id
+              :model "anthropic/claude-opus-4"
+              :last-api :anthropic
+              :messages [{:role "user" :content [{:type :text :text "read foo"}]}
+                         {:role "tool_call" :content {:id "toolu_1" :full-name "eca__read_file" :arguments {} :api :anthropic}}
+                         {:role "tool_call_output" :content {:id "toolu_1" :output {:contents []} :api :anthropic}}
+                         {:role "assistant" :content [{:type :text :text "done"}]}]})
+
+      (prompt! {:message "first after swap" :chat-id chat-id :model "openai/gpt-5.2"} mocks)
+      (is (match? [#"^Note: dropped 2 history entries from a previous provider \(anthropic\)"] (notices)))
+      (is (= :openai-responses (get-in (h/db) [:chats chat-id :last-api])))
+
+      (h/reset-messenger!)
+      (prompt! {:message "second" :chat-id chat-id :model "openai/gpt-5.2"} mocks)
+      (is (empty? (notices)) "same api as the last prompt: entries are still dropped but not re-announced")
+      (is (match? (m/embeds [{:role "tool_call" :content {:api :anthropic}}])
+                  (get-in (h/db) [:chats chat-id :messages]))
+          "history itself keeps the foreign entries")
+
+      (testing "swapping api again notifies again"
+        (swap! (h/db*) update-in [:chats chat-id :messages] conj
+               {:role "reason" :content {:id "rs_1" :external-id "enc" :text "thinking" :api :openai-responses}})
+        (h/reset-messenger!)
+        (prompt! {:message "back to claude" :chat-id chat-id :model "anthropic/claude-opus-4"} mocks)
+        (is (match? [#"^Note: dropped 1 history entry from a previous provider \(openai-responses\)"] (notices)))))))
+
 (deftest prompt-persists-chat-variant-test
   (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
                    (on-first-response-received {:type :text :text "ok"})
@@ -593,6 +820,43 @@
       (h/reset-components!)
       (let [{:keys [chat-id]} (run-prompt! {:message "Hey"} nil)]
         (is (nil? (get-in (h/db) [:chats chat-id :variant])))))))
+
+(deftest prompt-persists-chat-agent-test
+  (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                   (on-first-response-received {:type :text :text "ok"})
+                   (on-message-received {:type :text :text "ok"})
+                   (on-message-received {:type :finish}))
+        agents-config {:defaultAgent "plan"
+                       :agent {"plan" {:mode "primary"}
+                               "code" {:mode "primary"}}}
+        run-prompt! (fn [params]
+                      (with-redefs [llm-api/sync-or-async-prompt! api-mock
+                                    llm-api/sync-prompt! (constantly nil)
+                                    f.tools/call-tool! (constantly nil)
+                                    f.tools/all-tools (constantly [])
+                                    f.tools/approval (constantly :allow)
+                                    config/await-plugins-resolved! (constantly true)]
+                        (h/config! (merge {:env "test"} agents-config))
+                        (swap! (h/db*) update :models
+                               (fn [models]
+                                 (merge {"openai/gpt-5.2" {:tools true}}
+                                        (or models {}))))
+                        (f.chat/prompt params (h/db*) (h/messenger) (h/config) (h/metrics))))]
+    (testing "Agent sent on the first prompt of a new chat is persisted so resume restores it"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (run-prompt! {:message "Hey" :chat-id "new-chat" :agent "code"})]
+        (is (= "code" (get-in (h/db) [:chats chat-id :agent])))))
+
+    (testing "Prompt without agent keeps the chat's persisted agent instead of the default"
+      (h/reset-components!)
+      (run-prompt! {:message "Hey" :chat-id "agent-chat" :agent "code"})
+      (run-prompt! {:message "Again" :chat-id "agent-chat"})
+      (is (= "code" (get-in (h/db) [:chats "agent-chat" :agent]))))
+
+    (testing "Prompt without agent on a new chat persists the default agent"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (run-prompt! {:message "Hey" :chat-id "default-chat"})]
+        (is (= "plan" (get-in (h/db) [:chats chat-id :agent])))))))
 
 (defn ^:private prompt-with-title!
   "Like prompt! but accepts a :sync-prompt-mock for title generation testing.
@@ -2204,6 +2468,93 @@
                 :role "assistant"}]}
              (h/messages)))))))
 
+(defn ^:private enable-incremental-updates!
+  ([] (enable-incremental-updates! {}))
+  ([capability]
+   (swap! (h/db*) assoc-in
+          [:client-capabilities :code-assistant :chat-capabilities :incremental-updates]
+          capability)))
+
+(defn ^:private two-turn-chat! []
+  (let [api-mock (fn [reply]
+                   (fn [{:keys [on-first-response-received on-message-received]}]
+                     (on-first-response-received {:type :text :text reply})
+                     (on-message-received {:type :text :text reply})
+                     (on-message-received {:type :finish})))
+        {:keys [chat-id]} (prompt! {:message "1"}
+                                   {:all-tools-mock (constantly [])
+                                    :api-mock (api-mock "2")})]
+    (prompt! {:message "3" :chat-id chat-id}
+             {:all-tools-mock (constantly [])
+              :api-mock (api-mock "4")})
+    chat-id))
+
+(deftest rollback-chat-incremental-updates-test
+  (testing "Clients with incrementalUpdates get chat/truncated instead of a replay"
+    (h/reset-components!)
+    (enable-incremental-updates!)
+    (let [chat-id (two-turn-chat!)
+          second-content-id (get-in (h/db) [:chats chat-id :messages 2 :content-id])]
+      (h/reset-messenger!)
+      (f.chat/rollback-chat {:chat-id chat-id
+                             :include ["messages"]
+                             :content-id second-content-id}
+                            (h/db*) (h/messenger) (h/metrics))
+      (is (= 2 (count (get-in (h/db) [:chats chat-id :messages]))))
+      (is (= {:chat-truncated [{:chat-id chat-id :content-id second-content-id}]}
+             (h/messages)))))
+
+  (testing "Unknown content-id changes nothing and sends nothing"
+    (h/reset-components!)
+    (enable-incremental-updates!)
+    (let [chat-id (two-turn-chat!)]
+      (h/reset-messenger!)
+      (f.chat/rollback-chat {:chat-id chat-id
+                             :include ["messages"]
+                             :content-id "missing"}
+                            (h/db*) (h/messenger) (h/metrics))
+      (is (= 4 (count (get-in (h/db) [:chats chat-id :messages]))))
+      (is (= {} (h/messages))))))
+
+(deftest add-flag-test
+  (testing "Legacy clients get chat/cleared and a full replay including the flag"
+    (h/reset-components!)
+    (let [chat-id (two-turn-chat!)
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])]
+      (h/reset-messenger!)
+      (f.chat/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
+                       (h/db*) (h/messenger) (h/metrics))
+      (is (match? [{:role "user"} {:role "flag" :content {:text "here"}}
+                   {:role "assistant"} {:role "user"} {:role "assistant"}]
+                  (get-in (h/db) [:chats chat-id :messages])))
+      (is (match? {:chat-clear [{:chat-id chat-id :messages true}]
+                   :chat-content-received
+                   [{:role "user"}
+                    {:role :system :content {:type :flag :text "here"}}
+                    {:role "assistant"}
+                    {:role "user"}
+                    {:role "assistant"}]}
+                  (h/messages)))))
+
+  (testing "Clients with incrementalUpdates get only the positioned flag"
+    (h/reset-components!)
+    (enable-incremental-updates!)
+    (let [chat-id (two-turn-chat!)
+          first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])]
+      (h/reset-messenger!)
+      (f.chat/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
+                       (h/db*) (h/messenger) (h/metrics))
+      (let [flag-id (get-in (h/db) [:chats chat-id :messages 1 :content-id])]
+        (is (some? flag-id))
+        (is (= {:chat-content-received
+                [{:chat-id chat-id
+                  :role :system
+                  :content {:type :flag
+                            :text "here"
+                            :contentId flag-id
+                            :afterContentId first-content-id}}]}
+               (h/messages)))))))
+
 (deftest prompt-cache-agent-switch-test
   (testing "Static prompt cache is rebuilt when switching agents within the same chat"
     (h/reset-components!)
@@ -3264,6 +3615,147 @@
     (is (= {} (f.chat/fork-chat {:chat-id "c1" :content-id "nope"}
                                 (h/db*) (h/messenger) (h/metrics))))))
 
+(deftest messages->contents-merges-adjacent-reasons-test
+  (let [reason (fn [id text ms] {:role "reason" :content {:id id :external-id (str "enc-" id) :text text :total-time-ms ms}})
+        assistant {:role "assistant" :content [{:type :text :text "Hi"}]}
+        contents (fn [messages]
+                   (mapv :content (f.chat/messages->contents messages {:chat-id "c1" :db {}})))]
+    (testing "a run of reasons renders as one block with the first id, joined texts and summed time"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonText :id "r1" :text "Plan\n\nAct"}
+              {:type :reasonFinished :id "r1" :total-time-ms 1750}
+              {:type :text :text "\nHi"}]
+             (contents [(reason "r1" nil 1000) (reason "r2" "Plan" 500) (reason "r3" " " 0)
+                        (reason "r4" "Act" 250) assistant]))))
+
+    (testing "a run of empty reasons renders as one empty block"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonFinished :id "r1" :total-time-ms 3}]
+             (contents [(reason "r1" nil 1) (reason "r2" nil 2)]))))
+
+    (testing "reasons separated by other messages stay separate and single reasons are unchanged"
+      (is (= [{:type :reasonStarted :id "r1"}
+              {:type :reasonText :id "r1" :text "a"}
+              {:type :reasonFinished :id "r1" :total-time-ms 1}
+              {:type :text :text "\nHi"}
+              {:type :reasonStarted :id "r2"}
+              {:type :reasonFinished :id "r2" :total-time-ms nil}]
+             (contents [(reason "r1" "a" 1) assistant (reason "r2" nil nil)]))))))
+
+(deftest flag-and-fork-after-merged-reasons-test
+  (let [messages [{:role "user" :content [{:type :text :text "q"}] :content-id "u1"}
+                  {:role "reason" :content {:id "r1" :text nil :total-time-ms 1}}
+                  {:role "reason" :content {:id "r2" :text "plan" :total-time-ms 2}}
+                  {:role "assistant" :content [{:type :text :text "a"}]}]
+        seed! (fn []
+                (h/reset-components!)
+                (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "Orig" :messages messages}))]
+    (testing "a flag added on a merged block lands after the whole run"
+      (seed!)
+      (f.chat/add-flag {:chat-id "c1" :content-id "r1" :text "checkpoint"} (h/db*) (h/messenger) (h/metrics))
+      (is (= ["user" "reason" "reason" "flag" "assistant"]
+             (mapv :role (get-in (h/db) [:chats "c1" :messages])))))
+
+    (testing "a fork from a merged block keeps the whole run"
+      (seed!)
+      (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "c1" :content-id "r1"} (h/db*) (h/messenger) (h/metrics))]
+        (is (= ["user" "reason" "reason"]
+               (mapv :role (get-in (h/db) [:chats chat-id :messages]))))))))
+
+(deftest prompt-groups-consecutive-reasoning-test
+  (testing "consecutive reasoning blocks show as one block while history keeps every block"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Hey!"}
+           {:all-tools-mock (constantly [])
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received on-reason]}]
+              (on-first-response-received {:type :reason})
+              (on-reason {:status :started :id "r1"})
+              (on-reason {:status :finished :id "r1" :external-id "enc-1"})
+              (on-reason {:status :started :id "r2"})
+              (on-reason {:status :thinking :id "r2" :text "Planning"})
+              (on-reason {:status :finished :id "r2" :external-id "enc-2"})
+              (on-message-received {:type :text :text "Done"})
+              (on-message-received {:type :finish}))})]
+      (is (match? {:messages [{:role "user"}
+                              {:role "reason" :content {:id "r1" :external-id "enc-1" :text nil}}
+                              {:role "reason" :content {:id "r2" :external-id "enc-2" :text "Planning"}}
+                              {:role "assistant" :content [{:type :text :text "Done"}]}]}
+                  (get-in (h/db) [:chats chat-id])))
+      (is (match? {:chat-content-received
+                   [{:role :user :content {:type :text :text "Hey!\n"}}
+                    {:role :system :content {:type :progress :state :running :text "Waiting model"}}
+                    {:role :system :content {:type :progress :state :running :text "Generating"}}
+                    {:role :assistant :content {:type :reasonStarted :id "r1"}}
+                    {:role :assistant :content {:type :reasonText :id "r1" :text "Planning"}}
+                    {:role :assistant :content {:type :reasonFinished :id "r1" :total-time-ms number?}}
+                    {:role :assistant :content {:type :text :text "Done"}}
+                    {:role :system :content {:type :progress :state :finished}}]}
+                  (h/messages)))
+      (is (nil? (get-in (h/db) [:chats chat-id :reason-group]))))))
+
+(deftest fork-chat-paging-test
+  (h/reset-components!)
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :title "Orig"
+          :messages (vec (for [i (range 5)]
+                           {:role "user"
+                            :content [{:type :text :text (str "q" i)}]
+                            :content-id (str "m" i)}))})
+  (testing "incremental clients get only the declared page size, with paging meta"
+    (h/reset-messenger!)
+    (enable-incremental-updates! {:history-page-size 2})
+    (let [{:keys [chat-id meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                                   (h/db*) (h/messenger) (h/metrics))]
+      (is (match? [{:chat-id chat-id :history {:total 4 :returned 2}}]
+                  (:chat-opened (h/messages))))
+      (is (= 4 (count (get-in (h/db) [:chats chat-id :messages])))
+          "the fork keeps the full history")
+      (is (= ["m2" "m3"]
+             (->> (:chat-content-received (h/messages))
+                  (filter #(= chat-id (:chat-id %)))
+                  (keep #(get-in % [:content :content-id])))))
+      (is (match? {:total 4 :returned 2 :before-cursor string? :after-cursor nil}
+                  meta))
+      (testing "the before cursor pages the older kept messages"
+        (is (match? {:contents [{:content {:content-id "m0"}}
+                                {:content {:content-id "m1"}}]}
+                    (f.chat/fetch-history {:chat-id chat-id
+                                           :before (:before-cursor meta)}
+                                          (h/db*)))))))
+  (testing "rolling the fork back to its first loaded message keeps older pages loadable"
+    (h/reset-messenger!)
+    (enable-incremental-updates! {:history-page-size 2})
+    (let [{:keys [chat-id meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                                   (h/db*) (h/messenger) (h/metrics))]
+      (f.chat/rollback-chat {:chat-id chat-id :content-id "m2" :include ["messages"]}
+                            (h/db*) (h/messenger) (h/metrics))
+      (is (match? {:contents [{:content {:content-id "m0"}}
+                              {:content {:content-id "m1"}}]
+                   :meta {:before-cursor nil}}
+                  (f.chat/fetch-history {:chat-id chat-id :before (:before-cursor meta)}
+                                        (h/db*))))))
+  (testing "incremental clients without a page size get the default"
+    (h/reset-messenger!)
+    (with-redefs [history/default-history-page-size 3]
+      (enable-incremental-updates!)
+      (let [{:keys [meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                             (h/db*) (h/messenger) (h/metrics))]
+        (is (match? {:total 4 :returned 3} meta))))
+    (swap! (h/db*) update :client-capabilities dissoc :code-assistant))
+  (testing "other clients get the whole kept history and no meta"
+    (h/reset-messenger!)
+    (let [{:keys [chat-id] :as res} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+                                                      (h/db*) (h/messenger) (h/metrics))]
+      (is (not (contains? res :meta)))
+      (is (= ["m0" "m1" "m2" "m3"]
+             (->> (:chat-content-received (h/messages))
+                  (filter #(= chat-id (:chat-id %)))
+                  (keep #(get-in % [:content :content-id]))))))))
+
 (deftest tool-call-approve-on-unknown-chat-is-noop-test
   (testing "Approving a tool-call against an unknown chat does not throw or mutate state"
     (h/reset-components!)
@@ -3271,6 +3763,74 @@
                               (h/db*) (h/messenger) (h/config) (h/metrics))
     (is (= {} (:chats (h/db))))
     (is (= {} (h/messages)))))
+
+(deftest tool-call-approve-remembers-in-chat-session-test
+  (let [waiting-tool-call (fn [tool-call]
+                            (merge {:status :waiting-approval
+                                    :approved?* (promise)
+                                    :future-cleanup-complete?* (promise)}
+                                   tool-call))
+        shell-call (waiting-tool-call {:name "shell_command" :full-name "eca__shell_command" :server "eca"
+                                       :origin :native :arguments {"command" "git status && rg foo"}})
+        approve! (fn [chat-id save]
+                   (f.chat/tool-call-approve {:chat-id chat-id :tool-call-id "t1" :save save}
+                                             (h/db*) (h/messenger) (h/config) (h/metrics)))]
+    (testing "granular native tools remember the approved command keys in the chat only"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" shell-call}}
+                                   "c2" {:id "c2"}})
+      (approve! "c1" "session")
+      (is (= {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}}
+             (db/remembered-approvals (h/db) "c1")))
+      (is (nil? (db/remembered-approvals (h/db) "c2")) "Other chats are untouched")
+      (is (not (contains? (h/db) :tool-calls)) "Nothing is remembered server-wide"))
+
+    (testing "other tools are remembered as a whole by full tool name"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" (waiting-tool-call {:name "write_file" :full-name "fs__write_file"
+                                                                                         :server "fs" :origin :mcp
+                                                                                         :arguments {"path" "/tmp/a"}})}}})
+      (approve! "c1" "session")
+      (is (= {"fs__write_file" {:remember-to-approve? true}}
+             (db/remembered-approvals (h/db) "c1"))))
+
+    (testing "an MCP tool named like a native granular tool is remembered as a whole tool"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" (waiting-tool-call {:name "git" :full-name "gitmcp__git"
+                                                                                         :server "gitmcp" :origin :mcp
+                                                                                         :arguments {"command" "git status"}})}}})
+      (approve! "c1" "session")
+      (is (= {"gitmcp__git" {:remember-to-approve? true}}
+             (db/remembered-approvals (h/db) "c1"))))
+
+    (testing "approving a subagent tool call remembers it in the parent chat"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"parent" {:id "parent"}
+                                   "sub" {:id "sub" :parent-chat-id "parent" :tool-calls {"t1" shell-call}}})
+      (approve! "sub" "session")
+      (is (= {"eca__shell_command" {:remembered-command-keys #{"git status" "rg"}}}
+             (get-in (h/db) [:chats "parent" :remembered-approvals])))
+      (is (not (contains? (get-in (h/db) [:chats "sub"]) :remembered-approvals))))
+
+    (testing "approving without save remembers nothing"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :chats {"c1" {:id "c1" :tool-calls {"t1" shell-call}}})
+      (approve! "c1" nil)
+      (is (nil? (db/remembered-approvals (h/db) "c1"))))))
+
+(deftest clear-chat-resets-remembered-approvals-test
+  (testing "Clearing the chat messages forgets its remembered approvals (#639)"
+    (h/reset-components!)
+    (swap! (h/db*) assoc :chats {"c1" {:id "c1"
+                                       :messages [{:role "user" :content [{:type :text :text "hi"}]}]
+                                       :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}
+                                 "c2" {:id "c2"
+                                       :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}})
+    (f.chat/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
+    (is (nil? (db/remembered-approvals (h/db) "c1")))
+    (is (= {"eca__write_file" {:remember-to-approve? true}}
+           (db/remembered-approvals (h/db) "c2"))
+        "Other chats keep their approvals")))
 
 (deftest tool-call-reject-on-unknown-chat-is-noop-test
   (testing "Rejecting a tool-call against an unknown chat does not throw or mutate state"

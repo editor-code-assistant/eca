@@ -6,7 +6,9 @@
    Cursors are opaque tokens: base64url of \"<index>.<checksum>\" where checksum
    fingerprints the message. Resolving trusts the encoded index when its checksum
    still matches, else rescans by checksum (tolerating shifts like flag
-   insert/remove); a cursor whose message is gone resolves to :expired."
+   insert/remove); a cursor whose message was cut off by truncating the history
+   resolves to its end, and any other cursor whose message is gone resolves to
+   :expired."
   (:require
    [clojure.string :as string])
   (:import
@@ -45,14 +47,19 @@
       :else (recur (dec i)))))
 
 (defn ^:private resolve-cursor
-  "Resolves an opaque cursor to an index, or :expired if its message is gone."
+  "Resolves an opaque cursor to an index, or :expired if its message is gone.
+   A gone message whose index is past the end resolves to the end, as the
+   history was truncated at or before it (rollback) and every remaining
+   message is older."
   [messages ^String cursor]
   (if-let [{:keys [idx checksum]} (decode-cursor cursor)]
-    (if (and (<= 0 idx) (< idx (count messages))
-             (= checksum (message-checksum (nth messages idx))))
-      idx
-      (or (first (keep-indexed (fn [i m] (when (= checksum (message-checksum m)) i)) messages))
-          :expired))
+    (let [n (count messages)]
+      (if (and (<= 0 idx) (< idx n)
+               (= checksum (message-checksum (nth messages idx))))
+        idx
+        (or (first (keep-indexed (fn [i m] (when (= checksum (message-checksum m)) i)) messages))
+            (when (>= idx n) n)
+            :expired)))
     :expired))
 
 (defn ^:private resolve-bound
@@ -74,6 +81,23 @@
         (when (pos? n) n))
       (catch Exception _ nil))))
 
+(defn ^:private reason-at? [messages idx]
+  (= "reason" (:role (nth messages idx nil))))
+
+(defn ^:private widen-over-reason-runs
+  "Widens the [start end) slice so it never cuts through a run of adjacent
+   reason messages, which clients render as a single block, without leaving
+   the [win-start win-end) window."
+  [messages win-start win-end [start end]]
+  [(loop [s start]
+     (if (and (> s win-start) (reason-at? messages s) (reason-at? messages (dec s)))
+       (recur (dec s))
+       s))
+   (loop [e end]
+     (if (and (< e win-end) (reason-at? messages (dec e)) (reason-at? messages e))
+       (recur (inc e))
+       e))])
+
 (defn window-messages
   "Windows `messages` by the (after, before) cursors and `limit`.
 
@@ -81,7 +105,8 @@
    page is the newest `limit` messages in the window; an opaque `after` cursor as
    the only bound pages forward (oldest `limit`). `before-cursor`/`after-cursor`
    are computed against full history so paging crosses the compaction boundary,
-   and are nil at the ends.
+   and are nil at the ends. A page never splits a run of adjacent reason
+   messages, so it may hold a few more than `limit` messages.
 
    Returns {:messages :before-cursor :after-cursor :total :returned} or
    {:error :cursor-expired}."
@@ -102,10 +127,12 @@
                           (not= after last-compaction-sentinel)
                           (nil? before-res))
             [slice-start slice-end]
-            (cond
-              (nil? limit) [win-start win-end]
-              forward? [win-start (min win-end (+ win-start limit))]
-              :else [(max win-start (- win-end limit)) win-end])
+            (widen-over-reason-runs
+             messages win-start win-end
+             (cond
+               (nil? limit) [win-start win-end]
+               forward? [win-start (min win-end (+ win-start limit))]
+               :else [(max win-start (- win-end limit)) win-end]))
             slice (subvec messages slice-start slice-end)]
         {:messages slice
          :total n
@@ -120,3 +147,41 @@
   [messages]
   (when-let [idx (last-compaction-idx (vec messages))]
     (encode-cursor idx (nth (vec messages) idx))))
+
+(defn page-meta
+  "Pagination meta for a `window-messages` `page` of `messages`."
+  [page messages]
+  {:total (:total page)
+   :returned (:returned page)
+   :before-cursor (:before-cursor page)
+   :after-cursor (:after-cursor page)
+   :compaction-cursor (compaction-cursor messages)})
+
+(def default-history-page-size
+  "Messages sent when the server creates a chat for a client supporting
+   incremental updates that did not declare a `historyPageSize`."
+  50)
+
+(defn ^:private incremental-updates-capability [db]
+  (get-in db [:client-capabilities :code-assistant :chat-capabilities :incremental-updates]))
+
+(defn incremental-updates?
+  "Whether the client applies chat history changes in place and pages
+   server-created chats instead of needing full replays."
+  [db]
+  (boolean (incremental-updates-capability db)))
+
+(defn history-page-size
+  "Number of messages to send for a chat the server creates, as declared by
+   the client's `incrementalUpdates` capability."
+  [db]
+  (let [capability (incremental-updates-capability db)]
+    (or (coerce-limit (when (map? capability) (:history-page-size capability)))
+        default-history-page-size)))
+
+(defn server-created-page
+  "The newest page of `messages` to send for a chat the server creates, or nil
+   when the client needs the full history."
+  [db messages]
+  (when (incremental-updates? db)
+    (window-messages messages {:limit (history-page-size db)})))

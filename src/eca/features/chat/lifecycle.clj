@@ -58,13 +58,95 @@
           (when-let [compact-threshold (auto-compact-percentage config agent-name)]
             (>= (* (/ session-tokens context-limit) 100) compact-threshold)))))))
 
-(defn send-content! [{:keys [messenger chat-id parent-chat-id]} role content]
+(def ^:private non-visual-content-types
+  "Content types that render no block in the chat, so they never close an open
+   reasoning group."
+  #{:progress :usage :metadata})
+
+(defn ^:private send-content-raw! [{:keys [messenger chat-id parent-chat-id]} role content]
   (messenger/chat-content-received
    messenger
    (assoc-some {:chat-id chat-id
                 :role role
                 :content content}
                :parent-chat-id parent-chat-id)))
+
+(defn ^:private swap-reason-group!
+  "Atomically applies `f` to the chat's open reasoning group (nil when there is
+   none; returning nil closes it). Returns [old-group new-group]."
+  [db* chat-id f]
+  (let [path [:chats chat-id :reason-group]
+        [old-db new-db] (swap-vals! db* (fn [db]
+                                          (if (get-in db [:chats chat-id])
+                                            (if-let [group (f (get-in db path))]
+                                              (assoc-in db path group)
+                                              (update-in db [:chats chat-id] dissoc :reason-group))
+                                            db)))]
+    [(get-in old-db path) (get-in new-db path)]))
+
+(defn flush-reason-group!
+  "Closes the chat's open reasoning group, if any, sending its single
+   reasonFinished with the total time of the merged blocks, counting blocks
+   still in flight (e.g. stopped mid-thinking) up to now."
+  [{:keys [db* chat-id] :as chat-ctx}]
+  (when (and db* (get-in @db* [:chats chat-id :reason-group]))
+    (when-let [{:keys [id total-time-ms open]} (first (swap-reason-group! db* chat-id (constantly nil)))]
+      (let [now (System/currentTimeMillis)]
+        (send-content-raw! chat-ctx :assistant
+                           {:type :reasonFinished
+                            :id id
+                            :total-time-ms (reduce + total-time-ms (map #(- now %) (vals open)))})))))
+
+(defn ^:private send-reason-content!
+  [{:keys [db* chat-id] :as chat-ctx} role {:keys [type id text total-time-ms] :as content}]
+  (let [now (System/currentTimeMillis)
+        new-group {:id id :total-time-ms 0 :open {id now}}]
+    (case type
+      :reasonStarted
+      (let [[old] (swap-reason-group! db* chat-id #(if % (assoc-in % [:open id] now) new-group))]
+        (when-not old
+          (send-content-raw! chat-ctx role content)))
+
+      :reasonText
+      (let [text? (not (string/blank? text))
+            [old group] (swap-reason-group! db* chat-id #(cond-> (or % new-group)
+                                                           text? (assoc :text? true :last-text-block-id id)))
+            display-id (or (:id group) id)]
+        (when-not old
+          (send-content-raw! chat-ctx role {:type :reasonStarted :id display-id}))
+        (send-content-raw! chat-ctx role
+                           {:type :reasonText
+                            :id display-id
+                            :text (if (and text? (:text? old) (not= id (:last-text-block-id old)))
+                                    (str "\n\n" text)
+                                    text)}))
+
+      :reasonFinished
+      (swap-reason-group! db* chat-id #(cond-> %
+                                         (get-in % [:open id])
+                                         (-> (update :total-time-ms + (or total-time-ms 0))
+                                             (update :open dissoc id)))))))
+
+(defn send-content!
+  "Sends `content` to the client as chat content of `role`.
+
+   Reasoning is grouped for display only: consecutive reasoning blocks with no
+   visible content between them render as a single block that keeps the first
+   block id, joins texts with a blank line and gets one reasonFinished with the
+   summed time, sent right before the next visible content or when the prompt
+   finishes. Chat history still keeps every provider block. #643"
+  [{:keys [db* chat-id] :as chat-ctx} role {:keys [type] :as content}]
+  (cond
+    (not (and db* (get-in @db* [:chats chat-id])))
+    (send-content-raw! chat-ctx role content)
+
+    (#{:reasonStarted :reasonText :reasonFinished} type)
+    (send-reason-content! chat-ctx role content)
+
+    :else
+    (do (when-not (contains? non-visual-content-types type)
+          (flush-reason-group! chat-ctx))
+        (send-content-raw! chat-ctx role content))))
 
 (defn hook-system-text
   "User-facing standalone message attributed to a hook by name.
@@ -459,6 +541,22 @@
   (when-not (get-in @db* [:chats chat-id :created-at])
     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
 
+(defn record-unsent-user-messages!
+  "User messages only reach the chat history once the LLM starts responding.
+   Adds the ones of a turn that ended (stopped, failed or superseded) before
+   that, so the next prompt and a resumed chat still have them."
+  [db* chat-id]
+  (when (get-in @db* [:chats chat-id :unsent-user-messages])
+    (swap! db* update-in [:chats chat-id]
+           (fn [{:keys [unsent-user-messages messages] :as chat}]
+             (let [{:keys [content-id] user-messages :messages} unsent-user-messages]
+               (cond-> (dissoc chat :unsent-user-messages)
+                 (and (seq user-messages)
+                      (not-any? #(= content-id (:content-id %)) messages))
+                 (update :messages (fnil into [])
+                         (map #(assoc % :content-id content-id :created-at (System/currentTimeMillis)))
+                         user-messages)))))))
+
 (defn ^:private dispatch-finish-callbacks!
   "Dispatch finish-flow callbacks. `on-finished-side-effect` always runs first
    (and may itself request `stop-after-finish?`). After that, exactly one
@@ -491,6 +589,7 @@
                                    :as chat-ctx}]
   (when-not (get-in @db* [:chats chat-id :prompt-finished?])
     (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
+      (flush-reason-group! chat-ctx)
       (let [auto-compacting? (get-in @db* [:chats chat-id :auto-compacting?])
             {:keys [follow-up-text stop-turn? stop-reason stop-hook-name]}
             (when (and (not auto-compacting?) (not skip-post-request-hooks?))
@@ -499,6 +598,7 @@
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
           (swap! db* update-in [:chats chat-id] dissoc :steer-message)
+          (record-unsent-user-messages! db* chat-id)
           (apply-status-transition! chat-ctx status))
         ;; A postRequest hook that returned continue:false stops the turn and
         ;; cancels followUp; surface the reason to the user (prefixed with the

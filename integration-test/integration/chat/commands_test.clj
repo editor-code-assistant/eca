@@ -31,7 +31,10 @@
                         :arguments [{:name "name" :description "The skill name" :required true}
                                     {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
+                       {:name "quota" :arguments []}
                        {:name "context" :arguments []}
+                       {:name "approvals" :arguments []}
+                       {:name "forget-approvals" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "fork" :arguments []}
                        {:name "btw" :arguments [{:name "prompt" :required true}]}
@@ -70,6 +73,7 @@
                         :arguments [{:name "name" :description "The skill name" :required true}
                                     {:name "prompt" :description "What to consider as this skill content" :required true}]}
                        {:name "costs" :arguments []}
+                       {:name "quota" :arguments []}
                        {:name "context" :arguments []}
                        {:name "compact" :arguments [{:name "additional-input"}]}
                        {:name "delete-chat" :arguments [{:name "chat-id"}]}

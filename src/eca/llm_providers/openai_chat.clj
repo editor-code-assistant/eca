@@ -114,7 +114,7 @@
      :output-text (:content message)}))
 
 (defn ^:private base-chat-request!
-  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream
+  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-response-headers
            on-usage-updated on-tools-called-wrapper http-client cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path chat-completions-path))
         extra-headers (if (fn? extra-headers)
@@ -138,6 +138,8 @@
                                                           :throw-exceptions? false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if on-stream :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
@@ -185,9 +187,7 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                  (or stream-idle-timeout-seconds 120))
-                                 :exception e})
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
 
                       :else
                       (throw e))))
@@ -609,7 +609,8 @@
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
            think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds]}
-   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated retry-request] :as callbacks}]
+   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-response-headers retry-request] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
         think-tag-end (or think-tag-end "</think>")
         stream? (boolean callbacks)
@@ -658,9 +659,11 @@
                                        (on-reason {:status :thinking :id (:id state) :text buf}))
                                      (on-message-received {:type :text :text buf}))
                                    (swap! reasoning-state* assoc :buffer ""))))
-        wrapped-on-error (fn [error-data]
+        close-reasoning! (fn []
                            (flush-content-buffer)
-                           (finish-reasoning! reasoning-state* on-reason)
+                           (finish-reasoning! reasoning-state* on-reason))
+        wrapped-on-error (fn [error-data]
+                           (close-reasoning!)
                            (on-error error-data))
         start-delta-reasoning (fn []
                                 (let [new-reason-id (str (random-uuid))]
@@ -697,6 +700,7 @@
                                                         :cancelled? cancelled?
                                                         :stream-idle-timeout-seconds stream-idle-timeout-seconds
                                                         :on-error wrapped-on-error
+                                                        :on-response-headers on-response-headers
                                                         :on-usage-updated on-usage-updated}]
                                       (reset! tool-calls* {})
                                       (if stream?
@@ -709,9 +713,7 @@
         handle-response (fn handle-response [event data tool-calls*]
                           (if (= event "stream-end")
                             (let [had-tool-calls? (seq @tool-calls*)]
-                              ;; Flush any leftover buffered content and finish reasoning if needed
-                              (flush-content-buffer)
-                              (finish-reasoning! reasoning-state* on-reason)
+                              (close-reasoning!)
                               (if had-tool-calls?
                                 (when (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
                                   ;; No executable tools (e.g. invalid JSON args): finish so the UI does not hang.
@@ -732,27 +734,30 @@
                                         reasoning-text (or (:reasoning delta)
                                                            (:reasoning_content delta)
                                                            (:reasoning_text delta)
-                                                           (not-empty block-thinking))]
-                                    ;; Process visible text (with thinking-tag awareness)
-                                    (when (seq text-content)
-                                      (process-text-think-aware text-content reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
+                                                           (not-empty block-thinking))
+                                        process-text! #(when (seq text-content)
+                                                         (process-text-think-aware text-content reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
+                                        ;; Inside <think> tags the content is reasoning too, so it keeps its place.
+                                        in-think-tag? (= :tag (:type @reasoning-state*))]
+                                    (when in-think-tag?
+                                      (process-text!))
 
-                                    ;; Process reasoning if present
-                                    (when reasoning-text
+                                    ;; A chunk can carry reasoning and text together (e.g. DeepSeek at the
+                                    ;; reasoning/text boundary): emit its reasoning first, then its text.
+                                    (when (seq reasoning-text)
                                       (when-not (= (:type @reasoning-state*) :delta)
+                                        (close-reasoning!)
                                         (start-delta-reasoning))
                                       (on-reason {:status :thinking
                                                   :id (:id @reasoning-state*)
                                                   :text reasoning-text}))
 
-                                    ;; Check if reasoning just stopped (delta-based)
-                                    (let [state @reasoning-state*]
-                                      (when (and (= (:type state) :delta)
-                                                 (:id state)  ;; defensive check
-                                                 (nil? reasoning-text))
-                                        ;; Flush any buffered content before finishing reasoning
-                                        (flush-content-buffer)
-                                        (finish-reasoning! reasoning-state* on-reason))))
+                                    (when (and (= (:type @reasoning-state*) :delta)
+                                               (or (seq text-content) (nil? reasoning-text)))
+                                      (close-reasoning!))
+
+                                    (when-not in-think-tag?
+                                      (process-text!)))
 
                                   ;; Process tool calls if present
                                   (when (:tool_calls delta)
@@ -803,8 +808,7 @@
                                   ;; Flush content now, but defer :finish until stream-end
                                   ;; so final usage is recorded before the chat is saved.
                                   (when finish-reason
-                                    (flush-content-buffer)
-                                    (finish-reasoning! reasoning-state* on-reason)))))))
+                                    (close-reasoning!)))))))
         rid (llm-util/gen-rid)]
     (base-chat-request!
      {:rid rid
@@ -819,6 +823,7 @@
       :cancelled? cancelled?
       :stream-idle-timeout-seconds stream-idle-timeout-seconds
       :on-error wrapped-on-error
+      :on-response-headers on-response-headers
       :on-usage-updated on-usage-updated
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls*)))})))

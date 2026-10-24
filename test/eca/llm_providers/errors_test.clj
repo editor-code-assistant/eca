@@ -79,6 +79,30 @@
              :body ""
              :message "LLM response status: 413 body: "}))))
 
+  (testing "llama-server exceeds the available context size"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"code\":400,\"message\":\"request (68183 tokens) exceeds the available context size (65536 tokens), try increasing it\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":68183,\"n_ctx\":65536}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "llama.cpp structured code alone classifies as context overflow"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"code\":400,\"type\":\"exceed_context_size_error\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "llama-server older wording without a body (message-only)"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:message "the request exceeds the available context size, try increasing it"}))))
+
+  (testing "Azure token rate limit message is not mistaken for context overflow"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:message "Requests to the ChatCompletions_Create Operation under Azure OpenAI API version 2024-02-01 have exceeded token rate limit of your current OpenAI S0 pricing tier. Please retry after 6 seconds."}))))
+
   (testing "message-only fallback for SSE stream errors"
     (is (= {:error/type :context-overflow}
            (llm-providers.errors/classify-error

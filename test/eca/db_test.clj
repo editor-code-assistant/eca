@@ -74,6 +74,14 @@
              (normalize "a" {:title "A" :messages []
                              :tool-calls {"t" {:status :completed}}
                              :last-status-payload {:x 1}}))))
+    (testing "remembered approvals are never persisted (#639)"
+      (is (= {:id "a" :messages []}
+             (normalize "a" {:messages []
+                             :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}))))
+    (testing "the open reasoning display group is never persisted (#643)"
+      (is (= {:id "a" :messages []}
+             (normalize "a" {:messages []
+                             :reason-group {:id "r1" :total-time-ms 0 :open {"r1" 1}}}))))
     (testing "chats with empty or absent :messages are preserved (e.g. after rollback or early provider error)"
       (is (= {:id "a" :messages []} (normalize "a" {:messages []})))
       (is (= {:id "a"} (normalize "a" {}))))))
@@ -550,6 +558,45 @@
     (testing "a self-referential parent chain terminates instead of looping forever"
       (is (nil? (db/resolve-trust db "loop"))))))
 
+(deftest root-chat-id-test
+  (let [db {:chats {"root"   {:id "root"}
+                    "sub"    {:id "sub" :parent-chat-id "root"}
+                    "mid"    {:id "mid" :parent-chat-id "root"}
+                    "leaf"   {:id "leaf" :parent-chat-id "mid"}
+                    "orphan" {:id "orphan" :parent-chat-id "deleted"}
+                    "loop"   {:id "loop" :parent-chat-id "loop"}}}]
+    (testing "a top-level chat is its own root"
+      (is (= "root" (db/root-chat-id db "root"))))
+    (testing "a subagent resolves to the chat that spawned it"
+      (is (= "root" (db/root-chat-id db "sub"))))
+    (testing "a nested chain resolves to its top-level chat"
+      (is (= "root" (db/root-chat-id db "leaf"))))
+    (testing "stops at the last existing chat when the parent is gone"
+      (is (= "orphan" (db/root-chat-id db "orphan"))))
+    (testing "an unknown chat-id resolves to itself"
+      (is (= "missing" (db/root-chat-id db "missing"))))
+    (testing "a self-referential parent chain terminates instead of looping forever"
+      (is (= "loop" (db/root-chat-id db "loop"))))))
+
+(deftest update-remembered-approvals-test
+  (let [db {:chats {"root" {:id "root"}
+                    "sub" {:id "sub" :parent-chat-id "root"}}}
+        remember (fn [db chat-id tool]
+                   (db/update-remembered-approvals db chat-id assoc-in [tool :remember-to-approve?] true))]
+    (testing "a subagent remembers in its root chat, shared by the whole chat session"
+      (let [db (remember db "sub" "eca__write_file")]
+        (is (= {"eca__write_file" {:remember-to-approve? true}}
+               (get-in db [:chats "root" :remembered-approvals])
+               (db/remembered-approvals db "root")
+               (db/remembered-approvals db "sub")))
+        (is (not (contains? (get-in db [:chats "sub"]) :remembered-approvals)))))
+    (testing "ending up empty drops the key"
+      (is (= db (-> db
+                    (remember "root" "eca__write_file")
+                    (db/update-remembered-approvals "root" (constantly nil))))))
+    (testing "an unknown chat never seeds a phantom chat entry"
+      (is (= db (remember db "missing" "eca__write_file"))))))
+
 (deftest atomic-upsert-cache-test
   (testing "writes via tmp file then atomically renames so a crash mid-write cannot truncate the destination"
     (let [tmpdir (str (fs/create-temp-dir))
@@ -675,6 +722,57 @@
             (db/with-global-cache-lock (swap! ran inc))
             (db/with-global-cache-lock (swap! ran inc))
             (is (= 2 @ran)))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest with-global-cache-lock-is-reentrant-test
+  (testing "nesting the lock in the same thread doesn't throw OverlappingFileLockException"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (is (= :inner (db/with-global-cache-lock
+                          (db/with-global-cache-lock :inner))))
+          (is (= :again (db/with-global-cache-lock :again)))
+          (finally (fs/delete-tree tmpdir)))))))
+
+(deftest update-global-auth-cache!-test
+  (testing "writes only the given provider, keeping entries other processes saved"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (let [peer-fresh {:refresh-token "peer-fresh" :expires-at 9999999999}]
+            (db/update-global-cache! {:auth {"anthropic" peer-fresh
+                                             "anthropic-work" {:refresh-token "old"}}
+                                      :mcp-auth {"server" {:access-token "mcp"}}}
+                                     nil)
+            (db/update-global-auth-cache! {:auth {"anthropic" {:refresh-token "mine-stale" :expires-at 1000}
+                                                  "anthropic-work" {:refresh-token "rotated"}}}
+                                          "anthropic-work"
+                                          nil)
+            (let [disk (atom {:auth {"anthropic" {} "anthropic-work" {}}})]
+              (db/sync-auth-from-cache! disk "anthropic" nil)
+              (is (= peer-fresh (get-in @disk [:auth "anthropic"]))))
+            (let [disk (db/read-transit-file (io/file tmpdir "db.transit.json"))]
+              (is (= "rotated" (get-in disk [:auth "anthropic-work" :refresh-token])))
+              (is (= {:access-token "mcp"} (get-in disk [:mcp-auth "server"])))))
+          (finally (fs/delete-tree tmpdir))))))
+
+  (testing "removes the provider entry when it is gone from memory"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (db/update-global-cache! {:auth {"anthropic" {:api-key "a"} "openai" {:api-key "o"}}} nil)
+          (db/update-global-auth-cache! {:auth {}} "openai" nil)
+          (is (= {"anthropic" {:api-key "a"}}
+                 (:auth (db/read-transit-file (io/file tmpdir "db.transit.json")))))
+          (finally (fs/delete-tree tmpdir))))))
+
+  (testing "falls back to a whole write when there is no disk cache yet"
+    (let [tmpdir (str (fs/create-temp-dir))]
+      (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
+        (try
+          (db/update-global-auth-cache! {:auth {"anthropic" {:api-key "a"}}} "anthropic" nil)
+          (is (= {"anthropic" {:api-key "a"}}
+                 (:auth (db/read-transit-file (io/file tmpdir "db.transit.json")))))
           (finally (fs/delete-tree tmpdir)))))))
 
 (deftest with-global-cache-lock-serializes-concurrent-threads-test

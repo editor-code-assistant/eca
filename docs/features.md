@@ -140,6 +140,9 @@ The built-in commands are:
 - `/chats`: List chats from all workspaces grouped by workspace path, useful to find in which workspace a chat lives. Ex: `/chats`, `/chats my feature`.
 - `/delete-chat`: Permanently delete the current chat or a chat-id from the `/resume` list, asking confirmation. Ex: `/delete-chat`, `/delete-chat 2`.
 - `/costs`: Show costs about current session.
+- `/quota`: Show the subscription quota usage and reset times of providers logged in with a subscription (Claude Pro/Max, ChatGPT, GitHub Copilot). Clients also show it instead of costs in the chat usage.
+- `/approvals`: List the tool call approvals remembered in the current chat via "approve and remember".
+- `/forget-approvals`: Forget the tool call approvals remembered in the current chat, so those tool calls ask for approval again.
 - `/config`: Show ECA config for troubleshooting.
 - `/doctor`: Show information about ECA, useful for troubleshooting.
 - `/repo-map-show`: Show the current repoMap context of the session.

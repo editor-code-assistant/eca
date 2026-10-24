@@ -51,7 +51,45 @@
 
   (testing "expired cursor returns error"
     (let [r (f.chat.history/window-messages messages {:before "not-a-real-cursor"})]
-      (is (= :cursor-expired (:error r))))))
+      (is (= :cursor-expired (:error r)))))
+
+  (testing "a before cursor whose message was truncated away pages the rest"
+    (let [before (:before-cursor (f.chat.history/window-messages messages {:limit 3}))
+          ;; The cursor points at m2; a rollback to m2 truncates m2 onwards.
+          r (f.chat.history/window-messages (subvec messages 0 2) {:limit 3 :before before})]
+      (is (= ["m0" "m1"] (texts r)))
+      (is (nil? (:before-cursor r)))))
+
+  (testing "a cursor whose message was removed mid-history still expires"
+    (let [before (:before-cursor (f.chat.history/window-messages messages {:limit 3}))
+          without-m2 (into (subvec messages 0 2) (subvec messages 3))]
+      (is (= :cursor-expired
+             (:error (f.chat.history/window-messages without-m2 {:before before})))))))
+
+(deftest window-messages-keeps-reason-runs-test
+  (let [reason (fn [id created-at] {:role "reason" :content {:id id :text id} :created-at created-at})
+        with-runs [(msg "user" "m0" 1)
+                   (reason "r1" 2)
+                   (reason "r2" 3)
+                   (reason "r3" 4)
+                   (msg "assistant" "m4" 5)
+                   (msg "user" "m5" 6)]
+        ids (fn [result] (mapv #(or (get-in % [:content :id]) (get-in % [:content 0 :text])) (:messages result)))]
+    (testing "a backward page starting inside a run of reasons widens to the run start"
+      (let [r (f.chat.history/window-messages with-runs {:limit 3})
+            older (f.chat.history/window-messages with-runs {:limit 3 :before (:before-cursor r)})]
+        (is (= ["r1" "r2" "r3" "m4" "m5"] (ids r)))
+        (is (= 5 (:returned r)))
+        (testing "and the older page ends right before the run"
+          (is (= ["m0"] (ids older))))
+        (testing "a forward page ending inside a run of reasons widens to the run end"
+          (is (= ["r1" "r2" "r3"]
+                 (ids (f.chat.history/window-messages with-runs {:limit 1 :after (:after-cursor older)})))))))
+
+    (testing "widening never crosses the cursor bounds"
+      (let [cursor-at (fn [idx] (#'f.chat.history/encode-cursor idx (nth with-runs idx)))]
+        (is (= ["r1"] (ids (f.chat.history/window-messages with-runs {:limit 1 :before (cursor-at 2)}))))
+        (is (= ["r3"] (ids (f.chat.history/window-messages with-runs {:limit 1 :after (cursor-at 2)}))))))))
 
 (deftest compaction-window-test
   (let [with-marker [(msg "user" "m0" 1)

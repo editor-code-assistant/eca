@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -59,12 +60,83 @@
           messages)
     messages))
 
+(def ^:private schema-combinators
+  "Rejected by Anthropic at the top level of a tool input_schema, in hint preference order."
+  [:oneOf :anyOf :allOf])
+
+(def ^:private flattened-schema-kept-keys
+  [:$defs :definitions :$schema :additionalProperties :description :title])
+
+(defn ^:private schema-branches [schema combinator]
+  (let [branches (get schema combinator)]
+    (when (sequential? branches)
+      (filter map? branches))))
+
+(defn ^:private required-params [schema]
+  (let [required (:required schema)]
+    (when (sequential? required)
+      (filter string? required))))
+
+(defn ^:private combinator-branch-summary
+  "Names a combinator branch by its required params, or else by its properties."
+  [branch]
+  (let [required (required-params branch)
+        properties (:properties branch)]
+    (cond
+      (seq required) (string/join ", " required)
+      (and (map? properties) (seq properties)) (string/join ", " (map name (keys properties))))))
+
+(defn ^:private combinator-hint
+  "Plain text version of the oneOf/anyOf constraint lost when flattening the schema."
+  [schema combinators]
+  (when-let [combinator (some #{:oneOf :anyOf} combinators)]
+    (let [quantifier (if (= :oneOf combinator) "exactly one of" "at least one of")
+          groups (->> (schema-branches schema combinator)
+                      (keep combinator-branch-summary)
+                      distinct
+                      (map #(str "(" % ")")))]
+      (if (seq groups)
+        (format "Input constraint: provide parameters for %s: %s." quantifier (string/join " or " groups))
+        (format "Input constraint: provide parameters for %s the documented parameter groups." quantifier)))))
+
+(defn ^:private flatten-schema-combinators
+  "Anthropic rejects a tool input_schema with oneOf/anyOf/allOf at the top level,
+   failing the whole request. Like Claude Code, flattens them: branch properties are
+   merged into the top level and branch required params are only kept for allOf.
+   Returns the schema and, for oneOf/anyOf, a hint describing the lost constraint."
+  [schema]
+  (let [combinators (when (map? schema)
+                      (filterv #(contains? schema %) schema-combinators))]
+    (if (empty? combinators)
+      {:schema schema}
+      (let [properties (reduce (fn [acc [k v]]
+                                 (cond-> acc (not (contains? acc k)) (assoc k v)))
+                               (if (map? (:properties schema)) (:properties schema) {})
+                               (->> combinators
+                                    (mapcat #(schema-branches schema %))
+                                    (map :properties)
+                                    (filter map?)
+                                    (mapcat seq)))
+            required (->> (schema-branches schema :allOf)
+                          (mapcat required-params)
+                          (concat (required-params schema))
+                          distinct
+                          vec)]
+        {:schema (merge (cond-> {:type "object" :properties properties}
+                          (seq required) (assoc :required required))
+                        (select-keys schema flattened-schema-kept-keys))
+         :hint (combinator-hint schema combinators)}))))
+
 (defn ^:private ->tools [tools web-search]
   (cond->
    (mapv (fn [tool]
-           {:description (:description tool)
-            :input_schema (:parameters tool)
-            :name (:full-name tool)}) tools)
+           (let [{:keys [schema hint]} (flatten-schema-combinators (:parameters tool))]
+             {:description (if hint
+                             (string/join "\n\n" (remove string/blank? [(:description tool) hint]))
+                             (:description tool))
+              :input_schema schema
+              :name (:full-name tool)}))
+         tools)
     web-search (conj {:type "web_search_20250305"
                       :name "web_search"
                       :max_uses 10})))
@@ -89,7 +161,7 @@
      (fn [tool] (assoc tool :cache_control cache-control)))
     tools))
 
-(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream on-response-headers http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
   (let [url (join-api-url api-url (or url-relative-path messages-path))
         reason-id* (atom (str (random-uuid)))
         oauth? (= :auth/oauth auth-type)
@@ -123,6 +195,8 @@
                                                           :decompress-body false
                                                           :http-client (client/merge-with-global-http-client http-client)
                                                           :as (if on-stream :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
         (if (not= 200 status)
           (let [body-str (if on-stream (slurp body) body)]
             (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
@@ -163,9 +237,7 @@
                       (throw (ex-info "Stream cancelled" {:silent? true}))
 
                       (= :idle-timeout reason)
-                      (on-error {:message (format "Stream idle timeout: no data received for %d seconds"
-                                                  (or stream-idle-timeout-seconds 120))
-                                 :exception e})
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
 
                       :else
                       (on-error {:exception e
@@ -180,6 +252,10 @@
         (on-error {:exception e
                    :message (llm-util/connection-error-message e)})))
     @response*))
+
+(def ^:private transient-stream-error-types
+  "Anthropic SSE `error` event types equivalent to transient 5xx statuses."
+  #{"api_error" "overloaded_error" "timeout_error"})
 
 (defn ^:private request-with-retry!
   "Retries one exact post-tool request, never the tool execution that built it.
@@ -448,7 +524,8 @@
            api-url api-key auth-type url-relative-path reason? past-messages
            tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
            stream-idle-timeout-seconds cache-retention]}
-   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search retry-request] :as callbacks}]
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search
+           on-response-headers retry-request] :as callbacks}]
   (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
                      group-parallel-tool-calls
                      (normalize-messages supports-image?)
@@ -611,6 +688,7 @@
                                                      :content-block* (atom nil)
                                                      :cancelled? cancelled?
                                                      :on-error on-error
+                                                     :on-response-headers on-response-headers
                                                      :make-on-stream make-on-stream
                                                      :retry-request retry-request
                                                      :stream-idle-timeout-seconds stream-idle-timeout-seconds}))))
@@ -644,7 +722,9 @@
                                                        :premature? true})
                                  (throw (ex-info "Stream ended without completion"
                                                  {:error/type :premature-stop}))))
-              "error" (on-error {:message (format "\nAnthropic error response: %s" (:error data))})
+              "error" (on-error (cond-> {:message (format "\nAnthropic error response: %s" (:error data))}
+                                  (contains? transient-stream-error-types (-> data :error :type))
+                                  (assoc :error/type :overloaded)))
               nil))))]
     (base-request!
      {:rid (llm-util/gen-rid)
@@ -658,8 +738,23 @@
       :content-block* (atom nil)
       :cancelled? cancelled?
       :on-error on-error
+      :on-response-headers on-response-headers
       :on-stream (when stream? (make-on-stream on-error))
       :stream-idle-timeout-seconds stream-idle-timeout-seconds})))
+
+(def ^:private oauth-usage-url "https://api.anthropic.com/api/oauth/usage")
+
+(defmethod f.quota/fetch-quota "anthropic" [{:keys [provider-auth]}]
+  (let [{:keys [status body]} (http/get oauth-usage-url
+                                        {:headers {"Authorization" (str "Bearer " (:api-key provider-auth))
+                                                   "anthropic-beta" "oauth-2025-04-20"}
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout 10000})]
+    (if (= 200 status)
+      (f.quota/anthropic-usage->snapshot body)
+      (throw (ex-info (format "Anthropic usage endpoint returned status %s" status) {:status status})))))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
 
@@ -744,44 +839,44 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["anthropic" "max"] [_ _ db* _config _messenger _metrics]
+(defmethod f.providers/start-login! ["anthropic" "max"] [provider _ db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :max)]
-    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
-                                             :mode :max
-                                             :verifier verifier})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :max
+                                          :verifier verifier})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/start-login! ["anthropic" "console"] [_ _ db* _config _messenger _metrics]
+(defmethod f.providers/start-login! ["anthropic" "console"] [provider _ db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :console)]
-    (swap! db* assoc-in [:auth "anthropic"] {:step :login/waiting-provider-code
-                                             :mode :console
-                                             :verifier verifier})
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :console
+                                          :verifier verifier})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/complete-oauth-code! "anthropic" [_ data db* messenger metrics]
+(defmethod f.providers/complete-oauth-code! "anthropic" [provider data db* _config messenger metrics]
   (let [code (:code data)
-        {:keys [mode verifier]} (get-in @db* [:auth "anthropic"])]
+        {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
       :console
       (let [{:keys [access-token]} (oauth-authorize code verifier)
             raw-key (create-api-key access-token)]
-        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
-                                                        :type :auth/token
-                                                        :api-key raw-key}))
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/token
+                                                     :api-key raw-key}))
       :max
       (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize code verifier)]
-        (swap! db* update-in [:auth "anthropic"] merge {:step :login/done
-                                                        :type :auth/oauth
-                                                        :refresh-token refresh-token
-                                                        :api-key access-token
-                                                        :expires-at expires-at})))
-    (f.providers/sync-and-notify! "anthropic" db* messenger metrics)
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/oauth
+                                                     :refresh-token refresh-token
+                                                     :api-key access-token
+                                                     :expires-at expires-at})))
+    (f.providers/sync-and-notify! provider db* messenger metrics)
     {:action "done"}))
 
 ;; --- Chat-based login (legacy /login command) ---
@@ -846,7 +941,7 @@
 (defmethod f.login/login-step ["anthropic" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
     (do
-      (config/update-global-config! {:providers {"anthropic" {:key input}}})
+      (config/update-global-config! {:providers {provider {:key input}}})
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
       (f.login/login-done! ctx))

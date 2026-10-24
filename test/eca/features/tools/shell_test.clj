@@ -4,11 +4,28 @@
    [babashka.process :as p]
    [clojure.test :refer [are deftest is testing]]
    [eca.features.tools.shell :as f.tools.shell]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
 (def ^:private call-state-fn (constantly {:status :executing}))
 (def ^:private state-transition-fn (constantly nil))
+
+(deftest background-command-is-not-a-tool-resource-test
+  (testing "a background job is never a tool-call resource, so stopping the chat neither waits for it nor kills it"
+    (let [events* (atom [])
+          ;; An existing dir: on Windows a temp dir that the job still uses cannot be deleted.
+          dir (System/getProperty "user.dir")
+          result ((get-in f.tools.shell/definitions ["shell_command" :handler])
+                  {"command" "echo started" "background" "test job"}
+                  {:db {:workspace-folders [{:uri (shared/filename->uri dir) :name "project"}]}
+                   :db* (atom {})
+                   :chat-id "chat"
+                   :messenger (h/messenger)
+                   :call-state-fn call-state-fn
+                   :state-transition-fn (fn [event & _] (swap! events* conj event))})]
+      (is (match? {:contents [{:text #"Background job \S+ started"}]} result))
+      (is (empty? @events*)))))
 
 (deftest shell-command-test
   (testing "non-existent working_directory"
@@ -228,18 +245,26 @@
                           :db db}))))))
 
 (deftest shell-command-details-test
-  (let [db {:tool-calls {"shell_command" {:remembered-command-keys #{"git status"}}}}]
+  (let [db {:chats {"c1" {:id "c1"
+                          :remembered-approvals {"eca__shell_command" {:remembered-command-keys #{"git status"}}}}
+                    "c1-sub" {:id "c1-sub" :parent-chat-id "c1"}
+                    "c2" {:id "c2"}}}]
     (testing "marks remembered and not remembered commands"
       (is (= {:type :shellCommand
               :commands [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}
                          {:command "rg" :args ["foo"] :approvalKey "rg" :remembered false}]}
-             (f.tools.shell/shell-command-details "shell_command" "git status && rg foo" db))))
+             (f.tools.shell/shell-command-details "eca__shell_command" "git status && rg foo" db "c1"))))
     (testing "remembered set is per tool name"
       (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
-             (:commands (f.tools.shell/shell-command-details "git" "git status" db)))))
+             (:commands (f.tools.shell/shell-command-details "eca__git" "git status" db "c1")))))
+    (testing "remembered set is per chat session, shared with its subagents"
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}]
+             (:commands (f.tools.shell/shell-command-details "eca__shell_command" "git status" db "c1-sub"))))
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
+             (:commands (f.tools.shell/shell-command-details "eca__shell_command" "git status" db "c2")))))
     (testing "commands without approval key have no remembered flag"
       (is (= {:type :shellCommand
               :commands [{:command "sudo" :args ["ls"]}]}
-             (f.tools.shell/shell-command-details "shell_command" "sudo ls" db))))
+             (f.tools.shell/shell-command-details "eca__shell_command" "sudo ls" db "c1"))))
     (testing "unparseable command returns nil"
-      (is (nil? (f.tools.shell/shell-command-details "shell_command" "echo $(x)" db))))))
+      (is (nil? (f.tools.shell/shell-command-details "eca__shell_command" "echo $(x)" db "c1"))))))

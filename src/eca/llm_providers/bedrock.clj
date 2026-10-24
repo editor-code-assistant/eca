@@ -307,7 +307,7 @@
 ;; --- HTTP request (shared by stream / non-stream) ---
 
 (defn ^:private base-request!
-  [{:keys [rid body model api-url api-key extra-headers http-client cancelled?
+  [{:keys [rid body model api-url api-key extra-headers http-client cancelled? stream-idle-timeout-seconds
            content-block* on-error on-stream on-tools-called-wrapper]}]
   (let [path (str "/model/" (URLEncoder/encode ^String model "UTF-8")
                   (if on-stream "/converse-stream" "/converse"))
@@ -338,7 +338,9 @@
                        :body body-str}))
           (if on-stream
             (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
-                  (llm-util/start-stream-watchdog! body cancelled? {})
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))
                   completed?* (atom false)]
               (try
                 (with-open [^InputStream is body]
@@ -359,7 +361,7 @@
                 (catch java.io.IOException e
                   (case @reason*
                     :cancelled (throw (ex-info "Stream cancelled" {:silent? true}))
-                    :idle-timeout (on-error {:message "Stream idle timeout: no data received" :exception e})
+                    :idle-timeout (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
                     (on-error {:exception e :message (llm-util/connection-error-message e)})))
                 (finally
                   (stop-fn))))
@@ -492,7 +494,7 @@
 (defn chat!
   [{:keys [model user-messages instructions max-output-tokens api-url api-key
            reason? past-messages tools extra-payload extra-headers supports-image?
-           http-client cancelled?]}
+           http-client cancelled? stream-idle-timeout-seconds]}
    {:keys [on-error] :as callbacks}]
   (let [stream? (boolean callbacks)
         cancelled? (or cancelled? (constantly false))
@@ -507,7 +509,8 @@
                    :api-key api-key
                    :extra-headers extra-headers
                    :http-client http-client
-                   :cancelled? cancelled?}
+                   :cancelled? cancelled?
+                   :stream-idle-timeout-seconds stream-idle-timeout-seconds}
         reissue-ctx {:base-opts base-opts :body body :supports-image? supports-image?}
         ;; Non-streaming tool loop: re-issue with the updated history, which
         ;; yields another result map the sync caller drives.

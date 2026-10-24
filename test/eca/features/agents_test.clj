@@ -99,6 +99,15 @@
            (:maxSteps (#'agents/md->agent-config {:maxSteps 7
                                                   :steps 3})))))
 
+  (testing "timeoutSeconds is parsed from frontmatter"
+    (is (= 1200
+           (:timeoutSeconds (#'agents/md->agent-config
+                             (shared/parse-md "---\ndescription: Slow\ntimeoutSeconds: 1200\n---\n\nPrompt"))))))
+
+  (testing "missing or malformed timeoutSeconds is ignored"
+    (doseq [timeout [nil "20m" 0 -5 [] {}]]
+      (is (nil? (:timeoutSeconds (#'agents/md->agent-config {:timeoutSeconds timeout}))))))
+
   (testing "tool entries with regex patterns"
     (let [parsed {:tools {"byDefault" "ask"
                           "allow" ["eca__shell_command(npm run .*)"
