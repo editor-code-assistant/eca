@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
+
 ### Docs site
 - Added: `docs/evolution`. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with `exclude_docs`
 - Added: Notes on the Configuration sidebar structure in `docs/evolution/planning/sidebar-navigation.md`
