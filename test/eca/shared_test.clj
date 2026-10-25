@@ -14,8 +14,13 @@
                                          :limit {:context 1000 :output 100}}}
             :provider-quotas {"anthropic" {:updated-at 1 :windows [{:id "5h" :label "5h" :used-percent 42.0}]}}}]
     (testing "API billing shows costs"
-      (is (match? {:session-tokens 15 :last-message-cost "0.20" :session-cost "2.00" :quota m/absent}
+      (is (match? {:session-tokens 15 :last-message-cost "0.20" :session-cost "2.00"
+                   :quota m/absent :message-output-tps m/absent}
                   (shared/usage-sumary "c1" "anthropic/claude" db))))
+    (testing "includes the last response TPS when known"
+      (is (match? {:message-output-tps 42}
+                  (shared/usage-sumary "c1" "anthropic/claude"
+                                       (assoc-in db [:chats "c1" :usage :last-output-tps] 42)))))
     (testing "subscription logins show the provider quota instead of costs"
       (is (match? {:session-tokens 15
                    :limit {:context 1000}
@@ -173,6 +178,26 @@
       (is (nil? (shared/tokens->cost 30 nil nil 20 {}))))
     (testing "returns nil when mandatory costs are missing"
       (is (nil? (shared/tokens->cost 30 nil nil 20 {:input-token-cost 0.01}))))))
+
+(deftest tokens-per-second-test
+  (is (= 50 (shared/tokens-per-second 100 2000)))
+  (is (= 3 (shared/tokens-per-second 10 3000)))
+  (is (= 3 (shared/tokens-per-second 10 4000)) "rounds 2.5 up")
+  (is (nil? (shared/tokens-per-second 0 1000)))
+  (is (nil? (shared/tokens-per-second 10 0)))
+  (is (nil? (shared/tokens-per-second nil 1000))))
+
+(deftest usage-msg->usage-test
+  (let [db* (atom {:chats {"c1" {:usage {}}}})
+        chat-ctx {:chat-id "c1" :db* db*}]
+    (shared/usage-msg->usage {:input-tokens 10 :output-tokens 20 :message-output-tps 42}
+                             "anthropic/claude"
+                             chat-ctx)
+    (is (= 42 (get-in @db* [:chats "c1" :usage :last-output-tps])))
+    (shared/usage-msg->usage {:input-tokens 10 :output-tokens 20}
+                             "anthropic/claude"
+                             chat-ctx)
+    (is (nil? (get-in @db* [:chats "c1" :usage :last-output-tps])))))
 
 (deftest deep-merge-test
   (testing "second map as nil returns first map"
