@@ -93,6 +93,14 @@
                :window-minutes (duration-id->minutes id)))))
         headers))
 
+(defn ^:private empty-codex-slot?
+  "Whether a ChatGPT window slot carries no data: unused and without a
+   duration, like the secondary slot of plans without a 5h limit, which report
+   their weekly window in the primary slot. The Codex CLI skips those too."
+  [used-percent minutes]
+  (and (zero? used-percent)
+       (not (pos? (or minutes 0)))))
+
 (defn ^:private codex-windows
   "ChatGPT subscription windows from `x-codex-{primary,secondary}-*` headers.
    Other limit families use their own `x-<family>-` prefix."
@@ -109,12 +117,13 @@
                                            (+ (now-seconds))))
                     default-family? (= "codex" family)
                     label (or (minutes->label minutes) slot)]
-                (shared/assoc-some
-                 {:id (if default-family? slot (str family "-" slot))
-                  :label (if default-family? label (str family " " label))
-                  :used-percent (round1 used-percent)}
-                 :resets-at resets-at
-                 :window-minutes minutes)))))
+                (when-not (empty-codex-slot? used-percent minutes)
+                  (shared/assoc-some
+                   {:id (if default-family? slot (str family "-" slot))
+                    :label (if default-family? label (str family " " label))
+                    :used-percent (round1 used-percent)}
+                   :resets-at resets-at
+                   :window-minutes minutes))))))
         headers))
 
 (defn ^:private parse-form [s]
@@ -267,13 +276,14 @@
                                    (get-in body [:rate_limit k])]
                           (when-let [used-percent (parse-number used_percent)]
                             (let [minutes (some-> limit_window_seconds parse-number long (quot 60))]
-                              (shared/assoc-some
-                               {:id slot
-                                :label (or (minutes->label minutes) slot)
-                                :used-percent (round1 used-percent)}
-                               :resets-at (or (->epoch-seconds reset_at)
-                                              (some->> reset_after_seconds parse-number long (+ (now-seconds))))
-                               :window-minutes minutes)))))
+                              (when-not (empty-codex-slot? used-percent minutes)
+                                (shared/assoc-some
+                                 {:id slot
+                                  :label (or (minutes->label minutes) slot)
+                                  :used-percent (round1 used-percent)}
+                                 :resets-at (or (->epoch-seconds reset_at)
+                                                (some->> reset_after_seconds parse-number long (+ (now-seconds))))
+                                 :window-minutes minutes))))))
                       [["primary" :primary_window] ["secondary" :secondary_window]])]
     (when (seq windows)
       {:updated-at (now-seconds)

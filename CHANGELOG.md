@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix ChatGPT subscription quota showing an empty `secondary` window with no value for plans without a 5h limit.
+
 ### Docs site
 - Added: `docs/evolution`. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with `exclude_docs`
 - Added: Notes on the Configuration sidebar structure in `docs/evolution/planning/sidebar-navigation.md`
