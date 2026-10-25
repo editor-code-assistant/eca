@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.167.0
+
 - Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
 - Fix ChatGPT subscription quota showing an empty `secondary` window with no value for plans without a 5h limit.
 - General improvements to docs webpage. #663
