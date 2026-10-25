@@ -543,8 +543,16 @@
         mid-system? (and mid-conversation-system?
                          (not (string/blank? dynamic))
                          (= "user" (:role (last messages))))
-        system-blocks (cond-> [{:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."}
-                               {:type "text" :text static :cache_control cache-control}]
+        ;; Send the Claude Code identity block only with subscription (OAuth)
+        ;; tokens. With an API key, Anthropic rejects a request carrying it
+        ;; with "credit balance is too low", even when the key has credits.
+        system-blocks (cond-> []
+                        (= :auth/oauth auth-type)
+                        (conj {:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."})
+
+                        :always
+                        (conj {:type "text" :text static :cache_control cache-control})
+
                         (and (not (string/blank? dynamic)) (not mid-system?))
                         (conj {:type "text" :text dynamic :cache_control cache-control}))
         body (merge

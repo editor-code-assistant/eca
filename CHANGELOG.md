@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix Anthropic API-key requests failing with "credit balance is too low": send the "You are Claude Code" system block only with OAuth logins.
+
 ### Docs site
 - Added: `docs/evolution`. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with `exclude_docs`
 - Added: Notes on the Configuration sidebar structure in `docs/evolution/planning/sidebar-navigation.md`
