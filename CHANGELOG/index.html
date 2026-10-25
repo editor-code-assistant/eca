@@ -1293,21 +1293,6 @@
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Unreleased">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#docs-site" class="md-nav__link">
-    <span class="md-ellipsis">
-      Docs site
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
 </li>
       
         <li class="md-nav__item">
@@ -5123,36 +5108,7 @@
 <ul>
 <li>Show output tokens per second (TPS) in the chat usage payload for streamed model responses.</li>
 <li>Fix ChatGPT subscription quota showing an empty <code>secondary</code> window with no value for plans without a 5h limit.</li>
-</ul>
-<h3 id="docs-site">Docs site<a class="headerlink" href="#docs-site" title="Permanent link">#</a></h3>
-<ul>
-<li>Added: <code>docs/evolution</code>. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with <code>exclude_docs</code></li>
-<li>Added: Notes on the Configuration sidebar structure in <code>docs/evolution/planning/sidebar-navigation.md</code></li>
-<li>Changed: Inter typeface as the site font, loaded through <code>theme.font</code>, plus Inter typeface <code>600</code> from Google Fonts for headings</li>
-<li>Changed: Article column capped at <code>700px</code>, body text <code>0.85rem</code> (<code>17px</code>), line height <code>1.7</code></li>
-<li>Changed: Headings in <code>rem</code> so they no longer scale with body text: <code>h1</code> <code>36px</code>, <code>h2</code> <code>24px</code>, <code>h3</code> <code>20px</code>, all weight <code>600</code>, color <code>#333</code>, letter spacing <code>-0.025em</code></li>
-<li>Changed: Body links use the text color at weight <code>600</code> with a gray underline set <code>0.25em</code> below the text, darkening on hover</li>
-<li>Changed: Hover and focus accent is black instead of accent (teal)</li>
-<li>Changed: Content tab labels keep their accent (teal) through a dedicated <code>--eca-accent (teal)</code> token</li>
-<li>Changed: Items indented <code>1.3em</code> with a faint left rule that lines up with the section heading</li>
-<li>Changed: About 20% more vertical space per item</li>
-<li>Changed: Active page bold with a dark segment on the rule, instead of accent (teal) text</li>
-<li>Changed: Top-level links weight <code>500</code>, nested links weight <code>400</code> at opacity <code>0.8</code></li>
-<li>Changed: Section heading indented <code>0.9em</code>, dark gray instead of accent (teal), hover is black</li>
-<li>Changed: All emoji replaced with Lucide icons (<code>lucide-static</code> 1.57.0, ISC license) in <code>docs/overrides/.icons/lucide</code>, drawn at <code>stroke-width: 1.5</code></li>
-<li>Added: Citation and link to Lucide in the footer.</li>
-<li>Changed: "Free &amp; Open Source" uses the Lucide <code>git-fork</code> icon instead of the oversized green OSI logo</li>
-<li>Changed: Top three feature cards use the same icon-left, two-column layout as the cards below</li>
-<li>Changed: Card text one step tighter: line height <code>1.45</code> and <code>1.4</code></li>
-<li>Changed: Homepage accent tokens (<code>--eca-brand-*</code>) neutral (grays and black) instead of accent (teal)</li>
-<li>Changed: Intro, question, tabs, "Install the ECA server manually" section and "Something not working?" section share one <code>60rem</code> left edge</li>
-<li>Changed: "Auto install" callout full width with a Lucide <code>info</code> icon</li>
-<li>Changed: "Where do you want to use ECA?" matches the doc page <code>h1</code></li>
-<li>Changed: Plugin copy split into two paragraphs, dash replaced with a period</li>
-<li>Changed: "Install the ECA server manually" section no longer a hidden toggle, always shown</li>
-<li>Changed: Editor tabs and manual install tabs share one underline style with accent (teal) labels</li>
-<li>Changed: "Something not working?" section is a bulleted list with the doc page link style</li>
-<li>Changed: Emoji arrows replaced with plain Unicode text arrows in 61 headings: → ← ↩ ↪</li>
+<li>General improvements to docs webpage. #663</li>
 </ul>
 <h2 id="01660">0.166.0<a class="headerlink" href="#01660" title="Permanent link">#</a></h2>
 <ul>
@@ -7404,7 +7360,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 25, 2026 02:27:49 UTC">October 25, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 25, 2026 03:18:12 UTC">October 25, 2026</span>
   </span>
 
     
