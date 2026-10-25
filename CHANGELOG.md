@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
+
 ### Docs site
 - Added: `docs/evolution`. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with `exclude_docs`
 - Added: Notes on the Configuration sidebar structure in `docs/evolution/planning/sidebar-navigation.md`
@@ -30,7 +32,6 @@
 - Changed: Editor tabs and manual install tabs share one underline style with accent (teal) labels
 - Changed: "Something not working?" section is a bulleted list with the doc page link style
 - Changed: Emoji arrows replaced with plain Unicode text arrows in 61 headings: → ← ↩ ↪
-
 
 ## 0.166.0
 
