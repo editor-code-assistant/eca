@@ -51,7 +51,20 @@
 
   (testing "expired cursor returns error"
     (let [r (f.chat.history/window-messages messages {:before "not-a-real-cursor"})]
-      (is (= :cursor-expired (:error r))))))
+      (is (= :cursor-expired (:error r)))))
+
+  (testing "a before cursor whose message was truncated away pages the rest"
+    (let [before (:before-cursor (f.chat.history/window-messages messages {:limit 3}))
+          ;; The cursor points at m2; a rollback to m2 truncates m2 onwards.
+          r (f.chat.history/window-messages (subvec messages 0 2) {:limit 3 :before before})]
+      (is (= ["m0" "m1"] (texts r)))
+      (is (nil? (:before-cursor r)))))
+
+  (testing "a cursor whose message was removed mid-history still expires"
+    (let [before (:before-cursor (f.chat.history/window-messages messages {:limit 3}))
+          without-m2 (into (subvec messages 0 2) (subvec messages 3))]
+      (is (= :cursor-expired
+             (:error (f.chat.history/window-messages without-m2 {:before before})))))))
 
 (deftest window-messages-keeps-reason-runs-test
   (let [reason (fn [id created-at] {:role "reason" :content {:id id :text id} :created-at created-at})

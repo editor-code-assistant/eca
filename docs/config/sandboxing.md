@@ -12,7 +12,7 @@ The pattern is always the same: instead of your editor spawning `eca server` dir
 
 ## Docker / Podman
 
-ECA publishes a ready-to-use image at [`ghcr.io/editor-code-assistant/eca-sandbox-image`](https://github.com/editor-code-assistant/eca-sandbox-image) (`linux/amd64` and `linux/arm64`), containing the latest `eca` binary and a minimal toolset (git, curl, ripgrep). It's tagged with `latest` and the bundled ECA version.
+ECA publishes a ready-to-use image at [`ghcr.io/editor-code-assistant/eca-sandbox-image`](https://github.com/editor-code-assistant/eca-sandbox-image) (`linux/amd64` and `linux/arm64`), containing the latest `eca` binary and a minimal toolset (git, curl, ripgrep). It's rebuilt on every ECA release and tagged with `latest` and the bundled ECA version.
 
 Create a wrapper script:
 

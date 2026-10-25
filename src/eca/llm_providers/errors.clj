@@ -15,12 +15,13 @@
   [#"(?i)prompt is too long"
    #"(?i)too many tokens"
    #"(?i)context.length.exceeded"
+   #"(?i)exceed_context_size_error" ; llama.cpp/llama-server structured code
    #"(?i)maximum context length"
    #"(?i)content.*?too.*?large"
    #"(?i)request too large"
    #"(?i)token limit"
    #"(?i)input is too long"
-   #"(?i)exceeds? the? ?(?:max(?:imum)?|model).{0,20}(?:token|context)"])
+   #"(?i)exceeds? the? ?(?:available|max(?:imum)?|model).{0,20}(?:token|context)"])
 
 (def ^:private invalid-image-patterns
   "Regex patterns matching provider-side rejections of image content in the
