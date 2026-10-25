@@ -189,6 +189,89 @@
                      :handler-fn fn?}])
          (f.skills/all {:pureConfig true} [])))))
 
+(defn ^:private write-skill! [skills-dir skill-name description]
+  (let [skill-dir (fs/file skills-dir skill-name)]
+    (fs/create-dirs skill-dir)
+    (spit (fs/file skill-dir "SKILL.md")
+          (str "---\nname: " skill-name "\ndescription: " description "\n---\nBody"))))
+
+(defn ^:private on-disk-skills
+  "Calls `setup!` with a temp home and workspace dir, then returns the
+   [name description] of each non built-in skill found by `f.skills/all`."
+  [config setup!]
+  (let [tmp-dir (fs/create-temp-dir)
+        home (fs/file tmp-dir "home")
+        workspace (fs/file tmp-dir "workspace")]
+    (try
+      (fs/create-dirs home)
+      (fs/create-dirs workspace)
+      (setup! {:home home :workspace workspace})
+      (with-redefs [config/get-env (constantly nil)
+                    config/user-home (constantly (str home))]
+        (->> (f.skills/all config [{:uri (shared/filename->uri (str workspace))}])
+             (remove :handler-fn)
+             (mapv (juxt :name :description))))
+      (finally
+        (fs/delete-tree tmp-dir)))))
+
+(deftest agents-home-skills-test
+  (testing "discovers skills from ~/.agents/skills"
+    (is (= [["home-skill" "From ~/.agents/skills"]]
+           (on-disk-skills {} (fn [{:keys [home]}]
+                                (write-skill! (fs/file home ".agents" "skills") "home-skill" "From ~/.agents/skills"))))))
+
+  (testing "skips ~/.agents/skills when pureConfig is set"
+    (is (= []
+           (on-disk-skills {:pureConfig true} (fn [{:keys [home]}]
+                                                (write-skill! (fs/file home ".agents" "skills") "home-skill" "From ~/.agents/skills")))))))
+
+(deftest skill-name-precedence-test
+  (testing "keeps skills with distinct names, workspace ones first"
+    (is (= [["workspace-skill" "workspace"]
+            ["eca-global-skill" "global eca"]
+            ["agents-global-skill" "global .agents"]]
+           (on-disk-skills {} (fn [{:keys [home workspace]}]
+                                (write-skill! (fs/file home ".agents" "skills") "agents-global-skill" "global .agents")
+                                (write-skill! (fs/file home ".config" "eca" "skills") "eca-global-skill" "global eca")
+                                (write-skill! (fs/file workspace ".agents" "skills") "workspace-skill" "workspace"))))))
+
+  (testing "a workspace skill overrides a global skill with the same name"
+    (is (= [["shared" "workspace .agents"]]
+           (on-disk-skills {} (fn [{:keys [home workspace]}]
+                                (write-skill! (fs/file home ".config" "eca" "skills") "shared" "global eca")
+                                (write-skill! (fs/file home ".agents" "skills") "shared" "global .agents")
+                                (write-skill! (fs/file workspace ".agents" "skills") "shared" "workspace .agents"))))))
+
+  (testing "workspace .eca/skills overrides workspace .agents/skills"
+    (is (= [["shared" "workspace eca"]]
+           (on-disk-skills {} (fn [{:keys [workspace]}]
+                                (write-skill! (fs/file workspace ".agents" "skills") "shared" "workspace .agents")
+                                (write-skill! (fs/file workspace ".eca" "skills") "shared" "workspace eca"))))))
+
+  (testing "~/.config/eca/skills overrides ~/.agents/skills"
+    (is (= [["shared" "global eca"]]
+           (on-disk-skills {} (fn [{:keys [home]}]
+                                (write-skill! (fs/file home ".agents" "skills") "shared" "global .agents")
+                                (write-skill! (fs/file home ".config" "eca" "skills") "shared" "global eca"))))))
+
+  (testing "configured skill paths override workspace skills"
+    (is (= [["shared" "configured"]]
+           (on-disk-skills {:skills [{:path "configured-skills"}]}
+                           (fn [{:keys [workspace]}]
+                             (write-skill! (fs/file workspace ".eca" "skills") "shared" "workspace eca")
+                             (write-skill! (fs/file workspace "configured-skills") "shared" "configured"))))))
+
+  (testing "a workspace skill overrides a plugin skill with the same name"
+    (let [plugin-dir (str (fs/create-temp-dir))]
+      (try
+        (write-skill! plugin-dir "tdd" "plugin")
+        (is (= [["tdd" "workspace"]]
+               (on-disk-skills {:pluginSkillDirs [{:plugin "tdd" :dir plugin-dir}]}
+                               (fn [{:keys [workspace]}]
+                                 (write-skill! (fs/file workspace ".eca" "skills") "tdd" "workspace")))))
+        (finally
+          (fs/delete-tree plugin-dir))))))
+
 (deftest eca-info-handler-test
   (testing "eca-info handler returns a markdown report with expected sections"
     (let [skill (->> (f.skills/all {:pureConfig true} [])

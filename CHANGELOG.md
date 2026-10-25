@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
+
 ## 0.167.0
 
 - Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
