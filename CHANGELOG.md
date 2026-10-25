@@ -4,35 +4,7 @@
 
 - Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
 - Fix ChatGPT subscription quota showing an empty `secondary` window with no value for plans without a 5h limit.
-
-### Docs site
-- Added: `docs/evolution`. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with `exclude_docs`
-- Added: Notes on the Configuration sidebar structure in `docs/evolution/planning/sidebar-navigation.md`
-- Changed: Inter typeface as the site font, loaded through `theme.font`, plus Inter typeface `600` from Google Fonts for headings
-- Changed: Article column capped at `700px`, body text `0.85rem` (`17px`), line height `1.7`
-- Changed: Headings in `rem` so they no longer scale with body text: `h1` `36px`, `h2` `24px`, `h3` `20px`, all weight `600`, color `#333`, letter spacing `-0.025em`
-- Changed: Body links use the text color at weight `600` with a gray underline set `0.25em` below the text, darkening on hover
-- Changed: Hover and focus accent is black instead of accent (teal)
-- Changed: Content tab labels keep their accent (teal) through a dedicated `--eca-accent (teal)` token
-- Changed: Items indented `1.3em` with a faint left rule that lines up with the section heading
-- Changed: About 20% more vertical space per item
-- Changed: Active page bold with a dark segment on the rule, instead of accent (teal) text
-- Changed: Top-level links weight `500`, nested links weight `400` at opacity `0.8`
-- Changed: Section heading indented `0.9em`, dark gray instead of accent (teal), hover is black
-- Changed: All emoji replaced with Lucide icons (`lucide-static` 1.57.0, ISC license) in `docs/overrides/.icons/lucide`, drawn at `stroke-width: 1.5`
-- Added: Citation and link to Lucide in the footer.
-- Changed: "Free & Open Source" uses the Lucide `git-fork` icon instead of the oversized green OSI logo
-- Changed: Top three feature cards use the same icon-left, two-column layout as the cards below
-- Changed: Card text one step tighter: line height `1.45` and `1.4`
-- Changed: Homepage accent tokens (`--eca-brand-*`) neutral (grays and black) instead of accent (teal)
-- Changed: Intro, question, tabs, "Install the ECA server manually" section and "Something not working?" section share one `60rem` left edge
-- Changed: "Auto install" callout full width with a Lucide `info` icon
-- Changed: "Where do you want to use ECA?" matches the doc page `h1`
-- Changed: Plugin copy split into two paragraphs, dash replaced with a period
-- Changed: "Install the ECA server manually" section no longer a hidden toggle, always shown
-- Changed: Editor tabs and manual install tabs share one underline style with accent (teal) labels
-- Changed: "Something not working?" section is a bulleted list with the doc page link style
-- Changed: Emoji arrows replaced with plain Unicode text arrows in 61 headings: → ← ↩ ↪
+- General improvements to docs webpage. #663
 
 ## 0.166.0
 
