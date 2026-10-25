@@ -539,6 +539,10 @@
          on-history-sanitized identity
          cancelled? (constantly false)}}]
   (let [first-response-received* (atom false)
+        ;; First generation event of the current model response. Consumed by
+        ;; the next usage update, so tool-call loops start a new measurement.
+        generation-start-ms* (atom nil)
+        mark-generation-start! #(compare-and-set! generation-start-ms* nil (System/currentTimeMillis))
         ;; Fire :on-history-sanitized at most once per sync-or-async-prompt! call:
         ;; prompt! is invoked multiple times on retries and we don't want to
         ;; spam the chat with repeated "history sanitized" notices.
@@ -558,24 +562,45 @@
         ;; tool call. Wrapped here rather than in `prompt!` because the sync path
         ;; invokes the callback itself, without going through it.
         on-tools-called-wrapper (fn [tool-calls]
+                                  ;; Tool execution can block on user approval.
+                                  ;; End the generation window first so a usage
+                                  ;; event that arrives after tools (Bedrock)
+                                  ;; cannot include that time.
+                                  (reset! generation-start-ms* nil)
                                   (let [result (on-tools-called tool-calls)]
                                     (cond-> result
                                       (map? result) (update :tools tools-for-request))))
-        on-message-received-wrapper (fn [& args]
+        on-message-received-wrapper (fn [& [message :as args]]
+                                      (when (#{:text :url :refusal} (:type message))
+                                        (mark-generation-start!))
                                       (apply emit-first-message-fn args)
                                       (apply on-message-received args))
-        on-reason-wrapper (fn [& args]
+        on-reason-wrapper (fn [& [reason :as args]]
+                            (when (#{:started :thinking} (:status reason))
+                              (mark-generation-start!))
                             (apply emit-first-message-fn args)
                             (apply on-reason args))
         on-prepare-tool-call-wrapper (fn [& args]
+                                       (mark-generation-start!)
                                        (apply emit-first-message-fn args)
                                        (apply on-prepare-tool-call args))
-        on-server-web-search-wrapper (fn [& args]
+        on-server-web-search-wrapper (fn [& [event :as args]]
+                                       (when (= :started (:status event))
+                                         (mark-generation-start!))
                                        (apply emit-first-message-fn args)
                                        (apply on-server-web-search args))
-        on-server-image-generation-wrapper (fn [& args]
+        on-server-image-generation-wrapper (fn [& [event :as args]]
+                                             (when (= :started (:status event))
+                                               (mark-generation-start!))
                                              (apply emit-first-message-fn args)
                                              (apply on-server-image-generation args))
+        on-usage-updated-wrapper (fn [usage]
+                                   (let [start-ms @generation-start-ms*
+                                         elapsed-ms (when start-ms (- (System/currentTimeMillis) start-ms))
+                                         tps (shared/tokens-per-second (:output-tokens usage) elapsed-ms)]
+                                     (reset! generation-start-ms* nil)
+                                     (on-usage-updated (cond-> usage
+                                                         tps (assoc :message-output-tps tps)))))
         ;; Deliver at most one terminal error per prompt: when a shared
         ;; connection dies, every stacked tool-continuation request unwinds
         ;; and fires its own on-error for the same failure. #547
@@ -718,7 +743,7 @@
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
                 :on-tools-called on-tools-called-wrapper
-                :on-usage-updated on-usage-updated
+                :on-usage-updated on-usage-updated-wrapper
                 :on-server-web-search on-server-web-search-wrapper
                 :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper

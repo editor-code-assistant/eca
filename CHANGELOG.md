@@ -33,6 +33,11 @@
 - Changed: "Something not working?" section is a bulleted list with the doc page link style
 - Changed: Emoji arrows replaced with plain Unicode text arrows in 61 headings: → ← ↩ ↪
 
+## 0.167.0
+
+- Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
+- Fix ChatGPT subscription quota showing an empty `secondary` window with no value for plans without a 5h limit.
+- General improvements to docs webpage. #663
 
 ## 0.166.0
 
