@@ -13,7 +13,8 @@
    [eca.logger :as logger]
    [eca.shared :as shared])
   (:import
-   [java.util Base64]))
+   [java.util Base64 Locale]
+   [java.util.concurrent.locks ReentrantLock]))
 
 (set! *warn-on-reflection* true)
 
@@ -451,30 +452,57 @@
     (text-match/apply-content-change-to-string file-content original-content new-content all? path)
     (smart-edit/apply-smart-edit file-content original-content new-content path)))
 
+(defonce ^:private file-edit-locks (atom {}))
+
+(defn ^:private with-file-edit-lock
+  "Serialize edits to a canonical path, retaining its lock only while in use."
+  [path f]
+  (let [normalized (shared/normalize-path path)
+        key (if shared/windows-os? (.toLowerCase ^String normalized Locale/ROOT) normalized)
+        entry (get (swap! file-edit-locks update key
+                          (fn [entry]
+                            (update (or entry {:lock (ReentrantLock.) :users 0}) :users inc)))
+                   key)
+        ^ReentrantLock lock (:lock entry)]
+    (try
+      (.lockInterruptibly lock)
+      (try
+        (f)
+        (finally (.unlock lock)))
+      (finally
+        (swap! file-edit-locks
+               (fn [locks]
+                 (if (= 1 (get-in locks [key :users]))
+                   (dissoc locks key)
+                   (update-in locks [key :users] dec))))))))
+
 (defn ^:private edit-file [{:strs [path] :as arguments} ctx]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
       (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
-      (let [original-content (get arguments "original_content")
-            new-content      (get arguments "new_content")
-            all?             (boolean (get arguments "all_occurrences"))
-            initial-content  (slurp path)
-            result           (apply-file-edit-strategy initial-content original-content new-content all? path)
-            write!           (fn [res]
-                               (spit path (:new-full-content res))
-                               (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
-                                   (assoc :rollback-changes [{:path    path
-                                                              :content initial-content}])))]
-        (if (:new-full-content result)
-          (let [current-content (slurp path)]
-            (if (= current-content (:original-full-content result))
-              (write! result)
-              ;; Optimistic retry once against latest content
-              (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
-                (if (:new-full-content retry)
-                  (write! retry)
-                  (handle-file-change-result {:error :conflict} path nil)))))
-          (handle-file-change-result result path nil)))))
+      (with-file-edit-lock
+        path
+        (fn []
+          (let [original-content (get arguments "original_content")
+                new-content      (get arguments "new_content")
+                all?             (boolean (get arguments "all_occurrences"))
+                initial-content  (slurp path)
+                result           (apply-file-edit-strategy initial-content original-content new-content all? path)
+                write!           (fn [res]
+                                   (spit path (:new-full-content res))
+                                   (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                                       (assoc :rollback-changes [{:path    path
+                                                                  :content (:original-full-content res)}])))]
+            (if (:new-full-content result)
+              (let [current-content (slurp path)]
+                (if (= current-content (:original-full-content result))
+                  (write! result)
+                  ;; Optimistic retry once against latest content
+                  (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
+                    (if (:new-full-content retry)
+                      (write! retry)
+                      (handle-file-change-result {:error :conflict} path nil)))))
+              (handle-file-change-result result path nil)))))))
 
 (defn ^:private preview-file-change [arguments _]
   (let [path (get arguments "path")

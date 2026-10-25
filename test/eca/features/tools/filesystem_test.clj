@@ -540,7 +540,7 @@
           changed "a z a c"
           path (h/file-path "/project/foo/my-file.txt")]
       (is (match?
-           {:rollback-changes [{:content initial
+           {:rollback-changes [{:content changed
                                 :path (h/file-path "/project/foo/my-file.txt")}]
             :error false
             :contents [{:type :text
@@ -586,6 +586,98 @@
               {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
       ;; No write should have occurred
       (is (empty? @writes*)))))
+
+(deftest concurrent-file-edits-test
+  (doseq [all? [false true]]
+    (testing (str "Same-file edits preserve both changes, all_occurrences=" all?)
+      (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-concurrent-edit"}))
+            path (str (fs/path dir "file.txt"))
+            alias (str dir fs/file-separator "." fs/file-separator "file.txt")
+            other-path (str (fs/path dir "other.txt"))
+            edit! (get-in f.tools.filesystem/definitions ["edit_file" :handler])
+            write! spit
+            writing (promise)
+            release (promise)
+            started (promise)
+            cancelled-started (promise)
+            cancelled-finished (promise)
+            first-edit* (atom nil)
+            second-edit* (atom nil)
+            cancelled-edit* (atom nil)]
+        (spit path "alpha\nbeta\n")
+        (spit other-path "other\n")
+        (try
+          (with-redefs [spit (fn [file content]
+                              (when (= content "ALPHA\nbeta\n")
+                                (deliver writing true)
+                                (when (= ::timeout (deref release 10000 ::timeout))
+                                  (throw (ex-info "Timed out releasing first edit" {}))))
+                              (write! file content))]
+            (reset! first-edit* (future (edit! {"path" path
+                                               "original_content" "alpha"
+                                               "new_content" "ALPHA"
+                                               "all_occurrences" all?} {})))
+            (is (= true (deref writing 5000 ::timeout)))
+            (testing "Cancelling a waiting edit releases its reservation"
+              (reset! cancelled-edit* (future
+                                        (try
+                                          (deliver cancelled-started true)
+                                          (edit! {"path" alias
+                                                  "original_content" "beta"
+                                                  "new_content" "cancelled"} {})
+                                          (finally (deliver cancelled-finished true)))))
+              (is (= true (deref cancelled-started 5000 ::timeout)))
+              (is (= ::pending (deref @cancelled-edit* 200 ::pending)))
+              (future-cancel @cancelled-edit*)
+              (is (= true (deref cancelled-finished 5000 ::timeout))))
+            (reset! second-edit* (future
+                                  (deliver started true)
+                                  (edit! {"path" alias
+                                          "original_content" "beta"
+                                          "new_content" "BETA"
+                                          "all_occurrences" all?} {})))
+            (is (= true (deref started 5000 ::timeout)))
+            ;; A different file remains editable while the first file is paused.
+            (let [other-edit (future (edit! {"path" other-path
+                                             "original_content" "other"
+                                             "new_content" "OTHER"} {}))]
+              (try
+                (is (match? {:error false} (deref other-edit 5000 ::timeout)))
+                (finally (future-cancel other-edit))))
+            (is (= ::pending (deref @second-edit* 500 ::pending)))
+            (deliver release true)
+            (is (match? {:error false} (deref @first-edit* 5000 ::timeout)))
+            (is (match? {:error false
+                         :rollback-changes [{:path alias :content "ALPHA\nbeta\n"}]}
+                        (deref @second-edit* 5000 ::timeout)))
+            (is (= "ALPHA\nBETA\n" (slurp path))))
+          (finally
+            (deliver release true)
+            (doseq [edit [@first-edit* @second-edit* @cancelled-edit*] :when edit]
+              (future-cancel edit))
+            (fs/delete-tree dir)))))))
+
+(deftest file-edit-failure-recovery-test
+  (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-edit-recovery"}))
+        path (str (fs/path dir "file.txt"))
+        edit! (get-in f.tools.filesystem/definitions ["edit_file" :handler])
+        arguments {"path" path "original_content" "before" "new_content" "after"}]
+    (spit path "before")
+    (try
+      (testing "A failed write releases the file for another thread"
+        (with-redefs [spit (fn [_ _] (throw (ex-info "Write failed" {})))]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Write failed" (edit! arguments {}))))
+        (is (= "before" (slurp path)))
+        (let [retry (future (edit! arguments {}))]
+          (try
+            (is (match? {:error false :rollback-changes [{:path path :content "before"}]}
+                        (deref retry 5000 ::timeout)))
+            (finally (future-cancel retry))))
+        (is (= "after" (slurp path))))
+      (testing "A stale overlapping edit fails without changing the newer content"
+        (is (match? {:error true} (edit! arguments {})))
+        (is (= "after" (slurp path))))
+      (finally (fs/delete-tree dir)))))
 
 (deftest move-file-test
   (testing "Not readable source path"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
+
 ## 0.167.0
 
 - Show output tokens per second (TPS) in the chat usage payload for streamed model responses.
