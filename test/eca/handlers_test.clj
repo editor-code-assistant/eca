@@ -48,6 +48,26 @@
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true}}))))))
 
+(deftest providers-sync-hash-test
+  (let [sync-hash #(#'handlers/providers-sync-hash {:providers %})
+        providers {"gateway" {:api "anthropic" :url "https://gw" :key "token-1"}
+                   "local" {:api "openai-chat" :url "http://localhost:1234"}}]
+    (testing "a new value of a set key, like a rotated `${cmd:...}` token, doesn't re-sync models"
+      (is (= (sync-hash providers)
+             (sync-hash (assoc-in providers ["gateway" :key] "token-2")))))
+
+    (testing "setting or clearing a key re-syncs, as it decides if the provider's models are offered"
+      (is (not= (sync-hash providers)
+                (sync-hash (assoc-in providers ["gateway" :key] ""))))
+      (is (not= (sync-hash providers)
+                (sync-hash (assoc-in providers ["local" :key] "new-key")))))
+
+    (testing "any other provider change re-syncs"
+      (is (not= (sync-hash providers)
+                (sync-hash (assoc-in providers ["gateway" :url] "https://other-gw"))))
+      (is (not= (sync-hash providers)
+                (sync-hash (assoc-in providers ["local" :models] {"qwen" {}})))))))
+
 (deftest chat-selected-agent-changed-test
   (testing "Switching to agent with defaultModel updates model and variants"
     (h/reset-components!)

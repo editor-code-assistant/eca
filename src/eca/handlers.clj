@@ -114,11 +114,20 @@
       (messenger/progress messenger params)
       (catch Exception _))))
 
+(defn ^:private providers-sync-hash
+  "Hash of the providers config that re-syncs models when it changes. A
+   provider `key` counts only by whether it's set: a `${cmd:...}` key printing
+   short-lived tokens changes every few minutes, and each sync refetches
+   models.dev, every provider catalog and the quotas."
+  [config]
+  (hash (update-vals (:providers config)
+                     #(cond-> % (map? %) (update :key (comp boolean not-empty))))))
+
 (defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
           (fn [config]
-            (let [new-providers-hash (hash (:providers config))]
+            (let [new-providers-hash (providers-sync-hash config)]
               (when (not= (:providers-config-hash @db*) new-providers-hash)
                 (swap! db* assoc :providers-config-hash new-providers-hash)
                 ;; Refresh near-expiry OAuth tokens before fetching catalogs, so
