@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
+- Fix compaction, auto-continue and subagent LLM calls in long prompts sending a `${cmd:...}` provider key resolved at prompt start, failing with 401 once the token expires. #634
 
 ## 0.167.0
 

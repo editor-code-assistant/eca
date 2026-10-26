@@ -521,12 +521,21 @@
       (catch Exception e
         (on-error {:exception e})))))
 
+(defn ^:private with-fresh-provider-key
+  "Returns `config` with the provider `:key` taken from `fresh-config`. Only the
+   key changes, so the rest of a turn keeps the config it started with. A blank
+   fresh key (e.g. its `${cmd:...}` just failed) keeps the current one."
+  [config fresh-config provider]
+  (if-let [fresh-key (not-empty (get-in fresh-config [:providers provider :key]))]
+    (assoc-in config [:providers provider :key] fresh-key)
+    config))
+
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized on-response-headers
-           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?
-           prompt-cache-key]
+           past-messages tools provider-auth refresh-provider-auth-fn refresh-config-fn variant cancelled?
+           on-retry subagent? prompt-cache-key]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -630,6 +639,20 @@
                                                  {:exception (ex-message e)})
                                     provider-auth))
                                 provider-auth))
+        ;; Same for a config `key`, which can be a short-lived token (e.g.
+        ;; `${cmd:...}`): `config` is resolved when the turn starts, and
+        ;; compactions, auto-continues and subagents call this with it much
+        ;; later. Cheap, as config and `${cmd:...}` results are cached.
+        config-with-fresh-key (fn []
+                                (if refresh-config-fn
+                                  (try
+                                    (with-fresh-provider-key config (refresh-config-fn) provider)
+                                    (catch Exception e
+                                      (logger/warn logger-tag
+                                                   "refresh-config-fn failed, falling back to captured config"
+                                                   {:exception (ex-message e)})
+                                      config))
+                                  config))
         maybe-retry (fn [error-data attempt replay-safe? on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
@@ -703,7 +726,7 @@
                               :prompt-cache-key prompt-cache-key
                               :on-error on-error-wrapper
                               :on-history-sanitized on-history-sanitized-wrapper
-                              :config config})]
+                              :config (config-with-fresh-key)})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
                   (if error
                     (maybe-retry error attempt (not @first-response-received*)
@@ -757,7 +780,7 @@
                               (on-error-wrapper error-data)
                               (maybe-retry error-data attempt (not @first-response-received*)
                                            on-error-wrapper async-prompt-with-retry)))
-                :config config}))]
+                :config (config-with-fresh-key)}))]
         (async-prompt-with-retry* 0)))))
 
 (defn sync-prompt!
