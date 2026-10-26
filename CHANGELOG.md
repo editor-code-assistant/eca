@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix auto-compaction running only once per turn: long (e.g. steered) turns now compact again when the context refills, up to `autoCompactMaxPerTurn` (default 3).
+
 ## 0.168.0
 
 - Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
