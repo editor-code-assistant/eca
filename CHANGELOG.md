@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.168.0
+
 - Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
 - Fix compaction, auto-continue and subagent LLM calls in long prompts sending a `${cmd:...}` provider key resolved at prompt start, failing with 401 once the token expires. #634
 - Stop re-syncing models, provider catalogs and quotas whenever a `${cmd:...}` provider key prints a new token; only setting or clearing a key re-syncs them.
