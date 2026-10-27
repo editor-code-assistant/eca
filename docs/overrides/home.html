@@ -1307,7 +1307,7 @@
 
   .eca-community__clojure {
     font-size: 0.78rem;
-    color: var(--eca-text-muted);
+    color: var(--eca-text-secondary);
     margin: 0;
   }
 
@@ -1518,6 +1518,47 @@
       font-size: 0.85rem;
     }
   }
+  /* Community buttons: --eca-bg-secondary with the original geometry,
+     slightly darker on hover. Only the heart and Slack icons keep color. */
+  body:not([data-md-color-scheme="slate"]) .eca-community__links .eca-btn {
+    padding: 0.65rem 1.4rem;
+    padding-inline-start: 1.15rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: #22221f;
+    background: var(--eca-bg-secondary);
+    border: 1.5px solid #dddbd4;
+    box-shadow: none;
+    transform: none;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-btn--github svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-btn--sponsor svg {
+    color: #bf3070;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-btn--slack svg {
+    color: #4a154b;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-community__links .eca-btn:hover {
+    color: #22221f;
+    background: var(--eca-bg-secondary);
+    border-color: #b5b3aa;
+    box-shadow: none;
+    transform: none;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-community__links .eca-btn svg {
+    opacity: 1;
+  }
+
 </style>
 {% endblock %}
 
@@ -2191,7 +2232,7 @@ git changes.</pre></div>
       <h2 class="eca-community__title">Join the Community</h2>
       <p class="eca-community__desc">
         ECA is built in the open. Star the repo to show your support,
-        sponsor the project to keep it going, or jump in and share your thoughts.
+        sponsor the project to keep it going, or jump in to our Slack channel and share your thoughts.
       </p>
       <div class="eca-community__links">
         <a href="https://github.com/editor-code-assistant/eca" class="eca-btn eca-btn--github" target="_blank">
@@ -2200,11 +2241,11 @@ git changes.</pre></div>
         </a>
         <a href="https://github.com/sponsors/ericdallo" class="eca-btn eca-btn--sponsor" target="_blank">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Sponsor
+          Sponsor ECA
         </a>
         <a href="https://clojurians.slack.com/archives/C093426FPUG" class="eca-btn eca-btn--slack" target="_blank">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.122 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.122a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
-          Slack
+          Discuss on Slack
         </a>
       </div>
       <!-- Contributors -->
