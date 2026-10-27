@@ -547,6 +547,67 @@
     line-height: 1.6;
   }
 
+  .eca-trusted {
+    min-height: 178px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.2rem 2rem 2.95rem;
+    background: var(--eca-bg-secondary);
+    border-top: 1px solid var(--eca-border);
+    border-bottom: 1px solid var(--eca-border);
+  }
+
+  .eca-trusted__title {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.0em;
+    color: var(--eca-text-secondary);
+  }
+
+  .eca-trusted__logos {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: bottom;
+    gap: 1.5rem 4.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .eca-trusted__logos li {
+    margin: 0;
+  }
+
+  .eca-trusted__logos img {
+    display: block;
+    height: 34px;
+    width: auto;
+    max-width: 180px;
+    object-fit: contain;
+    /* Flatten every logo to solid black. For white use brightness(0) invert(1). */
+    filter: brightness(0);
+    opacity: 0.95;
+    &[alt="Team Ohana"]{
+      opacity: 1;
+      height: 36px;
+      translate: 0 3px;
+    }
+    &[alt="Flexiana"] {
+      height: 30px;
+      translate: 0 3px;
+    }
+  }
+
+  [data-md-color-scheme="slate"] .eca-trusted__logos img {
+    filter: brightness(0) invert(1);
+  }
+
   /* ── 7. Why ECA ── */
   .eca-why {
     padding: 3.5rem 2rem;
