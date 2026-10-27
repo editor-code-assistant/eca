@@ -1113,8 +1113,7 @@
   /* ── 10. Community / Sponsor ── */
   .eca-community {
     padding: 3.5rem 2rem 4rem;
-    background: var(--eca-community-bg);
-    border-top: 1px solid var(--eca-border);
+    background: var(--eca-bg-primary);
     text-align: center;
   }
 
@@ -1154,7 +1153,7 @@
     color: var(--eca-text-secondary);
     line-height: 1.6;
     margin: 0 0 2rem;
-    max-width: 32rem;
+    max-width: 36rem;
     margin-left: auto;
     margin-right: auto;
   }
@@ -1234,7 +1233,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--eca-text-muted);
+    color: var(--eca-text-secondary);
     margin: 0 0 1rem;
   }
 
@@ -1243,8 +1242,10 @@
     overflow: hidden;
     max-width: 900px;
     margin: 0 auto;
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
-    mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+    /* Room above and below so the hover scale is not clipped */
+    padding: 1rem 0;
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.1) 4%, rgba(0,0,0,0.3) 9%, rgba(0,0,0,0.6) 15%, rgba(0,0,0,0.85) 21%, #000 28%, #000 72%, rgba(0,0,0,0.85) 79%, rgba(0,0,0,0.6) 85%, rgba(0,0,0,0.3) 91%, rgba(0,0,0,0.1) 96%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.1) 4%, rgba(0,0,0,0.3) 9%, rgba(0,0,0,0.6) 15%, rgba(0,0,0,0.85) 21%, #000 28%, #000 72%, rgba(0,0,0,0.85) 79%, rgba(0,0,0,0.6) 85%, rgba(0,0,0,0.3) 91%, rgba(0,0,0,0.1) 96%, transparent 100%);
   }
 
   .eca-marquee__track {
