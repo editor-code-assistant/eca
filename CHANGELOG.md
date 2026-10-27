@@ -7,6 +7,8 @@
 - Enable built-in web search for OpenAI GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna.
 - Fix no models discovered for providers whose models.dev API URL has placeholders, like Cloudflare Workers AI's account id. #662
 - Fix Anthropic API-key requests failing with "credit balance is too low": send the "You are Claude Code" system block only with OAuth logins. #666
+- Fix auto-approved tool calls waiting on an earlier call's manual approval; they now start right away while approvals are still asked one at a time.
+- Fix calls to the same MCP server running one at a time across all chats; only stdio writes are serialized now.
 
 ## 0.169.0
 
