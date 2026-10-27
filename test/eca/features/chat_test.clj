@@ -2867,6 +2867,21 @@
     (on-message-received {:type :text :text "x"})
     (on-message-received {:type :finish})))
 
+(deftest llm-call-re-reads-provider-key-from-current-config-test
+  (testing "LLM calls get the provider key the config resolves now, not the one in the turn's config"
+    ;; Compaction, auto-continue and subagents start LLM calls with the config
+    ;; resolved at turn start, where a `${cmd:...}` token may have expired.
+    (h/reset-components!)
+    (let [captured* (atom nil)]
+      (prompt! {:message "hi"}
+               {:all-tools-mock (constantly [])
+                :api-mock (capturing-api-mock captured*)})
+      (reset! config/initialization-config* {:pureConfig true
+                                             :providers {"openai" {:key "key-resolved-now"}}})
+      (config/clear-cache!)
+      (is (= "key-resolved-now"
+             (get-in ((:refresh-config-fn @captured*)) [:providers "openai" :key]))))))
+
 (deftest resume-preserves-stored-model-test
   (testing "Stored chat :model wins over default when no explicit model is sent (#417)"
     (h/reset-components!)

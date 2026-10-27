@@ -1200,3 +1200,59 @@
                                                       :delta {:stop_reason "end_turn"}
                                                       :usage {:output_tokens 5}})
                                 (sse "message_stop" {:type "message_stop"})]))))))
+
+(defn ^:private stalled-stream
+  "Serves `prefix`, then a ping every 50ms until closed: a generation that
+   stalled while the provider keeps the connection alive."
+  ^java.io.InputStream [^String prefix closed?*]
+  (let [ping (.getBytes "event: ping\ndata: {\"type\": \"ping\"}\n\n" java.nio.charset.StandardCharsets/UTF_8)
+        chunk* (atom (java.io.ByteArrayInputStream. (.getBytes prefix java.nio.charset.StandardCharsets/UTF_8)))
+        current-chunk (fn ^java.io.ByteArrayInputStream []
+                        (when @closed?* (throw (java.io.IOException. "closed")))
+                        (when (zero? (.available ^java.io.ByteArrayInputStream @chunk*))
+                          (Thread/sleep 50)
+                          (when @closed?* (throw (java.io.IOException. "closed")))
+                          (reset! chunk* (java.io.ByteArrayInputStream. ping)))
+                        @chunk*)]
+    (proxy [java.io.InputStream] []
+      (read
+        ([] (.read (current-chunk)))
+        ([buffer] (.read (current-chunk) ^bytes buffer 0 (alength ^bytes buffer)))
+        ([buffer offset length] (.read (current-chunk) ^bytes buffer (int offset) (int length))))
+      (close [] (reset! closed?* true)))))
+
+(deftest chat!-stream-ping-only-stall-test
+  (testing "pings don't keep a generation that stalled mid-thinking alive past the idle timeout"
+    (let [closed?* (atom false)
+          reasons* (atom [])
+          errors* (atom [])
+          prefix (sse [["message_start" {:type "message_start" :message {:usage {:input_tokens 10}}}]
+                       ["content_block_start" {:type "content_block_start" :index 0
+                                               :content_block {:type "thinking" :thinking ""}}]
+                       ["content_block_delta" {:type "content_block_delta" :index 0
+                                               :delta {:type "thinking_delta" :thinking "Let me think"}}]])]
+      (with-redefs [http/post (fn [_url _opts]
+                                {:status 200 :body (stalled-stream prefix closed?*)})]
+        (let [result (future
+                       (llm-providers.anthropic/chat!
+                        {:model "claude-test"
+                         :api-url "http://localhost:1"
+                         :api-key "fake-key"
+                         :auth-type :auth/key
+                         :instructions {:static "STATIC" :dynamic nil}
+                         :user-messages [{:role "user" :content "hello"}]
+                         :past-messages []
+                         :stream-idle-timeout-seconds 1
+                         :cancelled? (constantly false)}
+                        {:on-message-received identity
+                         :on-reason #(swap! reasons* conj %)
+                         :on-error #(swap! errors* conj %)})
+                       :returned)]
+          (try
+            (is (= :returned (deref result 10000 :still-streaming)))
+            (is (match? [{:idle-timeout? true}] @errors*))
+            (is (match? [{:status :started} {:status :thinking :text "Let me think"}] @reasons*))
+            (finally
+              ;; Unblocks the reader if the watchdog never fired.
+              (reset! closed?* true)
+              (deref result 10000 nil))))))))

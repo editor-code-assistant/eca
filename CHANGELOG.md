@@ -4,6 +4,13 @@
 
 - Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
 
+## 0.168.0
+
+- Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
+- Fix compaction, auto-continue and subagent LLM calls in long prompts sending a `${cmd:...}` provider key resolved at prompt start, failing with 401 once the token expires. #634
+- Stop re-syncing models, provider catalogs and quotas whenever a `${cmd:...}` provider key prints a new token; only setting or clearing a key re-syncs them.
+- Fix Anthropic chats hanging forever when the model stalls mid-response but the API keeps sending pings: pings no longer reset `streamIdleTimeoutSeconds`, so recovery kicks in.
+
 ## 0.167.0
 
 - Show output tokens per second (TPS) in the chat usage payload for streamed model responses.

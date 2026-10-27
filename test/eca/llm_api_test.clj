@@ -1023,6 +1023,53 @@
       (is (= ["fallback-token"] @seen-api-keys*)
           "when refresh-provider-auth-fn throws, prompt! keeps running with the statically captured provider-auth"))))
 
+(deftest refresh-config-fn-used-for-initial-and-retry-test
+  (testing "the provider key is re-read from refresh-config-fn on each prompt! call"
+    ;; `config` is resolved when the turn starts, and compactions, auto-continues
+    ;; and subagents start new calls with it, so a short-lived `${cmd:...}` key
+    ;; resolved there may already be expired.
+    (let [refresh-calls* (atom 0)
+          seen-provider-configs* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [config]}]
+                                          (swap! seen-provider-configs* conj (get-in config [:providers "anthropic"]))
+                                          (if (= 1 (count @seen-provider-configs*))
+                                            {:error {:status 429
+                                                     :body "Rate limit exceeded"
+                                                     :message "LLM response status: 429"}}
+                                            {:output-text "success"
+                                             :usage {:input-tokens 1 :output-tokens 1}}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :refresh-config-fn (fn []
+                                (let [n (swap! refresh-calls* inc)]
+                                  {:providers {"anthropic" {:key (str "fresh-key-" n)
+                                                            :url "http://changed-mid-turn"}}}))
+           :on-error identity
+           :on-message-received identity})))
+      (is (= ["fresh-key-1" "fresh-key-2"] (mapv :key @seen-provider-configs*))
+          "each prompt! invocation (including the retry) sends the key the config resolves now")
+      (is (= ["http://test" "http://test"] (mapv :url @seen-provider-configs*))
+          "only the key is refreshed, the rest of the turn's config is kept")))
+
+  (testing "keeps the captured key when the fresh one is missing or refresh-config-fn throws"
+    (doseq [refresh-config-fn [(constantly {:providers {"anthropic" {:key ""}}})
+                               (constantly nil)
+                               (fn [] (throw (ex-info "boom" {})))]]
+      (let [seen-api-keys* (atom [])]
+        (with-redefs [eca.llm-api/prompt! (fn [{:keys [config]}]
+                                            (swap! seen-api-keys* conj (get-in config [:providers "anthropic" :key]))
+                                            {:output-text "ok"
+                                             :usage {:input-tokens 1 :output-tokens 1}})]
+          (llm-api/sync-or-async-prompt!
+           (make-prompt-opts
+            {:stream false
+             :refresh-config-fn refresh-config-fn
+             :on-error identity
+             :on-message-received identity})))
+        (is (= ["test-key"] @seen-api-keys*))))))
+
 (deftest sync-retry-on-rate-limited-test
   (testing "retries on 429 and succeeds on subsequent attempt"
     (let [attempt* (atom 0)
