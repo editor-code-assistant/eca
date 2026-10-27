@@ -191,8 +191,8 @@
     },
     "streamIdleTimeoutSeconds": {
       "type": "integer",
-      "description": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
-      "markdownDescription": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled.",
+      "description": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled. Keepalive pings don't count as data.",
+      "markdownDescription": "Timeout in seconds to wait without receiving data before considering a LLM stream stalled. Keepalive pings don't count as data.",
       "default": 300
     },
     "connectTimeoutSeconds": {

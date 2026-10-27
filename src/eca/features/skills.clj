@@ -31,6 +31,12 @@
                             (io/file (config/user-home) ".config"))]
     (io/file xdg-config-home "eca" "skills")))
 
+(defn ^:private agents-global-skills-dir
+  "User-level skills dir from the cross-tool agentskills.io convention,
+   also read by other agents like Codex, Cursor, Copilot and pi."
+  []
+  (io/file (config/user-home) ".agents" "skills"))
+
 (defn ^:private skill-file? [file]
   (and (not (fs/directory? file))
        (= "SKILL.md" (fs/file-name file))))
@@ -48,8 +54,10 @@
                     :name (shared/prefixed-name plugin (:name skill))))))
 
 (defn ^:private global-skills []
-  (keep skill-file->skill
-        (skill-files (global-skills-dir))))
+  (->> [(global-skills-dir)
+        (agents-global-skills-dir)]
+       (mapcat skill-files)
+       (keep skill-file->skill)))
 
 (defn ^:private local-skills [roots]
   (->> roots
@@ -82,10 +90,28 @@
                       roots)))))
        (keep skill-file->skill)))
 
-(defn all [config roots]
-  (concat (config-skills config roots)
-          (when-not (:pureConfig config)
-            (global-skills))
-          (plugin-skills (:pluginSkillDirs config))
-          (local-skills roots)
-          (skills.builtin/all)))
+(defn ^:private distinct-by-name
+  "Keeps only the first skill of each name, preserving order."
+  [skills]
+  (:skills
+   (reduce (fn [{:keys [seen] :as acc} {:keys [name] :as skill}]
+             (if (contains? seen name)
+               acc
+               (-> acc
+                   (update :seen conj name)
+                   (update :skills conj skill))))
+           {:seen #{} :skills []}
+           skills)))
+
+(defn all
+  "Returns all available skills, one per name. When names clash, the first
+   source wins: configured paths, workspace (.eca/skills then .agents/skills),
+   global (~/.config/eca/skills then ~/.agents/skills), plugins, built-ins."
+  [config roots]
+  (distinct-by-name
+   (concat (config-skills config roots)
+           (local-skills roots)
+           (when-not (:pureConfig config)
+             (global-skills))
+           (plugin-skills (:pluginSkillDirs config))
+           (skills.builtin/all))))
