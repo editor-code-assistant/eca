@@ -116,15 +116,16 @@
           [{:role "user" :content "Count with me: 1"}
            {:role "assistant" :content "2"}]))))
   (testing "With tool_call history"
-    (is (match?
-         [{:role "user" :content "List the files you are allowed"}
-          {:role "assistant" :content "Ok!"}
-          {:role "assistant" :tool-calls [{:type "function"
-                                           :function {:name "eca__list_allowed_directories"
-                                                      :arguments {}}}]}
-          {:role "tool" :content "Allowed directories: /foo/bar\n"}
-          {:role "assistant" :content "I see /foo/bar"}]
-         (#'llm-providers.ollama/normalize-messages
+  (is (match?
+       [{:role "user" :content "List the files you are allowed"}
+        {:role "assistant"
+         :content "Ok!"
+         :tool_calls [{:type "function"
+                       :function {:name "eca__list_allowed_directories"
+                                  :arguments {}}}]}
+        {:role "tool" :content "Allowed directories: /foo/bar\n"}
+        {:role "assistant" :content "I see /foo/bar"}]
+       (#'llm-providers.ollama/normalize-messages
           [{:role "user" :content "List the files you are allowed"}
            {:role "assistant" :content "Ok!"}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
@@ -135,6 +136,39 @@
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
            {:role "assistant" :content "I see /foo/bar"}])))))
+  (testing "Reasoning, text and tool call of one response merge into one message"
+    (is (match?
+         [{:role "user" :content "Add a todo"}
+          {:role "assistant"
+           :content "I should read the file first.\n\nReading the file."
+           :tool_calls [{:type "function"
+                         :function {:name "eca__read_file" :arguments {"path" "/a"}}}]}]
+         (#'llm-providers.ollama/normalize-messages
+          [{:role "user" :content "Add a todo"}
+           {:role "reason" :content {:id "r1" :text "I should read the file first."}}
+           {:role "assistant" :content "Reading the file."}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__read_file"
+                                        :arguments {"path" "/a"}}}]))))
+  (testing "A tool result separates two responses"
+    (is (match?
+         [{:role "assistant" :content "First." :tool_calls [{:function {:name "eca__read_file"}}]}
+          {:role "tool" :content "file body\n"}
+          {:role "assistant" :content "Second.\n\nDone."}]
+         (#'llm-providers.ollama/normalize-messages
+          [{:role "reason" :content {:id "r1" :text "First."}}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__read_file" :arguments {}}}
+           {:role "tool_call_output" :content {:id "call-1" :full-name "eca__read_file" :arguments {}
+                                               :output {:contents [{:type :text :error false :text "file body"}]}}}
+           {:role "reason" :content {:id "r2" :text "Second."}}
+           {:role "assistant" :content "Done."}]))))
+  (testing "Consecutive tool calls merge into one message"
+    (is (match?
+         [{:role "assistant"
+           :tool_calls [{:function {:name "eca__read_file"}}
+                        {:function {:name "eca__grep"}}]}]
+         (#'llm-providers.ollama/normalize-messages
+          [{:role "tool_call" :content {:id "c1" :full-name "eca__read_file" :arguments {}}}
+           {:role "tool_call" :content {:id "c2" :full-name "eca__grep" :arguments {}}}]))))
 
 (deftest chat-stream-cancelled-test
   (testing "watchdog aborts a hung stream when cancelled, surfacing a silent error"
