@@ -1266,7 +1266,11 @@
     height: 56px;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    filter: grayscale(1) brightness(1.1) contrast(1.05);
+    border: 0.5px solid rgba(128, 128, 128, 0.5);
+    opacity: 0.8;
+    box-sizing: border-box;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
     box-shadow: var(--eca-avatar-shadow);
   }
 
@@ -1278,7 +1282,27 @@
 
   .eca-marquee__avatar-link:hover .eca-marquee__avatar {
     transform: scale(1.18);
+    filter: grayscale(0) brightness(1.1) contrast(1.05);
+    opacity: 1;
     box-shadow: var(--eca-avatar-hover-shadow);
+  }
+
+  /* Avatar tooltip: one shared popover, shown by the script at the end */
+  .eca-tip {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    border: 0;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    background: #22221f;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+    transform: translate(-50%, -100%);
   }
 
   .eca-community__clojure {
@@ -1544,7 +1568,7 @@
 
   {# ── Contributor avatar macro ── #}
   {% macro contributor_avatar(username, user_id, hidden=false) -%}
-    <a class="eca-marquee__avatar-link" href="https://github.com/{{ username }}" target="_blank" title="{{ username }}"{{ ' aria-hidden="true"' if hidden }}><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/{{ user_id }}?v=4&s=112" alt="{{ '' if hidden else username }}" loading="lazy"></a>
+    <a class="eca-marquee__avatar-link" href="https://github.com/{{ username }}" target="_blank" data-tip="{{ username }}"{{ ' aria-hidden="true"' if hidden else ' aria-label="' ~ username ~ '"' }}><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/{{ user_id }}?v=4&s=112" alt="{{ '' if hidden else username }}" loading="lazy"></a>
   {%- endmacro %}
 
   {# ── Contributors data ── #}
@@ -2205,6 +2229,28 @@ git changes.</pre></div>
       </p>
     </div>
   </section>
+
+  <div id="eca-tip" class="eca-tip" popover="manual"></div>
+  <script>
+    (function () {
+      var tip = document.getElementById("eca-tip");
+      if (!tip || !tip.showPopover) return;
+      function show(e) {
+        var el = e.currentTarget, r = el.getBoundingClientRect();
+        tip.textContent = el.dataset.tip;
+        tip.style.left = r.left + r.width / 2 + "px";
+        tip.style.top = r.top - 8 + "px";
+        tip.showPopover();
+      }
+      function hide() { if (tip.matches(":popover-open")) tip.hidePopover(); }
+      document.querySelectorAll(".eca-marquee__avatar-link").forEach(function (a) {
+        a.addEventListener("mouseenter", show);
+        a.addEventListener("focus", show);
+        a.addEventListener("mouseleave", hide);
+        a.addEventListener("blur", hide);
+      });
+    })();
+  </script>
 {% endblock %}
 
 {% block content %}{% endblock %}
