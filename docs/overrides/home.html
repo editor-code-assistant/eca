@@ -23,7 +23,7 @@
 <meta name="twitter:image" content="{{ og_image }}" />
 
 <!-- Additional SEO -->
-<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Desktop, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
+<meta name="keywords" content="AI pair programming, code assistant, open source, LLM, VS Code, Emacs, Neovim, IntelliJ, Desktop, CLI, terminal, Copilot alternative, OpenAI, Anthropic, Ollama, MCP, editor agnostic, AI coding" />
 <link rel="canonical" href="{{ page_url }}" />
 <meta name="google-site-verification" content="lpupnLMIN7V027EZqCPyBz9RafDE95tVbSxi5ocQIwA" />
 
@@ -433,7 +433,8 @@
   #eca-tab-vscode:checked ~ .eca-editors__tabs label[for="eca-tab-vscode"],
   #eca-tab-neovim:checked ~ .eca-editors__tabs label[for="eca-tab-neovim"],
   #eca-tab-intellij:checked ~ .eca-editors__tabs label[for="eca-tab-intellij"],
-  #eca-tab-desktop:checked ~ .eca-editors__tabs label[for="eca-tab-desktop"] {
+  #eca-tab-desktop:checked ~ .eca-editors__tabs label[for="eca-tab-desktop"],
+  #eca-tab-cli:checked ~ .eca-editors__tabs label[for="eca-tab-cli"] {
     background: var(--eca-tab-active-bg);
     color: var(--eca-tab-active-color);
     border-color: var(--eca-tab-active-border);
@@ -457,7 +458,8 @@
   #eca-tab-vscode:checked  ~ .eca-editors__panels .eca-editors__panel--vscode,
   #eca-tab-neovim:checked  ~ .eca-editors__panels .eca-editors__panel--neovim,
   #eca-tab-intellij:checked ~ .eca-editors__panels .eca-editors__panel--intellij,
-  #eca-tab-desktop:checked ~ .eca-editors__panels .eca-editors__panel--desktop {
+  #eca-tab-desktop:checked ~ .eca-editors__panels .eca-editors__panel--desktop,
+  #eca-tab-cli:checked     ~ .eca-editors__panels .eca-editors__panel--cli {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -465,7 +467,7 @@
   }
 
   .eca-editors__panel-frame {
-    border-radius: 0 12px 12px 12px;
+    border-radius: 0 0 12px 12px;
     overflow: hidden;
     border: 2px solid var(--eca-panel-frame-border);
     border-top: none;
@@ -1251,7 +1253,11 @@
   }
 
   /* ── 12. Responsive ── */
-  @media (max-width: 900px) {
+  /* Stack the hero below ~1279px: side by side, the text column plus the
+     whole editor tab bar (its tabs don't wrap) no longer fit, and the hero
+     would overflow, clipping the right-most tabs. In em, so it tracks the
+     rem-sized tabs when the browser's font size changes. */
+  @media (max-width: 79.9375em) {
     .eca-hero__inner {
       grid-template-columns: 1fr;
       gap: 2.5rem;
@@ -1272,14 +1278,26 @@
     }
 
     .eca-hero__showcase {
-      max-width: 100%;
+      width: 100%;
+      max-width: 46rem;
+      justify-self: center;
       overflow: hidden;
     }
 
-    .eca-editors__tabs {
-      justify-content: center;
+    /* Center the tabs while they fit. Auto margins instead of
+       `justify-content: center`: once the tabs overflow the margins drop
+       to 0 and the bar scrolls from the first tab, where centering would
+       push it past the left edge, out of scroll reach. */
+    .eca-editors__tab:first-child {
+      margin-left: auto;
     }
 
+    .eca-editors__tab:last-child {
+      margin-right: auto;
+    }
+  }
+
+  @media (max-width: 900px) {
     .eca-why__split {
       grid-template-columns: 1fr;
       gap: 2rem;
@@ -1300,6 +1318,20 @@
 
     .eca-features__grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  /* Compact editor tabs once the stacked tab bar can't fit them at full
+     size (~864px), so all of them stay visible down to ~700px. */
+  @media (max-width: 54em) {
+    .eca-editors__tab {
+      padding: 0.4rem 0.65rem;
+      font-size: 0.72rem;
+    }
+
+    .eca-editors__tab svg {
+      width: 14px;
+      height: 14px;
     }
   }
 
@@ -1346,22 +1378,8 @@
       font-size: 0.9rem;
     }
 
-    .eca-editors__tabs {
-      justify-content: flex-start;
-    }
-
-    .eca-editors__tab {
-      padding: 0.4rem 0.65rem;
-      font-size: 0.72rem;
-    }
-
-    .eca-editors__tab svg {
-      width: 14px;
-      height: 14px;
-    }
-
     .eca-editors__panel-frame {
-      border-radius: 0 8px 8px 8px;
+      border-radius: 0 0 8px 8px;
     }
 
     .eca-features__hero {
@@ -1524,6 +1542,7 @@
         <input type="radio" name="eca-editor" id="eca-tab-neovim">
         <input type="radio" name="eca-editor" id="eca-tab-intellij">
         <input type="radio" name="eca-editor" id="eca-tab-desktop">
+        <input type="radio" name="eca-editor" id="eca-tab-cli">
 
         <div class="eca-editors__tabs">
           <label for="eca-tab-emacs" class="eca-editors__tab">
@@ -1546,6 +1565,10 @@
             <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7l-2 3v1h8v-1l-2-3h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 12H3V4h18v10z"/></svg>
             Desktop
           </label>
+          <label for="eca-tab-cli" class="eca-editors__tab">
+            <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8h16v10zM6.5 10.5l1.06-1.06L10.5 12l-2.94 2.56L6.5 13.5 8.38 12 6.5 10.5zM12 14h5.5v1.5H12V14z"/></svg>
+            CLI
+          </label>
         </div>
 
         <div class="eca-editors__panels">
@@ -1564,6 +1587,9 @@
           {{ editor_panel("desktop", "ECA &mdash; Desktop",
              "https://raw.githubusercontent.com/editor-code-assistant/eca-desktop/master/demo.gif",
              "ECA running as a Desktop app", "Install Desktop version") }}
+          {{ editor_panel("cli", "ECA &mdash; CLI",
+             "https://raw.githubusercontent.com/editor-code-assistant/eca-cli/main/demo.gif",
+             "ECA running in the terminal", "Install CLI version") }}
         </div>
       </div>
 
