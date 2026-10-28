@@ -6,7 +6,7 @@ description: "Get started with ECA: installation, initial setup, and configurati
 
 ## Installation
 
-Installation has moved to its own page. See **[Install ECA](../install.md)** for a guided walkthrough covering editor plugins (Emacs, VS Code, Neovim, IntelliJ), the Desktop app, and manual install methods (script, Homebrew, mise, GitHub Releases).
+Installation has moved to its own page. See **[Install ECA](../install.md)** for a guided walkthrough covering editor plugins (Emacs, VS Code, Neovim, IntelliJ), the Desktop app, the terminal CLI, and manual install methods (script, Homebrew, mise, GitHub Releases).
 
 ## Ways to configure
 

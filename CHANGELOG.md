@@ -4,6 +4,9 @@
 
 - Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
 
+- Add `eca-cli` as an official client in docs and landing page.
+- Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+
 ## 0.168.0
 
 - Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
