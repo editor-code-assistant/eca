@@ -612,6 +612,67 @@
     line-height: 1.6;
   }
 
+  .eca-trusted {
+    min-height: 178px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1.25rem;
+    padding: 1.2rem 2rem 2.95rem;
+    background: var(--eca-bg-secondary);
+    border-top: 1px solid var(--eca-border);
+    border-bottom: 1px solid var(--eca-border);
+  }
+
+  .eca-trusted__title {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.0em;
+    color: var(--eca-text-secondary);
+  }
+
+  .eca-trusted__logos {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: bottom;
+    gap: 1.5rem 4.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .eca-trusted__logos li {
+    margin: 0;
+  }
+
+  .eca-trusted__logos img {
+    display: block;
+    height: 34px;
+    width: auto;
+    max-width: 180px;
+    object-fit: contain;
+    /* Flatten every logo to solid black. For white use brightness(0) invert(1). */
+    filter: brightness(0);
+    opacity: 0.95;
+    &[alt="Team Ohana"]{
+      opacity: 1;
+      height: 36px;
+      translate: 0 3px;
+    }
+    &[alt="Flexiana"] {
+      height: 30px;
+      translate: 0 3px;
+    }
+  }
+
+  [data-md-color-scheme="slate"] .eca-trusted__logos img {
+    filter: brightness(0) invert(1);
+  }
+
   /* ── 7. Why ECA ── */
   .eca-why {
     padding: 3.5rem 2rem;
@@ -1117,8 +1178,7 @@
   /* ── 10. Community / Sponsor ── */
   .eca-community {
     padding: 3.5rem 2rem 4rem;
-    background: var(--eca-community-bg);
-    border-top: 1px solid var(--eca-border);
+    background: var(--eca-bg-primary);
     text-align: center;
   }
 
@@ -1158,7 +1218,7 @@
     color: var(--eca-text-secondary);
     line-height: 1.6;
     margin: 0 0 2rem;
-    max-width: 32rem;
+    max-width: 36rem;
     margin-left: auto;
     margin-right: auto;
   }
@@ -1238,7 +1298,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--eca-text-muted);
+    color: var(--eca-text-secondary);
     margin: 0 0 1rem;
   }
 
@@ -1247,8 +1307,10 @@
     overflow: hidden;
     max-width: 900px;
     margin: 0 auto;
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
-    mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+    /* Room above and below so the hover scale is not clipped */
+    padding: 1rem 0;
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.1) 4%, rgba(0,0,0,0.3) 9%, rgba(0,0,0,0.6) 15%, rgba(0,0,0,0.85) 21%, #000 28%, #000 72%, rgba(0,0,0,0.85) 79%, rgba(0,0,0,0.6) 85%, rgba(0,0,0,0.3) 91%, rgba(0,0,0,0.1) 96%, transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.1) 4%, rgba(0,0,0,0.3) 9%, rgba(0,0,0,0.6) 15%, rgba(0,0,0,0.85) 21%, #000 28%, #000 72%, rgba(0,0,0,0.85) 79%, rgba(0,0,0,0.6) 85%, rgba(0,0,0,0.3) 91%, rgba(0,0,0,0.1) 96%, transparent 100%);
   }
 
   .eca-marquee__track {
@@ -1269,7 +1331,11 @@
     height: 56px;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    filter: grayscale(1) brightness(1.1) contrast(1.05);
+    border: 0.5px solid rgba(128, 128, 128, 0.5);
+    opacity: 0.8;
+    box-sizing: border-box;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
     box-shadow: var(--eca-avatar-shadow);
   }
 
@@ -1281,12 +1347,32 @@
 
   .eca-marquee__avatar-link:hover .eca-marquee__avatar {
     transform: scale(1.18);
+    filter: grayscale(0) brightness(1.1) contrast(1.05);
+    opacity: 1;
     box-shadow: var(--eca-avatar-hover-shadow);
+  }
+
+  /* Avatar tooltip: one shared popover, shown by the script at the end */
+  .eca-tip {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    border: 0;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
+    background: #22221f;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    pointer-events: none;
+    transform: translate(-50%, -100%);
   }
 
   .eca-community__clojure {
     font-size: 0.78rem;
-    color: var(--eca-text-muted);
+    color: var(--eca-text-secondary);
     margin: 0;
   }
 
@@ -1497,6 +1583,47 @@
       font-size: 0.85rem;
     }
   }
+  /* Community buttons: --eca-bg-secondary with the original geometry,
+     slightly darker on hover. Only the heart and Slack icons keep color. */
+  body:not([data-md-color-scheme="slate"]) .eca-community__links .eca-btn {
+    padding: 0.65rem 1.4rem;
+    padding-inline-start: 1.15rem;
+    border-radius: 10px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: #22221f;
+    background: var(--eca-bg-secondary);
+    border: 1.5px solid #dddbd4;
+    box-shadow: none;
+    transform: none;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-btn--github svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-btn--sponsor svg {
+    color: #bf3070;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-btn--slack svg {
+    color: #4a154b;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-community__links .eca-btn:hover {
+    color: #22221f;
+    background: var(--eca-bg-secondary);
+    border-color: #b5b3aa;
+    box-shadow: none;
+    transform: none;
+  }
+
+  body:not([data-md-color-scheme="slate"]) .eca-community__links .eca-btn svg {
+    opacity: 1;
+  }
+
 </style>
 
   </head>
@@ -2935,6 +3062,17 @@ git changes.</pre></div>
     </div>
   </section>
 
+  <!-- ── Trusted by ── -->
+  <section class="eca-trusted" aria-label="Trusted by">
+    <h2 class="eca-trusted__title">Trusted by the best</h2>
+    <ul class="eca-trusted__logos">
+      <li><img src="images/org-logos/nu/02_nulogo_black.png" alt="Nubank" loading="lazy"></li>
+      <li><img src="images/org-logos/flexiana/flexiana-logo.avif" alt="Flexiana" loading="lazy"></li>
+      <li><img src="images/org-logos/biolit/Biolit_pos.png" alt="Biolit" loading="lazy"></li>
+      <li><img src="images/org-logos/team-ohana/team-ohana.svg" alt="Team Ohana" loading="lazy"></li>
+    </ul>
+  </section>
+
   <!-- ── Community ── -->
   <section class="eca-community">
     <div class="eca-community__inner">
@@ -2945,7 +3083,7 @@ git changes.</pre></div>
       <h2 class="eca-community__title">Join the Community</h2>
       <p class="eca-community__desc">
         ECA is built in the open. Star the repo to show your support,
-        sponsor the project to keep it going, or jump in and share your thoughts.
+        sponsor the project to keep it going, or jump in to our Slack channel and share your thoughts.
       </p>
       <div class="eca-community__links">
         <a href="https://github.com/editor-code-assistant/eca" class="eca-btn eca-btn--github" target="_blank">
@@ -2954,11 +3092,11 @@ git changes.</pre></div>
         </a>
         <a href="https://github.com/sponsors/ericdallo" class="eca-btn eca-btn--sponsor" target="_blank">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Sponsor
+          Sponsor ECA
         </a>
         <a href="https://clojurians.slack.com/archives/C093426FPUG" class="eca-btn eca-btn--slack" target="_blank">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.122 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.122a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
-          Slack
+          Discuss on Slack
         </a>
       </div>
       <!-- Contributors -->
@@ -2967,83 +3105,83 @@ git changes.</pre></div>
         <div class="eca-marquee">
           <div class="eca-marquee__track">
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ericdallo" target="_blank" title="ericdallo"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/7820865?v=4&s=112" alt="ericdallo" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ericdallo" target="_blank" data-tip="ericdallo" aria-label="ericdallo"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/7820865?v=4&s=112" alt="ericdallo" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/zikajk" target="_blank" title="zikajk"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/40757859?v=4&s=112" alt="zikajk" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/zikajk" target="_blank" data-tip="zikajk" aria-label="zikajk"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/40757859?v=4&s=112" alt="zikajk" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/bombaywalla" target="_blank" title="bombaywalla"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/4961347?v=4&s=112" alt="bombaywalla" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/bombaywalla" target="_blank" data-tip="bombaywalla" aria-label="bombaywalla"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/4961347?v=4&s=112" alt="bombaywalla" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ArthurHeymans" target="_blank" title="ArthurHeymans"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/15137817?v=4&s=112" alt="ArthurHeymans" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ArthurHeymans" target="_blank" data-tip="ArthurHeymans" aria-label="ArthurHeymans"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/15137817?v=4&s=112" alt="ArthurHeymans" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ChetanAtGNU" target="_blank" title="ChetanAtGNU"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/121243349?v=4&s=112" alt="ChetanAtGNU" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ChetanAtGNU" target="_blank" data-tip="ChetanAtGNU" aria-label="ChetanAtGNU"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/121243349?v=4&s=112" alt="ChetanAtGNU" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/marlonjsilva" target="_blank" title="marlonjsilva"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/20212288?v=4&s=112" alt="marlonjsilva" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/marlonjsilva" target="_blank" data-tip="marlonjsilva" aria-label="marlonjsilva"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/20212288?v=4&s=112" alt="marlonjsilva" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ikappaki" target="_blank" title="ikappaki"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/34983288?v=4&s=112" alt="ikappaki" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ikappaki" target="_blank" data-tip="ikappaki" aria-label="ikappaki"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/34983288?v=4&s=112" alt="ikappaki" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/sunng87" target="_blank" title="sunng87"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/221942?v=4&s=112" alt="sunng87" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/sunng87" target="_blank" data-tip="sunng87" aria-label="sunng87"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/221942?v=4&s=112" alt="sunng87" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/CsBigDataHub" target="_blank" title="CsBigDataHub"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/23665525?v=4&s=112" alt="CsBigDataHub" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/CsBigDataHub" target="_blank" data-tip="CsBigDataHub" aria-label="CsBigDataHub"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/23665525?v=4&s=112" alt="CsBigDataHub" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/r0man" target="_blank" title="r0man"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/21566?v=4&s=112" alt="r0man" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/r0man" target="_blank" data-tip="r0man" aria-label="r0man"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/21566?v=4&s=112" alt="r0man" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/lukaszkorecki" target="_blank" title="lukaszkorecki"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/104818?v=4&s=112" alt="lukaszkorecki" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/lukaszkorecki" target="_blank" data-tip="lukaszkorecki" aria-label="lukaszkorecki"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/104818?v=4&s=112" alt="lukaszkorecki" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/sg-qwt" target="_blank" title="sg-qwt"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/115715554?v=4&s=112" alt="sg-qwt" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/sg-qwt" target="_blank" data-tip="sg-qwt" aria-label="sg-qwt"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/115715554?v=4&s=112" alt="sg-qwt" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/joaopluigi" target="_blank" title="joaopluigi"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3515913?v=4&s=112" alt="joaopluigi" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/joaopluigi" target="_blank" data-tip="joaopluigi" aria-label="joaopluigi"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3515913?v=4&s=112" alt="joaopluigi" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/afucher" target="_blank" title="afucher"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3756185?v=4&s=112" alt="afucher" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/afucher" target="_blank" data-tip="afucher" aria-label="afucher"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3756185?v=4&s=112" alt="afucher" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/Ramblurr" target="_blank" title="Ramblurr"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/14830?v=4&s=112" alt="Ramblurr" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/Ramblurr" target="_blank" data-tip="Ramblurr" aria-label="Ramblurr"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/14830?v=4&s=112" alt="Ramblurr" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/deejayem" target="_blank" title="deejayem"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/2564003?v=4&s=112" alt="deejayem" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/deejayem" target="_blank" data-tip="deejayem" aria-label="deejayem"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/2564003?v=4&s=112" alt="deejayem" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/liolin" target="_blank" title="liolin"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/19079017?v=4&s=112" alt="liolin" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/liolin" target="_blank" data-tip="liolin" aria-label="liolin"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/19079017?v=4&s=112" alt="liolin" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/tomgeorge" target="_blank" title="tomgeorge"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/1291508?v=4&s=112" alt="tomgeorge" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/tomgeorge" target="_blank" data-tip="tomgeorge" aria-label="tomgeorge"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/1291508?v=4&s=112" alt="tomgeorge" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/jilen" target="_blank" title="jilen"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/546573?v=4&s=112" alt="jilen" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/jilen" target="_blank" data-tip="jilen" aria-label="jilen"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/546573?v=4&s=112" alt="jilen" loading="lazy"></a>
             
             
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ericdallo" target="_blank" title="ericdallo" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/7820865?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ericdallo" target="_blank" data-tip="ericdallo" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/7820865?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/zikajk" target="_blank" title="zikajk" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/40757859?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/zikajk" target="_blank" data-tip="zikajk" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/40757859?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/bombaywalla" target="_blank" title="bombaywalla" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/4961347?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/bombaywalla" target="_blank" data-tip="bombaywalla" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/4961347?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ArthurHeymans" target="_blank" title="ArthurHeymans" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/15137817?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ArthurHeymans" target="_blank" data-tip="ArthurHeymans" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/15137817?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ChetanAtGNU" target="_blank" title="ChetanAtGNU" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/121243349?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ChetanAtGNU" target="_blank" data-tip="ChetanAtGNU" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/121243349?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/marlonjsilva" target="_blank" title="marlonjsilva" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/20212288?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/marlonjsilva" target="_blank" data-tip="marlonjsilva" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/20212288?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/ikappaki" target="_blank" title="ikappaki" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/34983288?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/ikappaki" target="_blank" data-tip="ikappaki" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/34983288?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/sunng87" target="_blank" title="sunng87" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/221942?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/sunng87" target="_blank" data-tip="sunng87" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/221942?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/CsBigDataHub" target="_blank" title="CsBigDataHub" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/23665525?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/CsBigDataHub" target="_blank" data-tip="CsBigDataHub" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/23665525?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/r0man" target="_blank" title="r0man" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/21566?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/r0man" target="_blank" data-tip="r0man" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/21566?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/lukaszkorecki" target="_blank" title="lukaszkorecki" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/104818?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/lukaszkorecki" target="_blank" data-tip="lukaszkorecki" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/104818?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/sg-qwt" target="_blank" title="sg-qwt" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/115715554?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/sg-qwt" target="_blank" data-tip="sg-qwt" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/115715554?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/joaopluigi" target="_blank" title="joaopluigi" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3515913?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/joaopluigi" target="_blank" data-tip="joaopluigi" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3515913?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/afucher" target="_blank" title="afucher" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3756185?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/afucher" target="_blank" data-tip="afucher" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/3756185?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/Ramblurr" target="_blank" title="Ramblurr" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/14830?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/Ramblurr" target="_blank" data-tip="Ramblurr" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/14830?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/deejayem" target="_blank" title="deejayem" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/2564003?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/deejayem" target="_blank" data-tip="deejayem" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/2564003?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/liolin" target="_blank" title="liolin" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/19079017?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/liolin" target="_blank" data-tip="liolin" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/19079017?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/tomgeorge" target="_blank" title="tomgeorge" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/1291508?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/tomgeorge" target="_blank" data-tip="tomgeorge" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/1291508?v=4&s=112" alt="" loading="lazy"></a>
             
-            <a class="eca-marquee__avatar-link" href="https://github.com/jilen" target="_blank" title="jilen" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/546573?v=4&s=112" alt="" loading="lazy"></a>
+            <a class="eca-marquee__avatar-link" href="https://github.com/jilen" target="_blank" data-tip="jilen" aria-hidden="true"><img class="eca-marquee__avatar" src="https://avatars.githubusercontent.com/u/546573?v=4&s=112" alt="" loading="lazy"></a>
             
           </div>
         </div>
@@ -3055,6 +3193,28 @@ git changes.</pre></div>
       </p>
     </div>
   </section>
+
+  <div id="eca-tip" class="eca-tip" popover="manual"></div>
+  <script>
+    (function () {
+      var tip = document.getElementById("eca-tip");
+      if (!tip || !tip.showPopover) return;
+      function show(e) {
+        var el = e.currentTarget, r = el.getBoundingClientRect();
+        tip.textContent = el.dataset.tip;
+        tip.style.left = r.left + r.width / 2 + "px";
+        tip.style.top = r.top - 8 + "px";
+        tip.showPopover();
+      }
+      function hide() { if (tip.matches(":popover-open")) tip.hidePopover(); }
+      document.querySelectorAll(".eca-marquee__avatar-link").forEach(function (a) {
+        a.addEventListener("mouseenter", show);
+        a.addEventListener("focus", show);
+        a.addEventListener("mouseleave", hide);
+        a.addEventListener("blur", hide);
+      });
+    })();
+  </script>
 
       <main class="md-main" data-md-component="main">
         <div class="md-main__inner md-grid">
