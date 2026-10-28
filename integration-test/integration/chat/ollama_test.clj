@@ -182,8 +182,7 @@
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
                          {:role "user" :content "hello!"}
-                         {:role "assistant" :content "I should say hello"}
-                         {:role "assistant" :content "hello there!"}
+                         {:role "assistant" :content "I should say hello\n\nhello there!"}
                          {:role "user" :content "how are you?"}]}
              (llm.mocks/get-req-body :reasoning-1)))))))
 
@@ -259,13 +258,14 @@
         (is (match?
              {:model "qwen3"
               :messages [{:role "user" :content "What files you see?"}
-                         {:role "assistant" :content "I will list files"}
-                         {:role "assistant" :tool-calls [{:type "function"
-                                                          :function {:id (m/pred string?)
-                                                                     :name "eca__directory_tree"
-                                                                     :arguments {:path (h/project-path->canon-path "resources")}
-                                                                     :summary "Listing tree: resources"
-                                                                     :origin "native"}}]}
+                         {:role "assistant"
+                          :content "I will list files"
+                          :tool_calls [{:type "function"
+                                        :function {:id (m/pred string?)
+                                                   :name "eca__directory_tree"
+                                                   :arguments {:path (h/project-path->canon-path "resources")}
+                                                   :summary "Listing tree: resources"
+                                                   :origin "native"}}]}
                          {:role "tool" :content (str (h/project-path->canon-path "resources") "\n"
                                                      " file1.md\n"
                                                      " file2.md\n\n"
