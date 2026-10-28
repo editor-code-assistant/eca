@@ -3518,6 +3518,20 @@ all behave like any other chat.</p>
 <span class="cm">     * May be omitted when state is &#39;finished&#39;.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">text?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * Only when state is &#39;finished&#39;: present when the turn ended because</span>
+<span class="cm">     * of an error (a provider or network error, a context overflow…),</span>
+<span class="cm">     * which was also shown in the chat as text. Absent when it succeeded.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">error</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">        </span><span class="cm">/**</span>
+<span class="cm">         * The kind of error, e.g. &#39;network&#39;, &#39;overloaded&#39;, &#39;rate-limited&#39;,</span>
+<span class="cm">         * &#39;quota-exhausted&#39;, &#39;auth&#39;, &#39;context-overflow&#39;, &#39;unknown&#39;.</span>
+<span class="cm">         */</span>
+<span class="w">        </span><span class="kr">type</span><span class="nx">?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="p">};</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -6448,7 +6462,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 28, 2026 13:41:30 UTC">October 28, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 28, 2026 15:22:21 UTC">October 28, 2026</span>
   </span>
 
     
