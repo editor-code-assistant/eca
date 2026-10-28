@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- Add `eca-cli` as an official client in docs and landing page.
-- Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+- Official support for `eca-cli` as an official client.
+- Docs: Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+- Docs: Add logo wall and improvements in home page. #676
 
 ### Docs site
 - Add: Logo cloud above the community section, headed "Trusted by the best", with the Nubank, Flexiana, Biolit and Team Ohana logos
