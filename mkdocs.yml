@@ -10,36 +10,38 @@ exclude_docs: |
   evolution/
 
 nav:
-  - Home:
-    - index.md
-  - Features:
+  - Home: index.md
+  - Documentation:
+    - Install: install.md
     - Features: features.md
     - Workflows: workflows.md
-    - Read Chat CLI: read-chat.md
-  - Install:
-    - install.md
-  - Configuration:
-    - Introduction: config/introduction.md
-    - Providers / Models: config/models.md
-    - Tools / Approval: config/tools.md
-    - Variants: config/variants.md
-    - Skills: config/skills.md
-    - Rules: config/rules.md
-    - Commands: config/commands.md
-    - Agents / Subagents: config/agents.md
-    - Hooks: config/hooks.md
-    - Completion: config/completion.md
-    - Rewrite: config/rewrite.md
-    - Inline chat: config/chat-inline.md
-    - Context Management: config/context-management.md
-    - Plugins / Marketplace: config/plugins.md
-    - Metrics: config/metrics.md
-    - Remote: config/remote.md
-    - Network / Enterprise: config/network.md
-    - Sandboxing: config/sandboxing.md
-    - User Examples: config/examples.md
-  - Protocol: protocol.md
-  - Troubleshooting: troubleshooting.md
+    - Configuration:
+      - Introduction: config/introduction.md
+      - Providers / Models: config/models.md
+      - Tools / Approval: config/tools.md
+      - Variants: config/variants.md
+      - Skills: config/skills.md
+      - Rules: config/rules.md
+      - Commands: config/commands.md
+      - Agents / Subagents: config/agents.md
+      - Hooks: config/hooks.md
+      - Completion: config/completion.md
+      - Rewrite: config/rewrite.md
+      - Inline chat: config/chat-inline.md
+      - Context Management: config/context-management.md
+      - Plugins / Marketplace: config/plugins.md
+      - Metrics: config/metrics.md
+      - Remote: config/remote.md
+      - Network / Enterprise: config/network.md
+      - Sandboxing: config/sandboxing.md
+      - User Examples: config/examples.md
+    - ECA Protocol: protocol.md
+    - read-chat CLI: read-chat.md
+    - Troubleshooting: troubleshooting.md
+  - Install: /install/
+  - Configuration: /config/introduction/
+  - Protocol: /protocol/
+  - Troubleshooting: /troubleshooting/
   - Plugins: https://plugins.eca.dev
   - Support Us: https://github.com/sponsors/editor-code-assistant
 
@@ -54,14 +56,20 @@ theme:
     repo: fontawesome/brands/github
   features:
     - navigation.tabs
-    - navigation.expand
-    - navigation.sections
+    - toc.follow
     - content.code.copy
     - content.code.select
 
 copyright: Copyright &copy; 2026 ECA Contributors. Free & Open Source.
 
 extra:
+  # Right-hand table of contents shows only the current section's
+  # subsections, with arrows to open or close the others.
+  # See docs/js/toc-collapse.js
+  toc_collapse: false
+  # Left sidebar: clicking a collapsed group opens its first page
+  # instead of only expanding it. See docs/js/nav-open-first.js
+  nav_open_first: false
   analytics:
     provider: google
     property: G-VFJYDKR1MR
@@ -74,9 +82,16 @@ extra:
       link: https://github.com/sponsors/editor-code-assistant
 
 extra_css:
-  # Material loads Inter at 300/400/700 only. Headings use 600.
-  - https://fonts.googleapis.com/css2?family=Inter:wght@600&display=fallback
+  # Material loads Inter as separate 300/400/700 files. The site also
+  # uses 500 (sidebar items) and 600 (headings). Inter's variable file
+  # covers 300 to 700 in one face. It is declared after Material's, so
+  # every weight renders from it and none is swapped for a nearby weight
+  # while files load
+  - https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=fallback
   - stylesheets/layout.css
+
+extra_javascript:
+  - js/toc-hash.js
 
 markdown_extensions:
   - pymdownx.superfences:
@@ -88,6 +103,8 @@ markdown_extensions:
   - meta
   - toc:
       permalink: '#'
+      # Material uses this as the right sidebar heading
+      title: On This Page
   - admonition
   - attr_list
   - pymdownx.details
