@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The `finished` progress of a turn that failed (provider or network error, context overflow…) carries an `error` with its message and type, so clients can tell it from a successful turn (e.g. a headless run's exit code).
+- A chat renamed with `chat/update` while its title is being generated keeps the new title.
 - Official support for `eca-cli` as an official client.
 - Docs: Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
 - Docs: Add logo wall and improvements in home page. #676
