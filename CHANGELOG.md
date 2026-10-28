@@ -6,19 +6,6 @@
 - Docs: Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
 - Docs: Add logo wall and improvements in home page. #676
 
-### Docs site
-- Add: Logo cloud above the community section, headed "Trusted by the best", with the Nubank, Flexiana, Biolit and Team Ohana logos
-- Change: Buttons use the secondary background with a `1.5px` border and `10px` radius, darkening the border on hover
-- Change: Only the heart and Slack icons keep color
-- Change: Labels are "Sponsor ECA" and "Discuss on Slack" instead of "Sponsor" and "Slack"
-- Change: Description points to the Slack channel and is wider, `36rem`
-- Fix: Avatars getting clipped by parent container on hover.
-- Change: Avatars are grayscale with a thin gray border at `0.8` opacity, and regain color on hover
-- Change: Native `title` tooltip replaced by one shared popover tooltip
-- Change: Marquee fades out over a longer, smoother gradient and has room above and below so the hover scale is not clipped
-- Change: Label and footer text use the secondary text color
-
-
 ## 0.168.0
 
 - Discover global skills from `~/.agents/skills` and keep one skill per name, with workspace skills overriding global ones.
