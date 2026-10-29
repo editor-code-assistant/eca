@@ -720,6 +720,51 @@
               nil))))
       (is (= {"path" "/tmp/foo"} @called-args*)))))
 
+(deftest throttle-test
+  (let [throttle #'f.tools/throttle]
+    (testing "calls through immediately, then delivers only the latest value per interval"
+      (let [calls* (atom [])
+            {:keys [call! stop!]} (throttle #(swap! calls* conj %) 200)]
+        (call! 1)
+        (call! 2)
+        (call! 3)
+        (is (= [1] @calls*))
+        (Thread/sleep 400)
+        (is (= [1 3] @calls*))
+        (stop!)))
+
+    (testing "stop! drops a pending value and blocks further calls"
+      (let [calls* (atom [])
+            {:keys [call! stop!]} (throttle #(swap! calls* conj %) 100)]
+        (call! 1)
+        (call! 2)
+        (stop!)
+        (call! 3)
+        (Thread/sleep 250)
+        (is (= [1] @calls*))))))
+
+(deftest call-tool!-mcp-progress-test
+  (testing "MCP progress reaches on-progress, and nothing is reported after the call returns"
+    (let [reported* (atom [])
+          on-progress* (atom nil)]
+      (with-redefs [f.mcp/all-tools  (fn [_]
+                                       [{:name "slow" :server {:name "srv"}
+                                         :parameters {"type" "object" :properties {}}}])
+                    f.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
+                                       (reset! on-progress* on-progress)
+                                       (on-progress {:progress 1 :total 2})
+                                       (on-progress {:progress 2 :total 2})
+                                       {:error false :contents [{:type :text :text "done"}]})]
+        (is (match? {:error false}
+                    (f.tools/call-tool! "srv__slow" {} "chat-1" "call-1" "code"
+                                        (h/db*) (h/config) (h/messenger) (h/metrics)
+                                        identity identity
+                                        {:on-progress #(swap! reported* conj %)})))
+        (@on-progress* {:progress 3 :total 2})
+        (Thread/sleep 1200)
+        (is (= [{:progress 1 :total 2}] @reported*)
+            "the throttled trailing report is dropped once the call returned")))))
+
 (deftest call-tool!-mcp-missing-required-test
   (testing "INVALID_ARGS for missing required param on MCP tool"
     (is (match?
