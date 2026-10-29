@@ -336,7 +336,31 @@
       (is (match? {:message "OpenAI response status: 503 body: auth_unavailable"
                    :error-type :overloaded
                    :status 503}
-                  (get-in (h/db) [:chats chat-id :prompt-error]))))))
+                  (get-in (h/db) [:chats chat-id :prompt-error])))
+      (is (match? {:chat-id chat-id
+                   :role :system
+                   :content {:type :progress
+                             :state :finished
+                             :error {:message "OpenAI response status: 503 body: auth_unavailable"
+                                     :type "overloaded"}}}
+                  (last (:chat-content-received (h/messages))))
+          "the finished progress says the turn failed, and why"))))
+
+(deftest finished-progress-without-error-test
+  (testing "a turn that succeeds finishes without an error"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Hello"}
+           {:all-tools-mock (constantly [])
+            :api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                        (on-first-response-received {:type :text :text "Hi"})
+                        (on-message-received {:type :text :text "Hi"})
+                        (on-message-received {:type :finish}))})
+          finished (last (filter #(= :progress (get-in % [:content :type]))
+                                 (:chat-content-received (h/messages))))]
+      (is (= chat-id (:chat-id finished)))
+      (is (= {:type :progress :state :finished} (:content finished))))))
 
 (deftest provider-max-auto-continues-test
   (is (= 3 (#'f.chat/provider-max-auto-continues {} "openai")))
@@ -1053,6 +1077,22 @@
       (is (= 1 (count @sync-prompt-calls*))
           "Should NOT re-title after manual rename")
       (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))))
+
+  (testing "a title set while the title request runs is kept"
+    (h/reset-components!)
+    (let [chat-id* (atom nil)
+          sync-mock (fn [_]
+                      ;; The client renames the chat before the title arrives.
+                      (f.chat/update-chat {:chat-id @chat-id* :title "Set By Client"}
+                                          (h/db*) (h/messenger) (h/metrics))
+                      {:output-text "Auto Title"})
+          _ (reset! chat-id* "rename-race-chat")
+          {:keys [chat-id]} (prompt-with-title! {:message "Help me debug" :chat-id "rename-race-chat"}
+                                                {:sync-prompt-mock sync-mock})]
+      (is (= "Set By Client" (get-in (h/db) [:chats chat-id :title])))
+      (is (not-any? #(= "Auto Title" (get-in % [:content :title]))
+                    (:chat-content-received (h/messages)))
+          "the generated title isn't announced either")))
 
   (testing "title disabled in config skips all generation"
     (h/reset-components!)
