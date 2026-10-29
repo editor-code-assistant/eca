@@ -19,6 +19,27 @@
         {:keys [models]} (#'models/fetch-provider-model-catalogs config db models-dev-data)]
     (#'models/build-all-supported-models known-models config models)))
 
+(deftest web-search-support-test
+  (let [supported {"openai" ["gpt-6.1-sol" "gpt-6-sol" "gpt-6-luna"]}
+        unsupported {"openai" ["gpt-4.1-nano" "gpt-5.3-codex" "unknown-model"]
+                     ;; Keep disabled pending verification of web_search_20250305 support.
+                     "anthropic" ["claude-sonnet-5-5"]
+                     "other" ["gpt-6.1-sol" "claude-sonnet-5-5"]}
+        catalog (into {}
+                      (for [[provider names] (merge-with into supported unsupported)]
+                        [provider {"models" (zipmap names (repeat {}))}]))
+        capabilities (#'models/all catalog)]
+    (testing "new supported models receive the built-in web-search capability"
+      (doseq [[provider names] supported
+              model names]
+        (is (true? (get-in capabilities [(str provider "/" model) :web-search]))
+            (str provider "/" model))))
+    (testing "excluded, unknown, and other-provider models remain disabled"
+      (doseq [[provider names] unsupported
+              model names]
+        (is (false? (get-in capabilities [(str provider "/" model) :web-search]))
+            (str provider "/" model))))))
+
 (deftest fetch-models-dev-data-test
   (testing "Uses hato with json-string-keys and global client options"
     (let [request* (atom nil)]
