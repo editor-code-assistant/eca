@@ -679,6 +679,40 @@
         (is (= "after" (slurp path))))
       (finally (fs/delete-tree dir)))))
 
+(deftest concurrent-file-write-and-edit-test
+  (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-write-edit"}))
+        path (str (fs/path dir "file.txt"))
+        write! (get-in f.tools.filesystem/definitions ["write_file" :handler])
+        edit! (get-in f.tools.filesystem/definitions ["edit_file" :handler])
+        release (promise)
+        writing (promise)
+        writer (atom nil)
+        editor (atom nil)]
+    (spit path "before")
+    (try
+      (with-redefs [spit (fn [file content]
+                           (when (= content "written")
+                             (deliver writing true)
+                             (when (= ::timeout (deref release 10000 ::timeout))
+                               (throw (ex-info "Timed out releasing write" {}))))
+                           (clojure.core/spit file content))]
+        (reset! writer (future (write! {"path" path "content" "written"} {})))
+        (is (= true (deref writing 5000 ::timeout)))
+        (reset! editor (future (edit! {"path" path
+                                       "original_content" "written"
+                                       "new_content" "edited"}
+                                      {})))
+        (is (= ::pending (deref @editor 500 ::pending)))
+        (deliver release true)
+        (is (match? {:error false} (deref @writer 5000 ::timeout)))
+        (is (match? {:error false} (deref @editor 5000 ::timeout)))
+        (is (= "edited" (slurp path))))
+      (finally
+        (deliver release true)
+        (future-cancel @writer)
+        (future-cancel @editor)
+        (fs/delete-tree dir)))))
+
 (deftest move-file-test
   (testing "Not readable source path"
     (is (match?
