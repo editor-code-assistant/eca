@@ -684,6 +684,7 @@
         path (str (fs/path dir "file.txt"))
         write! (get-in f.tools.filesystem/definitions ["write_file" :handler])
         edit! (get-in f.tools.filesystem/definitions ["edit_file" :handler])
+        spit! spit
         release (promise)
         writing (promise)
         writer (atom nil)
@@ -695,7 +696,7 @@
                              (deliver writing true)
                              (when (= ::timeout (deref release 10000 ::timeout))
                                (throw (ex-info "Timed out releasing write" {}))))
-                           (clojure.core/spit file content))]
+                           (spit! file content))]
         (reset! writer (future (write! {"path" path "content" "written"} {})))
         (is (= true (deref writing 5000 ::timeout)))
         (reset! editor (future (edit! {"path" path
