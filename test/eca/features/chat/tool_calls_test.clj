@@ -712,6 +712,60 @@
           (is (some #(some-> (get-in % [:content :text]) (string/includes? "halt")) @sent*)
               "a turn-stopped message must be shown"))))))
 
+(deftest on-tools-called!-allowed-tool-runs-while-earlier-tool-awaits-approval-test
+  (testing "an auto-allowed tool runs without waiting for an earlier tool's manual approval"
+    (h/reset-components!)
+    (let [chat-id   "test-chat"
+          db*       (h/db*)
+          _         (swap! db* #(-> %
+                                    (assoc-in [:chats chat-id :status] :running)
+                                    (assoc-in [:chats chat-id :messages] [])
+                                    (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)
+                                    (assoc-in [:chats chat-id :tool-calls "call-2" :status] :preparing)))
+          chat-ctx  {:db*       db*
+                     :config    (h/config)
+                     :chat-id   chat-id
+                     :provider  "openai"
+                     :agent     :default
+                     :messenger (h/messenger)
+                     :metrics   (h/metrics)}
+          add-to-history! (fn [msg]
+                            (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id "call-1" :full-name "eca__tool_a" :arguments {} :arguments-text "{}"}
+                      {:id "call-2" :full-name "eca__tool_b" :arguments {} :arguments-text "{}"}]
+          all-tools  [{:name "tool_a" :full-name "eca__tool_a" :origin :eca :server {:name "eca"}}
+                      {:name "tool_b" :full-name "eca__tool_b" :origin :eca :server {:name "eca"}}]
+          tool-b-ran (promise)
+          called-tools* (atom [])
+          approver (future
+                     (let [ran-before-approval? (not= ::timeout (deref tool-b-ran 5000 ::timeout))]
+                       (loop [attempts 0]
+                         (when (and (< attempts 500)
+                                    (not= :waiting-approval (:status (tc/get-tool-call-state @db* chat-id "call-1"))))
+                           (Thread/sleep 10)
+                           (recur (inc attempts))))
+                       (tc/transition-tool-call! db* chat-ctx "call-1" :user-approve
+                                                 {:reason {:code :user-choice-allow
+                                                           :text "Tool call allowed by user choice"}})
+                       ran-before-approval?))]
+      (with-redefs [f.tools/all-tools                           (constantly all-tools)
+                    f.tools/approval                            (fn [_ tool & _]
+                                                                  (if (= "tool_a" (:name tool)) :ask :allow))
+                    f.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
+                    f.tools/call-tool!                          (fn [full-name & _]
+                                                                  (swap! called-tools* conj full-name)
+                                                                  (when (= "eca__tool_b" full-name)
+                                                                    (deliver tool-b-ran true))
+                                                                  {:contents [{:text "ok" :type :text}]})
+                    f.tools/tool-call-details-before-invocation (constantly nil)
+                    f.tools/tool-call-details-after-invocation  (constantly nil)
+                    f.tools/tool-call-summary                   (constantly "Tool")
+                    lifecycle/maybe-renew-auth-token            (fn [_] nil)]
+        ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls)
+        (is (true? (deref approver 10000 ::timeout))
+            "the allowed tool must run before the pending approval is answered")
+        (is (= #{"eca__tool_a" "eca__tool_b"} (set @called-tools*)))))))
+
 (deftest send-toolCalled-image-content-emission-test
   (testing "image outputs are split into separate ChatImageContent events"
     (h/reset-components!)
