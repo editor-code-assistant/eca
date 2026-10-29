@@ -1514,7 +1514,7 @@
 <p>Most providers can be configured via "Providers" tab in ECA settings UI (or <code>/login</code> command in chat), otherwise via <code>providers</code> config in json.</p>
 </div>
 <p>ECA support lots of providers via its supported APIs (openai-chat, openai-responses, anthropic, ollama), allowing to connect to most avaialble providers if configured properly, if your provider is not in this list, feel free to open a issue:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:16"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="azure-openai" name="__tabbed_1" type="radio" /><input id="cerebras" name="__tabbed_1" type="radio" /><input id="codex--openai" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><input id="github-copilot" name="__tabbed_1" type="radio" /><input id="google--gemini" name="__tabbed_1" type="radio" /><input id="litellm" name="__tabbed_1" type="radio" /><input id="llamacpp" name="__tabbed_1" type="radio" /><input id="lm-studio" name="__tabbed_1" type="radio" /><input id="aws-bedrock" name="__tabbed_1" type="radio" /><input id="mistral" name="__tabbed_1" type="radio" /><input id="moonshot" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="qwen" name="__tabbed_1" type="radio" /><input id="zai" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="azure-openai">Azure OpenAI</label><label for="cerebras">Cerebras</label><label for="codex--openai">Codex / Openai</label><label for="deepseek">DeepSeek</label><label for="github-copilot">Github Copilot</label><label for="google--gemini">Google / Gemini</label><label for="litellm">LiteLLM</label><label for="llamacpp">llama.cpp</label><label for="lm-studio">LM Studio</label><label for="aws-bedrock">AWS Bedrock</label><label for="mistral">Mistral</label><label for="moonshot">Moonshot</label><label for="openrouter">OpenRouter</label><label for="qwen">Qwen</label><label for="zai">Z.ai</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:17"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="azure-openai" name="__tabbed_1" type="radio" /><input id="cerebras" name="__tabbed_1" type="radio" /><input id="codex--openai" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><input id="github-copilot" name="__tabbed_1" type="radio" /><input id="google--gemini" name="__tabbed_1" type="radio" /><input id="litellm" name="__tabbed_1" type="radio" /><input id="llamacpp" name="__tabbed_1" type="radio" /><input id="lm-studio" name="__tabbed_1" type="radio" /><input id="aws-bedrock" name="__tabbed_1" type="radio" /><input id="mistral" name="__tabbed_1" type="radio" /><input id="moonshot" name="__tabbed_1" type="radio" /><input id="opencode-go" name="__tabbed_1" type="radio" /><input id="openrouter" name="__tabbed_1" type="radio" /><input id="qwen" name="__tabbed_1" type="radio" /><input id="zai" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="azure-openai">Azure OpenAI</label><label for="cerebras">Cerebras</label><label for="codex--openai">Codex / Openai</label><label for="deepseek">DeepSeek</label><label for="github-copilot">Github Copilot</label><label for="google--gemini">Google / Gemini</label><label for="litellm">LiteLLM</label><label for="llamacpp">llama.cpp</label><label for="lm-studio">LM Studio</label><label for="aws-bedrock">AWS Bedrock</label><label for="mistral">Mistral</label><label for="moonshot">Moonshot</label><label for="opencode-go">OpenCode Go</label><label for="openrouter">OpenRouter</label><label for="qwen">Qwen</label><label for="zai">Z.ai</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <ol>
@@ -1765,6 +1765,44 @@ Copilot Pro and Pro+: <code>api.individual.githubcopilot.com</code></p>
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div>
+</div>
+<div class="tabbed-block">
+<p><a href="https://opencode.ai/go">OpenCode Go</a> is a low-cost subscription to coding models. Each model has a native API (OpenAI Chat Completions, OpenAI Responses or Anthropic Messages), listed in its <a href="https://opencode.ai/docs/go/#endpoints">endpoints table</a>, so add one provider per API and list each model under the matching one:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;providers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;opencode-go&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-chat&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://opencode.ai/inference/go/openai/v1&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:OPENCODE_API_KEY}&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;extraHeaders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;User-Agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca/1.0&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;x-opencode-session&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;&lt;uuid&gt;&quot;</span><span class="p">},</span>
+<span class="w">      </span><span class="s2">&quot;fetchModels&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;kimi-k3&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span><span class="w"> </span><span class="s2">&quot;glm-5.3&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{},</span><span class="w"> </span><span class="s2">&quot;deepseek-v4-pro&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;opencode-go-responses&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;openai-responses&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://opencode.ai/inference/go/openai&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:OPENCODE_API_KEY}&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;extraHeaders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;User-Agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca/1.0&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;x-opencode-session&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;&lt;uuid&gt;&quot;</span><span class="p">},</span>
+<span class="w">      </span><span class="s2">&quot;fetchModels&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;gpt-6-luna&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}}</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="s2">&quot;opencode-go-anthropic&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;api&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;anthropic&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://opencode.ai/inference/go/anthropic&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;key&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;${env:OPENCODE_API_KEY}&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;extraHeaders&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;User-Agent&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca/1.0&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;x-opencode-session&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;&lt;uuid&gt;&quot;</span><span class="p">},</span>
+<span class="w">      </span><span class="s2">&quot;fetchModels&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;models&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="s2">&quot;claude-haiku-5-5&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{}}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li>Replace <code>&lt;uuid&gt;</code> with any UUID (e.g. from <code>uuidgen</code>): Go requires a session ID in <code>x-opencode-session</code> and asks clients to send their own <code>User-Agent</code>.</li>
+<li><code>fetchModels: false</code> keeps each provider to the models you list; otherwise the Chat Completions provider lists every Go model, including those with a different native API.</li>
+<li>Keep the <code>url</code> values as shown: ECA appends <code>/chat/completions</code>, <code>/v1/responses</code> and <code>/v1/messages</code> to them.</li>
+<li>For OpenCode's pay-as-you-go plan, remove <code>/go</code> from the URLs.</li>
+</ul>
 </div>
 <div class="tabbed-block">
 <p><a href="https://openrouter.ai">OpenRouter</a> provides access to many models through a unified API:</p>
@@ -2172,7 +2210,7 @@ Matching is done by provider <code>url</code> (against <code>models.dev</code> <
 <p>Some providers require a non-standard or versioned completion endpoint path. Use <code>completionUrlRelativePath</code> to override the default path appended to your provider <code>url</code>.</p>
 <p>Defaults by API type:
 - <code>openai-responses</code>: <code>/v1/responses</code>
-- <code>openai-chat</code>: <code>/v1/chat/completions</code>
+- <code>openai-chat</code>: <code>/chat/completions</code> (so its <code>url</code> usually ends with <code>/v1</code>)
 - <code>anthropic</code>: <code>/v1/messages</code></p>
 <p>Only set this when your provider uses a different path or expects query parameters at the endpoint (e.g., Azure API versioning).</p>
 <h3 id="credential-file-authentication">Credential File Authentication<a class="headerlink" href="#credential-file-authentication" title="Permanent link">#</a></h3>
@@ -2301,7 +2339,7 @@ gpg<span class="w"> </span>--batch<span class="w"> </span>-q<span class="w"> </s
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 29, 2026 11:57:02 UTC">October 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 29, 2026 12:31:32 UTC">October 29, 2026</span>
   </span>
 
     
