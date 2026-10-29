@@ -712,6 +712,31 @@
           (is (some #(some-> (get-in % [:content :text]) (string/includes? "halt")) @sent*)
               "a turn-stopped message must be shown"))))))
 
+(deftest report-tool-call-progress!-test
+  (let [chat-id "test-chat"
+        progress {:progress 3 :total 10 :message "Indexing"}
+        setup! (fn [status]
+                 (h/reset-components!)
+                 (swap! (h/db*) assoc-in [:chats chat-id :tool-calls "call-1"]
+                        {:status status :name "index" :server "srv" :origin :mcp
+                         :arguments {"path" "."} :summary "Indexing repo"})
+                 {:db* (h/db*) :chat-id chat-id :messenger (h/messenger)})]
+    (testing "an executing call stores progress and re-sends toolCallRunning with it"
+      (let [chat-ctx (setup! :executing)]
+        (tc/report-tool-call-progress! (:db* chat-ctx) chat-ctx "call-1" progress)
+        (is (= progress (:progress (tc/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
+        (is (match? [{:type :toolCallRunning :id "call-1" :name "index" :server "srv" :origin :mcp
+                      :arguments {"path" "."} :summary "Indexing repo" :progress progress}]
+                    (->> (h/messages) :chat-content-received (mapv :content))))))
+
+    (testing "progress is ignored once the call is no longer executing"
+      (doseq [status [:stopping :cleanup :completed]]
+        (let [chat-ctx (setup! status)]
+          (tc/report-tool-call-progress! (:db* chat-ctx) chat-ctx "call-1" progress)
+          (is (nil? (:progress (tc/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
+          (is (= status (:status (tc/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
+          (is (empty? (:chat-content-received (h/messages)))))))))
+
 (deftest send-toolCalled-image-content-emission-test
   (testing "image outputs are split into separate ChatImageContent events"
     (h/reset-components!)

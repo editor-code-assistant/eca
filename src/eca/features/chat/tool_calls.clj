@@ -628,6 +628,28 @@
 
     transition))
 
+(defn report-tool-call-progress!
+  "Records the latest progress of an executing tool call and re-sends its
+   toolCallRunning content with it. Ignored once the call is no longer executing."
+  [db* chat-ctx tool-call-id progress]
+  (let [path [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
+        executing? #(= :executing (get-in % (conj path :status)))
+        [old-db new-db] (swap-vals! db* #(cond-> %
+                                           (executing? %) (assoc-in (conj path :progress) progress)))]
+    (when (executing? old-db)
+      (let [{:keys [name server origin arguments details summary]} (get-in new-db path)]
+        (lifecycle/send-content! chat-ctx :assistant
+                                 (assoc-some
+                                  {:type :toolCallRunning
+                                   :id tool-call-id
+                                   :name name
+                                   :server server
+                                   :origin origin
+                                   :arguments arguments
+                                   :progress progress}
+                                  :details details
+                                  :summary summary))))))
+
 (def ^:private hook-approval-rank
   {"allow" 1
    "ask" 2
@@ -912,7 +934,8 @@
                                                                                      metrics
                                                                                      #(get-tool-call-state @db* chat-id id)
                                                                                      (partial transition-tool-call! db* chat-ctx id)
-                                                                                     {:trust (db/resolve-trust @db* chat-id)})
+                                                                                     {:trust       (db/resolve-trust @db* chat-id)
+                                                                                      :on-progress (partial report-tool-call-progress! db* chat-ctx id)})
                                             details              (f.tools/tool-call-details-after-invocation name arguments details result
                                                                                                              {:db           @db*
                                                                                                               :config       config
