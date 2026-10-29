@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Docs: Persistent Documentation sidenav
+
 ## 0.169.0
 
 - The `finished` progress of a turn that failed (provider or network error, context overflow…) carries an `error` with its message and type, so clients can tell it from a successful turn (e.g. a headless run's exit code).
