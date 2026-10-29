@@ -624,7 +624,7 @@ Examples:
 === "Dynamic model discovery (models.dev)"
 
     For providers with `api` configured, ECA loads models from `models.dev` by default.
-    Matching is done by provider `url` (against `models.dev` `api` field). If a models.dev provider has no `api` field (for example `anthropic`), ECA falls back to provider id key.
+    Matching is done by provider `url` (against `models.dev` `api` field), where `${...}` placeholders in the `api` field (for example Cloudflare's `${CLOUDFLARE_ACCOUNT_ID}`) match any value without a `/`. If a models.dev provider has no `api` field (for example `anthropic`) or only a templated one (for example `cloudflare-workers-ai`), ECA falls back to provider id key.
 
     Providers whose `/models` endpoint reports token limits (e.g. OpenRouter's `context_length` and `top_provider.max_completion_tokens`, or llama.cpp/llama-swap's `meta.n_ctx` / `meta.n_ctx_train`) have those limits discovered and preferred over models.dev; your config `limit` overrides both.
 

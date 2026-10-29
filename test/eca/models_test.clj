@@ -615,6 +615,21 @@
                                                  "name" "Claude Sonnet 4.6"}}}}
                  :by-url {}})))))
 
+(deftest api-url-template->pattern-test
+  (testing "URLs without placeholders aren't templates"
+    (is (nil? (#'models/api-url-template->pattern "https://api.synthetic.new/v1"))))
+
+  (testing "Placeholders match a value without `/`, the rest of the URL matches literally"
+    (let [pattern (#'models/api-url-template->pattern
+                   "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/cortex/v1")]
+      (is (re-matches pattern "https://acme-prod.snowflakecomputing.com/api/v2/cortex/v1"))
+      (is (not (re-matches pattern "https://acme.snowflakecomputingXcom/api/v2/cortex/v1")))
+      (is (not (re-matches pattern "https://evil.test/acme.snowflakecomputing.com/api/v2/cortex/v1")))))
+
+  (testing "A placeholder standing for a whole base URL matches no real URL"
+    (is (not (re-matches (#'models/api-url-template->pattern "${NEON_AI_GATEWAY_BASE_URL}/v1")
+                         "http://localhost:8000/v1")))))
+
 (deftest build-model-capabilities-inherited-provider-test
   (testing "an inheriting provider uses its parent's known model instead of guessing by name"
     (let [all-models (array-map "other/claude-opus-5" {:tools false :web-search false}
@@ -711,6 +726,34 @@
                                         :fetchModels false}}}
               {}
               models-dev-data)))))))
+
+(deftest fetch-provider-models-with-priority-models-dev-api-url-template-test
+  (let [models-dev-data {"cloudflare-workers-ai"
+                         {"api" "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1"
+                          "models" {"@cf/openai/gpt-oss-20b" {"id" "@cf/openai/gpt-oss-20b"}}}
+                         "neon" {"api" "${NEON_AI_GATEWAY_BASE_URL}/v1"
+                                 "models" {"neon-model" {"id" "neon-model"}}}}
+        cloudflare-url "https://api.cloudflare.com/client/v4/accounts/abc123/ai/v1"]
+    ;; e.g. Cloudflare's OpenAI-compatible API has no GET /models (#662)
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 405
+                              :body {:success false}})]
+      (is (= {"cloudflare-workers-ai" {"@cf/openai/gpt-oss-20b" {}}
+              "my-cloudflare" {"@cf/openai/gpt-oss-20b" {}}
+              "neon" {"neon-model" {}}}
+             (#'models/fetch-provider-models-with-priority
+              {:providers {;; placeholders match the user's account id, whatever the provider name
+                           "cloudflare-workers-ai" {:api "openai-chat" :url cloudflare-url}
+                           "my-cloudflare" {:api "openai-chat" :url (str cloudflare-url "/")}
+                           ;; a placeholder matches a single URL segment
+                           "nested-segment" {:api "openai-chat"
+                                             :url "https://api.cloudflare.com/client/v4/accounts/abc/123/ai/v1"}
+                           ;; a templated models.dev URL doesn't identify the provider, so match by id
+                           "neon" {:api "openai-chat" :url "https://example.neon.tech/v1"}
+                           ;; but a whole-base-URL placeholder doesn't match arbitrary URLs
+                           "my-local" {:api "openai-chat" :url "http://localhost:8000/v1"}}}
+              {}
+              models-dev-data))))))
 
 (deftest fetch-provider-models-with-priority-fetchmodels-disabled-test
   (let [native-calls* (atom 0)
