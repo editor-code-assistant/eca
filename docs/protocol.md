@@ -1192,7 +1192,10 @@ interface ChatToolCallRunContent {
 }
 
 /**
- * Tool call that server is running to report to LLM later, sent once per id.
+ * Tool call that server is running to report to LLM later.
+ * First sent when the call starts; may be sent again for the same id while it
+ * runs (e.g. with updated `progress`, or subagent step `details`), so clients
+ * should update the existing tool call rather than add a new one.
  */
 interface ChatToolCallRunningContent {
     type: 'toolCallRunning';
@@ -1230,6 +1233,32 @@ interface ChatToolCallRunningContent {
      * Clients may use this to present different UX for this tool call.
      */
     details?: ToolCallDetails;
+
+    /**
+     * Latest progress reported by the tool while running, mirroring MCP's
+     * `notifications/progress`. Sent at most about once per second per call.
+     */
+    progress?: ToolCallProgress;
+}
+
+/**
+ * Progress of a running tool call, mirroring MCP's progress notification params.
+ */
+interface ToolCallProgress {
+    /**
+     * The progress so far; increases with each report, even if `total` is unknown.
+     */
+    progress: number;
+
+    /**
+     * Total progress required, if known.
+     */
+    total?: number;
+
+    /**
+     * Description of the current progress.
+     */
+    message?: string;
 }
 
 /**

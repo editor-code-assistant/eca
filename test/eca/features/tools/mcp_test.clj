@@ -11,6 +11,7 @@
    [eca.network :as network]
    [eca.oauth :as oauth]
    [plumcp.core.api.mcp-client :as pmc]
+   [plumcp.core.client.client-support :as pcs]
    [plumcp.core.client.http-client-transport :as phct]
    [plumcp.core.protocol :as pp]
    [plumcp.core.support.http-client :as phc]))
@@ -55,7 +56,7 @@
                             "server-b" {:client :client-b
                                         :tools [{:name "shared_tool"}]})}
           calls* (atom [])]
-      (with-redefs [mcp/do-call-tool (fn [client name arguments needs-reinit?*]
+      (with-redefs [mcp/do-call-tool (fn [client name arguments needs-reinit?* _on-progress]
                                          (swap! calls* conj {:client client
                                                             :name name
                                                             :arguments arguments
@@ -578,26 +579,23 @@
 (deftest do-call-tool-flags-reinit-on-auth-error-test
   (testing "JSON-RPC error without HTTP status but auth-like message flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    ((:on-error call-opts) "id-1" {:message "Unauthorized: token expired"})
-                                    nil)]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            {:jsonrpc "2.0" :id "id-1" :error {:message "Unauthorized: token expired"}})]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*))))
 
   (testing "ordinary JSON-RPC error without HTTP status does not flag reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    ((:on-error call-opts) "id-1" {:message "spreadsheet not found"})
-                                    nil)]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            {:jsonrpc "2.0" :id "id-1" :error {:message "spreadsheet not found"}})]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (false? @needs-reinit?*))))
 
   (testing "HTTP 401 still flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    ((:on-error call-opts) "id-1" {:message "boom" :plumcp.core/http-status 401})
-                                    nil)]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            {:jsonrpc "2.0" :id "id-1" :error {:message "boom" :plumcp.core/http-status 401}})]
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*)))))
 
 (def ^:private reinit-worthy-http-status? #'mcp/reinit-worthy-http-status?)
@@ -613,30 +611,30 @@
 (deftest do-call-tool-timeout-test
   (testing "timeout + silent ping probe (dead connection) flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    (:timeout-value call-opts))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client opts]
                                (:timeout-value opts))]
-        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*)]
+        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
           (is (true? (:error result)))
           (is (string/includes? (-> result :contents first :text) "re-initializing"))))
       (is (true? @needs-reinit?*))))
 
   (testing "timeout + ping transport exception flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    (:timeout-value call-opts))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client _opts]
                                (throw (java.io.IOException. "Connection reset")))]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*))
+        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*))))
 
   (testing "timeout but server answers ping (slow tool): plain timeout error, no reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    (:timeout-value call-opts))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client _opts] {})]
-        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?*)]
+        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
           (is (true? (:error result)))
           (is (string/includes? (-> result :contents first :text) "timed out after"))
           (is (not (string/includes? (-> result :contents first :text) "re-initializing")))))
@@ -644,13 +642,48 @@
 
   (testing "timeout on stdio server (no needs-reinit atom): plain timeout error, no probe"
     (let [pinged?* (atom false)]
-      (with-redefs [pmc/call-tool (fn [_client _name _args call-opts]
-                                    (:timeout-value call-opts))
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+                                            :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client _opts] (reset! pinged?* true) {})]
-        (let [result (#'mcp/do-call-tool (Object.) "tool" {} nil)]
+        (let [result (#'mcp/do-call-tool (Object.) "tool" {} nil nil)]
           (is (true? (:error result)))
           (is (string/includes? (-> result :contents first :text) "timed out after"))))
       (is (false? @pinged?*)))))
+
+(deftest request-tool-call-progress-test
+  (testing "progress notifications keep a call alive past the timeout and are reported"
+    (let [cancelled* (atom nil)
+          reported* (atom [])]
+      (with-redefs [mcp/tool-call-timeout-ms 200
+                    pcs/send-request-to-server (fn [_client request callback]
+                                                 (let [token (get-in request [:params :_meta :progressToken])]
+                                                   (future
+                                                     (dotimes [i 5]
+                                                       (Thread/sleep 100)
+                                                       (#'mcp/on-progress-notification
+                                                        {:params {:progressToken token :progress i :total 5
+                                                                  :message "working" :_meta {}}}))
+                                                     (callback {:jsonrpc "2.0" :id (:id request) :result {:content []}}))))
+                    pmc/cancel-sent-request (fn [_client id & _] (reset! cancelled* id))]
+        (is (= {:content []} (:result (#'mcp/request-tool-call (Object.) "tool" {} #(swap! reported* conj %)))))
+        (is (nil? @cancelled*) "a completed call must not be cancelled")
+        (is (= (mapv #(hash-map :progress % :total 5 :message "working") (range 5))
+               @reported*)))))
+
+  (testing "times out and cancels the request when neither response nor progress arrives"
+    (let [sent-id* (atom nil)
+          cancelled* (atom nil)]
+      (with-redefs [mcp/tool-call-timeout-ms 100
+                    pcs/send-request-to-server (fn [_client request _callback]
+                                                 (reset! sent-id* (:id request)))
+                    pmc/cancel-sent-request (fn [_client id & _] (reset! cancelled* id))]
+        (is (= :eca.features.tools.mcp/call-timeout
+               (#'mcp/request-tool-call (Object.) "tool" {} nil)))
+        (is (some? @sent-id*))
+        (is (= @sent-id* @cancelled*)))))
+
+  (testing "progress listeners are removed once calls finish"
+    (is (empty? @@#'mcp/progress-listeners*))))
 
 (deftest reinitialize-server!-refreshes-before-init-test
   (testing "forces a token refresh before re-initializing (heals server-side expiry)"
@@ -684,7 +717,7 @@
                                              (swap! calls* conj [:refresh name url])
                                              true)
                     mcp/reinitialize-server! (fn [& _] (swap! calls* conj [:reinit]))
-                    mcp/do-call-tool (fn [client _name _args _nr]
+                    mcp/do-call-tool (fn [client _name _args _nr _on-progress]
                                        (swap! calls* conj [:call client])
                                        {:error false :contents []})]
         (is (= {:error false :contents []}
@@ -698,7 +731,7 @@
       (with-redefs [mcp/try-refresh-token! (fn [_name _db* _url _metrics _config] nil)
                     mcp/reinitialize-server! (fn [name _client _db* _config _metrics]
                                                (swap! calls* conj [:reinit name]))
-                    mcp/do-call-tool (fn [client _name _args _nr]
+                    mcp/do-call-tool (fn [client _name _args _nr _on-progress]
                                        (swap! calls* conj [:call client])
                                        {:error false :contents []})]
         (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
@@ -709,7 +742,7 @@
     (let [db* (call-tool-db* (+ (quot (System/currentTimeMillis) 1000) 3600))
           calls* (atom [])]
       (with-redefs [mcp/try-refresh-token! (fn [& _] (swap! calls* conj [:refresh]) true)
-                    mcp/do-call-tool (fn [client _name _args _nr]
+                    mcp/do-call-tool (fn [client _name _args _nr _on-progress]
                                        (swap! calls* conj [:call client])
                                        {:error false :contents []})]
         (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
