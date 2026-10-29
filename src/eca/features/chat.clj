@@ -1221,7 +1221,10 @@
                                                  :config config
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
-                (when output-text
+                ;; A title set meanwhile (chat/update, e.g. a client renaming
+                ;; the chat while this request ran) wins over the generated one.
+                (when (and output-text
+                           (not (get-in @db* [:chats chat-id :title-custom?])))
                   (let [title (sanitize-title output-text)]
                     (swap! db* assoc-in [:chats chat-id :title] title)
                     (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
@@ -1249,6 +1252,9 @@
                 :refresh-provider-auth-fn (fn []
                                             (lifecycle/maybe-renew-auth-token chat-ctx)
                                             (get-in @db* [:auth provider]))
+                ;; `config` is the turn's snapshot, reused by compaction, auto-continue
+                ;; and subagents, so a `${cmd:...}` key must be re-read too.
+                :refresh-config-fn #(config/all @db*)
                 :variant (:variant chat-ctx)
                 :prompt-cache-key (prompt-cache-key agent)
                 :subagent? (some? (get-in @db* [:chats chat-id :subagent]))

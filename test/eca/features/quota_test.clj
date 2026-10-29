@@ -32,6 +32,21 @@
                   "x-codex-secondary-used-percent" "3"
                   "x-codex-secondary-window-minutes" "10080"
                   "x-codex-turn-state" "abc"}))))
+  (testing "Codex slots without usage nor duration are skipped, like the secondary one of plans without a 5h limit"
+    (is (match? {:windows [{:id "primary" :label "7d" :used-percent 37.0 :window-minutes 10080}]}
+                (f.quota/headers->snapshot
+                 {"x-codex-primary-used-percent" "37"
+                  "x-codex-primary-window-minutes" "10080"
+                  "x-codex-primary-reset-after-seconds" "86400"
+                  "x-codex-secondary-used-percent" "0"
+                  "x-codex-secondary-window-minutes" "0"
+                  "x-codex-secondary-reset-after-seconds" "0"})))
+    (is (nil? (f.quota/headers->snapshot {"x-codex-secondary-used-percent" "0"})))
+    (testing "but unused windows with a duration are kept"
+      (is (match? {:windows [{:id "primary" :label "5h" :used-percent 0.0 :window-minutes 300}]}
+                  (f.quota/headers->snapshot
+                   {"x-codex-primary-used-percent" "0"
+                    "x-codex-primary-window-minutes" "300"})))))
   (testing "Copilot snapshots: remaining percentage, unlimited quotas skipped"
     (is (match? {:windows [{:id "premium_interactions"
                             :label "Premium"
@@ -76,6 +91,14 @@
                                                 :reset_after_seconds 100 :reset_at 1792007200}
                                :secondary_window {:used_percent 8 :limit_window_seconds 604800
                                                   :reset_at 1792400000}}}))))
+  (testing "ChatGPT wham/usage skips windows without usage nor duration"
+    (is (match? {:windows [{:id "primary" :label "7d" :used-percent 37.0 :window-minutes 10080}]}
+                (f.quota/codex-usage->snapshot
+                 {:rate_limit {:allowed true
+                               :primary_window {:used_percent 37 :limit_window_seconds 604800
+                                                :reset_at 1792400000}
+                               :secondary_window {:used_percent 0 :limit_window_seconds 0
+                                                  :reset_after_seconds 0 :reset_at 0}}}))))
   (testing "Copilot copilot_internal/user quota snapshots"
     (is (match? {:windows [{:id "premium_interactions" :label "Premium" :used-percent 40.0
                             :resets-at (epoch "2026-08-01T00:00:00Z")}]}

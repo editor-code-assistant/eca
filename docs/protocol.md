@@ -806,6 +806,20 @@ interface ChatProgressContent {
      * May be omitted when state is 'finished'.
      */
     text?: string;
+
+    /**
+     * Only when state is 'finished': present when the turn ended because
+     * of an error (a provider or network error, a context overflow…),
+     * which was also shown in the chat as text. Absent when it succeeded.
+     */
+    error?: {
+        message: string;
+        /**
+         * The kind of error, e.g. 'network', 'overloaded', 'rate-limited',
+         * 'quota-exhausted', 'auth', 'context-overflow', 'unknown'.
+         */
+        type?: string;
+    };
 }
 
 /**
@@ -981,6 +995,16 @@ interface ChatUsageContent {
      * The total input + output tokens of the whole chat session so far.
      */
     sessionTokens: number;
+
+    /**
+     * Output tokens per second of the last model response, rounded to an
+     * integer. Measured from the first generated token to the end of the
+     * response. Includes reasoning tokens when the provider counts them as
+     * output and server-side tool waits such as web search. Excludes client
+     * tool execution and approval waits. Absent for non-streaming requests or
+     * when usage or timing is unknown.
+     */
+    messageOutputTps?: number;
     
     /**
      * The cost of the last sent message summing input + output tokens.

@@ -11,6 +11,7 @@
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
    [eca.secrets :as secrets]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -1022,6 +1023,53 @@
       (is (= ["fallback-token"] @seen-api-keys*)
           "when refresh-provider-auth-fn throws, prompt! keeps running with the statically captured provider-auth"))))
 
+(deftest refresh-config-fn-used-for-initial-and-retry-test
+  (testing "the provider key is re-read from refresh-config-fn on each prompt! call"
+    ;; `config` is resolved when the turn starts, and compactions, auto-continues
+    ;; and subagents start new calls with it, so a short-lived `${cmd:...}` key
+    ;; resolved there may already be expired.
+    (let [refresh-calls* (atom 0)
+          seen-provider-configs* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [config]}]
+                                          (swap! seen-provider-configs* conj (get-in config [:providers "anthropic"]))
+                                          (if (= 1 (count @seen-provider-configs*))
+                                            {:error {:status 429
+                                                     :body "Rate limit exceeded"
+                                                     :message "LLM response status: 429"}}
+                                            {:output-text "success"
+                                             :usage {:input-tokens 1 :output-tokens 1}}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :refresh-config-fn (fn []
+                                (let [n (swap! refresh-calls* inc)]
+                                  {:providers {"anthropic" {:key (str "fresh-key-" n)
+                                                            :url "http://changed-mid-turn"}}}))
+           :on-error identity
+           :on-message-received identity})))
+      (is (= ["fresh-key-1" "fresh-key-2"] (mapv :key @seen-provider-configs*))
+          "each prompt! invocation (including the retry) sends the key the config resolves now")
+      (is (= ["http://test" "http://test"] (mapv :url @seen-provider-configs*))
+          "only the key is refreshed, the rest of the turn's config is kept")))
+
+  (testing "keeps the captured key when the fresh one is missing or refresh-config-fn throws"
+    (doseq [refresh-config-fn [(constantly {:providers {"anthropic" {:key ""}}})
+                               (constantly nil)
+                               (fn [] (throw (ex-info "boom" {})))]]
+      (let [seen-api-keys* (atom [])]
+        (with-redefs [eca.llm-api/prompt! (fn [{:keys [config]}]
+                                            (swap! seen-api-keys* conj (get-in config [:providers "anthropic" :key]))
+                                            {:output-text "ok"
+                                             :usage {:input-tokens 1 :output-tokens 1}})]
+          (llm-api/sync-or-async-prompt!
+           (make-prompt-opts
+            {:stream false
+             :refresh-config-fn refresh-config-fn
+             :on-error identity
+             :on-message-received identity})))
+        (is (= ["test-key"] @seen-api-keys*))))))
+
 (deftest sync-retry-on-rate-limited-test
   (testing "retries on 429 and succeeds on subsequent attempt"
     (let [attempt* (atom 0)
@@ -1213,6 +1261,50 @@
            :on-message-received identity})))
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
+
+(deftest message-output-tps-test
+  (testing "usage gets TPS from output tokens and measured time"
+    (let [usage* (atom nil)
+          tps-args* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-usage-updated]}]
+                                          (on-message-received {:type :text :text "hi"})
+                                          (Thread/sleep 20)
+                                          (on-usage-updated {:input-tokens 1000 :output-tokens 2}))
+                    shared/tokens-per-second (fn [tokens elapsed-ms]
+                                               (reset! tps-args* [tokens elapsed-ms])
+                                               42)]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-usage-updated #(reset! usage* %)})))
+      (let [[tokens elapsed-ms] @tps-args*]
+        (is (= 2 tokens) "uses output tokens")
+        (is (and (number? elapsed-ms) (pos? elapsed-ms)) "measures elapsed time"))
+      (is (= 42 (:message-output-tps @usage*)) "attaches the computed TPS")))
+
+  (testing "usage has no TPS without a generation event"
+    (let [usage* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-usage-updated]}]
+                                          (on-usage-updated {:input-tokens 1 :output-tokens 2}))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-usage-updated #(reset! usage* %)})))
+      (is (nil? (:message-output-tps @usage*)))))
+
+  (testing "usage after tools has no TPS because tool time is not generation time"
+    (let [usage* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-tools-called on-usage-updated]}]
+                                          (on-message-received {:type :text :text "hi"})
+                                          (Thread/sleep 20)
+                                          (on-tools-called [])
+                                          (on-usage-updated {:input-tokens 1 :output-tokens 2}))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-tools-called (constantly nil)
+           :on-usage-updated #(reset! usage* %)})))
+      (is (nil? (:message-output-tps @usage*))))))
 
 (deftest async-retry-on-custom-retry-rule-error-pattern-test
   (testing "retries async when custom retryRules errorPattern matches error message"

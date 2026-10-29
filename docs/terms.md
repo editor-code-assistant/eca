@@ -7,7 +7,7 @@ description: Terms governing the use of ECA (Editor Code Assistant) and its inte
 
 _Last updated: see file revision date at the bottom of this page._
 
-These Terms of Service (the "Terms") govern your use of **ECA — Editor Code Assistant** (the "Software"), including the ECA server, its editor plugins (Emacs, VS Code, Neovim, IntelliJ, Desktop), and any integrations the Software makes available, including the Slack integration.
+These Terms of Service (the "Terms") govern your use of **ECA — Editor Code Assistant** (the "Software"), including the ECA server, its editor plugins (Emacs, VS Code, Neovim, IntelliJ, Desktop, CLI), and any integrations the Software makes available, including the Slack integration.
 
 By installing, running, or otherwise using the Software, you agree to these Terms. If you do not agree, do not install or use the Software.
 

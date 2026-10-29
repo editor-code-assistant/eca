@@ -102,7 +102,9 @@
    have been received for `idle-timeout-ms` while actively reading.
 
    Returns a map with:
-   - :touch-fn        - call on each received event to reset the idle timer
+   - :touch-fn        - call on each received event to reset the idle timer,
+                        except keepalives (e.g. Anthropic pings), which a
+                        stalled generation keeps sending
    - :set-reading-fn  - call with true/false to track whether blocked on .readLine
    - :stop-fn         - call to stop the watchdog (e.g. in finally)
    - :reason*         - atom; :cancelled or :idle-timeout when triggered, nil otherwise"

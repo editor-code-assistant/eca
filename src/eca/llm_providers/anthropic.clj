@@ -214,7 +214,10 @@
                 (with-open [rdr (io/reader body)]
                   (doseq [[event data] (llm-util/event-data-seq rdr)]
                     (set-reading-fn false)
-                    (touch-fn)
+                    ;; Pings keep coming every 15s while a stalled generation sends
+                    ;; nothing else, so they must not reset the idle timer.
+                    (when-not (= "ping" event)
+                      (touch-fn))
                     (llm-util/log-response logger-tag rid event data)
                     (on-stream event data content-block* reason-id*)
                     (set-reading-fn true)

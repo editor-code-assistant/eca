@@ -7,7 +7,14 @@ description: "Configure ECA skills: structured knowledge units that teach the LL
 ![](../images/features/skills.png)
 
 Skills are folders with `SKILL.md` which teachs LLM how to solve a specific task or gain knowledge about it.
-Following the [agentskills](https://agentskills.io/) standard, ECA searches for skills following `~/.config/eca/skills/some-skill/SKILL.md`, `.eca/skills/some-skill/SKILL.md`, and `.agents/skills/some-skill/SKILL.md` which should contain `name` and `description` metadatas.
+Following the [agentskills](https://agentskills.io/) standard, ECA searches for skills in these locations, where each `SKILL.md` should contain `name` and `description` metadatas:
+
+- Workspace: `.eca/skills/some-skill/SKILL.md` and `.agents/skills/some-skill/SKILL.md`
+- Global: `~/.config/eca/skills/some-skill/SKILL.md` and `~/.agents/skills/some-skill/SKILL.md`
+
+`.agents/skills` and `~/.agents/skills` are the cross-tool locations, also read by other agents like Codex, Cursor, Copilot and pi, so skills placed there are shared between them.
+
+When more than one skill has the same `name`, ECA keeps only the first one found in this order: configured `skills` paths, workspace `.eca/skills`, workspace `.agents/skills`, `~/.config/eca/skills`, `~/.agents/skills`, plugin skills, then built-in skills. This means a workspace skill overrides a global skill with the same name.
 
 When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request.
 

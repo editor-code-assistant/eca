@@ -529,6 +529,14 @@
          new-db
          config)))))
 
+(defn ^:private finished-error
+  "The error that ended the turn (a provider or network error, a context
+  overflow…), for the `finished` progress, or nil when the turn succeeded."
+  [db chat-id]
+  (when-let [{:keys [message error-type]} (get-in db [:chats chat-id :prompt-error])]
+    (assoc-some {:message (or message "Unknown error")}
+                :type (some-> error-type name))))
+
 (defn ^:private apply-status-transition!
   "Update chat status, send status/progress events, set created-at if needed."
   [{:keys [chat-id db* messenger] :as chat-ctx} status]
@@ -536,8 +544,9 @@
   (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
   (trigger-chat-status-hook! chat-ctx)
   (send-content! chat-ctx :system
-                 {:type :progress
-                  :state :finished})
+                 (assoc-some {:type :progress
+                              :state :finished}
+                             :error (finished-error @db* chat-id)))
   (when-not (get-in @db* [:chats chat-id :created-at])
     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
 

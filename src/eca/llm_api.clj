@@ -521,12 +521,21 @@
       (catch Exception e
         (on-error {:exception e})))))
 
+(defn ^:private with-fresh-provider-key
+  "Returns `config` with the provider `:key` taken from `fresh-config`. Only the
+   key changes, so the rest of a turn keeps the config it started with. A blank
+   fresh key (e.g. its `${cmd:...}` just failed) keeps the current one."
+  [config fresh-config provider]
+  (if-let [fresh-key (not-empty (get-in fresh-config [:providers provider :key]))]
+    (assoc-in config [:providers provider :key] fresh-key)
+    config))
+
 (defn sync-or-async-prompt!
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized on-response-headers
-           past-messages tools provider-auth refresh-provider-auth-fn variant cancelled? on-retry subagent?
-           prompt-cache-key]
+           past-messages tools provider-auth refresh-provider-auth-fn refresh-config-fn variant cancelled?
+           on-retry subagent? prompt-cache-key]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -539,6 +548,10 @@
          on-history-sanitized identity
          cancelled? (constantly false)}}]
   (let [first-response-received* (atom false)
+        ;; First generation event of the current model response. Consumed by
+        ;; the next usage update, so tool-call loops start a new measurement.
+        generation-start-ms* (atom nil)
+        mark-generation-start! #(compare-and-set! generation-start-ms* nil (System/currentTimeMillis))
         ;; Fire :on-history-sanitized at most once per sync-or-async-prompt! call:
         ;; prompt! is invoked multiple times on retries and we don't want to
         ;; spam the chat with repeated "history sanitized" notices.
@@ -558,24 +571,45 @@
         ;; tool call. Wrapped here rather than in `prompt!` because the sync path
         ;; invokes the callback itself, without going through it.
         on-tools-called-wrapper (fn [tool-calls]
+                                  ;; Tool execution can block on user approval.
+                                  ;; End the generation window first so a usage
+                                  ;; event that arrives after tools (Bedrock)
+                                  ;; cannot include that time.
+                                  (reset! generation-start-ms* nil)
                                   (let [result (on-tools-called tool-calls)]
                                     (cond-> result
                                       (map? result) (update :tools tools-for-request))))
-        on-message-received-wrapper (fn [& args]
+        on-message-received-wrapper (fn [& [message :as args]]
+                                      (when (#{:text :url :refusal} (:type message))
+                                        (mark-generation-start!))
                                       (apply emit-first-message-fn args)
                                       (apply on-message-received args))
-        on-reason-wrapper (fn [& args]
+        on-reason-wrapper (fn [& [reason :as args]]
+                            (when (#{:started :thinking} (:status reason))
+                              (mark-generation-start!))
                             (apply emit-first-message-fn args)
                             (apply on-reason args))
         on-prepare-tool-call-wrapper (fn [& args]
+                                       (mark-generation-start!)
                                        (apply emit-first-message-fn args)
                                        (apply on-prepare-tool-call args))
-        on-server-web-search-wrapper (fn [& args]
+        on-server-web-search-wrapper (fn [& [event :as args]]
+                                       (when (= :started (:status event))
+                                         (mark-generation-start!))
                                        (apply emit-first-message-fn args)
                                        (apply on-server-web-search args))
-        on-server-image-generation-wrapper (fn [& args]
+        on-server-image-generation-wrapper (fn [& [event :as args]]
+                                             (when (= :started (:status event))
+                                               (mark-generation-start!))
                                              (apply emit-first-message-fn args)
                                              (apply on-server-image-generation args))
+        on-usage-updated-wrapper (fn [usage]
+                                   (let [start-ms @generation-start-ms*
+                                         elapsed-ms (when start-ms (- (System/currentTimeMillis) start-ms))
+                                         tps (shared/tokens-per-second (:output-tokens usage) elapsed-ms)]
+                                     (reset! generation-start-ms* nil)
+                                     (on-usage-updated (cond-> usage
+                                                         tps (assoc :message-output-tps tps)))))
         ;; Deliver at most one terminal error per prompt: when a shared
         ;; connection dies, every stacked tool-continuation request unwinds
         ;; and fires its own on-error for the same failure. #547
@@ -605,6 +639,20 @@
                                                  {:exception (ex-message e)})
                                     provider-auth))
                                 provider-auth))
+        ;; Same for a config `key`, which can be a short-lived token (e.g.
+        ;; `${cmd:...}`): `config` is resolved when the turn starts, and
+        ;; compactions, auto-continues and subagents call this with it much
+        ;; later. Cheap, as config and `${cmd:...}` results are cached.
+        config-with-fresh-key (fn []
+                                (if refresh-config-fn
+                                  (try
+                                    (with-fresh-provider-key config (refresh-config-fn) provider)
+                                    (catch Exception e
+                                      (logger/warn logger-tag
+                                                   "refresh-config-fn failed, falling back to captured config"
+                                                   {:exception (ex-message e)})
+                                      config))
+                                  config))
         maybe-retry (fn [error-data attempt replay-safe? on-give-up retry-prompt-fn]
                       (let [{error-type :error/type
                              :as classified} (llm-providers.errors/classify-error error-data retry-rules)
@@ -678,7 +726,7 @@
                               :prompt-cache-key prompt-cache-key
                               :on-error on-error-wrapper
                               :on-history-sanitized on-history-sanitized-wrapper
-                              :config config})]
+                              :config (config-with-fresh-key)})]
                 (let [{:keys [error output-text reason-text reasoning-content tools-to-call call-tools-fn reason-id usage]} result]
                   (if error
                     (maybe-retry error attempt (not @first-response-received*)
@@ -718,7 +766,7 @@
                 :on-message-received on-message-received-wrapper
                 :on-prepare-tool-call on-prepare-tool-call-wrapper
                 :on-tools-called on-tools-called-wrapper
-                :on-usage-updated on-usage-updated
+                :on-usage-updated on-usage-updated-wrapper
                 :on-server-web-search on-server-web-search-wrapper
                 :on-server-image-generation on-server-image-generation-wrapper
                 :on-reason on-reason-wrapper
@@ -732,7 +780,7 @@
                               (on-error-wrapper error-data)
                               (maybe-retry error-data attempt (not @first-response-received*)
                                            on-error-wrapper async-prompt-with-retry)))
-                :config config}))]
+                :config (config-with-fresh-key)}))]
         (async-prompt-with-retry* 0)))))
 
 (defn sync-prompt!
