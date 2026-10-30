@@ -85,7 +85,7 @@ A change list uses the same entry lines and marks deleted notes:
 </memory-changes>
 ```
 
-The `description` attribute explains the block to the model, so no system-prompt sentence is needed; this also covers enabling memory while a chat is open, whose next prompt gets a full index. The Ollama adapter currently sends only the first text block of a message, so memory blocks, `@` contexts and the date line do not reach it; a separate fix joins all text blocks.
+The `description` attribute explains the block to the model, so no system-prompt sentence is needed; this also covers enabling memory while a chat is open, whose next prompt gets a full index. The Ollama adapter joins all text blocks of a message into one text, so memory blocks, `@` contexts and the date line reach it too; image blocks are still dropped.
 
 Entries are grouped by personal directory in workspace-root order, then global. Within each group, the index ranks entries by read history and the recorded body-change time, with older observations given less weight. Without recorded reads, the most recently changed bodies come first. File modification time supplies the initial body-change date; later metadata-only edits do not reset it. See Usage tracking below. With zero memories, no block is added. The memory directories remain available in the static write guidance.
 

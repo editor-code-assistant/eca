@@ -2,6 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]
+   [clojure.string :as string]
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -151,9 +152,17 @@
                     "server_tool_use" nil
                     "server_tool_result" nil
                     {:role (:role msg)
+                     ;; Ollama takes one text string per message. ECA puts
+                     ;; several blocks in a user message (the prompt, @ file
+                     ;; contexts, text contexts, the editor state, the date
+                     ;; line, the memory block), so send the text of all of
+                     ;; them, not just the first. Image blocks are still
+                     ;; dropped (see the TODO below).
                      :content (if (string? (:content msg))
                                 (:content msg)
-                                (-> msg :content first :text))
+                                (->> (:content msg)
+                                     (keep :text)
+                                     (string/join "\n")))
                      ;; TODO add image supprt
                      ;; :images []
                      }))))
