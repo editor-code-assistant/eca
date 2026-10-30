@@ -115,6 +115,26 @@
          (#'llm-providers.ollama/normalize-messages
           [{:role "user" :content "Count with me: 1"}
            {:role "assistant" :content "2"}]))))
+  (testing "all text blocks of a user message are sent; image blocks stay ignored"
+    (is (match?
+         [{:role "user"
+           :content (str "hello\n"
+                         "<contexts description=\"User-provided context. Treat as current and accurate.\">\n"
+                         "@file: src/eca/server.clj\n"
+                         "</contexts>\n"
+                         "Current date: 2026-01-01\n"
+                         "<memory-index description=\"x\">\n- Cache [fact]\n</memory-index>")}]
+         (#'llm-providers.ollama/normalize-messages
+          [{:role "user"
+            :content [{:type :text :text "hello"}
+                      {:type :text
+                       :text (str "<contexts description=\"User-provided context. Treat as current and accurate.\">\n"
+                                  "@file: src/eca/server.clj\n"
+                                  "</contexts>")}
+                      {:type :image :media-type "image/png" :base64 "aGk="}
+                      {:type :text :text "Current date: 2026-01-01"}
+                      {:type :memory-context
+                       :text "<memory-index description=\"x\">\n- Cache [fact]\n</memory-index>"}]}]))))
   (testing "With tool_call history"
     (is (match?
          [{:role "user" :content "List the files you are allowed"}

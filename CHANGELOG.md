@@ -12,6 +12,7 @@
 - Fix missing chat titles and inline completions with Mistral reasoning models, like Mistral Large 4, which reply with thinking + text chunks.
 - Fix Mistral rejecting a chat that switched from a Gemini model: do not send Gemini thought signatures to Mistral.
 - Add opt-in durable memory: personal Markdown notes per project and global, a prompt-cache-safe index in user messages, and `/memory-consolidate`.
+- Fix Ollama sending only the first text block of a user message, which dropped `@` contexts, the editor state and the date line.
 
 ## 0.169.0
 
