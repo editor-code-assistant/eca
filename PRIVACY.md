@@ -27,8 +27,9 @@ ECA stores the following on your machine:
 | `~/.cache/eca/<workspace>/db.transit.json` | Conversation history for each project | Auto-deleted after 7 days |
 | `~/.cache/eca/toolCallOutputs/` | Truncated tool call outputs | Auto-deleted after 7 days |
 | `~/.cache/eca/plugins/` | Cloned plugin repositories | Until you delete them |
+| `~/.local/share/eca/memory/` | Durable memory files and usage ledger (memory feature) | Until you delete it |
 
-Paths respect `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME` if set. No data is stored remotely by ECA.
+Paths respect `$XDG_CONFIG_HOME`, `$XDG_DATA_HOME` and `$XDG_CACHE_HOME` if set. No data is stored remotely by ECA.
 
 ## MCP servers
 
@@ -89,7 +90,7 @@ You can also configure custom providers. In that case, refer to that provider's 
 
 - **Choose your provider** — use a local model via Ollama for fully offline, private operation.
 - **Review before sending** — ECA shows you the conversation as it happens; you see what's being sent.
-- **Delete local data** — remove `~/.cache/eca/` and `~/.config/eca/` to erase all ECA data from your machine.
+- **Delete local data** — remove `~/.cache/eca/`, `~/.config/eca/` and `~/.local/share/eca/` to erase all ECA data from your machine.
 - **API key management** — store keys in environment variables or `.netrc` instead of config files if preferred.
 
 ## Questions

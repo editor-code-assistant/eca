@@ -8,7 +8,7 @@
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
-   [integration.helper :refer [match-content]]
+   [integration.helper :refer [match-content] :as h]
    [llm-mock.mocks :as llm.mocks]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -62,7 +62,7 @@
       (match-content "inline-1" "system" {:type "progress" :state "finished"})
 
       (is (match?
-           {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
+           {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}]
             :instructions (m/pred string?)}
            (llm.mocks/get-req-body :simple-text-0)))))
 
@@ -79,7 +79,7 @@
            resp))
       (drain-until-progress-finished! "inline-1")
       (is (match?
-           {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+           {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}
                     {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                     {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
            (llm.mocks/get-req-body :simple-text-1)))))
@@ -129,7 +129,7 @@
 
         ;; But it is sent to the LLM.
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
              (llm.mocks/get-req-body :simple-text-1)))))

@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.db :as db]
+   [eca.features.memory :as f.memory]
    [eca.features.tools.agent :as f.tools.agent]
    [eca.features.tools.background :as f.tools.background]
    [eca.features.tools.chat :as f.tools.chat]
@@ -104,7 +105,7 @@
              (when remembered?
                {:decision :allow :rule {:source :session-remember}})
 
-             (when (and require-approval-fn (require-approval-fn args {:db db}))
+             (when (and require-approval-fn (require-approval-fn args {:db db :config config :chat-id chat-id}))
                {:decision :ask :rule {:source :tool-built-in-check}})
 
              (when-let [rule (match-rule ask :config-ask)]
@@ -592,24 +593,37 @@
         (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
         nil))))
 
+(defn ^:private maybe-tag-memory-details
+  "Tag file-change details with `:memory true` when the changed path is inside
+   one of the chat's memory dirs, so clients can render a memory-specific UI."
+  [details db config]
+  (if (and (= :fileChange (:type details))
+           (f.memory/memory-path? db config (:path details)))
+    (assoc details :memory true)
+    details))
+
 (defn tool-call-details-before-invocation
   "Return the tool call details before invoking the tool."
   [name arguments server db config chat-id ask-approval? tool-call-id]
   (try
-    (tools.util/tool-call-details-before-invocation name arguments server {:db db
-                                                                           :config config
-                                                                           :chat-id chat-id
-                                                                           :ask-approval? ask-approval?
-                                                                           :tool-call-id tool-call-id})
+    (some-> (tools.util/tool-call-details-before-invocation name arguments server {:db db
+                                                                                   :config config
+                                                                                   :chat-id chat-id
+                                                                                   :ask-approval? ask-approval?
+                                                                                   :tool-call-id tool-call-id})
+            (maybe-tag-memory-details db config))
     (catch Exception e
       ;; Avoid failling tool call because of error on getting details.
       (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
       nil)))
 
 (defn tool-call-details-after-invocation
-  "Return the tool call details after invoking the tool."
+  "Return the tool call details after invoking the tool.
+   The memory tag is applied again here: the clojure-mcp edit tools build new
+   details in their after-invocation methods and drop an earlier tag."
   [name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation name arguments details result ctx))
+  (some-> (tools.util/tool-call-details-after-invocation name arguments details result ctx)
+          (maybe-tag-memory-details (:db ctx) (:config ctx))))
 
 (defn tool-call-destroy-resource!
   "Destroy the resource in the tool call named `name`."

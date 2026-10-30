@@ -11,7 +11,8 @@
    [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
-   [eca.config :as config]))
+   [eca.config :as config]
+   [eca.message-sanitize :as message-sanitize]))
 
 (set! *warn-on-reflection* true)
 
@@ -26,12 +27,20 @@
    :parent-chat-id :startup-context :messages :usage :task])
 
 (defn build-export
-  "Build the export envelope map for chat-id from the in-memory db."
+  "Build the export envelope map for chat-id from the in-memory db.
+
+   Memory blocks and their `:memory` state are stripped: they carry personal
+   notes and machine-local paths, and export files are meant to be shared. The
+   exported chat keeps everything else verbatim; an imported chat sends a fresh
+   full memory index on its next prompt."
   [db chat-id]
-  {:eca/version (config/eca-version)
-   :eca/export-version export-version
-   :exported-at (System/currentTimeMillis)
-   :chat (select-keys (get-in db [:chats chat-id]) exported-chat-keys)})
+  (let [chat (select-keys (get-in db [:chats chat-id]) exported-chat-keys)]
+    {:eca/version (config/eca-version)
+     :eca/export-version export-version
+     :exported-at (System/currentTimeMillis)
+     :chat (cond-> chat
+             (:messages chat)
+             (update :messages #(mapv message-sanitize/remove-memory-context %)))}))
 
 (defn export->edn [export]
   (binding [*print-namespace-maps* false]

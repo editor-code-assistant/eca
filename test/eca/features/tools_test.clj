@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
+   [eca.features.memory :as f.memory]
    [eca.features.rules :as f.rules]
    [eca.features.tools :as f.tools]
    [eca.features.tools.filesystem :as f.tools.filesystem]
@@ -1186,3 +1187,54 @@
               identity
               nil))))
       (is (= {"path" ""} @received-args*)))))
+
+(deftest file-change-details-memory-tag-test
+  ;; The tag is applied in the `f.tools` wrappers, not in the filesystem
+  ;; definitions, so it covers MCP edit tools too and survives the
+  ;; clojure-mcp after-invocation methods that build new details.
+  (let [db {:workspace-folders [{:uri (h/file-uri "file:///repo/one") :name "one"}]}
+        enabled-config {:memory {:enabled true}}
+        memory-root (fs/file (h/file-path "/tmp/eca-test-mem-root"))
+        global-mem-file (str (fs/file memory-root "global" "a.md"))
+        personal-mem-file (str (fs/file memory-root "projects"
+                                        (f.memory/project-slug (h/file-path "/repo/one"))
+                                        "b.md"))
+        regular-file (h/file-path "/repo/one/src/core.clj")
+        ctx {:db db :config enabled-config :chat-id "c1"}]
+    (with-redefs [f.memory/memory-root-dir (constantly memory-root)
+                  fs/exists? (constantly false)]
+      (testing "write_file: memory paths get :memory true across both tiers"
+        (doseq [path [global-mem-file personal-mem-file]]
+          (is (match? {:type :fileChange :path path :memory true}
+                      (f.tools/tool-call-details-before-invocation
+                       "write_file" {"path" path "content" "x"} "eca" db enabled-config "c1" false "call-1"))
+              (str "expected memory tag for " path))))
+      (testing "write_file: non-memory paths are untagged"
+        (is (match? {:type :fileChange :path regular-file :memory m/absent}
+                    (f.tools/tool-call-details-before-invocation
+                     "write_file" {"path" regular-file "content" "x"} "eca" db enabled-config "c1" false "call-1"))))
+      (testing "write_file: memory disabled means no tag, even for memory paths"
+        (is (match? {:type :fileChange :path global-mem-file :memory m/absent}
+                    (f.tools/tool-call-details-before-invocation
+                     "write_file" {"path" global-mem-file "content" "x"} "eca" db {} "c1" false "call-1"))))
+      (testing "edit_file creating a new file also tags memory paths"
+        (is (match? {:type :fileChange :path global-mem-file :memory true}
+                    (f.tools/tool-call-details-before-invocation
+                     "edit_file" {"path" global-mem-file "original_content" "" "new_content" "x"}
+                     "eca" db enabled-config "c1" false "call-1"))))
+      (testing "after invocation: a rebuilt clojure-mcp file_edit detail is tagged again"
+        (is (match? {:type :fileChange :path global-mem-file :memory true}
+                    (f.tools/tool-call-details-after-invocation
+                     "file_edit"
+                     {"file_path" global-mem-file}
+                     {:type :fileChange :path global-mem-file}
+                     {:error false :contents [{:type :text :text "--- a/a.md\n+++ b/a.md\n@@ -1 +1 @@\n-a\n+b"}]}
+                     (assoc ctx :tool-call-id "call-1")))))
+      (testing "after invocation: non-memory paths are not tagged"
+        (is (match? {:type :fileChange :path regular-file :memory m/absent}
+                    (f.tools/tool-call-details-after-invocation
+                     "file_edit"
+                     {"file_path" regular-file}
+                     {:type :fileChange :path regular-file}
+                     {:error false :contents [{:type :text :text "--- a/a.clj\n+++ b/a.clj\n@@ -1 +1 @@\n-a\n+b"}]}
+                     (assoc ctx :tool-call-id "call-1"))))))))

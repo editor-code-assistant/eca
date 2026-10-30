@@ -59,6 +59,20 @@
         (is (seq (:rewrite-content-received (h/messages))))
         (is (not (.contains (.toString os3 "UTF-8") "rewrite")))))
 
+    (testing "memory-index-loaded delegates and broadcasts camelCase"
+      (messenger/memory-index-loaded
+       broadcast-messenger
+       {:chat-id "c1" :count 2 :total-count 80 :items [{:name "Cache" :type "solution" :source "global"}]})
+      (Thread/sleep 100)
+      (is (= {:chat-id "c1" :count 2 :total-count 80 :items [{:name "Cache" :type "solution" :source "global"}]}
+             (first (:memory-index-loaded (h/messages)))))
+      (let [output (.toString os "UTF-8")]
+        (is (.contains output "memory:index-loaded"))
+        (is (.contains output "\"chatId\":\"c1\""))
+        (is (.contains output "\"count\":2"))
+        (is (.contains output "\"totalCount\":80"))
+        (is (.contains output "\"items\""))))
+
     (sse/close-all! sse-connections*)))
 
 (deftest incremental-notifications-replay-for-sse-test

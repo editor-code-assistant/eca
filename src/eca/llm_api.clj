@@ -249,7 +249,7 @@
   [target-api past-messages]
   (let [past (vec past-messages)
         incompatible? (partial entry-incompatible-with-api? target-api)
-        kept (into [] (comp (remove incompatible?) (map message-sanitize/strip-internal-message-fields)) past)
+        kept (into [] (comp (remove incompatible?) (map message-sanitize/sanitize-outbound-message)) past)
         dropped (filterv incompatible? past)]
     {:messages kept
      :dropped-count (count dropped)
@@ -585,6 +585,9 @@
         ;; needs the same treatment or deferred schemas come back after the first
         ;; tool call. Wrapped here rather than in `prompt!` because the sync path
         ;; invokes the callback itself, without going through it.
+        ;; `:new-messages` get the same outbound sanitizing as the messages of
+        ;; `prompt!`: the Bedrock tool loop does not sanitize them, and Bedrock
+        ;; silently drops unknown blocks.
         on-tools-called-wrapper (fn [tool-calls]
                                   ;; Tool execution can block on user approval.
                                   ;; End the generation window first so a usage
@@ -593,7 +596,8 @@
                                   (reset! generation-start-ms* nil)
                                   (let [result (on-tools-called tool-calls)]
                                     (cond-> result
-                                      (map? result) (update :tools tools-for-request))))
+                                      (map? result) (-> (update :tools tools-for-request)
+                                                        (update :new-messages message-sanitize/sanitize-outbound-messages)))))
         on-message-received-wrapper (fn [& [message :as args]]
                                       (when (#{:text :url :refusal} (:type message))
                                         (mark-generation-start!))

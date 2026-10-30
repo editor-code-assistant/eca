@@ -58,6 +58,12 @@
       (escape-uri uri)
       uri)))
 
+(defn date-line
+  "The date line that ECA adds to the first user message of a context
+  window per day."
+  []
+  (str "Current date: " (java.time.LocalDate/now)))
+
 (defn deep-merge [& maps]
   (apply merge-with (fn [& args]
                       (if (every? #(or (map? %) (nil? %)) args)

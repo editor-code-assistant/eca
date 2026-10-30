@@ -97,7 +97,8 @@
       (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
       (match-content chat-id "system" {:type "text" :text (m/pred #(and (string/includes? % "# Instructions (System prompt)")
                                                                         (string/includes? % "You are ECA")
-                                                                        (not (string/includes? % "# Chat (User prompt)"))
+                                                                        (string/includes? % "# Chat (User prompt)")
+                                                                        (string/includes? % "Current date: ")
                                                                         (not (string/includes? % "/prompt-show"))
                                                                         (string/includes? % "Tool schemas are sent separately")))})
       (match-content chat-id "system" {:type "progress" :state "finished"}))))
@@ -283,7 +284,7 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "text" :text "Side question forked to: btw: Who's there?"})
         ;; Forked chat replays the copied history and gets its title.
-        (match-content btw-chat-id "user" {:type "text" :text "\nTell me a joke!"})
+        (match-content btw-chat-id "user" {:type "text" :text (str "\nTell me a joke!\n" (h/date-line))})
         (match-content btw-chat-id "assistant" {:type "text" :text "\nKnock knock!"})
         (match-content btw-chat-id "system" {:type "metadata" :title "btw: Who's there?"})
         ;; Origin chat turn finishes while the fork answers the question.
@@ -297,7 +298,7 @@
 
         ;; The forked chat request contains the copied history + the question.
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
              (llm.mocks/get-req-body :simple-text-1)))))
@@ -322,7 +323,7 @@
         (match-content chat-id "system" {:type "progress" :state "finished"})
         ;; No trace of the /btw exchange in the origin chat request.
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
              (llm.mocks/get-req-body :simple-text-2)))))))
