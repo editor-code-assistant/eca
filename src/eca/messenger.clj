@@ -22,4 +22,5 @@
   (editor-diagnostics [this uri])
   (editor-definition [this uri position])
   (editor-references [this uri position include-declaration])
-  (ask-question [this params]))
+  (ask-question [this params])
+  (memory-index-loaded [this params]))

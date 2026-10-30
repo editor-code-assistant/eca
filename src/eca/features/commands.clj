@@ -14,6 +14,9 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.delivery :as f.memory.delivery]
+   [eca.features.memory.render :as f.memory.render]
    [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
@@ -328,6 +331,17 @@
                        :type :native
                        :description "List active hooks grouped by type."
                        :arguments []}]
+        eca-commands (cond-> eca-commands
+                       (f.memory/enabled? config)
+                       (conj {:name "memory-consolidate"
+                              :type :native
+                              :description "Review, merge and clean up durable memory files"
+                              :arguments [{:name "scope"
+                                           :description "project or global (default: both)"
+                                           :required false}
+                                          {:name "instructions"
+                                           :description "Your request, e.g. only entries changed in the last 14 days"
+                                           :required false}]}))
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -361,6 +375,20 @@
                       (string/replace (str "$" (inc i)) arg)))
                 content-with-args
                 (map-indexed vector args))))))
+
+(defn ^:private consolidate-scope
+  "Splits the `/memory-consolidate` args into a scope and the user's request.
+   The scope is the first token when it is exactly `project` or `global` (any
+   case); a multi-word token such as \"project notes\" is a request, because
+   clients quote values that contain spaces. Anything else keeps both tiers and
+   the whole text as the request. `:tier` is the memory-dirs tier to keep, or
+   nil for both."
+  [args]
+  (let [word (some-> (first args) string/trim string/lower-case)]
+    (case word
+      "project" {:tier :personal :label "project" :request (rest args)}
+      "global" {:tier :global :label "global" :request (rest args)}
+      {:tier nil :label "project + global" :request args})))
 
 (defn ^:private get-custom-command [command args custom-cmds]
   (when-let [raw-content (:content (first (filter #(= command (:name %))
@@ -716,6 +744,36 @@
               :on-finished-side-effect (fn []
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
+      "memory-consolidate" (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
+                             ;; :eca-command dispatches never receive a memory
+                             ;; block (chat.clj gates it on :prompt-message), so the
+                             ;; dir list + usage snapshot go directly into the
+                             ;; prompt text here, where db/config are available.
+                             (let [{:keys [tier request] scope-label :label} (consolidate-scope args)
+                                   args-text (string/join " " request)
+                                   in-scope? #(or (nil? tier) (= tier (:tier %)))
+                                   snapshot (try
+                                              (f.memory.render/consolidate-snapshot-text
+                                               {:dirs (filterv in-scope? (f.memory/memory-dirs db))
+                                                :entries (f.memory/scan-memories db config)
+                                                :skipped (filterv in-scope? (f.memory/skipped-files db))})
+                                              (catch Throwable e
+                                                (logger/warn "[commands]"
+                                                             "Could not build memory usage snapshot for /memory-consolidate"
+                                                             (ex-message e))
+                                                "usage snapshot unavailable"))
+                                   prompt (str (f.prompt/memory-consolidate-prompt agent config)
+                                               "\n\n## Memory directories and usage snapshot\n"
+                                               "Scope: " scope-label "\n\n"
+                                               snapshot
+                                               (when-not (string/blank? args-text)
+                                                 (str "\n\n## Additional instructions from the user\n" args-text)))]
+                               ;; The consolidation flag is set for the whole turn
+                               ;; by `prompt-messages!` and cleared by the next new
+                               ;; user turn, so continuations keep it.
+                               {:type :send-prompt
+                                :memory-consolidating? true
+                                :prompt prompt}))
       "compact" (let [custom-instructions (string/join " " args)
                       {:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions)]
                   (if blocked?
@@ -921,6 +979,12 @@
                                       (update :deleted-chat-ids (fnil conj #{}) selected-chat-id))))
                      (db/save-chat! @db* chat-id metrics)
                      (db/delete-chat-from-cache! @db* selected-chat-id metrics)
+                     ;; The resumed chat gets the current memory counts; it does
+                     ;; not go through open-chat!.
+                     (f.memory.delivery/notify-index-loaded! {:chat-id chat-id
+                                                              :db @db*
+                                                              :config config
+                                                              :messenger messenger})
                      ;; Align the client's selected model with the resumed chat
                      ;; so the LLM call keeps using the chat's original model. #417
                      (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat) chat-id)

@@ -3,6 +3,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.memory :as f.memory]
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
    [eca.models :as models]
@@ -765,3 +766,26 @@
                               :env {:FOO "bar"}
                               :headers {:Authorization "Bearer x"}}}
                     @captured*))))))
+
+(deftest memory-protocol-handlers-test
+  (testing "list returns the file-backed memories of the current db"
+    (h/reset-components!)
+    (h/config! {:memory {:enabled true}})
+    (let [list* (atom nil)
+          memories [{:path "/mem/a.md" :name "A" :tier "global"}]
+          skipped [{:path "/mem/broken.md" :reason "YAML boom"}]]
+      (with-redefs [f.memory/list-memories
+                    (fn [db]
+                      (reset! list* db)
+                      memories)
+                    f.memory/skipped-files (fn [_] skipped)]
+        (is (= {:memories memories :skipped skipped}
+               (handlers/memory-list (h/components) {})))
+        (is (identical? (h/db) @list*)))))
+
+  (testing "list reports memory is disabled"
+    (h/reset-components!)
+    (with-redefs [f.memory/list-memories
+                  (fn [_] (throw (ex-info "must not be called" {})))]
+      (is (= {:error {:code :memory-disabled :message "memory is disabled"}}
+             (handlers/memory-list (h/components) {}))))))

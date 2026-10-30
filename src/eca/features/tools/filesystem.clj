@@ -6,6 +6,8 @@
    [clojure.string :as string]
    [eca.diff :as diff]
    [eca.features.index :as f.index]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.usage :as f.memory.usage]
    [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.smart-edit :as smart-edit]
    [eca.features.tools.text-match :as text-match]
@@ -159,6 +161,8 @@
             was-truncated?                (not= (- (count full-content-lines) line-offset)
                                                 (count maybe-truncated-content-lines))
             content                       (string/join "\n" maybe-truncated-content-lines)]
+        ;; Only memory files are tracked, and record-read! re-checks the flags.
+        (f.memory.usage/record-read! ctx path)
         (tools.util/single-text-content (if was-truncated?
                                           (str content "\n\n"
                                                "[CONTENT TRUNCATED] Showing lines " (if line-offset (inc line-offset) 1)
@@ -181,6 +185,17 @@
                          line-offset
                          (+ line-offset limit))))))
     "Reading file"))
+
+(defn ^:private require-valid-memory-content
+  "Error result when `path` is inside one of the chat's memory dirs and
+   `content` would not be a valid memory file (YAML frontmatter mapping with
+   non-blank `name` and `description`), else nil. A malformed memory file
+   would be silently skipped by the memory index, so such writes are rejected
+   before any byte hits disk."
+  [path content ctx]
+  (when (and path content (f.memory/memory-path? (:db ctx) (:config ctx) path))
+    (when-let [error (f.memory/memory-content-error content)]
+      (tools.util/single-text-content error :error))))
 
 (defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
@@ -236,9 +251,11 @@
   (let [path (get arguments "path")
         content (get arguments "content")]
     (or (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
+        (require-valid-memory-content path content ctx)
         (let [old-content (try (slurp path) (catch Exception _ nil))]
           (fs/create-dirs (fs/parent (fs/path path)))
           (spit path content)
+          (f.memory.usage/record-write! ctx path)
           (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
                  :rollback-changes [{:path path
                                      :content old-content}])))))
@@ -461,10 +478,13 @@
             initial-content  (slurp path)
             result           (apply-file-edit-strategy initial-content original-content new-content all? path)
             write!           (fn [res]
-                               (spit path (:new-full-content res))
-                               (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
-                                   (assoc :rollback-changes [{:path    path
-                                                              :content initial-content}])))]
+                               (or (require-valid-memory-content path (:new-full-content res) ctx)
+                                   (do
+                                     (spit path (:new-full-content res))
+                                     (f.memory.usage/record-write! ctx path)
+                                     (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                                         (assoc :rollback-changes [{:path    path
+                                                                    :content initial-content}])))))]
         (if (:new-full-content result)
           (let [current-content (slurp path)]
             (if (= current-content (:original-full-content result))
@@ -497,13 +517,18 @@
                path)
        :error))))
 
-(defn ^:private move-file [arguments _]
+(defn ^:private move-file [arguments ctx]
   (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
                                                ["destination" (complement fs/exists?) "Path $destination already exists"]])
       (let [source (get arguments "source")
             destination (get arguments "destination")
             directory? (fs/directory? source)
             source-content (when-not directory? (slurp source))]
+        ;; Re-key before the move: once the source no longer exists, the
+        ;; ledger's prune would drop its entry before we could re-key it. If
+        ;; the move then fails, the next update prunes the stray key.
+        (when-not directory?
+          (f.memory.usage/record-move! ctx source destination))
         (fs/move source destination {:replace-existing false})
         (cond-> (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
           (not directory?) (assoc :rollback-changes [{:path destination
@@ -532,7 +557,7 @@
                                            :description (format "Maximum depth to traverse (default: %s)" directory-tree-max-depth)}}
                  :required ["path"]}
     :handler #'directory-tree
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'directory-tree-summary}
    "read_file"
    {:description (tools.util/read-tool-description "read_file")
@@ -545,7 +570,7 @@
                                        :description "Maximum lines to read (default: {{readFileMaxLines}})"}}
                  :required ["path"]}
     :handler #'read-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'read-file-summary}
    "view_image"
    {:description (tools.util/read-tool-description "view_image")
@@ -566,7 +591,7 @@
                                          :description "The complete content to write to the file"}}
                  :required ["path" "content"]}
     :handler #'write-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :write})
     :summary-fn #'write-file-summary}
    "edit_file"
    {:description (tools.util/read-tool-description "edit_file")
@@ -581,7 +606,7 @@
                                                  :description "Whether to replace all occurrences of the file or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :write})
     :summary-fn #'edit-file-summary}
    "preview_file_change"
    {:description (tools.util/read-tool-description "preview_file_change")
@@ -596,7 +621,7 @@
                                                  :description "Whether to preview replacing all occurrences or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'preview-file-change
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn (constantly "Previewing change")}
    "move_file"
    {:description (tools.util/read-tool-description "move_file")
@@ -607,7 +632,7 @@
                                              :description "The new absolute file path to move to."}}
                  :required ["source" "destination"]}
     :handler #'move-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"] {:trust-memory-paths :write})
     :summary-fn #'move-file-summary}
    "grep"
    {:description (tools.util/read-tool-description "grep")
@@ -625,7 +650,7 @@
                                              :description "Output format: 'content' shows matching lines with context, 'files_with_matches' shows only file paths (default), 'count' shows match counts per file"}}
                  :required ["path" "pattern"]}
     :handler #'grep
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'grep-summary}})
 
 (defmethod tools.util/tool-call-details-before-invocation :edit_file [_name arguments _server _ctx]

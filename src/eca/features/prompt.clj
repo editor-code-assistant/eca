@@ -4,6 +4,8 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
+   [eca.features.memory :as memory]
+   [eca.features.memory.render :as memory.render]
    [eca.features.skills :as f.skills]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.util :as tools.util]
@@ -289,6 +291,22 @@
      "</deferred-tools>"
      ""]))
 
+(defn ^:private memory-guidance-section
+  "Memory guidance for the static instructions block. Every primary agent gets
+   the read part (directory listing and reuse rules); the write part goes only
+   to agents with write tools, because a read-only agent cannot write memory
+   files and needs no permission rules. Session-stable (dirs and write-mode are
+   fixed at chat start), so it joins the cached prefix. Subagents get nothing."
+  [config chat-id all-tools db]
+  (when (and (memory/enabled? config)
+             (not (get-in db [:chats chat-id :subagent])))
+    (let [write? (or (tools.util/tool-available? all-tools "eca__write_file")
+                     (tools.util/tool-available? all-tools "eca__edit_file"))
+          guidance (memory.render/guidance-text {:write-mode (memory/write-mode config)
+                                                 :write? write?
+                                                 :dirs (memory/memory-dirs db)})]
+      [guidance ""])))
+
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
@@ -342,6 +360,7 @@
         "</skills>"
         ""])
      (deferred-tools-section all-tools)
+     (memory-guidance-section config chat-id all-tools db)
      (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
                                 selmer-ctx "additional-system-info")
      (workspace-roots-section db)
@@ -442,6 +461,9 @@
    (get-config-prompt :init agent-name config)
    (->base-selmer-ctx all-tools db)
    "init-prompt"))
+
+(defn memory-consolidate-prompt [agent-name config]
+  (get-config-prompt :memoryConsolidate agent-name config))
 
 (defn skill-create-prompt [skill-name user-prompt all-tools agent-name db config]
   (shared/safe-selmer-render

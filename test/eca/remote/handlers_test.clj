@@ -349,6 +349,31 @@
               (is (= ["a" "b"] (texts parsed)))
               (is (nil? (get-in parsed [:messagesMeta :compactionCursor])))))))
       
+      (deftest handle-get-chat-strips-memory-test
+        (let [memory-block {:type :memory-context :text "<memory-index>notes</memory-index>"}
+              memory-msg {:role "user"
+                          :created-at 2
+                          :content [{:type :text :text "question"} memory-block]
+                          :memory {"/home/u/.config/eca/memory/global/note.md"
+                                   {:hash "abc" :name "Note" :label "global"}}
+                          :content-id "c2"}
+              messages [(msg "assistant" "m1" 1) memory-msg]]
+          (testing "the legacy full-history response carries no memory data"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {})
+                  mem-msg (last (:messages parsed))]
+              (is (= [{:type "text" :text "question"}] (:content mem-msg))
+                  "the memory block is removed, the other blocks stay")
+              (is (not (contains? mem-msg :memory)))))
+          (testing "a paginated response carries no memory data either"
+            (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "T" :status :idle :messages messages})
+            (let [{:keys [parsed]} (get-chat {:limit "2"})
+                  mem-msg (last (:messages parsed))]
+              (is (= [{:type "text" :text "question"}] (:content mem-msg)))
+              (is (not (contains? mem-msg :memory)))))
+          (testing "the session keeps the raw messages"
+            (is (= messages (get-in @(h/db*) [:chats "c1" :messages]))))))
+
       (deftest handle-stop-test
   (testing "returns 404 for missing chat"
     (let [response (handlers/handle-stop (components) nil "nonexistent")]

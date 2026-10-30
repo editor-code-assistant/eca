@@ -10,6 +10,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as f.chat.history]
    [eca.handlers :as handlers]
+   [eca.message-sanitize :as message-sanitize]
    [eca.remote.messenger :as remote.messenger]
    [eca.remote.sse :as sse]
    [eca.shared :as shared]
@@ -183,7 +184,11 @@
                 :status (or (:status chat) :idle)
                 :created-at (:created-at chat)
                 :updated-at (:updated-at chat)
-                :messages (if paginate? (:messages page) all-messages)
+                ;; Memory blocks carry personal notes and machine-local paths,
+                ;; so the remote client gets the messages without them (pages
+                ;; included). The session keeps the raw messages.
+                :messages (mapv message-sanitize/remove-memory-context
+                                (if paginate? (:messages page) all-messages))
                 :task (:task chat)
                 :pending-tool-calls (pending-tool-calls chat)
                 ;; Effective selection: per-chat override if set, otherwise the

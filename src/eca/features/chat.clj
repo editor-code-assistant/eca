@@ -15,6 +15,8 @@
    [eca.features.context :as f.context]
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.delivery :as f.memory.delivery]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
@@ -28,6 +30,7 @@
    [eca.llm-providers.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
@@ -115,7 +118,12 @@
      ;; Deferred tools are tracked separately because they render a catalog into
      ;; the static prompt, unlike normal tools whose schemas are sent per turn.
      :tools (sha {:names (sort (map :full-name all-tools))
-                  :deferrable (sort (map :full-name (filter :deferrable all-tools)))})}))
+                  :deferrable (sort (map :full-name (filter :deferrable all-tools)))})
+     ;; Memory guidance lives in the static prompt. The default write mode and
+     ;; invalid values are resolved by `memory/write-mode` itself, so the
+     ;; signature follows the effective policy, not the raw config value.
+     :memory (sha {:enabled (f.memory/enabled? config)
+                   :write-mode (f.memory/write-mode config)})}))
 
 (defn ^:private changed-system-prompt-categories
   "Names of system prompt categories that changed vs the cached signature.
@@ -719,16 +727,44 @@
       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
     {:stop-after-finish? stop-turn?}))
 
+(defn ^:private add-memory-block
+  "Adds a memory block to the user message at `idx`, after its text content and
+   before its images, and stores the state on the same message."
+  [messages idx {:keys [text memory]}]
+  (let [content (vec (:content (nth messages idx)))
+        images (filterv #(= :image (:type %)) content)
+        others (filterv #(not= :image (:type %)) content)]
+    (-> messages
+        (assoc-in [idx :content] (vec (concat others [{:type :memory-context :text text}] images)))
+        (assoc-in [idx :memory] memory))))
+
 (defn ^:private resume-after-compact!
-  "on-after-finish! for a mid-turn compaction: resume the original user task."
+  "on-after-finish! for a mid-turn compaction: resume the original user task.
+   The resumed messages may carry a memory block built for the old window, so
+   memory data is stripped and a fresh block is built for the new window (which
+   has no memory message, so it is a full index)."
   [chat-ctx user-messages]
-  (prompt-messages!
-   (concat [{:role "user"
-             :content [{:type :text
-                        :text "Continue with the task. The previous user request was:"}]}]
-           user-messages)
-   :auto-compact
-   (assoc chat-ctx :auto-compacted? true)))
+  (let [{:keys [db* chat-id config metrics]} chat-ctx
+        db @db*
+        window (shared/messages-after-last-compact-marker (get-in db [:chats chat-id :messages]))
+        memory-delivery (f.memory.delivery/turn-block {:chat-id chat-id
+                                                       :db db
+                                                       :config config
+                                                       :metrics metrics
+                                                       :window window})
+        resumed (mapv message-sanitize/remove-memory-context user-messages)
+        resumed (if-let [block (:block memory-delivery)]
+                  (if-let [idx (llm-util/find-last-user-msg-idx resumed)]
+                    (add-memory-block resumed idx block)
+                    resumed)
+                  resumed)]
+    (prompt-messages!
+     (concat [{:role "user"
+               :content [{:type :text
+                          :text "Continue with the task. The previous user request was:"}]}]
+             resumed)
+     :auto-compact
+     (assoc chat-ctx :auto-compacted? true))))
 
 (defn ^:private trigger-compact!
   "Compact the chat in the middle of a running turn, then resume the original
@@ -1034,6 +1070,14 @@
           (try (thunk)
                (finally (swap! db* update-in [:managed-chats chat-id :workers] dec)))))))
 
+(defn ^:private message-has-date?
+  "True when `message` is a user message that already carries the `date` stamp
+   in its content."
+  [message date]
+  (and date
+       (= "user" (:role message))
+       (some #(= {:type :text :text date} %) (:content message))))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -1089,6 +1133,13 @@
       (swap! db* assoc-in [:chats chat-id :status] :running)
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
       (when (and run-hooks? (:user-content-id chat-ctx))
+        ;; A new user turn is the only place that sets or clears the
+        ;; consolidation flag. Continuations (auto-continue, retries, the
+        ;; compaction resume, the postRequest-hook follow-up, the steered-command
+        ;; resume) never reach this block, so they keep it.
+        (if (:memory-consolidating? chat-ctx)
+          (swap! db* assoc-in [:chats chat-id :memory-consolidating?] true)
+          (swap! db* update-in [:chats chat-id] dissoc :memory-consolidating?))
         ;; Kept until the LLM responds, so a turn that is stopped, fails or is
         ;; superseded before that doesn't lose what the user typed.
         (lifecycle/record-unsent-user-messages! db* chat-id)
@@ -1208,7 +1259,9 @@
                                             "Follow the rules from the system prompt. Output only the title.\n\n"
                                             "Conversation:\n"
                                             transcript)}]}])
-                  user-messages)]
+                  ;; The title model needs the user text only: memory blocks are
+                  ;; private data with machine-local paths.
+                  (mapv message-sanitize/remove-memory-context user-messages))]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
@@ -1880,7 +1933,7 @@
 
 (defn ^:private handle-command! [{:keys [command args]} chat-ctx]
   (try
-    (let [{:keys [type on-finished-side-effect on-after-finish!] :as result} (f.commands/handle-command! command args chat-ctx)]
+    (let [{:keys [type on-finished-side-effect on-after-finish! memory-consolidating?] :as result} (f.commands/handle-command! command args chat-ctx)]
       (case type
         :chat-messages (do
                          (when (:clear-before? result)
@@ -1925,7 +1978,8 @@
                                          :eca-command
                                          (assoc-some chat-ctx
                                                      :on-finished-side-effect on-finished-side-effect
-                                                     :on-after-finish! on-after-finish!)))
+                                                     :on-after-finish! on-after-finish!
+                                                     :memory-consolidating? memory-consolidating?)))
         nil))
     (catch Exception e
       (logger/error e)
@@ -2111,11 +2165,54 @@
                 (swap! db* assoc-in [:chats chat-id :last-editor-state] editor-state-context))
             editor-state-contents (when editor-state-changed?
                                     [{:type :text :text editor-state-context}])
-            user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
-                                                               expanded-prompt-contexts
-                                                               text-contents
-                                                               editor-state-contents
-                                                               image-contents))}]
+            ;; Everything that ECA already sent stays byte-identical, so the
+            ;; provider prompt cache survives: the window is what the model
+            ;; will see for this chat.
+            window (shared/messages-after-last-compact-marker (get-in db [:chats chat-id :messages]))
+            ;; The date rides the user message itself and is deduped per
+            ;; window: the model gets today's date, the memory index shows
+            ;; absolute dates, and multi-day history dates itself.
+            date-context (str "Current date: " (java.time.LocalDate/now))
+            date-contents (when-not (some #(message-has-date? % date-context) window)
+                            [{:type :text :text date-context}])
+            ;; Memory blocks ride normal user prompts and /prompt-show. The
+            ;; delivery function decides between a full index, a change list
+            ;; and no block at all; its state is stored on the message.
+            memory-delivery (when (or (= :prompt-message (:type decision))
+                                      (and (= :eca-command (:type decision))
+                                           (= "prompt-show" (:command decision))))
+                              (f.memory.delivery/turn-block
+                               {:chat-id chat-id
+                                :db db
+                                :config config
+                                ;; /prompt-show stores nothing, so it must not
+                                ;; count as an added block.
+                                :metrics (when (= :prompt-message (:type decision)) metrics)
+                                :window window}))
+            memory-contents (when-let [text (get-in memory-delivery [:block :text])]
+                              [{:type :memory-context :text text}])
+            ;; The client indicator describes the notes a full index would show
+            ;; now. It reuses this turn's scan, so a normal prompt costs one
+            ;; scan in total.
+            _ (when (and (= :prompt-message (:type decision))
+                         memory-delivery)
+                (messenger/memory-index-loaded
+                 messenger
+                 (f.memory.delivery/index-loaded-params
+                  chat-id
+                  (:entries memory-delivery)
+                  (:render memory-delivery))))
+            user-message (assoc-some
+                          {:role "user"
+                           :content (vec (concat [{:type :text :text message}]
+                                                 expanded-prompt-contexts
+                                                 text-contents
+                                                 editor-state-contents
+                                                 date-contents
+                                                 memory-contents
+                                                 image-contents))}
+                          :memory (get-in memory-delivery [:block :memory]))
+            user-messages [user-message]
             [provider model] (when full-model (shared/full-model->provider+model full-model))
             chat-ctx (merge base-chat-ctx
                             {:instructions instructions
@@ -2867,6 +2964,12 @@
          (mark-editor-open! db* chat-id)
          (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
          (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
+         ;; A resumed chat gets the current store counts, so the client
+         ;; indicator is right also after a restart.
+         (f.memory.delivery/notify-index-loaded! {:chat-id chat-id
+                                                  :db @db*
+                                                  :config config
+                                                  :messenger messenger})
          (send-chat-contents! messages chat-ctx)
          (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
          (let [model-selection (config/notify-selected-model-changed!

@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.features.memory.render :as memory.render]
    [eca.features.prompt :as prompt]
    [eca.test-helper :as h]))
 
@@ -313,3 +314,48 @@
           {:keys [static]} (build-instructions [] static-rules [] [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
       (is (not (string/includes? static "broken-rule")))
       (is (not (string/includes? static "## Rules"))))))
+
+(def ^:private write-tools
+  [{:full-name "eca__write_file" :name "write_file" :origin :native :server {:name "eca"}}
+   {:full-name "eca__edit_file" :name "edit_file" :origin :native :server {:name "eca"}}])
+
+(def ^:private read-tools
+  [{:full-name "eca__read_file" :name "read_file" :origin :native :server {:name "eca"}}])
+
+(deftest build-instructions-memory-guidance-test
+  (let [enabled-config {:memory {:enabled true :writeMode "agent"}}]
+    (testing "an agent with write tools gets the read part and the write part in the STATIC instructions"
+      (let [{:keys [static dynamic]} (build-instructions [] [] [] [] (delay "TREE") "code" enabled-config "chat-1" write-tools (h/db))]
+        (is (string/includes? static "## Memory\n"))
+        (is (string/includes? static "## Memory write guidance"))
+        (is (not (string/includes? (or dynamic "") "## Memory write guidance"))
+            "guidance rides the cached static prefix, never the per-turn dynamic part")))
+    (testing "a read-only agent (for example plan) gets only the read part"
+      (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "plan" enabled-config "chat-1" read-tools (h/db))]
+        (is (string/includes? static "## Memory\n"))
+        (is (string/includes? static "Check facts and referenced files"))
+        (is (not (string/includes? static "## Memory write guidance")))
+        (is (not (string/includes? static "### Permission")))
+        (is (not (string/includes? static "mkdir")))))
+    (testing "configuration cannot replace the bundled memory guidance"
+      (let [config (assoc enabled-config
+                          :prompts {:memoryGuidance "GLOBAL OVERRIDE"}
+                          :agent {"code" {:prompts {:memoryGuidance "AGENT OVERRIDE"}}})
+            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" config "chat-1" write-tools (h/db))]
+        (is (string/includes? static "## Memory write guidance"))
+        (is (not (string/includes? static "GLOBAL OVERRIDE")))
+        (is (not (string/includes? static "AGENT OVERRIDE")))))
+    (testing "absent when memory is disabled (default config)"
+      (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" write-tools (h/db))]
+        (is (not (string/includes? static "## Memory")))))
+    (testing "passes the write mode and the write capability to the renderer"
+      (with-redefs [memory.render/guidance-text #(str "TEST-GUIDANCE:" (:write-mode %) ":" (:write? %))]
+        (doseq [[mode tools expected] [["agent" write-tools "agent:true"]
+                                       ["agent" read-tools "agent:false"]
+                                       ["explicit" write-tools "explicit:true"]]]
+          (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {:memory {:enabled true :writeMode mode}} "chat-1" tools (h/db))]
+            (is (string/includes? static (str "TEST-GUIDANCE:" expected)))))))
+    (testing "absent for subagent chats, even with write tools"
+      (let [db (assoc-in (h/db) [:chats "sub-chat" :subagent] {:name "explorer"})
+            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" enabled-config "sub-chat" write-tools db)]
+        (is (not (string/includes? static "## Memory")))))))
