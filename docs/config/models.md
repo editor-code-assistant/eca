@@ -303,6 +303,46 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
     }
     ```
 
+=== "OpenCode Go"
+
+    [OpenCode Go](https://opencode.ai/go) is a low-cost subscription to coding models. Each model has a native API (OpenAI Chat Completions, OpenAI Responses or Anthropic Messages), listed in its [endpoints table](https://opencode.ai/docs/go/#endpoints), so add one provider per API and list each model under the matching one:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "providers": {
+        "opencode-go": {
+          "api": "openai-chat",
+          "url": "https://opencode.ai/inference/go/openai/v1",
+          "key": "${env:OPENCODE_API_KEY}",
+          "extraHeaders": {"User-Agent": "eca/1.0", "x-opencode-session": "<uuid>"},
+          "fetchModels": false,
+          "models": {"kimi-k3": {}, "glm-5.3": {}, "deepseek-v4-pro": {}}
+        },
+        "opencode-go-responses": {
+          "api": "openai-responses",
+          "url": "https://opencode.ai/inference/go/openai",
+          "key": "${env:OPENCODE_API_KEY}",
+          "extraHeaders": {"User-Agent": "eca/1.0", "x-opencode-session": "<uuid>"},
+          "fetchModels": false,
+          "models": {"gpt-6-luna": {}}
+        },
+        "opencode-go-anthropic": {
+          "api": "anthropic",
+          "url": "https://opencode.ai/inference/go/anthropic",
+          "key": "${env:OPENCODE_API_KEY}",
+          "extraHeaders": {"User-Agent": "eca/1.0", "x-opencode-session": "<uuid>"},
+          "fetchModels": false,
+          "models": {"claude-haiku-5-5": {}}
+        }
+      }
+    }
+    ```
+
+    - Replace `<uuid>` with any UUID (e.g. from `uuidgen`): Go requires a session ID in `x-opencode-session` and asks clients to send their own `User-Agent`.
+    - `fetchModels: false` keeps each provider to the models you list; otherwise the Chat Completions provider lists every Go model, including those with a different native API.
+    - Keep the `url` values as shown: ECA appends `/chat/completions`, `/v1/responses` and `/v1/messages` to them.
+    - For OpenCode's pay-as-you-go plan, remove `/go` from the URLs.
+
 === "OpenRouter"
 
     [OpenRouter](https://openrouter.ai) provides access to many models through a unified API:
@@ -584,7 +624,7 @@ Examples:
 === "Dynamic model discovery (models.dev)"
 
     For providers with `api` configured, ECA loads models from `models.dev` by default.
-    Matching is done by provider `url` (against `models.dev` `api` field). If a models.dev provider has no `api` field (for example `anthropic`), ECA falls back to provider id key.
+    Matching is done by provider `url` (against `models.dev` `api` field), where `${...}` placeholders in the `api` field (for example Cloudflare's `${CLOUDFLARE_ACCOUNT_ID}`) match any value without a `/`. If a models.dev provider has no `api` field (for example `anthropic`) or only a templated one (for example `cloudflare-workers-ai`), ECA falls back to provider id key.
 
     Providers whose `/models` endpoint reports token limits (e.g. OpenRouter's `context_length` and `top_provider.max_completion_tokens`, or llama.cpp/llama-swap's `meta.n_ctx` / `meta.n_ctx_train`) have those limits discovered and preferred over models.dev; your config `limit` overrides both.
 
@@ -627,7 +667,7 @@ Some providers require a non-standard or versioned completion endpoint path. Use
 
 Defaults by API type:
 - `openai-responses`: `/v1/responses`
-- `openai-chat`: `/v1/chat/completions`
+- `openai-chat`: `/chat/completions` (so its `url` usually ends with `/v1`)
 - `anthropic`: `/v1/messages`
 
 Only set this when your provider uses a different path or expects query parameters at the endpoint (e.g., Azure API versioning).

@@ -11,7 +11,9 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :refer [assoc-some] :as shared]
-   [hato.client :as http]))
+   [hato.client :as http])
+  (:import
+   [java.util.regex Pattern]))
 
 (set! *warn-on-reflection* true)
 
@@ -199,6 +201,9 @@
     "openai/gpt-5.6-terra"
     "openai/gpt-5.6-sol"
     "openai/gpt-6-astra"
+    "openai/gpt-6.1-sol"
+    "openai/gpt-6-sol"
+    "openai/gpt-6-luna"
     "openai/o3"
     "openai/o3-mini"
     "openai/o4-mini"
@@ -295,30 +300,76 @@
    {}
    models-dev-data))
 
+(def ^:private api-url-placeholder-regex
+  "`${VAR}` placeholders models.dev uses for user-specific parts of a
+   provider's API URL, e.g. Cloudflare Workers AI's account id."
+  #"\$\{[^}]*\}")
+
+(defn ^:private api-url-template->pattern
+  "Regex matching the URLs a models.dev API URL template stands for, or nil
+   when `api-url` has no placeholder. Each `${...}` placeholder matches a
+   non-empty value without `/`, e.g. the account id in Cloudflare's
+   `.../accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1`, so a placeholder standing for
+   a whole base URL (`${NEON_AI_GATEWAY_BASE_URL}/v1`) matches no real URL."
+  [api-url]
+  (when (re-find api-url-placeholder-regex api-url)
+    (->> (string/split api-url api-url-placeholder-regex -1)
+         (map #(Pattern/quote %))
+         (string/join "[^/]+")
+         re-pattern)))
+
+(defn ^:private models-dev-providers-by-url-template
+  "Returns [url-pattern models.dev provider config] pairs for models.dev
+   providers whose API URL is a template (see `api-url-template->pattern`)."
+  [models-dev-data]
+  (into []
+        (keep (fn [[_provider models-dev-provider]]
+                (when-let [pattern (some-> (get models-dev-provider "api")
+                                           shared/normalize-api-url
+                                           api-url-template->pattern)]
+                  [pattern models-dev-provider])))
+        models-dev-data))
+
 (defn ^:private models-dev-provider-index
   "Builds lookup index for models.dev providers."
   [models-dev-data]
   {:by-id models-dev-data
-   :by-url (models-dev-providers-by-url models-dev-data)})
+   :by-url (models-dev-providers-by-url models-dev-data)
+   :by-url-template (models-dev-providers-by-url-template models-dev-data)})
 
-(defn ^:private models-dev-provider-without-api?
+(defn ^:private models-dev-provider-without-fixed-api?
+  "True when a models.dev provider has no API URL identifying it: none (e.g.
+   `anthropic`) or a template with user-specific parts (e.g.
+   `cloudflare-workers-ai`)."
   [provider-config]
-  (string/blank? (shared/normalize-api-url (get provider-config "api"))))
+  (let [api-url (shared/normalize-api-url (get provider-config "api"))]
+    (or (string/blank? api-url)
+        (some? (re-find api-url-placeholder-regex api-url)))))
+
+(defn ^:private resolve-models-dev-provider-by-url
+  "Resolve models.dev provider config by exact API URL, then by API URL template."
+  [provider-api-url {:keys [by-url by-url-template]}]
+  (when provider-api-url
+    (or (get by-url provider-api-url)
+        (some (fn [[pattern models-dev-provider]]
+                (when (re-matches pattern provider-api-url)
+                  models-dev-provider))
+              by-url-template))))
 
 (defn ^:private resolve-models-dev-provider
   "Resolve models.dev provider config by URL first, then by provider id key
-   only when models.dev provider has no API URL."
-  [provider provider-api-url {:keys [by-id by-url]}]
-  (or (get by-url provider-api-url)
+   only when models.dev provider has no fixed API URL."
+  [provider provider-api-url {:keys [by-id] :as models-dev-index}]
+  (or (resolve-models-dev-provider-by-url provider-api-url models-dev-index)
       (when-let [provider-by-id (get by-id provider)]
-        (when (models-dev-provider-without-api? provider-by-id)
+        (when (models-dev-provider-without-fixed-api? provider-by-id)
           provider-by-id))))
 
 (defn ^:private using-models-dev-provider-id-fallback?
-  [provider provider-api-url {:keys [by-id by-url]}]
-  (and (nil? (get by-url provider-api-url))
+  [provider provider-api-url {:keys [by-id] :as models-dev-index}]
+  (and (nil? (resolve-models-dev-provider-by-url provider-api-url models-dev-index))
        (when-let [provider-by-id (get by-id provider)]
-         (models-dev-provider-without-api? provider-by-id))))
+         (models-dev-provider-without-fixed-api? provider-by-id))))
 
 (defn ^:private fetch-model-catalog-enabled?
   [provider-config]
