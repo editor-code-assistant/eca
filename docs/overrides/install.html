@@ -23,7 +23,7 @@
 <meta name="twitter:image" content="{{ og_image }}" />
 
 <!-- Additional SEO -->
-<meta name="keywords" content="ECA install, Editor Code Assistant install, VS Code, Emacs, Neovim, IntelliJ, Desktop, Homebrew, mise, install script, AI pair programming" />
+<meta name="keywords" content="ECA install, Editor Code Assistant install, VS Code, Emacs, Neovim, IntelliJ, Desktop, CLI, terminal, Homebrew, mise, install script, AI pair programming" />
 <link rel="canonical" href="{{ page_url }}" />
 
 <style>
@@ -221,6 +221,7 @@
   #eca-install-neovim:checked   ~ .eca-install-tabs label[for="eca-install-neovim"],
   #eca-install-intellij:checked ~ .eca-install-tabs label[for="eca-install-intellij"],
   #eca-install-desktop:checked  ~ .eca-install-tabs label[for="eca-install-desktop"],
+  #eca-install-cli:checked      ~ .eca-install-tabs label[for="eca-install-cli"],
   #eca-manual-script:checked    ~ .eca-install-subtabs label[for="eca-manual-script"],
   #eca-manual-brew:checked      ~ .eca-install-subtabs label[for="eca-manual-brew"],
   #eca-manual-mise:checked      ~ .eca-install-subtabs label[for="eca-manual-mise"],
@@ -249,7 +250,8 @@
   #eca-install-vscode:checked   ~ .eca-install-panels .eca-install-panel--vscode,
   #eca-install-neovim:checked   ~ .eca-install-panels .eca-install-panel--neovim,
   #eca-install-intellij:checked ~ .eca-install-panels .eca-install-panel--intellij,
-  #eca-install-desktop:checked  ~ .eca-install-panels .eca-install-panel--desktop {
+  #eca-install-desktop:checked  ~ .eca-install-panels .eca-install-panel--desktop,
+  #eca-install-cli:checked      ~ .eca-install-panels .eca-install-panel--cli {
     display: block;
   }
 
@@ -1109,6 +1111,7 @@
       <input type="radio" name="eca-install" id="eca-install-neovim">
       <input type="radio" name="eca-install" id="eca-install-intellij">
       <input type="radio" name="eca-install" id="eca-install-desktop">
+      <input type="radio" name="eca-install" id="eca-install-cli">
 
       <div class="eca-install-tabs" role="tablist">
         <label for="eca-install-emacs"    class="eca-install-tab" role="tab">{{ icon_emacs() }}    Emacs</label>
@@ -1116,6 +1119,7 @@
         <label for="eca-install-neovim"   class="eca-install-tab" role="tab">{{ icon_neovim() }}   Neovim</label>
         <label for="eca-install-intellij" class="eca-install-tab" role="tab">{{ icon_intellij() }} IntelliJ</label>
         <label for="eca-install-desktop"  class="eca-install-tab" role="tab">{{ icon_desktop() }}  Desktop</label>
+        <label for="eca-install-cli"      class="eca-install-tab" role="tab">{{ icon_terminal() }} CLI</label>
       </div>
 
       <div class="eca-install-panels">
@@ -1301,6 +1305,51 @@
           </div>
         </div>
 
+        <!-- CLI panel: install script for the eca-cli terminal client. -->
+        <div class="eca-install-panel eca-install-panel--cli">
+          <div class="eca-install-panel__body">
+            <h3 class="eca-install-panel__title">
+              {{ icon_terminal()|safe }}
+              ECA CLI
+            </h3>
+            <p class="eca-install-panel__desc eca-install-panel__desc--lead">
+              <strong>eca-cli</strong> is a keyboard-driven terminal client for ECA, no editor
+              required. It downloads and keeps the ECA server up-to-date automatically.
+            </p>
+            <p class="eca-install-panel__desc">
+              Install it with the script below and run it from your project directory.
+              No separate server install is needed.
+            </p>
+            <div class="eca-code">
+              <div class="eca-code__bar">
+                <span class="eca-code__dot eca-code__dot--red"></span>
+                <span class="eca-code__dot eca-code__dot--yellow"></span>
+                <span class="eca-code__dot eca-code__dot--green"></span>
+                <span class="eca-code__title">bash</span>
+              </div>
+<pre><span class="hl-comm"># Install or update eca-cli</span>
+bash &lt;(curl -fsSL https://raw.githubusercontent.com/editor-code-assistant/eca-cli/main/install)
+
+<span class="hl-comm"># Start it from your project directory</span>
+cd your-project
+eca-cli</pre>
+            </div>
+            <p class="eca-install-note">
+              The script requires <code>curl</code> and <code>tar</code>, and installs a single
+              self-contained <code>eca-cli</code> binary for Linux or macOS (x86_64 / arm64) in
+              <code>~/.local/bin</code> (<code>/usr/local/bin</code> as root); pass
+              <code>--dir &lt;dir&gt;</code> to pick another place. On other platforms, run the
+              <code>eca-cli.jar</code> release with Babashka: <code>bb eca-cli.jar</code>.
+            </p>
+
+            <p class="eca-install-panel__footer-note">
+              <a href="https://github.com/editor-code-assistant/eca-cli" target="_blank" rel="noopener">
+                View eca-cli on GitHub &rarr;
+              </a>
+            </p>
+          </div>
+        </div>
+
         <!--
           Install page scripts:
           1. Primary tab URL-hash sync (shareable links like /install/#neovim).
@@ -1309,7 +1358,7 @@
         -->
         <script>
           (function () {
-            var PRIMARY_TABS = ['emacs', 'vscode', 'neovim', 'intellij', 'desktop'];
+            var PRIMARY_TABS = ['emacs', 'vscode', 'neovim', 'intellij', 'desktop', 'cli'];
 
             // ── 1. Primary tab ↔ URL hash sync ──
             function applyHashToPrimaryTab() {

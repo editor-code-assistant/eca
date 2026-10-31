@@ -806,6 +806,20 @@ interface ChatProgressContent {
      * May be omitted when state is 'finished'.
      */
     text?: string;
+
+    /**
+     * Only when state is 'finished': present when the turn ended because
+     * of an error (a provider or network error, a context overflow…),
+     * which was also shown in the chat as text. Absent when it succeeded.
+     */
+    error?: {
+        message: string;
+        /**
+         * The kind of error, e.g. 'network', 'overloaded', 'rate-limited',
+         * 'quota-exhausted', 'auth', 'context-overflow', 'unknown'.
+         */
+        type?: string;
+    };
 }
 
 /**

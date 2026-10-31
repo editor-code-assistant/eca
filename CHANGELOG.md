@@ -3,6 +3,11 @@
 ## Unreleased
 
 - Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
+- Add `eca-cli` as an official client in docs and landing page.
+- Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+- Enable built-in web search for OpenAI GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna.
+- Fix no models discovered for providers whose models.dev API URL has placeholders, like Cloudflare Workers AI's account id. #662
+- Fix Anthropic API-key requests failing with "credit balance is too low": send the "You are Claude Code" system block only with OAuth logins. #666
 
 ### Docs site
 - Added: `docs/evolution`. This holds internal planning docs and visual changelogs related to developing the docs site. It is excluded from the published site with `exclude_docs`
@@ -32,6 +37,13 @@
 - Changed: Editor tabs and manual install tabs share one underline style with accent (teal) labels
 - Changed: "Something not working?" section is a bulleted list with the doc page link style
 - Changed: Emoji arrows replaced with plain Unicode text arrows in 61 headings: → ← ↩ ↪
+## 0.169.0
+
+- The `finished` progress of a turn that failed (provider or network error, context overflow…) carries an `error` with its message and type, so clients can tell it from a successful turn (e.g. a headless run's exit code).
+- A chat renamed with `chat/update` while its title is being generated keeps the new title.
+- Official support for `eca-cli` as an official client.
+- Docs: Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+- Docs: Add logo wall and improvements in home page. #676
 
 ## 0.168.0
 

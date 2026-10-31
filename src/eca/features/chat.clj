@@ -716,9 +716,8 @@
   (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)
         current-prompt-ctx (assoc chat-ctx :prompt-id (get-in @db* [:chats chat-id :prompt-id]))]
     (when stop-turn?
-      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
-      (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
-    (when-not compacted?
+      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+    (when (or stop-turn? (not compacted?))
       (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
     {:stop-after-finish? (or stop-turn? (not compacted?))}))
 
@@ -1227,7 +1226,10 @@
                                                  :config config
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
-                (when output-text
+                ;; A title set meanwhile (chat/update, e.g. a client renaming
+                ;; the chat while this request ran) wins over the generated one.
+                (when (and output-text
+                           (not (get-in @db* [:chats chat-id :title-custom?])))
                   (let [title (sanitize-title output-text)]
                     (swap! db* assoc-in [:chats chat-id :title] title)
                     (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))

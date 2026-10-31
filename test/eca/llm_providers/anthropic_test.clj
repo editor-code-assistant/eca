@@ -993,6 +993,31 @@
         (is (= "user" (:role (last (butlast (:messages body)))))
             "trailing system message follows a user turn")))))
 
+(deftest chat!-claude-code-identity-test
+  (let [identity-text "You are Claude Code, Anthropic's official CLI for Claude."
+        base-params {:model "claude-sonnet-4-6"
+                     :api-url "http://localhost:1"
+                     :api-key "fake-key"
+                     :instructions {:static "STATIC" :dynamic nil}
+                     :user-messages [{:role "user" :content "hello"}]
+                     :past-messages []}
+        system-of (fn [params]
+                    (let [req* (atom nil)]
+                      (with-client-proxied {}
+                        (fn handler [req]
+                          (reset! req* req)
+                          {:status 200 :body {:content [{:text "ok"}]}})
+                        (llm-providers.anthropic/chat! params nil))
+                      (:system (:body @req*))))]
+    (testing "OAuth (subscription) requests start with the Claude Code identity"
+      (let [system (system-of (assoc base-params :auth-type :auth/oauth))]
+        (is (= identity-text (:text (first system))))
+        (is (= "STATIC" (:text (second system))))))
+    (testing "API-key requests leave it out"
+      (let [system (system-of (assoc base-params :auth-type :auth/token))]
+        (is (not-any? #(= identity-text (:text %)) system))
+        (is (= "STATIC" (:text (first system))))))))
+
 (deftest chat!-stream-refusal-test
   (let [run-stream! (fn [message-delta-data]
                       (let [messages* (atom [])
