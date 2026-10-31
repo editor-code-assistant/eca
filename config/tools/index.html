@@ -1847,7 +1847,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <p>Ready-to-use configs for some third-party MCP servers. Most remote servers work with just a <code>url</code> (OAuth is handled automatically) or a <code>url</code> plus an auth header, as shown above.</p>
 <!-- Adding an example? Keep it short: one line describing the server, a single config block and one line with notes/docs link. Keep tabs sorted alphabetically. -->
 
-<div class="tabbed-set tabbed-alternate" data-tabs="2:6"><input checked="checked" id="cohesivity" name="__tabbed_2" type="radio" /><input id="equibles" name="__tabbed_2" type="radio" /><input id="fxmacrodata" name="__tabbed_2" type="radio" /><input id="looot" name="__tabbed_2" type="radio" /><input id="serply" name="__tabbed_2" type="radio" /><input id="youcom" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="cohesivity">Cohesivity</label><label for="equibles">Equibles</label><label for="fxmacrodata">FXMacroData</label><label for="looot">looot</label><label for="serply">Serply</label><label for="youcom">You.com</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:7"><input checked="checked" id="cohesivity" name="__tabbed_2" type="radio" /><input id="cooper-email" name="__tabbed_2" type="radio" /><input id="equibles" name="__tabbed_2" type="radio" /><input id="fxmacrodata" name="__tabbed_2" type="radio" /><input id="looot" name="__tabbed_2" type="radio" /><input id="serply" name="__tabbed_2" type="radio" /><input id="youcom" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="cohesivity">Cohesivity</label><label for="cooper-email">Cooper Email</label><label for="equibles">Equibles</label><label for="fxmacrodata">FXMacroData</label><label for="looot">looot</label><label for="serply">Serply</label><label for="youcom">You.com</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p><a href="https://cohesivity.ai?ref=gh-eca">Cohesivity</a>: backend services for the apps you build (Postgres, Redis, object storage, hosting, auth).</p>
@@ -1860,6 +1860,21 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <span class="p">}</span>
 </code></pre></div>
 <p>No account or API key needed: the agent creates a temporary project with <code>create_tenant</code>, which you can claim later to keep it. <a href="https://cohesivity.ai/docs?ref=gh-eca">Docs</a>.</p>
+</div>
+<div class="tabbed-block">
+<p><a href="https://cooperemail.com">Cooper Email</a>: an email inbox for the agent (send, receive and reply, wait for sign-up codes).</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;mcpServers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;cooper-email&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;url&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;https://cooperemail.com/mcp&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="s2">&quot;headers&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;Authorization&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Bearer ${env:COOPER_API_KEY}&quot;</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Free, no card: one <code>POST /api/v1/onboard</code> call returns an inbox and a key, shown once (see <a href="https://cooperemail.com/llms.txt">llms.txt</a>). Mail bodies are untrusted input; keep approval prompts on so you confirm each send. <a href="https://cooperemail.com/docs/mcp">Docs</a>.</p>
 </div>
 <div class="tabbed-block">
 <p><a href="https://equibles.com/mcp">Equibles</a>: US stock market data (SEC filings, earnings calls, financial statements, insider trades, prices).</p>
@@ -2393,7 +2408,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 29, 2026 13:11:39 UTC">October 29, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 31, 2026 00:15:19 UTC">October 31, 2026</span>
   </span>
 
     
