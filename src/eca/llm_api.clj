@@ -255,16 +255,19 @@
      :dropped-count (count dropped)
      :dropped-apis (into #{} (keep #(get-in % [:content :api])) dropped)}))
 
-(defn ^:private mistral-endpoint?
-  "Whether requests go to Mistral's own API: the built-in provider (or one
-   inheriting it), or any provider whose URL host is a subdomain of mistral.ai
-   (api.mistral.ai, codestral.mistral.ai). Gateways serving Mistral models
-   (OpenRouter, LiteLLM, ...) use their own message format, so model names are not used."
+(defn ^:private chat-dialect
+  "The chat-completions dialect of the endpoint that receives the request (see
+   `eca.llm-providers.openai-chat/transform-message`), or nil for the common one.
+   :mistral for Mistral's own API: the built-in provider (or one inheriting it),
+   or any provider whose URL host is a subdomain of mistral.ai (api.mistral.ai,
+   codestral.mistral.ai). Gateways serving Mistral models (OpenRouter, LiteLLM, ...)
+   use their own message format, so model names are not used."
   [base-provider api-url]
   (let [host (try (some-> api-url java.net.URI. .getHost string/lower-case)
                   (catch Exception _))]
-    (or (= "mistral" base-provider)
-        (string/ends-with? (str host) ".mistral.ai"))))
+    (when (or (= "mistral" base-provider)
+              (string/ends-with? (str host) ".mistral.ai"))
+      :mistral)))
 
 (defn ^:private extra-payload-considering-variant
   "Resolves the effective extra-payload by merging extraPayload with variant payload.
@@ -519,7 +522,7 @@
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
             :reasoning-history reasoning-history
-            :reasoning-replay (when (mistral-endpoint? base-provider api-url) :thinking-chunks)
+            :dialect (chat-dialect base-provider api-url)
             :http-client http-client
             :api-url api-url
             :api-key api-key

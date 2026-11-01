@@ -765,7 +765,7 @@
           thinking-start-tag
           thinking-end-tag))))
 
-  (testing "Reason messages with :thinking-chunks replay (Mistral, #674)"
+  (testing "Reason messages with the :mistral dialect (#674)"
     (testing "delta reasoning becomes a thinking content chunk, without reasoning_content"
       (is (= {:role "assistant"
               :content [{:type "thinking"
@@ -778,7 +778,7 @@
               true
               thinking-start-tag
               thinking-end-tag
-              :thinking-chunks))))
+              :mistral))))
     (testing "blank delta reasoning is dropped"
       (is (nil? (#'llm-providers.openai-chat/transform-message
                  {:role "reason"
@@ -786,7 +786,7 @@
                  true
                  thinking-start-tag
                  thinking-end-tag
-                 :thinking-chunks))))
+                 :mistral))))
     (testing "tag-based reasoning keeps think tags"
       (is (= {:role "assistant"
               :content "<think>Reasoning...</think>"}
@@ -796,7 +796,7 @@
               true
               thinking-start-tag
               thinking-end-tag
-              :thinking-chunks)))))
+              :mistral)))))
 
   (testing "Unsupported role returns nil"
     (is (nil?
@@ -1200,7 +1200,23 @@
                       eca-messages true thinking-start-tag thinking-end-tag)
           tool-calls (-> normalized second :tool_calls)]
       (is (nil? (:extra_content (first tool-calls)))
-          "Tool calls without external-id should not have extra_content"))))
+          "Tool calls without external-id should not have extra_content")))
+
+  (testing "Gemini history replayed to a :mistral dialect endpoint drops the signature (Mistral rejects extra_content)"
+    (let [eca-messages [{:role "user" :content "Do something"}
+                        {:role "tool_call"
+                         :content {:id "call-abc"
+                                   :full-name "eca__some_tool"
+                                   :arguments {:arg "value"}
+                                   :external-id "gemini-thought-sig-12345"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-abc"
+                                   :output {:contents [{:type :text :text "result"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag :mistral)
+          tool-call (-> normalized second :tool_calls first)]
+      (is (match? {:id "call-abc" :function {:name "eca__some_tool"}} tool-call))
+      (is (not (contains? tool-call :extra_content))))))
 
 (deftest tool-turn-boundary-test
   (testing "Tool-call step boundaries: sequential rounds must not be merged into one parallel tool_calls array"
@@ -1549,7 +1565,7 @@
                                                      :output {:contents [{:type :text :text "a.txt"}]}}}]]
     (testing "reasoning, text and tool calls merge into one assistant message with thinking + text chunks (#674)"
       (let [normalized (#'llm-providers.openai-chat/normalize-messages
-                        history true thinking-start-tag thinking-end-tag :thinking-chunks)
+                        history true thinking-start-tag thinking-end-tag :mistral)
             assistant (second normalized)]
         (is (match?
              [{:role "user" :content "List files"}

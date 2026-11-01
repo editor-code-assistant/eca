@@ -10,6 +10,7 @@
 - Docs: Persistent Documentation sidenav
 - Fix Mistral reasoning models failing after the first answer: send past reasoning back as `thinking` chunks, not `reasoning_content`. #674
 - Fix missing chat titles and inline completions with Mistral reasoning models, like Mistral Large 4, which reply with thinking + text chunks.
+- Fix Mistral rejecting a chat that switched from a Gemini model: do not send Gemini thought signatures to Mistral.
 
 ## 0.169.0
 
