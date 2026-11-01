@@ -284,15 +284,19 @@
 
    For 'reason' messages:
    - If :delta-reasoning? is set, emit as assistant message with reasoning_content field (DeepSeek-style),
-     or, when `reasoning-replay` is :thinking-chunks, as a `thinking` content chunk (Mistral, #674)
+     or, when `dialect` is :mistral, as a `thinking` content chunk (#674)
    - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)
+
+   `dialect` names the vendor variant of the chat-completions format that the
+   target endpoint expects; nil is the common OpenAI-compatible one. Mistral
+   rejects any field outside its schema, so it gets no vendor extensions.
 
    Defense-in-depth against #209: entries whose :content :api was tagged by
    another provider (Anthropic signatures, OpenAI rs_*/encrypted_content,
    toolu_*/call_* tool ids the chat-completions endpoint won't accept) are
    dropped here. The primary safeguard is the central sanitizer in
    eca.llm-api; this protects direct callers that bypass it."
-  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end & [reasoning-replay]]
+  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end & [dialect]]
   (let [foreign-api? (let [origin (:api content)]
                        (and origin (not= :openai-chat origin)))]
     (case role
@@ -304,7 +308,7 @@
                                              :function {:name      (:full-name content)
                                                         :arguments (json/generate-string (or (:arguments content) {}))}}
                                       ;; Preserve Google Gemini thought signatures if present
-                                      (:external-id content)
+                                      (and (:external-id content) (not= :mistral dialect))
                                       (assoc-in [:extra_content :google :thought_signature]
                                                 (:external-id content)))]}))
       ;; The chat-completions `tool` role can't carry image content, so when a
@@ -342,7 +346,7 @@
 
                    ;; Mistral rejects reasoning_content; it takes reasoning back as a
                    ;; `thinking` content chunk, merged with the turn's text/tool_calls (#674)
-                   (= :thinking-chunks reasoning-replay)
+                   (= :mistral dialect)
                    (when-not (string/blank? (:text content))
                      {:role "assistant"
                       :content [{:type "thinking"
@@ -482,10 +486,10 @@
 
    The pipeline: group tool calls -> transform -> flatten -> reorder tool images
    -> merge adjacent assistants -> filter valid"
-  [messages supports-image? think-tag-start think-tag-end & [reasoning-replay]]
+  [messages supports-image? think-tag-start think-tag-end & [dialect]]
   (->> messages
        group-parallel-tool-calls
-       (map #(transform-message % supports-image? think-tag-start think-tag-end reasoning-replay))
+       (map #(transform-message % supports-image? think-tag-start think-tag-end dialect))
        (remove nil?)
        (mapcat #(if (vector? %) % [%]))
        reorder-tool-result-images
@@ -623,11 +627,11 @@
    and message normalization. Supports both single and parallel tool execution.
    Compatible with OpenRouter and other OpenAI-compatible providers.
 
-   `:reasoning-replay :thinking-chunks` sends past delta reasoning back as
-   `thinking` content chunks instead of `reasoning_content` (Mistral)."
+   `:dialect :mistral` sends history in Mistral's format: past delta reasoning
+   as `thinking` content chunks, and no vendor extensions (see `transform-message`)."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end reasoning-history reasoning-replay http-client cancelled?
+           think-tag-start think-tag-end reasoning-history dialect http-client cancelled?
            stream-idle-timeout-seconds]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-response-headers retry-request] :as callbacks}]
@@ -639,7 +643,7 @@
         all-messages (prune-history (vec (concat past-messages user-messages)) reasoning-history)
         messages (vec (concat
                        system-messages
-                       (normalize-messages all-messages supports-image? think-tag-start think-tag-end reasoning-replay)))
+                       (normalize-messages all-messages supports-image? think-tag-start think-tag-end dialect)))
 
         body (deep-merge
               (assoc-some
@@ -706,7 +710,7 @@
                                           pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
-                                                                  (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end reasoning-replay)))
+                                                                  (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end dialect)))
                                           request-opts {:rid (llm-util/gen-rid)
                                                         :body (assoc-some body
                                                                           :messages new-messages-list
