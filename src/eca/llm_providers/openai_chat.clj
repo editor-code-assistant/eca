@@ -63,6 +63,39 @@
     [{:type "text"
       :text (str content)}]))
 
+(defn ^:private content-block-text
+  "Join the textual parts of a content-block field that may be a plain string
+   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
+  [v]
+  (cond
+    (string? v) v
+    (sequential? v) (->> v (keep :text) (string/join))))
+
+(defn ^:private split-stream-content
+  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
+   `delta.content` (or return `message.content`) as a plain string OR as an
+   array of content blocks mixing visible text ({:type \"text\" :text ...})
+   and thinking chunks ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
+   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
+   visible text and reasoning separately instead of stringifying the raw EDN."
+  [content]
+  (cond
+    (string? content)
+    {:text content :thinking nil}
+
+    (sequential? content)
+    (reduce
+     (fn [acc block]
+       (case (some-> (:type block) name)
+         "text" (update acc :text str (:text block))
+         "thinking" (update acc :thinking str (content-block-text (:thinking block)))
+         acc))
+     {:text nil :thinking nil}
+     content)
+
+    :else
+    {:text nil :thinking nil}))
+
 (defn ^:private ->tools [tools]
   (mapv (fn [tool]
           {:type "function"
@@ -100,8 +133,12 @@
                                                 nil)))))
                            (remove nil?)
                            vec)
-        ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
-        reasoning-content (:reasoning_content message)]
+        ;; Mistral reasoning models return content as thinking + text chunks
+        {text :text thinking :thinking} (split-stream-content (:content message))
+        ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning;
+        ;; Mistral thinking chunks count as delta reasoning, as when streaming
+        reasoning-content (or (:reasoning_content message)
+                              (not-empty thinking))]
     {:usage (parse-usage usage)
      :reason-id (str (random-uuid))
      :tools-to-call tools-to-call
@@ -111,7 +148,7 @@
                       (:reasoning_text message)
                       reasoning-content)
      :reasoning-content reasoning-content
-     :output-text (:content message)}))
+     :output-text text}))
 
 (defn ^:private base-chat-request!
   [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-response-headers
@@ -246,7 +283,8 @@
   "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles.
 
    For 'reason' messages:
-   - If :reasoning-content exists, emit as assistant message with reasoning_content field (DeepSeek-style)
+   - If :delta-reasoning? is set, emit as assistant message with reasoning_content field (DeepSeek-style),
+     or, when `reasoning-replay` is :thinking-chunks, as a `thinking` content chunk (Mistral, #674)
    - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)
 
    Defense-in-depth against #209: entries whose :content :api was tagged by
@@ -254,7 +292,7 @@
    toolu_*/call_* tool ids the chat-completions endpoint won't accept) are
    dropped here. The primary safeguard is the central sanitizer in
    eca.llm-api; this protects direct callers that bypass it."
-  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end]
+  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end & [reasoning-replay]]
   (let [foreign-api? (let [origin (:api content)]
                        (and origin (not= :openai-chat origin)))]
     (case role
@@ -296,14 +334,26 @@
       "user" {:role "user"
               :content (extract-content content supports-image?)}
       "reason" (when-not foreign-api?
-                 (if (:delta-reasoning? content)
+                 (cond
+                   ;; Fallback: wrap in thinking tags for models that use text-based reasoning
+                   (not (:delta-reasoning? content))
+                   {:role "assistant"
+                    :content (str think-tag-start (:text content) think-tag-end)}
+
+                   ;; Mistral rejects reasoning_content; it takes reasoning back as a
+                   ;; `thinking` content chunk, merged with the turn's text/tool_calls (#674)
+                   (= :thinking-chunks reasoning-replay)
+                   (when-not (string/blank? (:text content))
+                     {:role "assistant"
+                      :content [{:type "thinking"
+                                 :thinking [{:type "text" :text (:text content)}]
+                                 :closed true}]})
+
                    ;; DeepSeek-style: reasoning_content must be passed back to API
+                   :else
                    {:role "assistant"
                     :content ""
-                    :reasoning_content (:text content)}
-                   ;; Fallback: wrap in thinking tags for models that use text-based reasoning
-                   {:role "assistant"
-                    :content (str think-tag-start (:text content) think-tag-end)}))
+                    :reasoning_content (:text content)}))
       "assistant" {:role "assistant"
                    :content (extract-content content supports-image?)}
       "system" {:role "system"
@@ -432,10 +482,10 @@
 
    The pipeline: group tool calls -> transform -> flatten -> reorder tool images
    -> merge adjacent assistants -> filter valid"
-  [messages supports-image? think-tag-start think-tag-end]
+  [messages supports-image? think-tag-start think-tag-end & [reasoning-replay]]
   (->> messages
        group-parallel-tool-calls
-       (map #(transform-message % supports-image? think-tag-start think-tag-end))
+       (map #(transform-message % supports-image? think-tag-start think-tag-end reasoning-replay))
        (remove nil?)
        (mapcat #(if (vector? %) % [%]))
        reorder-tool-result-images
@@ -466,40 +516,6 @@
             tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) valid-tools)]
         (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
         tools-with-turn-id))))
-
-(defn ^:private content-block-text
-  "Join the textual parts of a content-block field that may be a plain string
-   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
-  [v]
-  (cond
-    (string? v) v
-    (sequential? v) (->> v (keep :text) (string/join))
-    :else nil))
-
-(defn ^:private split-stream-content
-  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
-   `delta.content` as a plain string OR as an array of content blocks mixing
-   visible text ({:type \"text\" :text ...}) and thinking chunks
-   ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
-   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
-   visible text and reasoning separately instead of stringifying the raw EDN."
-  [content]
-  (cond
-    (string? content)
-    {:text content :thinking nil}
-
-    (sequential? content)
-    (reduce
-     (fn [acc block]
-       (case (some-> (:type block) name)
-         "text" (update acc :text str (or (:text block) ""))
-         "thinking" (update acc :thinking str (or (content-block-text (:thinking block)) ""))
-         acc))
-     {:text nil :thinking nil}
-     content)
-
-    :else
-    {:text nil :thinking nil}))
 
 (defn ^:private process-text-think-aware
   "Incremental parser that splits streamed content into user text and thinking blocks.
@@ -605,10 +621,14 @@
 
    Handles the full conversation flow including tool calls, streaming responses,
    and message normalization. Supports both single and parallel tool execution.
-   Compatible with OpenRouter and other OpenAI-compatible providers."
+   Compatible with OpenRouter and other OpenAI-compatible providers.
+
+   `:reasoning-replay :thinking-chunks` sends past delta reasoning back as
+   `thinking` content chunks instead of `reasoning_content` (Mistral)."
   [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
            max-output-tokens past-messages tools extra-payload extra-headers supports-image?
-           think-tag-start think-tag-end reasoning-history http-client cancelled? stream-idle-timeout-seconds]}
+           think-tag-start think-tag-end reasoning-history reasoning-replay http-client cancelled?
+           stream-idle-timeout-seconds]}
    {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-response-headers retry-request] :as callbacks}]
   (let [think-tag-start (or think-tag-start "<think>")
@@ -619,7 +639,7 @@
         all-messages (prune-history (vec (concat past-messages user-messages)) reasoning-history)
         messages (vec (concat
                        system-messages
-                       (normalize-messages all-messages supports-image? think-tag-start think-tag-end)))
+                       (normalize-messages all-messages supports-image? think-tag-start think-tag-end reasoning-replay)))
 
         body (deep-merge
               (assoc-some
@@ -686,7 +706,7 @@
                                           pruned-messages (prune-history new-messages reasoning-history)
                                           new-messages-list (vec (concat
                                                                   system-messages
-                                                                  (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end)))
+                                                                  (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end reasoning-replay)))
                                           request-opts {:rid (llm-util/gen-rid)
                                                         :body (assoc-some body
                                                                           :messages new-messages-list

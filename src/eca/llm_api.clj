@@ -255,6 +255,17 @@
      :dropped-count (count dropped)
      :dropped-apis (into #{} (keep #(get-in % [:content :api])) dropped)}))
 
+(defn ^:private mistral-endpoint?
+  "Whether requests go to Mistral's own API: the built-in provider (or one
+   inheriting it), or any provider whose URL host is a subdomain of mistral.ai
+   (api.mistral.ai, codestral.mistral.ai). Gateways serving Mistral models
+   (OpenRouter, LiteLLM, ...) use their own message format, so model names are not used."
+  [base-provider api-url]
+  (let [host (try (some-> api-url java.net.URI. .getHost string/lower-case)
+                  (catch Exception _))]
+    (or (= "mistral" base-provider)
+        (string/ends-with? (str host) ".mistral.ai"))))
+
 (defn ^:private extra-payload-considering-variant
   "Resolves the effective extra-payload by merging extraPayload with variant payload.
    Variant values take priority over extraPayload on clashing keys.
@@ -508,6 +519,7 @@
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
             :reasoning-history reasoning-history
+            :reasoning-replay (when (mistral-endpoint? base-provider api-url) :thinking-chunks)
             :http-client http-client
             :api-url api-url
             :api-key api-key

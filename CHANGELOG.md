@@ -8,6 +8,8 @@
 - Fix no models discovered for providers whose models.dev API URL has placeholders, like Cloudflare Workers AI's account id. #662
 - Fix Anthropic API-key requests failing with "credit balance is too low": send the "You are Claude Code" system block only with OAuth logins. #666
 - Docs: Persistent Documentation sidenav
+- Fix Mistral reasoning models failing after the first answer: send past reasoning back as `thinking` chunks, not `reasoning_content`. #674
+- Fix missing chat titles and inline completions with Mistral reasoning models, like Mistral Large 4, which reply with thinking + text chunks.
 
 ## 0.169.0
 
