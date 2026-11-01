@@ -1510,6 +1510,32 @@
              :reasoning_content "think more"}]
            normalized)))))
 
+(deftest mistral-non-stream-thinking-content-test
+  (testing "response-body->result separates Mistral thinking chunks from the output text"
+    ;; Shape of a live mistral-large-4 non-stream reply (e.g. title generation)
+    (let [result (#'llm-providers.openai-chat/response-body->result
+                  {:usage {:prompt_tokens 31 :completion_tokens 255}
+                   :choices [{:finish_reason "stop"
+                              :message {:role "assistant"
+                                        :tool_calls nil
+                                        :content [{:type "thinking"
+                                                   :thinking [{:type "text" :text "A short title."}]
+                                                   :closed true}
+                                                  {:type "text" :text "Hello"}]}}]}
+                  (fn [& _]))]
+      (is (= "Hello" (:output-text result)))
+      (is (= "A short title." (:reason-text result)))
+      (is (= "A short title." (:reasoning-content result)))))
+
+  (testing "plain string content is unchanged"
+    (let [result (#'llm-providers.openai-chat/response-body->result
+                  {:usage {:prompt_tokens 5 :completion_tokens 2}
+                   :choices [{:message {:role "assistant" :content "hi"}}]}
+                  (fn [& _]))]
+      (is (= "hi" (:output-text result)))
+      (is (nil? (:reason-text result)))
+      (is (nil? (:reasoning-content result))))))
+
 (deftest mistral-thinking-chunks-replay-test
   (let [history [{:role "user" :content [{:type :text :text "List files"}]}
                  {:role "reason" :content {:id "r1" :text "I should list." :delta-reasoning? true}}

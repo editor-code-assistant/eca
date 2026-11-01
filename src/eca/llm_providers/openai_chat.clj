@@ -63,6 +63,39 @@
     [{:type "text"
       :text (str content)}]))
 
+(defn ^:private content-block-text
+  "Join the textual parts of a content-block field that may be a plain string
+   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
+  [v]
+  (cond
+    (string? v) v
+    (sequential? v) (->> v (keep :text) (string/join))))
+
+(defn ^:private split-stream-content
+  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
+   `delta.content` (or return `message.content`) as a plain string OR as an
+   array of content blocks mixing visible text ({:type \"text\" :text ...})
+   and thinking chunks ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
+   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
+   visible text and reasoning separately instead of stringifying the raw EDN."
+  [content]
+  (cond
+    (string? content)
+    {:text content :thinking nil}
+
+    (sequential? content)
+    (reduce
+     (fn [acc block]
+       (case (some-> (:type block) name)
+         "text" (update acc :text str (:text block))
+         "thinking" (update acc :thinking str (content-block-text (:thinking block)))
+         acc))
+     {:text nil :thinking nil}
+     content)
+
+    :else
+    {:text nil :thinking nil}))
+
 (defn ^:private ->tools [tools]
   (mapv (fn [tool]
           {:type "function"
@@ -100,8 +133,12 @@
                                                 nil)))))
                            (remove nil?)
                            vec)
-        ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning
-        reasoning-content (:reasoning_content message)]
+        ;; Mistral reasoning models return content as thinking + text chunks
+        {text :text thinking :thinking} (split-stream-content (:content message))
+        ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning;
+        ;; Mistral thinking chunks count as delta reasoning, as when streaming
+        reasoning-content (or (:reasoning_content message)
+                              (not-empty thinking))]
     {:usage (parse-usage usage)
      :reason-id (str (random-uuid))
      :tools-to-call tools-to-call
@@ -111,7 +148,7 @@
                       (:reasoning_text message)
                       reasoning-content)
      :reasoning-content reasoning-content
-     :output-text (:content message)}))
+     :output-text text}))
 
 (defn ^:private base-chat-request!
   [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-response-headers
@@ -479,40 +516,6 @@
             tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) valid-tools)]
         (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
         tools-with-turn-id))))
-
-(defn ^:private content-block-text
-  "Join the textual parts of a content-block field that may be a plain string
-   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
-  [v]
-  (cond
-    (string? v) v
-    (sequential? v) (->> v (keep :text) (string/join))
-    :else nil))
-
-(defn ^:private split-stream-content
-  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
-   `delta.content` as a plain string OR as an array of content blocks mixing
-   visible text ({:type \"text\" :text ...}) and thinking chunks
-   ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
-   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
-   visible text and reasoning separately instead of stringifying the raw EDN."
-  [content]
-  (cond
-    (string? content)
-    {:text content :thinking nil}
-
-    (sequential? content)
-    (reduce
-     (fn [acc block]
-       (case (some-> (:type block) name)
-         "text" (update acc :text str (or (:text block) ""))
-         "thinking" (update acc :thinking str (or (content-block-text (:thinking block)) ""))
-         acc))
-     {:text nil :thinking nil}
-     content)
-
-    :else
-    {:text nil :thinking nil}))
 
 (defn ^:private process-text-think-aware
   "Incremental parser that splits streamed content into user text and thinking blocks.
