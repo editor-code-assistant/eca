@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
+
 ## 0.169.1
 
 - Add `eca-cli` as an official client in docs and landing page.
