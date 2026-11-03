@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.169.1
+
 - Add `eca-cli` as an official client in docs and landing page.
 - Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
 - Enable built-in web search for OpenAI GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna.
