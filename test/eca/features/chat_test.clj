@@ -8,6 +8,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.tool-calls :as tc]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
@@ -1977,6 +1978,43 @@
                                                     (string/includes? % "The conversation was not compacted."))}}])
                   content)
           "the user should see why the compaction did not happen"))))
+
+(deftest stopped-compaction-does-not-end-later-turns-early-test
+  (testing "a /compact turn stopped after compact_chat ran (here by a postToolCall hook) does not end later turns at their first tool call"
+    (h/reset-components!)
+    (h/config! {:prompts {:compact "Summarize the chat."}})
+    (let [chat-id "stopped-compaction-chat"
+          continuation* (atom ::not-called)]
+      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (fn [_db* _chat-ctx tool-call-id _event-data]
+                                                        (if (= "compact-1" tool-call-id)
+                                                          {:stop-turn? true :stop-reason "halt" :stop-hook-name "guard"}
+                                                          {:stop-turn? false}))}
+        (fn []
+          (prompt!
+           {:message "/compact" :chat-id chat-id}
+           {:all-tools-mock (constantly steered-compact-tools)
+            :call-tool-mock steered-compact-call-tool-mock
+            :api-mock
+            (fn [{:keys [on-first-response-received on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received)
+              (on-prepare-tool-call {:id "compact-1" :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Renamed rfq to query\"}"})
+              (on-tools-called [{:id "compact-1" :full-name "eca__compact_chat" :arguments {"summary" "Renamed rfq to query"}}]))})
+          (prompt!
+           {:message "Keep going" :chat-id chat-id}
+           {:all-tools-mock (constantly steered-compact-tools)
+            :call-tool-mock steered-compact-call-tool-mock
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received {:type :text :text "Reading"})
+              (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+              (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+              (on-message-received {:type :text :text "Done"})
+              (on-message-received {:type :finish}))})))
+      (is (match? {:new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}
+                  @continuation*)
+          "the LLM loop continues with the tool results instead of ending the turn")
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
 
 (deftest steered-compact-blocked-by-hook-test
   (testing "a preCompact hook blocking (exit 2) a steered /compact keeps the turn going without compacting"
