@@ -765,6 +765,39 @@
           thinking-start-tag
           thinking-end-tag))))
 
+  (testing "Reason messages with the :mistral dialect (#674)"
+    (testing "delta reasoning becomes a thinking content chunk, without reasoning_content"
+      (is (= {:role "assistant"
+              :content [{:type "thinking"
+                         :thinking [{:type "text" :text "Reasoning..."}]
+                         :closed true}]}
+             (#'llm-providers.openai-chat/transform-message
+              {:role "reason"
+               :content {:text "Reasoning..."
+                         :delta-reasoning? true}}
+              true
+              thinking-start-tag
+              thinking-end-tag
+              :mistral))))
+    (testing "blank delta reasoning is dropped"
+      (is (nil? (#'llm-providers.openai-chat/transform-message
+                 {:role "reason"
+                  :content {:text "" :delta-reasoning? true}}
+                 true
+                 thinking-start-tag
+                 thinking-end-tag
+                 :mistral))))
+    (testing "tag-based reasoning keeps think tags"
+      (is (= {:role "assistant"
+              :content "<think>Reasoning...</think>"}
+             (#'llm-providers.openai-chat/transform-message
+              {:role "reason"
+               :content {:text "Reasoning..."}}
+              true
+              thinking-start-tag
+              thinking-end-tag
+              :mistral)))))
+
   (testing "Unsupported role returns nil"
     (is (nil?
          (#'llm-providers.openai-chat/transform-message
@@ -1167,7 +1200,23 @@
                       eca-messages true thinking-start-tag thinking-end-tag)
           tool-calls (-> normalized second :tool_calls)]
       (is (nil? (:extra_content (first tool-calls)))
-          "Tool calls without external-id should not have extra_content"))))
+          "Tool calls without external-id should not have extra_content")))
+
+  (testing "Gemini history replayed to a :mistral dialect endpoint drops the signature (Mistral rejects extra_content)"
+    (let [eca-messages [{:role "user" :content "Do something"}
+                        {:role "tool_call"
+                         :content {:id "call-abc"
+                                   :full-name "eca__some_tool"
+                                   :arguments {:arg "value"}
+                                   :external-id "gemini-thought-sig-12345"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-abc"
+                                   :output {:contents [{:type :text :text "result"}]}}}]
+          normalized (#'llm-providers.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag :mistral)
+          tool-call (-> normalized second :tool_calls first)]
+      (is (match? {:id "call-abc" :function {:name "eca__some_tool"}} tool-call))
+      (is (not (contains? tool-call :extra_content))))))
 
 (deftest tool-turn-boundary-test
   (testing "Tool-call step boundaries: sequential rounds must not be merged into one parallel tool_calls array"
@@ -1476,3 +1525,67 @@
             {:role "assistant"
              :reasoning_content "think more"}]
            normalized)))))
+
+(deftest mistral-non-stream-thinking-content-test
+  (testing "response-body->result separates Mistral thinking chunks from the output text"
+    ;; Shape of a live mistral-large-4 non-stream reply (e.g. title generation)
+    (let [result (#'llm-providers.openai-chat/response-body->result
+                  {:usage {:prompt_tokens 31 :completion_tokens 255}
+                   :choices [{:finish_reason "stop"
+                              :message {:role "assistant"
+                                        :tool_calls nil
+                                        :content [{:type "thinking"
+                                                   :thinking [{:type "text" :text "A short title."}]
+                                                   :closed true}
+                                                  {:type "text" :text "Hello"}]}}]}
+                  (fn [& _]))]
+      (is (= "Hello" (:output-text result)))
+      (is (= "A short title." (:reason-text result)))
+      (is (= "A short title." (:reasoning-content result)))))
+
+  (testing "plain string content is unchanged"
+    (let [result (#'llm-providers.openai-chat/response-body->result
+                  {:usage {:prompt_tokens 5 :completion_tokens 2}
+                   :choices [{:message {:role "assistant" :content "hi"}}]}
+                  (fn [& _]))]
+      (is (= "hi" (:output-text result)))
+      (is (nil? (:reason-text result)))
+      (is (nil? (:reasoning-content result))))))
+
+(deftest mistral-thinking-chunks-replay-test
+  (let [history [{:role "user" :content [{:type :text :text "List files"}]}
+                 {:role "reason" :content {:id "r1" :text "I should list." :delta-reasoning? true}}
+                 {:role "assistant" :content [{:type :text :text "Listing."}]}
+                 {:role "tool_call" :content {:id "internal-1"
+                                              :llm-tool-call-id "oagouVY1Z"
+                                              :full-name "eca__directory_tree"
+                                              :arguments {:path "."}}}
+                 {:role "tool_call_output" :content {:id "internal-1"
+                                                     :llm-tool-call-id "oagouVY1Z"
+                                                     :output {:contents [{:type :text :text "a.txt"}]}}}]]
+    (testing "reasoning, text and tool calls merge into one assistant message with thinking + text chunks (#674)"
+      (let [normalized (#'llm-providers.openai-chat/normalize-messages
+                        history true thinking-start-tag thinking-end-tag :mistral)
+            assistant (second normalized)]
+        (is (match?
+             [{:role "user" :content "List files"}
+              {:role "assistant"
+               :content [{:type "thinking"
+                          :thinking [{:type "text" :text "I should list."}]
+                          :closed true}
+                         {:type "text" :text "Listing."}]
+               :tool_calls [{:id "oagouVY1Z"
+                             :function {:name "eca__directory_tree"}}]}
+              {:role "tool" :tool_call_id "oagouVY1Z"}]
+             normalized))
+        (is (not (contains? assistant :reasoning_content)))))
+
+    (testing "default replay still sends reasoning_content"
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :reasoning_content "I should list."
+             :content "Listing."}
+            {:role "tool"}]
+           (#'llm-providers.openai-chat/normalize-messages
+            history true thinking-start-tag thinking-end-tag))))))

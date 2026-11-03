@@ -266,9 +266,12 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
 
 === "Mistral"
 
-    The property `max_completion_token` is set to `null`, because Mistral does not support it.
+    1. Login via the chat command `/login`.
+    2. Type 'mistral' and send it.
+    3. Paste your API key, then the models you want, separated by `,` (e.g. `mistral-large-4`).
+    4. Done, it should be saved to your global config.
 
-    More details in the [Mistral API docs](https://docs.mistral.ai/api).
+    or manually via config:
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -278,11 +281,21 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
           "url": "https://api.mistral.ai/v1",
           "key": "your-api-key",
           "models": {
-            "mistral-medium": {"extraPayload": { "max_completion_tokens": null}}
+            "mistral-large-4": {
+              "variants": {
+                "low": {"reasoning_effort": "low"},
+                "medium": {"reasoning_effort": "medium"},
+                "high": {"reasoning_effort": "high"}
+              }
+            }
           }
         }
+      }
     }
     ```
+
+    - Use `"api": "openai-chat"`. Mistral's `/v1/responses` endpoint rejects the conversation history that ECA sends with `openai-responses`.
+    - Behind a proxy (a `url` not on `mistral.ai`), name the provider `mistral`, so ECA sends history in Mistral's format.
 
 === "Moonshot"
 
