@@ -31,12 +31,12 @@
    * ECA Install Page Styles
    * ──────────────────────────
    * 1. Custom Properties (light + dark)
-   * 2. Page Chrome Reset
    * 3. Hero
    * 4. Picker (cards + panels)
    * 5. Manual sub-tabs
    * 6. Help footer
    * 7. Responsive
+   * 8. Docs column
    */
 
   /* ── 1. Custom Properties ── */
@@ -92,17 +92,6 @@
     --eca-code-bg: #0a0a16;
   }
 
-  /* ── 2. Page Chrome Reset ── */
-  .md-main__inner { margin-top: 0; }
-  .md-content__inner { padding: 0; margin: 0; }
-  .md-content { max-width: none; margin: 0; }
-  .md-main .md-main__inner.md-grid { max-width: none; padding: 0; }
-  .md-content__inner::before { display: none; }
-  article.md-content__inner { padding: 0; }
-
-  @media (max-width: 76.1875em) {
-    .md-sidebar--primary { display: block; }
-  }
 
   /* ── 3. Intro block (replaces the old dark hero) ── */
   .eca-install-intro {
@@ -166,16 +155,6 @@
     position: absolute;
     opacity: 0;
     pointer-events: none;
-  }
-
-  /* Matches the h1 on doc pages (layout.css) */
-  .eca-install-picker__question {
-    font-size: 1.8rem;
-    font-weight: 600;
-    letter-spacing: -0.025em;
-    line-height: 1.3;
-    color: var(--eca-heading-fg-color);
-    margin: 0.5rem 0 1.75rem;
   }
 
   /* Primary tab bar (horizontal, underline-style active indicator) */
@@ -919,10 +898,6 @@
       padding: 1rem 1rem 2.5rem;
     }
 
-    .eca-install-picker__question {
-      font-size: 1.55rem;
-    }
-
     .eca-install-tabs {
       /* On narrow screens the tabs can wrap to multiple lines — keep the
          underline indicator consistent and compact. */
@@ -998,11 +973,85 @@
     }
 
   }
+  /* ── 8. Docs column ──
+     The page sits in Material's content column between the two
+     sidebars, like other doc pages. These rules undo the full-width
+     layout: no side padding or gray bands, tabs sized to fit the
+     column, code blocks that scroll inside it, and button links that
+     keep their own colors instead of the doc link style */
+  .eca-install-intro,
+  .eca-install-picker,
+  .eca-install-advanced,
+  .eca-install-help {
+    padding-inline: 0;
+    background: none;
+  }
+
+  .eca-install-intro {
+    padding-top: 0;
+  }
+
+  .eca-install-intro__callout {
+    padding-right: 1rem;
+  }
+
+  .eca-install-tab {
+    padding-inline: 0.8rem;
+    font-size: 0.8rem;
+  }
+
+  .eca-install-panels,
+  .eca-install-subpanels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .md-typeset a.eca-install-download__link {
+    color: var(--eca-text);
+    text-decoration: none;
+  }
+
+  .md-typeset a.eca-install-download__link:hover {
+    color: var(--eca-brand);
+  }
+
+  .md-typeset a.eca-install-btn--primary,
+  .md-typeset a.eca-install-btn--primary:hover,
+  .md-typeset a.eca-install-download__link--primary,
+  .md-typeset a.eca-install-download__link--primary:hover {
+    color: #fff;
+    text-decoration: none;
+  }
+
+  /* Material's .md-typeset heading margins are more specific than the
+     heading classes above. Restore the margins this page was laid out
+     with. Sizes follow the doc heading scale in layout.css, so the
+     question below the "Install ECA" title reads as a doc h2 */
+  .md-typeset .eca-install-picker__question {
+    margin: 0.5rem 0 1.75rem;
+  }
+
+  .md-typeset .eca-install-panel__title {
+    margin: 0 0 1.35rem;
+  }
+
+  .md-typeset .eca-install-advanced__label h3 {
+    margin: 0;
+  }
+
+  .md-typeset .eca-install-help__title {
+    margin: 0 0 0.5rem;
+  }
+
+  .md-typeset .eca-install-coming-soon__title {
+    margin: 0 0 0.35rem;
+  }
 </style>
 {% endblock %}
 
-{% block tabs %}
-  {{ super() }}
+{# The page body fills Material's content column, between the two
+   sidebars like other doc pages. The headings in install.md only feed
+   the "On This Page" sidebar, their ids match the elements below #}
+{% block content %}
 
   {# ── Reusable icons ── #}
   {% macro icon_external() -%}
@@ -1082,6 +1131,8 @@
     </div>
   {%- endmacro %}
 
+  <h1>{{ page.meta.title }}</h1>
+
   <!-- ── Intro (compact, light-themed; replaces the old dark hero) ── -->
   <section class="eca-install-intro">
     <div class="eca-install-intro__inner">
@@ -1102,7 +1153,7 @@
   <!-- ── Picker ── -->
   <section class="eca-install-picker">
     <div class="eca-install-picker__inner">
-      <h1 class="eca-install-picker__question">Where do you want to use ECA?</h1>
+      <h2 class="eca-install-picker__question" id="where">Where do you want to use ECA?</h2>
 
       <!-- Hidden radios drive the CSS-only reveal. The hash-sync script below
            keeps window.location.hash in sync so tabs are shareable links. -->
@@ -1444,7 +1495,7 @@ eca-cli</pre>
       <div class="eca-install-advanced__details">
         <div class="eca-install-advanced__summary">
           <span class="eca-install-advanced__label">
-            <h3><span class="eca-install-advanced__title">Install the ECA server manually</span></h3>
+            <h3 id="manual"><span class="eca-install-advanced__title">Install the ECA server manually</span></h3>
             <span class="eca-install-advanced__kicker eca-install-advanced__kicker--warning">Not recommended</span>
           </span>
         </div>
@@ -1563,16 +1614,12 @@ eca --version</pre>
   <!-- ── Help footer ── -->
   <section class="eca-install-help">
     <div class="eca-install-help__inner">
-      <h3 class="eca-install-help__title">Something not working?</h3>
+      <h3 class="eca-install-help__title" id="help">Something not working?</h3>
       <ul class="eca-install-help__list">
-        <li>Check the <a href="troubleshooting">Troubleshooting</a> page</li>
-        <li>Browse the <a href="config/introduction">Configuration</a> docs to hook up your first model</li>
+        <li>Check the <a href="{{ 'troubleshooting/' | url }}">Troubleshooting</a> page</li>
+        <li>Browse the <a href="{{ 'config/introduction/' | url }}">Configuration</a> docs to hook up your first model</li>
         <li>Open an <a href="https://github.com/editor-code-assistant/eca/issues" target="_blank" rel="noopener">issue on GitHub</a></li>
       </ul>
     </div>
   </section>
 {% endblock %}
-
-{# Suppress the default article block — MkDocs would otherwise auto-render the
-   front-matter title as an <h1> below the page content. #}
-{% block content %}{% endblock %}
