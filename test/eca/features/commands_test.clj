@@ -26,6 +26,31 @@
    :user-messages []
    :metrics (h/metrics)})
 
+(deftest compact-command-does-not-reuse-stale-summary-test
+  (h/reset-components!)
+  (h/config! {:prompts {:compact "Summarize the chat."}})
+  (let [chat-id "compact-command-text-only-chat"
+        db* (h/db*)
+        ctx (command-context chat-id)]
+    (swap! db* assoc-in [:chats chat-id]
+           {:id chat-id :messages [] :last-summary "stale summary"})
+    (let [{:keys [on-finished-side-effect]} (f.commands/handle-command! "compact" [] ctx)]
+      (is (nil? (get-in @db* [:chats chat-id :last-summary]))
+          "starting /compact clears the previous summary")
+      (is (true? (get-in @db* [:chats chat-id :compacting?])))
+      (is (match? {:stop-after-finish? true}
+                  (on-finished-side-effect))
+          "a compact prompt that finishes without compact_chat must stop cleanly")
+      (is (empty? (get-in @db* [:chats chat-id :messages]))
+          "failed compaction must leave the conversation history unchanged")
+      (is (nil? (get-in @db* [:chats chat-id :last-summary])))
+      (is (nil? (get-in @db* [:chats chat-id :compacting?])))
+      (is (match? [{:role :system
+                    :content {:type :text
+                              :text #(and (string/includes? % "Compaction failed: the model did not submit a summary")
+                                          (string/includes? % "The conversation was not compacted."))}}]
+                  (:chat-content-received (h/messages)))))))
+
 (deftest subagents-msg-parent-visibility-test
   (let [config {:agent {"explorer" {:mode "subagent"
                                      :description "Unrestricted explorer"}

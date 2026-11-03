@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
 - Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
 
 ## 0.169.1
