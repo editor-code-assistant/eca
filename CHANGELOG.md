@@ -4,6 +4,8 @@
 
 - Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
 - Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
+- Fix auto-approved tool calls waiting on an earlier call's manual approval; they now start right away while approvals are still asked one at a time.
+- Fix calls to the same MCP server running one at a time across all chats; only stdio writes are serialized now.
 
 ## 0.169.1
 

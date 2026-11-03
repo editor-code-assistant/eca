@@ -715,3 +715,22 @@
         (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
                                        :config call-tool-ctx-config :metrics {}})
         (is (= [[:call :client-s]] @calls*) "no refresh when token is not expired")))))
+
+(deftest with-serialized-sends-test
+  (testing "concurrent sends never interleave a message's writes"
+    (let [out (java.io.StringWriter.)
+          ;; Mirrors the stdio transport: the body and the newline are separate writes.
+          transport (reify pp/IClientTransport
+                      (client-transport-info [_] {:id :stdio})
+                      (start-client-transport [_ _] nil)
+                      (stop-client-transport! [_ _] nil)
+                      (send-message-to-server [_ message]
+                        (.write out ^String message)
+                        (Thread/sleep 1)
+                        (.write out "\n"))
+                      (upon-handshake-success [_ _] nil))
+          wrapped (#'mcp/with-serialized-sends transport)
+          messages (mapv #(str "msg-" %) (range 20))]
+      (run! deref (mapv #(future (pp/send-message-to-server wrapped %)) messages))
+      (is (= (set messages) (set (string/split-lines (str out)))))
+      (is (= {:id :stdio} (pp/client-transport-info wrapped))))))
