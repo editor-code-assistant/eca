@@ -29,3 +29,13 @@
   <meta name="twitter:description" content="{{ description }}" />
   <meta name="twitter:image" content="{{ og_image }}" />
 {% endblock %}
+
+{% block scripts %}
+  {{ super() }}
+  {% if config.extra.toc_collapse %}
+    <script src="{{ 'js/toc-collapse.js' | url }}"></script>
+  {% endif %}
+  {% if config.extra.nav_open_first %}
+    <script src="{{ 'js/nav-open-first.js' | url }}"></script>
+  {% endif %}
+{% endblock %}

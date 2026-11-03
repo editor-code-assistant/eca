@@ -8,6 +8,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.tool-calls :as tc]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
@@ -1924,6 +1925,94 @@
       (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
       (is (not (true? (get-in (h/db) [:chats chat-id :compacting?]))))
       (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest steered-compact-text-response-does-not-reuse-stale-summary-test
+  (h/reset-components!)
+  (h/config! {:prompts {:compact "Summarize the chat. {{additionalUserInput}}"}})
+  (let [chat-id "steered-compact-text-only-chat"
+        api-calls* (atom [])]
+    (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+      (prompt!
+       {:message "Rename rfq to query" :chat-id chat-id}
+       {:all-tools-mock (constantly steered-compact-tools)
+        :call-tool-mock steered-compact-call-tool-mock
+        :api-mock
+        (fn [{:keys [user-messages on-first-response-received on-message-received
+                     on-prepare-tool-call on-tools-called]}]
+          (swap! api-calls* conj user-messages)
+          (case (count @api-calls*)
+            1 (do
+                (on-first-response-received {:type :text :text "Reading"})
+                (on-message-received {:type :text :text "Reading"})
+                (on-prepare-tool-call {:id "call-1"
+                                       :full-name "eca__read_file"
+                                       :arguments-text "{\"path\":\"/foo\"}"})
+                (swap! (h/db*) assoc-in [:chats chat-id :last-summary] "stale summary")
+                (f.chat/prompt-steer {:chat-id chat-id :message "/compact Keep only the rename details"}
+                                     (h/db*) (h/messenger) (h/config) (h/metrics))
+                (on-tools-called [{:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {"path" "/foo"}}]))
+            2 (do
+                (on-first-response-received)
+                (on-message-received {:type :text :text "A summary without the compact tool call."})
+                (on-message-received {:type :finish}))))}))
+    (let [messages (get-in (h/db) [:chats chat-id :messages])
+          content (:chat-content-received (h/messages))]
+      (is (= 2 (count @api-calls*))
+          "the original task must not resume after a failed compaction")
+      (is (not-any? #(= "compact_marker" (:role %)) messages)
+          "a textual response must not create a compact marker")
+      (is (not-any? #(string/includes? (pr-str (:content %)) "stale summary") messages)
+          "the prior summary must not be inserted into history")
+      (is (nil? (get-in (h/db) [:chats chat-id :last-summary])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compacting?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))
+      (is (match? (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text #(and (string/includes? % "Compaction failed: the model did not submit a summary")
+                                                    (string/includes? % "The conversation was not compacted."))}}])
+                  content)
+          "the user should see why the compaction did not happen"))))
+
+(deftest stopped-compaction-does-not-end-later-turns-early-test
+  (testing "a /compact turn stopped after compact_chat ran (here by a postToolCall hook) does not end later turns at their first tool call"
+    (h/reset-components!)
+    (h/config! {:prompts {:compact "Summarize the chat."}})
+    (let [chat-id "stopped-compaction-chat"
+          continuation* (atom ::not-called)]
+      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (fn [_db* _chat-ctx tool-call-id _event-data]
+                                                        (if (= "compact-1" tool-call-id)
+                                                          {:stop-turn? true :stop-reason "halt" :stop-hook-name "guard"}
+                                                          {:stop-turn? false}))}
+        (fn []
+          (prompt!
+           {:message "/compact" :chat-id chat-id}
+           {:all-tools-mock (constantly steered-compact-tools)
+            :call-tool-mock steered-compact-call-tool-mock
+            :api-mock
+            (fn [{:keys [on-first-response-received on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received)
+              (on-prepare-tool-call {:id "compact-1" :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Renamed rfq to query\"}"})
+              (on-tools-called [{:id "compact-1" :full-name "eca__compact_chat" :arguments {"summary" "Renamed rfq to query"}}]))})
+          (prompt!
+           {:message "Keep going" :chat-id chat-id}
+           {:all-tools-mock (constantly steered-compact-tools)
+            :call-tool-mock steered-compact-call-tool-mock
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received {:type :text :text "Reading"})
+              (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+              (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+              (on-message-received {:type :text :text "Done"})
+              (on-message-received {:type :finish}))})))
+      (is (match? {:new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}
+                  @continuation*)
+          "the LLM loop continues with the tool results instead of ending the turn")
       (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
       (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
 

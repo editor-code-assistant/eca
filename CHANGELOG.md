@@ -2,13 +2,22 @@
 
 ## Unreleased
 
+- Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
+- Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
+- Fix auto-approved tool calls waiting on an earlier call's manual approval; they now start right away while approvals are still asked one at a time.
+- Fix calls to the same MCP server running one at a time across all chats; only stdio writes are serialized now.
+
+## 0.169.1
+
 - Add `eca-cli` as an official client in docs and landing page.
 - Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
 - Enable built-in web search for OpenAI GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna.
 - Fix no models discovered for providers whose models.dev API URL has placeholders, like Cloudflare Workers AI's account id. #662
 - Fix Anthropic API-key requests failing with "credit balance is too low": send the "You are Claude Code" system block only with OAuth logins. #666
-- Fix auto-approved tool calls waiting on an earlier call's manual approval; they now start right away while approvals are still asked one at a time.
-- Fix calls to the same MCP server running one at a time across all chats; only stdio writes are serialized now.
+- Docs: Persistent Documentation sidenav
+- Fix Mistral reasoning models failing after the first answer: send past reasoning back as `thinking` chunks, not `reasoning_content`. #674
+- Fix missing chat titles and inline completions with Mistral reasoning models, like Mistral Large 4, which reply with thinking + text chunks.
+- Fix Mistral rejecting a chat that switched from a Gemini model: do not send Gemini thought signatures to Mistral.
 
 ## 0.169.0
 
