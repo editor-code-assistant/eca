@@ -18,6 +18,8 @@
 - Fix Mistral reasoning models failing after the first answer: send past reasoning back as `thinking` chunks, not `reasoning_content`. #674
 - Fix missing chat titles and inline completions with Mistral reasoning models, like Mistral Large 4, which reply with thinking + text chunks.
 - Fix Mistral rejecting a chat that switched from a Gemini model: do not send Gemini thought signatures to Mistral.
+- Support MCP progress notifications: each progress report resets the tool-call timeout, and timed-out calls are cancelled on the server.
+- Forward MCP tool progress to clients: `toolCallRunning` is re-sent with a `progress` field (`progress`, `total`, `message`), at most once per second per call.
 
 ## 0.169.0
 
