@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
+
 ## 0.170.0
 
 - Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
