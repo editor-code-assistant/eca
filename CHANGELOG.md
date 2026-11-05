@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
+
+## 0.170.0
+
+- Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
+- Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
+- Fix auto-approved tool calls waiting on an earlier call's manual approval; they now start right away while approvals are still asked one at a time.
+- Fix calls to the same MCP server running one at a time across all chats; only stdio writes are serialized now.
+- Support MCP progress notifications: each progress report resets the tool-call timeout, and timed-out calls are cancelled on the server.
+- Forward MCP tool progress to clients: `toolCallRunning` is re-sent with a `progress` field (`progress`, `total`, `message`), at most once per second per call.
+
+## 0.169.1
+
 - Add `eca-cli` as an official client in docs and landing page.
 - Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
 - Enable built-in web search for OpenAI GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna.

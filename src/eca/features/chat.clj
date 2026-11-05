@@ -713,11 +713,13 @@
    so the resume continuation does not fire."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-  (let [{:keys [stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)]
+  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)
+        current-prompt-ctx (assoc chat-ctx :prompt-id (get-in @db* [:chats chat-id :prompt-id]))]
     (when stop-turn?
-      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
-      (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
-    {:stop-after-finish? stop-turn?}))
+      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+    (when (or stop-turn? (not compacted?))
+      (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
+    {:stop-after-finish? (or stop-turn? (not compacted?))}))
 
 (def ^:private resume-after-compact-message
   {:role "user"
@@ -789,7 +791,10 @@
       (let [db             @db*
             compact-prompt (f.prompt/compact-prompt (shared/not-blank custom-instructions) all-tools agent config db)]
         (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
-        (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+        (swap! db* update-in [:chats chat-id]
+               #(-> %
+                    (dissoc :last-summary :compact-done?)
+                    (assoc :auto-compacting? true)))
         (prompt-messages!
          [{:role "user" :content "Compact the chat following the template:"}
           {:role "user" :content compact-prompt}]
@@ -1120,7 +1125,9 @@
         (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
-      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+      ;; :compact-done? is consumed when its compaction is applied; one left behind by a
+      ;; compaction stopped before that would end this turn at its first tool call.
+      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error :compact-done?)
       (when (and run-hooks? (:user-content-id chat-ctx))
         ;; Kept until the LLM responds, so a turn that is stopped, fails or is
         ;; superseded before that doesn't lose what the user typed.
@@ -1462,8 +1469,7 @@
                                                ;; (postCompact provides compact_summary; postRequest would
                                                ;; just see the trailing "Compacted successfully!" tool result).
                                                (get-in @db* [:chats chat-id :compact-done?])
-                                               (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
-                                                   (lifecycle/finish-chat-prompt! :idle
+                                               (do (lifecycle/finish-chat-prompt! :idle
                                                                                   (assoc chat-ctx :skip-post-request-hooks? true))
                                                    nil)
 
