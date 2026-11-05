@@ -412,9 +412,21 @@
   "Apply ECA's compact side effects, then run postCompact hooks (which
    internally append any returned additionalContext to the compact summary)."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
-  (let [summary (get-in @db* [:chats chat-id :last-summary])]
-    (shared/compact-side-effect! chat-ctx (= "auto" trigger))
-    (run-post-compact-hooks! chat-ctx trigger summary)))
+  (let [{:keys [compact-done? last-summary]} (get-in @db* [:chats chat-id])]
+    (if (and compact-done? (string? last-summary))
+      (do
+        (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
+        (shared/compact-side-effect! chat-ctx (= "auto" trigger))
+        (assoc (run-post-compact-hooks! chat-ctx trigger last-summary)
+               :compacted? true))
+      (do
+        (swap! db* update-in [:chats chat-id]
+               dissoc :auto-compacting? :compacting? :compact-done? :last-summary)
+        (send-content! chat-ctx :system
+                       {:type :text
+                        :text "Compaction failed: the model did not submit a summary with `compact_chat`. The conversation was not compacted."})
+        {:compacted? false
+         :stop-after-finish? true}))))
 
 (defn ^:private run-post-request-hooks!
   "Run postRequest (for primary chats) and subagentPostRequest (for subagents) hooks.
@@ -529,6 +541,14 @@
          new-db
          config)))))
 
+(defn ^:private finished-error
+  "The error that ended the turn (a provider or network error, a context
+  overflow…), for the `finished` progress, or nil when the turn succeeded."
+  [db chat-id]
+  (when-let [{:keys [message error-type]} (get-in db [:chats chat-id :prompt-error])]
+    (assoc-some {:message (or message "Unknown error")}
+                :type (some-> error-type name))))
+
 (defn ^:private apply-status-transition!
   "Update chat status, send status/progress events, set created-at if needed."
   [{:keys [chat-id db* messenger] :as chat-ctx} status]
@@ -536,8 +556,9 @@
   (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
   (trigger-chat-status-hook! chat-ctx)
   (send-content! chat-ctx :system
-                 {:type :progress
-                  :state :finished})
+                 (assoc-some {:type :progress
+                              :state :finished}
+                             :error (finished-error @db* chat-id)))
   (when-not (get-in @db* [:chats chat-id :created-at])
     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
 

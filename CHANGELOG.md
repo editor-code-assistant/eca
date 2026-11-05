@@ -4,8 +4,34 @@
 
 - Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
 
+## 0.170.0
+
+- Fix compaction reusing an old summary when the model returns text without calling `compact_chat`; report failure instead. #629
+- Preserve hosted web search and image generation in Codex parallel requests without changing Lite routing. #628
+- Fix auto-approved tool calls waiting on an earlier call's manual approval; they now start right away while approvals are still asked one at a time.
+- Fix calls to the same MCP server running one at a time across all chats; only stdio writes are serialized now.
+- Support MCP progress notifications: each progress report resets the tool-call timeout, and timed-out calls are cancelled on the server.
+- Forward MCP tool progress to clients: `toolCallRunning` is re-sent with a `progress` field (`progress`, `total`, `message`), at most once per second per call.
+
+## 0.169.1
+
 - Add `eca-cli` as an official client in docs and landing page.
 - Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+- Enable built-in web search for OpenAI GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna.
+- Fix no models discovered for providers whose models.dev API URL has placeholders, like Cloudflare Workers AI's account id. #662
+- Fix Anthropic API-key requests failing with "credit balance is too low": send the "You are Claude Code" system block only with OAuth logins. #666
+- Docs: Persistent Documentation sidenav
+- Fix Mistral reasoning models failing after the first answer: send past reasoning back as `thinking` chunks, not `reasoning_content`. #674
+- Fix missing chat titles and inline completions with Mistral reasoning models, like Mistral Large 4, which reply with thinking + text chunks.
+- Fix Mistral rejecting a chat that switched from a Gemini model: do not send Gemini thought signatures to Mistral.
+
+## 0.169.0
+
+- The `finished` progress of a turn that failed (provider or network error, context overflow…) carries an `error` with its message and type, so clients can tell it from a successful turn (e.g. a headless run's exit code).
+- A chat renamed with `chat/update` while its title is being generated keeps the new title.
+- Official support for `eca-cli` as an official client.
+- Docs: Fix landing page hero clipping the editor tabs and demo on tablet and small laptop widths.
+- Docs: Add logo wall and improvements in home page. #676
 
 ## 0.168.0
 

@@ -13,6 +13,7 @@
    [eca.oauth :as oauth]
    [eca.shared :as shared]
    [plumcp.core.api.capability :as pcap]
+   [plumcp.core.api.entity-gen :as peg]
    [plumcp.core.api.entity-support :as pes]
    [plumcp.core.api.mcp-client :as pmc]
    [plumcp.core.client.client-support :as pcs]
@@ -140,6 +141,19 @@
       :else
       (str (name server-name) "#scope:" scope))))
 
+(defn ^:private with-serialized-sends
+  "Wraps a client transport so concurrent messages are written to the server one at a time."
+  [transport]
+  (let [lock (Object.)]
+    (reify pp/IClientTransport
+      (client-transport-info [_] (pp/client-transport-info transport))
+      (start-client-transport [_ on-message] (pp/start-client-transport transport on-message))
+      (stop-client-transport! [_ force?] (pp/stop-client-transport! transport force?))
+      ;; The stdio transport writes the JSON and the newline separately, so
+      ;; unsynchronized concurrent sends can interleave and break framing.
+      (send-message-to-server [_ message] (locking lock (pp/send-message-to-server transport message)))
+      (upon-handshake-success [_ success] (pp/upon-handshake-success transport success)))))
+
 (defn ^:private ->transport [server-name server-config workspaces db*]
   (if (:url server-config)
     ;; HTTP Streamable transport
@@ -174,14 +188,15 @@
                                :uri
                                shared/uri->filename)
                        (config/user-home))]
-      {:transport (psct/run-command
-                   {:command-tokens (into [(replace-env-vars command)]
-                                          (map replace-env-vars)
-                                          (or args []))
-                    :dir work-dir
-                    :env (when env (update-keys env name))
-                    :on-stderr-text (fn [msg]
-                                      (logger/info logger-tag (format "[%s] %s" server-name msg)))})
+      {:transport (with-serialized-sends
+                    (psct/run-command
+                     {:command-tokens (into [(replace-env-vars command)]
+                                            (map replace-env-vars)
+                                            (or args []))
+                      :dir work-dir
+                      :env (when env (update-keys env name))
+                      :on-stderr-text (fn [msg]
+                                        (logger/info logger-tag (format "[%s] %s" server-name msg)))}))
        :needs-reinit?* nil})))
 
 (defn ^:private non-blocking-handler
@@ -193,6 +208,15 @@
   (pcs/wrap-initialized-check
    (fn [jsonrpc-notification]
      (future (f jsonrpc-notification)))))
+
+(defonce ^:private progress-listeners* (atom {}))
+
+(defn ^:private on-progress-notification
+  "Passes a server progress notification's params to the listener registered for its progress token."
+  [jsonrpc-notification]
+  (let [params (:params jsonrpc-notification)]
+    (when-let [listener (get @progress-listeners* (:progressToken params))]
+      (listener params))))
 
 (defn ^:private ->client [name transport init-timeout workspaces
                           {:keys [on-tools-change pending-tools-refresh* heartbeat-seconds]}]
@@ -240,6 +264,9 @@
                   (non-blocking-handler
                    (fn [notification]
                      (pcs/fetch-prompts notification)))
+
+                  psd/method-notifications-progress
+                  on-progress-notification
 
                   psd/method-notifications-message
                   (fn [params]
@@ -1027,69 +1054,123 @@
            (string/includes? m "401")
            (string/includes? m "403"))))))
 
+(defn ^:private request-tool-call
+  "Sends a tools/call request and returns the JSON-RPC response, or
+   ::call-timeout when no response or progress notification arrives within
+   `tool-call-timeout-ms`. A timed-out request is cancelled on the server.
+   `on-progress`, when given, receives each progress report as
+   {:progress :total :message}."
+  [mcp-client name arguments on-progress]
+  (let [progress-token (str (random-uuid))
+        ;; plumcp drops a caller-supplied _meta, so the token is set directly.
+        request (-> (peg/make-call-tool-request name arguments)
+                    (assoc-in [:params :_meta :progressToken] progress-token))
+        request-id (:id request)
+        response* (promise)
+        last-activity-ms* (atom (System/currentTimeMillis))]
+    (swap! progress-listeners* assoc progress-token
+           (fn [{:keys [progress total message] :as params}]
+             (reset! last-activity-ms* (System/currentTimeMillis))
+             (logger/debug logger-tag
+                           (format "Tool '%s' progress: %s%s%s"
+                                   name progress
+                                   (if total (str "/" total) "")
+                                   (if message (str " " message) "")))
+             (when on-progress
+               (try
+                 (on-progress (select-keys params [:progress :total :message]))
+                 (catch Exception e
+                   (logger/warn logger-tag (format "Failed to report progress of tool '%s': %s"
+                                                   name (.getMessage e))))))))
+    (try
+      (try
+        (pcs/send-request-to-server mcp-client request #(deliver response* %))
+        (catch Exception e
+          (pcs/remove-pending-client-request! (pcs/get-client-cache-atom mcp-client) request-id)
+          (throw e)))
+      (loop []
+        (let [remaining-ms (- (+ @last-activity-ms* tool-call-timeout-ms)
+                              (System/currentTimeMillis))
+              response (if (pos? remaining-ms)
+                         (deref response* remaining-ms ::waiting)
+                         ::call-timeout)]
+          (cond
+            (= ::waiting response) (recur)
+
+            (= ::call-timeout response)
+            (do (try (pmc/cancel-sent-request mcp-client request-id {:reason "Timed out"})
+                     (catch Exception e
+                       (logger/debug logger-tag (format "Failed to cancel timed-out tool call '%s': %s"
+                                                        name (.getMessage e)))))
+                ::call-timeout)
+
+            :else response)))
+      (finally
+        (swap! progress-listeners* dissoc progress-token)))))
+
 (defn ^:private do-call-tool
-  "Execute a tool call. Delegates timeout handling to plumcp via :timeout-millis.
+  "Execute a tool call, timing out when the server sends neither a response
+   nor a progress notification for `tool-call-timeout-ms`.
    All non-200 HTTP errors are returned as JSON-RPC errors by plumcp with
    :plumcp.core/http-status on the error map.
    A timeout is followed by a short liveness ping: a silent server means the
    connection is stale (e.g. after machine suspend) and gets flagged for
    re-initialization."
-  [mcp-client name arguments needs-reinit?*]
-  (locking mcp-client
-    (let [error-msg* (atom nil)
-          call-opts {:timeout-millis tool-call-timeout-ms
-                     :timeout-value ::call-timeout
-                     :on-timeout (fn [_id timeout-value] timeout-value)
-                     :on-error (fn [_id jsonrpc-error]
-                                 (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")
-                                       http-status (:plumcp.core/http-status jsonrpc-error)]
-                                   (logger/warn logger-tag "Error calling tool:" (format-jsonrpc-error jsonrpc-error))
-                                   (reset! error-msg* msg)
-                                   (when (and needs-reinit?*
-                                              (or (and http-status (reinit-worthy-http-status? http-status))
-                                                  ;; Some servers (e.g. RunLayer) report an expired session
-                                                  ;; as a JSON-RPC error without an HTTP status.
-                                                  (and (nil? http-status) (auth-error-message? msg))))
-                                     (logger/warn logger-tag
-                                                  (format "Auth/transport error (%s), flagging for re-initialization"
-                                                          (if http-status (str "HTTP " http-status) "no HTTP status")))
-                                     (reset! needs-reinit?* true)))
-                                 nil)}
-          result (try
-                   (pmc/call-tool mcp-client name arguments call-opts)
-                   (catch Exception e
-                     (if (transient-transport-error? e)
-                       (do (logger/warn logger-tag (format "Transient transport error, retrying tool call: %s" (.getMessage e)))
-                           ::retry)
-                       (do (logger/warn logger-tag (format "Error during tool call: %s" (or (.getMessage e) (.getName (class e)))))
-                           {::error-msg (or (.getMessage e) (.getName (class e)))}))))]
-      (cond
-        (= ::retry result)
-        nil
+  [mcp-client name arguments needs-reinit?* on-progress]
+  (let [error-msg* (atom nil)
+        call-opts {:on-error (fn [_id jsonrpc-error]
+                               (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")
+                                     http-status (:plumcp.core/http-status jsonrpc-error)]
+                                 (logger/warn logger-tag "Error calling tool:" (format-jsonrpc-error jsonrpc-error))
+                                 (reset! error-msg* msg)
+                                 (when (and needs-reinit?*
+                                            (or (and http-status (reinit-worthy-http-status? http-status))
+                                                ;; Some servers (e.g. RunLayer) report an expired session
+                                                ;; as a JSON-RPC error without an HTTP status.
+                                                (and (nil? http-status) (auth-error-message? msg))))
+                                   (logger/warn logger-tag
+                                                (format "Auth/transport error (%s), flagging for re-initialization"
+                                                        (if http-status (str "HTTP " http-status) "no HTTP status")))
+                                   (reset! needs-reinit?* true)))
+                               nil)}
+        result (try
+                 (let [response (request-tool-call mcp-client name arguments on-progress)]
+                   (if (= ::call-timeout response)
+                     response
+                     (pcs/on-jsonrpc-response response "call-tool" call-opts)))
+                 (catch Exception e
+                   (if (transient-transport-error? e)
+                     (do (logger/warn logger-tag (format "Transient transport error, retrying tool call: %s" (.getMessage e)))
+                         ::retry)
+                     (do (logger/warn logger-tag (format "Error during tool call: %s" (or (.getMessage e) (.getName (class e)))))
+                         {::error-msg (or (.getMessage e) (.getName (class e)))}))))]
+    (cond
+      (= ::retry result)
+      nil
 
-        (= ::call-timeout result)
-        (let [timeout-s (quot tool-call-timeout-ms 1000)]
-          (if (and needs-reinit?* (connection-dead? mcp-client))
-            (do (logger/warn logger-tag
-                             (format "Tool call '%s' timed out after %ss and server does not answer pings, flagging for re-initialization" name timeout-s))
-                (reset! needs-reinit?* true)
-                (tool-call-error (format "MCP tool call timed out after %ss: connection looks stale, re-initializing server" timeout-s)))
-            (tool-call-error (format "MCP tool call timed out after %ss" timeout-s))))
+      (= ::call-timeout result)
+      (let [timeout-s (quot tool-call-timeout-ms 1000)]
+        (if (and needs-reinit?* (connection-dead? mcp-client))
+          (do (logger/warn logger-tag
+                           (format "Tool call '%s' timed out after %ss without response or progress and server does not answer pings, flagging for re-initialization" name timeout-s))
+              (reset! needs-reinit?* true)
+              (tool-call-error (format "MCP tool call timed out after %ss without response or progress: connection looks stale, re-initializing server" timeout-s)))
+          (tool-call-error (format "MCP tool call timed out after %ss without response or progress" timeout-s))))
 
-        (::error-msg result)
-        (tool-call-error (format "MCP server error: %s" (::error-msg result)))
+      (::error-msg result)
+      (tool-call-error (format "MCP server error: %s" (::error-msg result)))
 
-        (map? result)
-        {:error (:isError result)
-         :contents (into [] (keep ->content) (:content result))}
+      (map? result)
+      {:error (:isError result)
+       :contents (into [] (keep ->content) (:content result))}
 
-        :else
-        (tool-call-error (or @error-msg* "MCP server returned empty response"))))))
+      :else
+      (tool-call-error (or @error-msg* "MCP server returned empty response")))))
 
-(defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments]
+(defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments on-progress]
   (reinitialize-server! server-name mcp-client db* config metrics)
   (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
-    (do-call-tool new-client name arguments nil)
+    (do-call-tool new-client name arguments nil on-progress)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
 (defn ^:private refresh-expired-auth!
@@ -1109,7 +1190,10 @@
                    (format "MCP server '%s' OAuth token expired, refreshing before tool call" server-name))
       (not (try-refresh-token! server-name db* url metrics server-config)))))
 
-(defn call-tool! [server-name name arguments {:keys [db db* config metrics]}]
+(defn call-tool!
+  "Calls an MCP server tool. `on-progress`, when given, receives each progress
+   report the server sends for the call as {:progress :total :message}."
+  [server-name name arguments {:keys [db db* config metrics on-progress]}]
   (if-let [[mcp-client needs-reinit?*]
            (when-let [{:keys [client tools needs-reinit?*]} (get-in db [:mcp-clients server-name])]
              (when (some #(= name (:name %)) tools)
@@ -1118,16 +1202,16 @@
              (or @needs-reinit?*
                  (refresh-expired-auth! server-name db* config metrics)))
       ;; Flagged, or expired token couldn't be refreshed — reinit before the call
-      (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
-      (let [result (do-call-tool mcp-client name arguments needs-reinit?*)]
+      (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments on-progress)
+      (let [result (do-call-tool mcp-client name arguments needs-reinit?* on-progress)]
         (cond
           ;; nil = transient transport error, retry once
           (nil? result)
-          (do-call-tool mcp-client name arguments needs-reinit?*)
+          (do-call-tool mcp-client name arguments needs-reinit?* on-progress)
 
           ;; Flagged during the call (e.g. HTTP 401/403/5xx) — reinit and retry
           (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
-          (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments)
+          (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments on-progress)
 
           :else result)))
     (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))

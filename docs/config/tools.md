@@ -200,6 +200,25 @@ Ready-to-use configs for some third-party MCP servers. Most remote servers work 
 
     No account or API key needed: the agent creates a temporary project with `create_tenant`, which you can claim later to keep it. [Docs](https://cohesivity.ai/docs?ref=gh-eca).
 
+=== "Cooper Email"
+
+    [Cooper Email](https://cooperemail.com): an email inbox for the agent (send, receive and reply, wait for sign-up codes).
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "cooper-email": {
+          "url": "https://cooperemail.com/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:COOPER_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Free, no card: one `POST /api/v1/onboard` call returns an inbox and a key, shown once (see [llms.txt](https://cooperemail.com/llms.txt)). Mail bodies are untrusted input; keep approval prompts on so you confirm each send. [Docs](https://cooperemail.com/docs/mcp).
+
 === "Equibles"
 
     [Equibles](https://equibles.com/mcp): US stock market data (SEC filings, earnings calls, financial statements, insider trades, prices).
