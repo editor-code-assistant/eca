@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.prompt :as prompt]
+   [eca.shared :as shared]
    [eca.test-helper :as h]))
 
 (defn ^:private build-instructions
@@ -293,6 +294,28 @@
       (is (string/includes? flat "## MCP Resources"))
       (is (not (string/includes? flat "\n\n\n## MCP Resources"))
           "there should be exactly one blank line before ## MCP Resources, not two"))))
+
+(deftest context-breakdown-attribution-test
+  (testing "only the rules, skills and AGENTS.md blocks get their own category; @ contexts and the other sections are System prompt (#689)"
+    (let [payload (fn [c] (apply str (repeat 4000 c)))
+          db (assoc (h/db) :mcp-clients {:srv {:status :running :instructions (payload "i")}})
+          instructions (build-instructions [{:type :file :path "/workspace/big.txt" :content (payload "f")}
+                                            {:type :agents-file :path "/workspace/AGENTS.md" :content (payload "a")}
+                                            {:type :repoMap}
+                                            {:type :mcpResource :uri "custom://r" :content (payload "r")}]
+                                           [{:name "rule1" :content "A rule" :scope :project}]
+                                           []
+                                           [{:name "review-pr" :description "Review a PR"}]
+                                           (delay "TREE") "code" {} nil
+                                           [{:full-name "github__x" :description "X tool" :deferrable true :deferred true}]
+                                           db)
+          tokens (->> (shared/context-breakdown {:system-prompt (prompt/instructions->str instructions)})
+                      :categories
+                      (into {} (map (juxt :name :tokens))))]
+      (is (< 3000 (get tokens "System prompt" 0)) "the @ file, MCP resource and MCP server instructions")
+      (is (< 1000 (get tokens "AGENTS.md" 0) 1100) "just the AGENTS.md file")
+      (is (< 0 (get tokens "Skills" 0) 100) "just the skills catalog")
+      (is (< 0 (get tokens "Rules" 0) 100) "just the rules"))))
 
 (deftest build-instructions-rule-condition-test
   (testing "renders rule content using Selmer condition variables"

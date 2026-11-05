@@ -434,9 +434,11 @@
       (is (= "⬜" free-emoji))))
   (testing "splits system prompt and messages into fine-grained categories"
     (let [system-prompt (str "base agent prompt line\n"
-                             "## Rules\n<rules>some rule body</rules>\n"
-                             "## Skills\n<skills>some skill</skills>\n"
-                             "## Static Contexts\nAGENTS.md memory content here")
+                             "## Rules\n<rules description=\"r\">\n<rule name=\"a\">some rule body</rule>\n</rules>\n"
+                             "## Skills\n<skills description=\"s\">\n<skill name=\"b\" description=\"some skill\"/>\n</skills>\n"
+                             "## Context\n<contexts description=\"c\">\n"
+                             "<agents-file description=\"d\" path=\"/AGENTS.md\">\nAGENTS.md memory content here\n</agents-file>\n"
+                             "</contexts>")
           {:keys [categories]}
           (shared/context-breakdown
            {:system-prompt system-prompt
@@ -456,6 +458,43 @@
       ;; reasoning folds into Conversation; tool results into Tool calls
       (is (not (contains? names "Reasoning")))
       (is (not (contains? names "Tool results")))))
+  (testing "@ contexts and the sections after the skills count as System prompt, not Skills (#689)"
+    (let [skills-block "<skills description=\"s\">\n<skill name=\"b\" description=\"some skill\"/>\n</skills>\n"
+          agents-block "<agents-file description=\"d\" path=\"/AGENTS.md\">\nmemory\n</agents-file>\n"
+          system-prompt (str "base agent prompt line\n"
+                             "## Skills\n\n" skills-block "\n"
+                             "## Environment Context\n\nOS: Linux\n\n"
+                             "## Context\n\n<contexts description=\"c\">\n"
+                             "<file path=\"/big.txt\">" (apply str (repeat 4000 "x")) "</file>\n\n"
+                             agents-block "</contexts>\n\n"
+                             "## MCP Server Instructions\n\nUse the server.")
+          tokens (->> (shared/context-breakdown {:system-prompt system-prompt})
+                      :categories
+                      (into {} (map (juxt :name :tokens))))]
+      (is (= {"System prompt" (quot (- (count system-prompt) (count skills-block) (count agents-block)) 4)
+              "Skills" (quot (count skills-block) 4)
+              "AGENTS.md" (quot (count agents-block) 4)}
+             tokens))))
+  (testing "tags without attributes or without a closing line stay in System prompt"
+    (let [{:keys [categories]} (shared/context-breakdown
+                                {:system-prompt (str "<rules>Be concise.</rules>\n"
+                                                     "<skills>\n<skill name=\"b\"/>\n</skills>\n"
+                                                     "<skills description=\"never closed\">\n"
+                                                     (apply str (repeat 400 "x")))})]
+      (is (= ["System prompt"] (mapv :name categories)))))
+  (testing "inline elements don't open blocks and tags nested in a block are its content"
+    (let [agents-block (str "<agents-file description=\"d\" path=\"/AGENTS.md\">\n"
+                            "<rules description=\"an example\">\n"
+                            "</rules>\n"
+                            "</agents-file>\n")
+          system-prompt (str (apply str (repeat 1000 "<skills level=\"3\">Java</skills>\n"))
+                             agents-block)
+          tokens (->> (shared/context-breakdown {:system-prompt system-prompt})
+                      :categories
+                      (into {} (map (juxt :name :tokens))))]
+      (is (= {"System prompt" (quot (- (count system-prompt) (count agents-block)) 4)
+              "AGENTS.md" (quot (count agents-block) 4)}
+             tokens))))
   (testing "provider session-tokens is authoritative and scales the breakdown"
     (let [{:keys [used-tokens free-tokens]}
           (shared/context-breakdown

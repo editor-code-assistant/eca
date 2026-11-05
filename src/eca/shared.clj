@@ -411,14 +411,24 @@
 (def ^:private context-tool-roles
   #{"tool_call" "server_tool_use" "tool_call_output" "server_tool_result"})
 
-(def ^:private system-prompt-section-headers
-  "ECA-injected level-2 headers used to attribute system-prompt tokens to finer
-   buckets. Other `##` headers (e.g. the base agent prompt's own sections) stay
-   in the current bucket."
-  {"## Rules" "Rules"
-   "## Skills" "Skills"
-   "## Static Contexts" "AGENTS.md"
-   "## Dynamic Contexts" "AGENTS.md"})
+(def ^:private system-prompt-blocks
+  "XML blocks ECA injects into the system prompt that get their own category,
+   by tag. Everything outside them (agent prompt, environment, workspace roots,
+   deferred tools, `@` contexts, MCP resources and instructions) counts as
+   System prompt."
+  {"rules" "Rules"
+   "skills" "Skills"
+   "agents-file" "AGENTS.md"})
+
+(defn ^:private system-prompt-block-opened
+  "Tag of the `system-prompt-blocks` block LINE opens, if any. As ECA renders
+   them, the opening tag starts the line, has attributes and is closed on a
+   later line of its own."
+  [line]
+  (when-let [[_ tag] (re-find #"^<([\w-]+)\s" line)]
+    (when (and (contains? system-prompt-blocks tag)
+               (not (string/includes? line (str "</" tag ">"))))
+      tag)))
 
 (def ^:private system-prompt-category-order
   ["System prompt" "Rules" "Skills" "AGENTS.md"])
@@ -457,18 +467,34 @@
 
 (defn ^:private split-system-prompt
   "Attributes the assembled system-prompt string to sub-categories by ECA's
-   injected section headers. Returns an ordered vector of [name tokens] for the
-   non-empty buckets."
+   injected blocks, each from its opening tag line to its closing tag line;
+   tags inside a block are its content. A block's lines only count for its
+   category once its closing line is read, so an unclosed one stays System
+   prompt. A single pass over the lines, so it stays linear on huge prompts.
+   Returns an ordered vector of [name tokens] for the non-empty buckets."
   [system-prompt]
   (if (string/blank? system-prompt)
     []
-    (let [char-counts (loop [lines (string/split-lines system-prompt)
-                             current "System prompt"
+    (let [block-chars (loop [lines (string/split-lines system-prompt)
+                             block nil ;; tag of the open block, if any
+                             pending 0 ;; chars of the open block so far
                              acc {}]
                         (if-let [line (first lines)]
-                          (let [cat (get system-prompt-section-headers (string/trim line) current)]
-                            (recur (rest lines) cat (update acc cat (fnil + 0) (inc (count line)))))
-                          acc))]
+                          (let [chars (inc (count line))]
+                            (cond
+                              (and block (= line (str "</" block ">")))
+                              (recur (rest lines) nil 0
+                                     (update acc (get system-prompt-blocks block) (fnil + 0) (+ pending chars)))
+
+                              block
+                              (recur (rest lines) block (+ pending chars) acc)
+
+                              :else
+                              (let [opened (system-prompt-block-opened line)]
+                                (recur (rest lines) opened (if opened chars 0) acc))))
+                          acc))
+          char-counts (assoc block-chars "System prompt"
+                             (max 0 (- (count system-prompt) (reduce + 0 (vals block-chars)))))]
       (->> system-prompt-category-order
            (keep (fn [cat]
                    (when-let [chars (get char-counts cat)]
@@ -480,8 +506,8 @@
 
    Inputs (all optional):
      :system-prompt  - assembled system instructions string; split into
-                       System prompt / Rules / Skills / Memory & contexts by
-                       ECA's injected section headers
+                       System prompt / Rules / Skills / AGENTS.md by the
+                       blocks ECA injects (see `system-prompt-blocks`)
      :tools          - tool definitions (vector of tool maps); only the wire
                        fields (:name :description :parameters) are measured
      :messages       - chat messages vector (db shape) partitioned into
