@@ -779,7 +779,8 @@ interface ChatTextContent {
     /**
      * The unique identifier of this content.
      * Mostly used to rollback messages.
-     * Current, only user messages contain this.
+     * Currently, only user messages contain this, though not all of them
+     * (e.g. a compaction summary has none).
      */
     contentId?: string;
 
@@ -1912,10 +1913,12 @@ interface ChatPromptSteerRemoveParams {
 ### Chat rollback (↩)
 
 A client request to rollback chat messages to before a specific user sent message using `contentId`.
-Clients should show an option close to user sent messages in chat to rollback, calling this method.
+Clients should show an option close to user sent messages in chat to rollback, calling this method, only for
+messages carrying a `contentId`: some user messages, like a compaction summary, have none.
 Server will then remove the messages from its memory after that contentId and produce `chat/cleared` followed 
 with `chat/contentReceived` with the kept messages. Clients with the `incrementalUpdates` capability receive
-a single `chat/truncated` instead.
+a single `chat/truncated` instead. When the chat is unknown or `contentId` is missing or matches no message,
+the server returns an error without changing the history or any file.
 
 _Request:_ 
 
@@ -1930,7 +1933,8 @@ interface ChatRollbackParams {
     chatId: string;
     
     /**
-     * The message content id.
+     * The contentId of the message to roll back to: it and every later
+     * message are removed.
      */
     contentId: string;
     
@@ -1946,7 +1950,13 @@ type ChatRollbackInclude = 'messages' | 'tools';
 _Response:_
 
 ```typescript
-interface ChatRollbackResponse {}
+interface ChatRollbackResponse {
+    /**
+     * Present when nothing was rolled back: the chat is unknown, `contentId`
+     * is missing or blank (`invalid_request`) or matches no message of the chat.
+     */
+    error?: { code: 'chat_not_found' | 'invalid_request' | 'content_not_found'; message: string };
+}
 ```
 
 ### Chat clear (↩)

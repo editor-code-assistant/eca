@@ -2687,53 +2687,82 @@
         (db/save-chat! @db* chat-id metrics))))
   {})
 
+(defn ^:private rollback-target-idx
+  "Index of the first message carrying `content-id`. A turn may store several
+   messages under the same id, so rolling it back removes all of them."
+  [messages content-id]
+  (first (keep-indexed (fn [idx message]
+                         (when (= content-id (:content-id message)) idx))
+                       messages)))
+
+(defn ^:private rollback-error [code message]
+  (logger/warn logger-tag "Chat rollback rejected:" message)
+  {:error {:code code :message message}})
+
 (defn rollback-chat
-  "Remove messages from chat in db until content-id matches.
+  "Remove the message identified by content-id and every message after it.
    Then notify the client: `chat/truncated` when it supports incremental
-   updates, otherwise `chat/cleared` followed by the kept messages."
+   updates, otherwise `chat/cleared` followed by the kept messages.
+   Returns an `:error` without touching history or files when the chat is
+   unknown or content-id is missing or matches no message: many messages have
+   no id, so a nil id would match the first of those instead (#669)."
   [{:keys [chat-id content-id include]} db* messenger metrics]
-  (db/hydrate-chat! db* chat-id metrics)
-  (let [include (if (seq include)
-                  (set include)
-                  ;; backwards compatibility
-                  #{"messages" "tools"})
-        all-messages (get-in @db* [:chats chat-id :messages])
-        tool-calls (get-in @db* [:chats chat-id :tool-calls])
-        new-messages (when (contains? include "messages")
-                       (vec (take-while #(not= (:content-id %) content-id) all-messages)))
-        removed-messages (when (contains? include "tools")
-                           (vec (drop-while #(not= (:content-id %) content-id) all-messages)))
-        rollback-changes (->> removed-messages
-                              (filter #(= "tool_call_output" (:role %)))
-                              (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
-                              flatten
-                              reverse)]
-    (doseq [{:keys [path content]} rollback-changes]
-      (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
-      (if content
-        (spit path content)
-        (io/delete-file path true)))
-    (when new-messages
-      (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-      ;; Rollback is the user's recovery tool for a chat that got into a bad
-      ;; state. Persist immediately so the cleaned-up history survives a
-      ;; restart instead of relying on the next unrelated save.
-      (db/save-chat! @db* chat-id metrics)
-      (if (history/incremental-updates? @db*)
-        (when (< (count new-messages) (count all-messages))
-          (messenger/chat-truncated messenger {:chat-id chat-id
-                                               :content-id content-id}))
-        (do
-          (messenger/chat-cleared
-           messenger
-           {:chat-id chat-id
-            :messages true})
-          (send-chat-contents!
-           new-messages
-           {:chat-id chat-id
-            :db* db*
-            :messenger messenger}))))
-    {}))
+  (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+    (db/hydrate-chat! db* chat-id metrics)
+    (let [chat (get-in @db* [:chats chat-id])
+          all-messages (vec (:messages chat))
+          target-idx (some->> (shared/not-blank content-id)
+                              (rollback-target-idx all-messages))]
+      (cond
+        (nil? chat)
+        (rollback-error "chat_not_found" (str "Chat " chat-id " not found"))
+
+        (not (shared/not-blank content-id))
+        (rollback-error "invalid_request" "contentId is required and must be a non-blank string")
+
+        (nil? target-idx)
+        (rollback-error "content_not_found" (str "No message with contentId " content-id " in chat " chat-id))
+
+        :else
+        (let [include (if (seq include)
+                        (set include)
+                        ;; backwards compatibility
+                        #{"messages" "tools"})
+              tool-calls (:tool-calls chat)
+              new-messages (when (contains? include "messages")
+                             (into [] (take target-idx) all-messages))
+              removed-messages (when (contains? include "tools")
+                                 (subvec all-messages target-idx))
+              rollback-changes (->> removed-messages
+                                    (filter #(= "tool_call_output" (:role %)))
+                                    (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
+                                    flatten
+                                    reverse)]
+          (doseq [{:keys [path content]} rollback-changes]
+            (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
+            (if content
+              (spit path content)
+              (io/delete-file path true)))
+          (when new-messages
+            (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+            ;; Rollback is the user's recovery tool for a chat that got into a bad
+            ;; state. Persist immediately so the cleaned-up history survives a
+            ;; restart instead of relying on the next unrelated save.
+            (db/save-chat! @db* chat-id metrics)
+            (if (history/incremental-updates? @db*)
+              (messenger/chat-truncated messenger {:chat-id chat-id
+                                                   :content-id content-id})
+              (do
+                (messenger/chat-cleared
+                 messenger
+                 {:chat-id chat-id
+                  :messages true})
+                (send-chat-contents!
+                 new-messages
+                 {:chat-id chat-id
+                  :db* db*
+                  :messenger messenger}))))
+          {})))))
 
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both

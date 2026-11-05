@@ -2866,12 +2866,90 @@
     (enable-incremental-updates!)
     (let [chat-id (two-turn-chat!)]
       (h/reset-messenger!)
-      (f.chat/rollback-chat {:chat-id chat-id
-                             :include ["messages"]
-                             :content-id "missing"}
-                            (h/db*) (h/messenger) (h/metrics))
+      (is (match? {:error {:code "content_not_found"}}
+                  (f.chat/rollback-chat {:chat-id chat-id
+                                         :include ["messages"]
+                                         :content-id "missing"}
+                                        (h/db*) (h/messenger) (h/metrics))))
       (is (= 4 (count (get-in (h/db) [:chats chat-id :messages]))))
       (is (= {} (h/messages))))))
+
+(defn ^:private seed-compacted-chat!
+  "Seeds the history from #669: an id-bearing user message, an idless
+   assistant answer, an idless compaction marker and summary, then a turn
+   whose tool call recorded a change to `path` for rollback."
+  [path]
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :status :idle
+          :messages [{:role "user" :content [{:type :text :text "first"}] :content-id "u1"}
+                     {:role "assistant" :content [{:type :text :text "answer"}]}
+                     {:role "compact_marker" :content {:auto? false}}
+                     {:role "user" :content [{:type :text :text "summary"}]}
+                     {:role "user" :content [{:type :text :text "second"}] :content-id "u2"}
+                     {:role "tool_call_output" :content {:id "t1"
+                                                         :name "write_file"
+                                                         :output {:contents [{:type :text :text "ok"}]}}}
+                     {:role "assistant" :content [{:type :text :text "done"}]}]
+          :tool-calls {"t1" {:rollback-changes [{:path path :content "before"}]}}}))
+
+(deftest rollback-chat-target-validation-test
+  (let [file (str (fs/create-temp-file {:prefix "eca-rollback" :suffix ".txt"}))
+        setup! (fn []
+                 (h/reset-components!)
+                 (spit file "after")
+                 (seed-compacted-chat! file))
+        rollback! (fn [params]
+                    (f.chat/rollback-chat (merge {:chat-id "c1" :include ["messages" "tools"]} params)
+                                          (h/db*) (h/messenger) (h/metrics)))]
+    (try
+      (doseq [[desc params code] [["null" {:content-id nil} "invalid_request"]
+                                  ["absent" {} "invalid_request"]
+                                  ["blank" {:content-id " "} "invalid_request"]
+                                  ["non-string" {:content-id 42} "invalid_request"]
+                                  ["unknown" {:content-id "missing"} "content_not_found"]]]
+        (testing (str "a " desc " content-id is rejected before touching history, files or clients")
+          (setup!)
+          (let [messages-before (get-in (h/db) [:chats "c1" :messages])
+                save-calls* (atom 0)]
+            (with-redefs [db/save-chat! (fn [& _] (swap! save-calls* inc))]
+              (is (match? {:error {:code code :message string?}}
+                          (rollback! params))))
+            (is (= messages-before (get-in (h/db) [:chats "c1" :messages])))
+            (is (= "after" (slurp file)) "tool changes must not be reverted")
+            (is (zero? @save-calls*))
+            (is (= {} (h/messages))))))
+
+      (testing "an unknown chat is rejected without materializing it"
+        (setup!)
+        (is (match? {:error {:code "chat_not_found" :message string?}}
+                    (rollback! {:chat-id "ghost" :content-id "u1"})))
+        (is (not (contains? (:chats (h/db)) "ghost"))))
+
+      (testing "a valid target still rolls back the messages and tool changes from it"
+        (setup!)
+        (is (= {} (rollback! {:content-id "u2"})))
+        (is (match? [{:role "user" :content-id "u1"}
+                     {:role "assistant"}
+                     {:role "compact_marker"}
+                     {:role "user" :content [{:text "summary"}]}]
+                    (get-in (h/db) [:chats "c1" :messages])))
+        (is (= "before" (slurp file))))
+
+      (testing "a turn stored as several messages is rolled back from its first one"
+        (h/reset-components!)
+        (swap! (h/db*) assoc-in [:chats "c1"]
+               {:id "c1"
+                :messages [{:role "user" :content [{:type :text :text "a"}] :content-id "u1"}
+                           {:role "assistant" :content [{:type :text :text "b"}]}
+                           {:role "user" :content [{:type :text :text "prompt 1"}] :content-id "u2"}
+                           {:role "assistant" :content [{:type :text :text "prompt 2"}] :content-id "u2"}
+                           {:role "assistant" :content [{:type :text :text "reply"}]}]})
+        (is (= {} (rollback! {:content-id "u2" :include ["messages"]})))
+        (is (= ["a" "b"]
+               (mapv #(get-in % [:content 0 :text]) (get-in (h/db) [:chats "c1" :messages])))))
+      (finally
+        (fs/delete-if-exists file)))))
 
 (deftest add-flag-test
   (testing "Legacy clients get chat/cleared and a full replay including the flag"
