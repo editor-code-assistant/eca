@@ -640,3 +640,54 @@
            (f.context/raw-contexts->refined
             [{:type "text" :content "some output"}]
             (h/db))))))
+
+(deftest attached-context-key-test
+  (testing "files are keyed by canonical path plus lines range, so spellings of the same file match (#683)"
+    (let [abs (str (fs/canonicalize "deps.edn"))]
+      (is (= abs (f.context/attached-context-key {:type :file :path (str "." fs/file-separator "deps.edn")})))
+      (is (= abs (f.context/attached-context-key {:type :file :path abs})))
+      (is (= (str abs ":L1-L10")
+             (f.context/attached-context-key {:type :file :path abs :lines-range {:start 1 :end 10}})))))
+  (testing "repoMap has a fixed key and other contexts have none"
+    (is (= "repoMap" (f.context/attached-context-key {:type :repoMap})))
+    (is (nil? (f.context/attached-context-key {:type :cursor :path "a.clj"})))
+    (is (nil? (f.context/attached-context-key {:type :image :path "a.png"})))))
+
+(deftest attached-contexts-delta-test
+  (let [a {:type :file :path (h/file-path "/fake/a.clj") :content "(ns a)"}
+        b {:type :file :path (h/file-path "/fake/b.clj") :content "(ns b)"}
+        repo-map {:type :repoMap}
+        key-of f.context/attached-context-key
+        tree* (delay "TREE")
+        first-turn (f.context/attached-contexts-delta [a repo-map {:type :cursor :path "a.clj"}] nil #{} tree*)]
+    (testing "new contexts are returned to be sent in full and tracked (#683)"
+      (is (= [a repo-map] (:new first-turn)))
+      (is (= [] (:changed first-turn)))
+      (is (= #{(key-of a) "repoMap"} (set (keys (:sent first-turn))))))
+    (testing "unchanged contexts are not returned again"
+      (is (= {:new [] :changed [] :sent (:sent first-turn)}
+             (f.context/attached-contexts-delta [a repo-map] (:sent first-turn) #{} tree*))))
+    (testing "changed contexts are returned to be announced"
+      (let [a2 (assoc a :content "(ns a2)")
+            delta (f.context/attached-contexts-delta [a2 repo-map] (:sent first-turn) #{} (delay "TREE2"))]
+        (is (= [] (:new delta)))
+        (is (= [a2 repo-map] (:changed delta)))
+        (is (not= (:sent first-turn) (:sent delta)))))
+    (testing "removed contexts are dropped, so attaching them again sends them in full"
+      (let [removed (f.context/attached-contexts-delta [b] (:sent first-turn) #{} tree*)]
+        (is (= [b] (:new removed)))
+        (is (= #{(key-of b)} (set (keys (:sent removed)))))
+        (is (= [a] (:new (f.context/attached-contexts-delta [a b] (:sent removed) #{} tree*))))))
+    (testing "contexts already expanded from the prompt text are tracked but not returned"
+      (let [delta (f.context/attached-contexts-delta [a b] nil #{(key-of a)} tree*)]
+        (is (= [b] (:new delta)))
+        (is (= #{(key-of a) (key-of b)} (set (keys (:sent delta)))))))
+    (testing "duplicated contexts are returned once"
+      (is (= [a] (:new (f.context/attached-contexts-delta [a a] nil #{} tree*)))))
+    (testing "the same file with another lines range is another context"
+      (let [a-range (assoc a :lines-range {:start 1 :end 2})]
+        (is (= [a-range] (:new (f.context/attached-contexts-delta [a-range] (:sent first-turn) #{} tree*))))))
+    (testing "the repo map is only computed when attached"
+      (let [computed? (atom false)]
+        (f.context/attached-contexts-delta [a] nil #{} (delay (reset! computed? true) "TREE"))
+        (is (false? @computed?))))))

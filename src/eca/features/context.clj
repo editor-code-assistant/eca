@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [clojure.core.memoize :as memoize]
    [clojure.string :as string]
+   [eca.digest :as digest]
    [eca.features.index :as f.index]
    [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
@@ -189,6 +190,51 @@
         raw-contexts (mapv (comp parse-context-reference second) matches)]
     (when (seq raw-contexts)
       (raw-contexts->refined raw-contexts db))))
+
+(def ^:private attached-context-types
+  "Context-area types delivered in the user message and tracked per chat:
+   sent in full once, then only announced when they change. #683"
+  #{:file :repoMap})
+
+(defn attached-context?
+  "True when ctx is a context-area item tracked per chat (file or repoMap)."
+  [ctx]
+  (boolean (attached-context-types (:type ctx))))
+
+(defn attached-context-key
+  "Identity of an attached context in a chat: the canonical path plus its lines
+   range for files, so the same file given as `~/x`, `./x` or `/abs/x` matches."
+  [{:keys [type path lines-range]}]
+  (case type
+    :repoMap "repoMap"
+    :file (cond-> (str (safe-canonicalize path))
+            lines-range (str ":L" (:start lines-range) "-L" (:end lines-range)))
+    nil))
+
+(defn attached-contexts-delta
+  "Diffs the attached contexts among `contexts` against `sent`, the map of
+   context key -> content digest already delivered in the chat.
+   Returns `:new` contexts to send in full, `:changed` ones to announce and the
+   updated `:sent` map. Removed contexts are dropped from `:sent`, so attaching
+   one again sends it in full. Contexts whose key is in the `skip-keys` set
+   (already expanded from the prompt text) are recorded as sent but not returned."
+  [contexts sent skip-keys repo-map*]
+  (reduce
+   (fn [acc ctx]
+     (let [k (attached-context-key ctx)]
+       (if (contains? (:sent acc) k)
+         acc
+         (let [content (if (= :repoMap (:type ctx)) @repo-map* (:content ctx))
+               content-digest (digest/sha-256-hex (str content))
+               previous-digest (get sent k)
+               acc (assoc-in acc [:sent k] content-digest)]
+           (cond
+             (contains? skip-keys k) acc
+             (nil? previous-digest) (update acc :new conj ctx)
+             (not= previous-digest content-digest) (update acc :changed conj ctx)
+             :else acc)))))
+   {:new [] :changed [] :sent {}}
+   (filter attached-context? contexts)))
 
 (defn ^:private match-sort-key
   "Sort key ranking basename matches first, then earlier and shorter matches."

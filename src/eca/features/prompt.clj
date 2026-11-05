@@ -201,8 +201,10 @@
   (into #{:mcpResource} editor-state-context-types))
 
 (def ^:private static-prompt-context-types
-  "Context types rendered into the cached static prompt block."
-  #{:file :agents-file :repoMap})
+  "Context types rendered into the cached static prompt block.
+   Context-area files and repoMap are data that changes between turns, so they
+   are delivered in the user message instead, see `build-attached-contexts`. #683"
+  #{:agents-file})
 
 (defn static-prompt-context?
   "True when ctx renders into the cached static prompt block."
@@ -385,6 +387,31 @@
   (let [text-contexts (filter #(= :text (:type %)) refined-contexts)]
     (when (seq text-contexts)
       (contexts-str text-contexts nil nil))))
+
+(defn ^:private changed-context-entry [{:keys [type path lines-range]}]
+  (case type
+    :file (format "<file%s/>" (attr-str {:path path
+                                         :line-start (:start lines-range)
+                                         :line-end (:end lines-range)}))
+    :repoMap "<repo-map/>"
+    nil))
+
+(defn build-attached-contexts
+  "Renders context-area contexts (files, repoMap) for the user message:
+   `new-contexts` in full, `changed-contexts` as one-line notices since their
+   earlier copy in the chat history is outdated. Returns nil when none. #683"
+  [new-contexts changed-contexts repo-map*]
+  (let [changed-entries (keep changed-context-entry changed-contexts)]
+    (when (or (seq new-contexts) (seq changed-entries))
+      (multi-str
+       (when (seq new-contexts)
+         (contexts-str new-contexts repo-map* nil
+                       {:description "Context attached by the user, current as of this message. Later changes are announced."}))
+       (when (seq changed-entries)
+         [(format "<changed-contexts%s>"
+                  (attr-str {:description "Attached context changed since it was sent, its earlier copy in this chat is outdated. Re-read it with tools when relevant."}))
+          (string/join "\n" changed-entries)
+          "</changed-contexts>"])))))
 
 (defn build-chat-instructions
   "Returns {:static :dynamic} system instructions."

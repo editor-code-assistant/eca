@@ -7,6 +7,8 @@
 - Fix Ollama models stopping after announcing a tool call in long chats: send past tool calls as `tool_calls` and merge each response into a single assistant message. #672
 - Fix `network` and `connectTimeoutSeconds` settings in `extraConfigs` files being ignored: absolute and `~` paths are now read at startup. #688
 - Fix the context usage breakdown counting `@` contexts, AGENTS.md and later system prompt sections as Skills; they now count as System prompt and AGENTS.md. #689
+- Fix context-area files and repoMap freezing after the first turn: send them in the user message, in full once, then a one-line notice on change, nothing once removed. #683
+- Fix Ollama dropping all user message blocks after the first one, like `@` contexts, context-area files and cursor.
 
 ## 0.170.1
 

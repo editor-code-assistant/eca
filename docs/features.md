@@ -106,7 +106,7 @@ So user can include those contexts in 3 different ways for different purposes:
 
 - `#` in user prompt: ECA will just mention the absolute file path in the user message, LLM may use tools to read the file. __Useful for file path only mention in chat history__.
 - `@` in user prompt: ECA will append a user-message with the context full content. __Useful for chat history context__.
-- `@` in system prompt (above user prompt): ECA will use it in the instructions/system prompt of LLM request. __Useful for one-time only context__.
+- `@` in context area (above user prompt): ECA will send its full content in the next user message, then only a one-line notice when it changes (LLM re-reads it with tools) and nothing once removed, keeping the system prompt cached. It's sent again after `/compact`. __Useful for context that stays attached across messages__.
 
 <img src="../images/features/contexts-files.gif" width="600">
 

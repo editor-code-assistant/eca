@@ -115,6 +115,14 @@
          (#'llm-providers.ollama/normalize-messages
           [{:role "user" :content "Count with me: 1"}
            {:role "assistant" :content "2"}]))))
+  (testing "Every text block of a user message is sent, not only the first"
+    (is (match?
+         [{:role "user" :content "Explain it\n<contexts>a.clj</contexts>\n<editor-state>cursor</editor-state>"}]
+         (#'llm-providers.ollama/normalize-messages
+          [{:role "user" :content [{:type :text :text "Explain it"}
+                                   {:type :text :text "<contexts>a.clj</contexts>"}
+                                   {:type :image :media-type "image/png" :base64 "AAAA"}
+                                   {:type :text :text "<editor-state>cursor</editor-state>"}]}]))))
   (testing "With tool_call history"
     (is (match?
          [{:role "user" :content "List the files you are allowed"}

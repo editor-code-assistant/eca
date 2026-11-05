@@ -577,13 +577,18 @@
   (when (get-in @db* [:chats chat-id :unsent-user-messages])
     (swap! db* update-in [:chats chat-id]
            (fn [{:keys [unsent-user-messages messages] :as chat}]
-             (let [{:keys [content-id] user-messages :messages} unsent-user-messages]
+             (let [{:keys [content-id sent-attached-contexts] user-messages :messages} unsent-user-messages
+                   record? (and (seq user-messages)
+                                (not-any? #(= content-id (:content-id %)) messages))]
                (cond-> (dissoc chat :unsent-user-messages)
-                 (and (seq user-messages)
-                      (not-any? #(= content-id (:content-id %)) messages))
+                 record?
                  (update :messages (fnil into [])
                          (map #(assoc % :content-id content-id :created-at (System/currentTimeMillis)))
-                         user-messages)))))))
+                         user-messages)
+
+                 ;; The attached contexts in these messages reach the history too. #683
+                 (and record? sent-attached-contexts)
+                 (assoc :sent-attached-contexts sent-attached-contexts)))))))
 
 (defn ^:private dispatch-finish-callbacks!
   "Dispatch finish-flow callbacks. `on-finished-side-effect` always runs first

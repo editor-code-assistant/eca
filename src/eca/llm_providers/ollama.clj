@@ -2,6 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]
+   [clojure.string :as string]
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -167,7 +168,10 @@
                      {:role (:role msg)
                       :content (if (string? (:content msg))
                                  (:content msg)
-                                 (-> msg :content first :text))
+                                 ;; Every text block, not only the first one: a user
+                                 ;; prompt carries its @path, attached contexts and
+                                 ;; cursor in the following blocks.
+                                 (some->> (:content msg) (keep :text) seq (string/join "\n")))
                       ;; TODO add image supprt
                       ;; :images []
                       }))))

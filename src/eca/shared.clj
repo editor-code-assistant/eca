@@ -708,9 +708,10 @@
                                   :created-at now})))))
 
   ;; Zero chat usage and clear transient per-chat rule validations.
-  ;; Drop :last-editor-state so the cursor is re-sent next turn, since the
-  ;; pre-marker history holding the previous cursor is no longer in context.
-  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules :last-editor-state)
+  ;; Drop :last-editor-state and :sent-attached-contexts so the cursor and the
+  ;; attached contexts are re-sent next turn, since the pre-marker history
+  ;; holding them is no longer in context. #683
+  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules :last-editor-state :sent-attached-contexts)
   (messenger/chat-content-received
    messenger
    {:chat-id chat-id

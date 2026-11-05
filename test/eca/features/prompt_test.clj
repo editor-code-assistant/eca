@@ -62,7 +62,8 @@
       (is (string? (:static result)))))
 
   (testing "Should create instructions with static rules, path-scoped catalog, contexts, and code agent"
-    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
+    (let [refined-contexts [{:type :agents-file :path "/workspace/AGENTS.md" :content "Be nice"}
+                            {:type :file :path "foo.clj" :content "(ns foo)"}
                             {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
                             {:type :repoMap}]
           static-rules [{:name "rule1" :content "First rule" :scope :global}
@@ -91,10 +92,12 @@
       (is (string/includes? static "<skill name=\"grill-me\" description='Use when user mentions \"grill me\".'/>"))
       (is (string/includes? static "<skill name=\"lint-fix\" description=\"Fix a lint\"/>"))
       (is (string/includes? static "<contexts description=\"User-provided context. Treat as current and accurate.\">"))
-      (is (string/includes? static "<file path=\"foo.clj\">(ns foo)</file>"))
-      (is (string/includes? static "<file line-start=\"1\" line-end=\"1\" path=\"bar.clj\">(def a 1)</file>"))
-      (is (string/includes? static "<repo-map description=\"Workspace structure tree; spaces represent file hierarchy.\">TREE</repo-map>"))
+      (is (string/includes? static "<agents-file description=\"Primary System Directives & Coding Standards.\" path=\"/workspace/AGENTS.md\">"))
       (is (string/includes? static "</contexts>"))
+      (testing "context-area files and repoMap are sent in the user message instead (#683)"
+        (is (not (string/includes? static "(ns foo)")))
+        (is (not (string/includes? static "(def a 1)")))
+        (is (not (string/includes? static "<repo-map"))))
       (is (string/includes? static "## Workspace Roots"))
       (is (string/includes? static "<workspace-roots description=\"Workspace roots used for path resolution and tool scoping.\">"))
       (is (string/includes? static "<workspace-root path="))
@@ -103,7 +106,8 @@
       (is (nil? dynamic) "dynamic should be nil when no volatile contexts or MCP servers")))
 
   (testing "Should create instructions with static rules, path-scoped catalog, contexts, and plan agent"
-    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
+    (let [refined-contexts [{:type :agents-file :path "/workspace/AGENTS.md" :content "Be nice"}
+                            {:type :file :path "foo.clj" :content "(ns foo)"}
                             {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
                             {:type :repoMap}]
           static-rules [{:name "rule1" :content "First rule" :scope :global}
@@ -123,10 +127,11 @@
       (is (string/includes? static "<skill name=\"review-pr\" description=\"Review a PR\"/>"))
       (is (string/includes? static "<skill name=\"lint-fix\" description=\"Fix a lint\"/>"))
       (is (string/includes? static "<contexts description=\"User-provided context. Treat as current and accurate.\">"))
-      (is (string/includes? static "<file path=\"foo.clj\">(ns foo)</file>"))
-      (is (string/includes? static "<file line-start=\"1\" line-end=\"1\" path=\"bar.clj\">(def a 1)</file>"))
-      (is (string/includes? static "<repo-map description=\"Workspace structure tree; spaces represent file hierarchy.\">TREE</repo-map>"))
+      (is (string/includes? static "<agents-file description=\"Primary System Directives & Coding Standards.\" path=\"/workspace/AGENTS.md\">"))
       (is (string/includes? static "</contexts>"))
+      (is (not (string/includes? static "(ns foo)")))
+      (is (not (string/includes? static "(def a 1)")))
+      (is (not (string/includes? static "<repo-map")))
       (is (string/includes? static "## Workspace Roots"))
       (is (string/includes? static "<workspace-roots description=\"Workspace roots used for path resolution and tool scoping.\">"))
       (is (string/includes? static "<workspace-root path="))
@@ -213,20 +218,29 @@
       (is (string/includes? dynamic "## MCP Server Instructions"))))
 
   (testing "cursor context is excluded from both :static and :dynamic (delivered in the user message)"
-    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
+    (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}
                             {:type :cursor :path "bar.clj"
                              :position {:start {:line 10 :character 0}
                                         :end {:line 10 :character 5}}}]
           {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
-      (is (string/includes? static "<file path=\"foo.clj\">(ns foo)</file>"))
+      (is (string/includes? static "Be nice"))
       (is (not (string/includes? static "cursor")))
       (is (nil? dynamic))))
 
-  (testing "mcpResource context goes into :dynamic, not :static"
+  (testing "file and repoMap contexts are excluded from both :static and :dynamic (delivered in the user message, #683)"
     (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
+                            {:type :repoMap}]
+          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+      (is (not (string/includes? static "(ns foo)")))
+      (is (not (string/includes? static "TREE")))
+      (is (not (string/includes? static "## Context")))
+      (is (nil? dynamic))))
+
+  (testing "mcpResource context goes into :dynamic, not :static"
+    (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}
                             {:type :mcpResource :uri "custom://my-resource" :content "volatile-content"}]
           {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
-      (is (string/includes? static "<file path=\"foo.clj\">(ns foo)</file>"))
+      (is (string/includes? static "Be nice"))
       (is (not (string/includes? static "volatile-content")))
       (is (string? dynamic))
       (is (string/includes? dynamic "volatile-content")))))
@@ -259,6 +273,33 @@
     (is (nil? (prompt/build-text-contexts [])))
     (is (nil? (prompt/build-text-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}])))))
 
+(deftest build-attached-contexts-test
+  (testing "renders new contexts in full and changed ones as one-line notices (#683)"
+    (let [result (prompt/build-attached-contexts
+                  [{:type :file :path "/a.clj" :content "(ns a)"}
+                   {:type :repoMap}]
+                  [{:type :file :path "/b.clj" :content "(ns b)"}
+                   {:type :file :path "/c.clj" :content "(ns c)" :lines-range {:start 1 :end 2}}
+                   {:type :repoMap}]
+                  (delay "TREE"))]
+      (is (string/includes? result "<contexts description=\"Context attached by the user, current as of this message. Later changes are announced.\">"))
+      (is (string/includes? result "<file path=\"/a.clj\">(ns a)</file>"))
+      (is (string/includes? result "<repo-map description=\"Workspace structure tree; spaces represent file hierarchy.\">TREE</repo-map>"))
+      (is (string/includes? result "<changed-contexts description=\"Attached context changed since it was sent, its earlier copy in this chat is outdated. Re-read it with tools when relevant.\">"))
+      (is (string/includes? result "<file path=\"/b.clj\"/>"))
+      (is (string/includes? result "<file path=\"/c.clj\" line-start=\"1\" line-end=\"2\"/>"))
+      (is (string/includes? result "<repo-map/>"))
+      (is (not (string/includes? result "(ns b)")))
+      (is (not (string/includes? result "(ns c)")))))
+  (testing "only changed contexts"
+    (let [result (prompt/build-attached-contexts [] [{:type :file :path "/b.clj" :content "(ns b)"}] (delay "TREE"))]
+      (is (not (string/includes? result "<contexts")))
+      (is (string/includes? result "<changed-contexts"))
+      (is (string/includes? result "<file path=\"/b.clj\"/>"))))
+  (testing "nil when there is nothing to send"
+    (is (nil? (prompt/build-attached-contexts [] [] (delay "TREE"))))
+    (is (nil? (prompt/build-attached-contexts nil nil nil)))))
+
 (deftest instructions->str-test
   (testing "flattens map with both parts to joined string separated by a blank line"
     (is (= "static\n\ndynamic" (prompt/instructions->str {:static "static" :dynamic "dynamic"}))))
@@ -267,7 +308,7 @@
 
 (deftest build-instructions-context-sections-ordering-test
   (testing "Context section is labeled and rendered after Environment, workspace, and path sections"
-    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}]
+    (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}]
           {:keys [static]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
       (is (string/includes? static "## Context"))
       (is (string/includes? static "## Environment Context"))
@@ -278,7 +319,7 @@
              (string/index-of static "## Path Resolution")
              (string/index-of static "\n## Context")))))
   (testing "Static context comes before MCP resources in the flattened prompt"
-    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
+    (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}
                             {:type :mcpResource :uri "custom://my-resource" :content "volatile-content"}]
           flat (prompt/instructions->str
                 (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db)))]
@@ -296,23 +337,23 @@
           "there should be exactly one blank line before ## MCP Resources, not two"))))
 
 (deftest context-breakdown-attribution-test
-  (testing "only the rules, skills and AGENTS.md blocks get their own category; @ contexts and the other sections are System prompt (#689)"
+  (testing "only the rules, skills and AGENTS.md blocks get their own category; the rest of the Context section and the other sections are System prompt (#689)"
     (let [payload (fn [c] (apply str (repeat 4000 c)))
-          db (assoc (h/db) :mcp-clients {:srv {:status :running :instructions (payload "i")}})
-          instructions (build-instructions [{:type :file :path "/workspace/big.txt" :content (payload "f")}
-                                            {:type :agents-file :path "/workspace/AGENTS.md" :content (payload "a")}
-                                            {:type :repoMap}
+          db (-> (h/db)
+                 (assoc :mcp-clients {:srv {:status :running :instructions (payload "i")}})
+                 (assoc-in [:chats "chat-1" :startup-context] (payload "s")))
+          instructions (build-instructions [{:type :agents-file :path "/workspace/AGENTS.md" :content (payload "a")}
                                             {:type :mcpResource :uri "custom://r" :content (payload "r")}]
                                            [{:name "rule1" :content "A rule" :scope :project}]
                                            []
                                            [{:name "review-pr" :description "Review a PR"}]
-                                           (delay "TREE") "code" {} nil
+                                           (delay "TREE") "code" {} "chat-1"
                                            [{:full-name "github__x" :description "X tool" :deferrable true :deferred true}]
                                            db)
           tokens (->> (shared/context-breakdown {:system-prompt (prompt/instructions->str instructions)})
                       :categories
                       (into {} (map (juxt :name :tokens))))]
-      (is (< 3000 (get tokens "System prompt" 0)) "the @ file, MCP resource and MCP server instructions")
+      (is (< 3000 (get tokens "System prompt" 0)) "the chatStart context, MCP resource and MCP server instructions")
       (is (< 1000 (get tokens "AGENTS.md" 0) 1100) "just the AGENTS.md file")
       (is (< 0 (get tokens "Skills" 0) 100) "just the skills catalog")
       (is (< 0 (get tokens "Rules" 0) 100) "just the rules"))))

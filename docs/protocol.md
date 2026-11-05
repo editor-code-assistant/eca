@@ -471,6 +471,11 @@ type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext 
 
 /**
  * Context related to a file in the workspace
+ * The server delivers it in the user message (not the system prompt): its full
+ * content the first time it's sent in a chat (or after compaction, clear or
+ * rollback), a one-line notice when its content changes and nothing once
+ * clients stop sending it or the prompt text already expands it via `@path`.
+ * Clients should send the attached contexts on every prompt.
  */
 interface FileContext {
     type: 'file';
@@ -492,6 +497,7 @@ interface LinesRange {
 
 /**
  * Context related to a directory in the workspace
+ * The server expands it into its files, each delivered like a `FileContext`.
  */
 interface DirectoryContext {
     type: 'directory';
@@ -561,6 +567,8 @@ interface TextContext {
  * Context about the workspaces repo-map, automatically calculated by server.
  * Clients should include this to chat by default but users may want exclude 
  * this context to reduce context size if needed.
+ * The server delivers it in the user message like `FileContext`: in full once,
+ * then a one-line notice when the workspace structure changes.
  *
  * @deprecated No longer needed, replaced by eca__directory_tree tool.
  */

@@ -106,9 +106,7 @@
                    :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
                    :startup-context (get-in db [:chats chat-id :startup-context])})
      :contexts (sha {:workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
-                     :static-contexts static-contexts
-                     :repo-map (when (some #(= :repoMap (:type %)) static-contexts)
-                                 :present)})
+                     :static-contexts static-contexts})
      :rules (sha {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
                   :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)})
      :skills (sha (mapv #(select-keys % [:name :description]) skills))
@@ -1021,6 +1019,17 @@
                      (str role ": " truncated)))))
          (string/join "\n\n"))))
 
+(defn ^:private without-contents
+  "Removes the given content blocks from each message content."
+  [messages contents]
+  (if-let [contents (some-> contents seq set)]
+    (mapv (fn [message]
+            (cond-> message
+              (sequential? (:content message))
+              (update :content #(into [] (remove contents) %))))
+          messages)
+    messages))
+
 (defn ^:private duration-str
   "Humanizes a millis duration, e.g. 42s, 3m05s, 2h14m."
   [ms]
@@ -1133,8 +1142,9 @@
         ;; superseded before that doesn't lose what the user typed.
         (lifecycle/record-unsent-user-messages! db* chat-id)
         (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
-               {:content-id (:user-content-id chat-ctx)
-                :messages user-messages}))
+               (assoc-some {:content-id (:user-content-id chat-ctx)
+                            :messages user-messages}
+                           :sent-attached-contexts (:pending-sent-attached-contexts chat-ctx))))
       (swap! db* assoc-in [:chats chat-id :updated-at] (System/currentTimeMillis))
       (messenger/chat-status-changed messenger {:chat-id chat-id :status :running})
       (lifecycle/trigger-chat-status-hook! chat-ctx)
@@ -1249,7 +1259,9 @@
                                             "Follow the rules from the system prompt. Output only the title.\n\n"
                                             "Conversation:\n"
                                             transcript)}]}])
-                  user-messages)]
+                  ;; Attached contexts may be whole files or directories, not
+                  ;; needed to title the prompt. #683
+                  (without-contents user-messages (:attached-contents chat-ctx)))]
             (future* config
               (when-let [{:keys [output-text]} (llm-api/sync-prompt!
                                                 {:provider provider
@@ -1350,6 +1362,11 @@
                                                             (some-> target-api name))}))))
                 :on-first-response-received (fn [& _]
                                               (lifecycle/assert-chat-not-stopped! chat-ctx)
+                                              ;; Before the history append, which saves the chat,
+                                              ;; so attached contexts are tracked as sent together
+                                              ;; with the messages holding them. #683
+                                              (when-let [sent (:pending-sent-attached-contexts chat-ctx)]
+                                                (swap! db* assoc-in [:chats chat-id :sent-attached-contexts] sent))
                                               (doseq [message user-messages]
                                                 (add-to-history!
                                                  (assoc message :content-id (:user-content-id chat-ctx))))
@@ -2137,11 +2154,27 @@
                                 (filter #(= :image (:type %))))
             text-contents (when-let [texts-str (f.prompt/build-text-contexts refined-contexts)]
                             [{:type :text :text texts-str}])
-            expanded-prompt-contexts (when-let [contexts-str (some-> (f.context/contexts-str-from-prompt message db)
+            prompt-contexts (f.context/contexts-str-from-prompt message db)
+            expanded-prompt-contexts (when-let [contexts-str (some-> prompt-contexts
                                                                      seq
                                                                      (f.prompt/contexts-str repo-map* nil))]
                                        [{:type :text :text contexts-str}])
             decision (message->decision message db config)
+            ;; Context-area files and repoMap are delivered in the user message too,
+            ;; keeping the cached system prompt stable: in full when new, as a
+            ;; one-line notice when changed and not at all once removed or when the
+            ;; prompt text already expands them with @path. What was sent is only
+            ;; tracked once the message reaches the chat history. #683
+            attached-delta (f.context/attached-contexts-delta
+                            refined-contexts
+                            (get-in db [:chats chat-id :sent-attached-contexts])
+                            (set (keep f.context/attached-context-key prompt-contexts))
+                            repo-map*)
+            attached-contents (when-let [attached-str (f.prompt/build-attached-contexts
+                                                       (:new attached-delta)
+                                                       (:changed attached-delta)
+                                                       repo-map*)]
+                                [{:type :text :text attached-str}])
             ;; Cursor (and other volatile editor-state) is delivered per-turn in the
             ;; user message - never the system prompt - and only re-sent when it
             ;; changed. This keeps the cached system/prefix stable across turns,
@@ -2159,18 +2192,25 @@
                                     [{:type :text :text editor-state-context}])
             user-messages [{:role "user" :content (vec (concat [{:type :text :text message}]
                                                                expanded-prompt-contexts
+                                                               attached-contents
                                                                text-contents
                                                                editor-state-contents
                                                                image-contents))}]
             [provider model] (when full-model (shared/full-model->provider+model full-model))
-            chat-ctx (merge base-chat-ctx
-                            {:instructions instructions
-                             :all-tools all-tools
-                             :user-messages user-messages
-                             :full-model full-model
-                             :provider provider
-                             :model model
-                             :messenger messenger})]
+            chat-ctx (cond-> (merge base-chat-ctx
+                                    {:instructions instructions
+                                     :all-tools all-tools
+                                     :user-messages user-messages
+                                     :full-model full-model
+                                     :provider provider
+                                     :model model
+                                     :messenger messenger})
+                       ;; Like the cursor, only normal prompts send the attached
+                       ;; contexts; /prompt-show, commands and MCP prompts don't
+                       ;; consume them.
+                       (= :prompt-message (:type decision))
+                       (assoc :attached-contents attached-contents
+                              :pending-sent-attached-contexts (:sent attached-delta)))]
         ;; Clear prompt-finished? so finish-chat-prompt! can properly terminate
         ;; this prompt cycle. prompt-messages! already does this for regular
         ;; prompts, but commands and mcp-prompts go through different paths.
@@ -2663,6 +2703,7 @@
                messages (-> (assoc :messages [])
                             (dissoc :tool-calls :last-api :usage :task
                                     :prompt-cache :last-editor-state
+                                    :sent-attached-contexts
                                     :remembered-approvals)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/save-chat! @db* chat-id metrics)))
@@ -2744,7 +2785,12 @@
               (spit path content)
               (io/delete-file path true)))
           (when new-messages
-            (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+            (swap! db* update-in [:chats chat-id]
+                   #(-> %
+                        (assoc :messages new-messages)
+                        ;; The removed messages may hold the cursor or attached
+                        ;; contexts, so send them again on the next prompt. #683
+                        (dissoc :last-editor-state :sent-attached-contexts)))
             ;; Rollback is the user's recovery tool for a chat that got into a bad
             ;; state. Persist immediately so the cleaned-up history survives a
             ;; restart instead of relying on the next unrelated save.

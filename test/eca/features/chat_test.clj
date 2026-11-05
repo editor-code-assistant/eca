@@ -20,6 +20,7 @@
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -1735,6 +1736,197 @@
             (is (string/includes? turn-text "<editor-state"))
             (is (string/includes? turn-text "<cursor"))))))))
 
+(defn ^:private capturing-llm-mocks
+  "Mocks answering every LLM request and capturing its user messages and instructions."
+  [user-msgs* instructions*]
+  {:all-tools-mock (constantly [])
+   :api-mock (fn [{:keys [user-messages instructions on-first-response-received on-message-received]}]
+               (swap! user-msgs* conj user-messages)
+               (swap! instructions* conj instructions)
+               (on-first-response-received {:type :text :text "ok"})
+               (on-message-received {:type :text :text "ok"})
+               (on-message-received {:type :finish}))})
+
+(defn ^:private request-text
+  "Text of the user message sent in the `idx`th captured LLM request."
+  [user-msgs* idx]
+  (->> (get @user-msgs* idx) first :content (keep :text) (string/join "\n")))
+
+(defn ^:private with-temp-file
+  "Calls `f` with the path of a temp file holding `content`."
+  [content f]
+  (let [dir (fs/create-temp-dir)
+        path (str (fs/path dir "a.txt"))]
+    (try
+      (spit path content)
+      (f path)
+      (finally
+        (fs/delete-tree dir)))))
+
+(deftest attached-contexts-delivered-in-user-message-test
+  (testing "context-area files go in the user message: in full once, a notice when changed, nothing once removed (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [user-msgs* (atom [])
+              instructions* (atom [])
+              mocks (capturing-llm-mocks user-msgs* instructions*)
+              attached [{:type "file" :path path}]
+              {:keys [chat-id]} (prompt! {:message "one" :contexts attached} mocks)]
+          (testing "a new file is sent in full, out of the system prompt"
+            (is (string/includes? (request-text user-msgs* 0) "<contexts description=\"Context attached by the user"))
+            (is (string/includes? (request-text user-msgs* 0) "A-v1"))
+            (is (not (string/includes? (f.prompt/instructions->str (first @instructions*)) "A-v1"))))
+          (h/reset-messenger!)
+          (prompt! {:message "two" :chat-id chat-id :contexts attached} mocks)
+          (testing "an unchanged file is not sent again"
+            (is (= "two" (request-text user-msgs* 1))))
+          (spit path "A-v2")
+          (h/reset-messenger!)
+          (prompt! {:message "three" :chat-id chat-id :contexts attached} mocks)
+          (testing "a changed file is announced in one line, the model re-reads it"
+            (is (string/includes? (request-text user-msgs* 2) "<changed-contexts"))
+            (is (string/includes? (request-text user-msgs* 2) (str "<file path=\"" path "\"/>")))
+            (is (not (string/includes? (request-text user-msgs* 2) "A-v2"))))
+          (h/reset-messenger!)
+          (prompt! {:message "four" :chat-id chat-id :contexts []} mocks)
+          (testing "a removed file is not sent"
+            (is (= "four" (request-text user-msgs* 3)))
+            (is (= {} (get-in (h/db) [:chats chat-id :sent-attached-contexts]))))
+          (h/reset-messenger!)
+          (prompt! {:message "five" :chat-id chat-id :contexts attached} mocks)
+          (testing "attaching it again sends it in full"
+            (is (string/includes? (request-text user-msgs* 4) "A-v2")))
+          (is (= 1 (count (distinct @instructions*)))
+              "the system prompt stays the same across all turns"))))))
+
+(deftest attached-context-expanded-from-prompt-sent-once-test
+  (testing "a context-area file also expanded from the prompt text with @path is sent once (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [user-msgs* (atom [])
+              mocks (capturing-llm-mocks user-msgs* (atom []))
+              attached [{:type "file" :path path}]
+              {:keys [chat-id]} (prompt! {:message (str "check @" path) :contexts attached} mocks)]
+          (is (= 1 (count (re-seq #"A-v1" (request-text user-msgs* 0)))))
+          (h/reset-messenger!)
+          (prompt! {:message "again" :chat-id chat-id :contexts attached} mocks)
+          (is (= "again" (request-text user-msgs* 1))
+              "the expanded content counts as sent"))))))
+
+(deftest prompt-show-does-not-consume-attached-contexts-test
+  (testing "/prompt-show displays attached contexts without marking them as sent (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [user-msgs* (atom [])
+              mocks (capturing-llm-mocks user-msgs* (atom []))
+              attached [{:type "file" :path path}]
+              {:keys [chat-id]} (prompt! {:message "/prompt-show" :contexts attached} mocks)]
+          (is (nil? (get-in (h/db) [:chats chat-id :sent-attached-contexts])))
+          (is (some #(string/includes? (str (get-in % [:content :text])) "A-v1")
+                    (:chat-content-received (h/messages))))
+          (h/reset-messenger!)
+          (prompt! {:message "real prompt" :chat-id chat-id :contexts attached} mocks)
+          (is (string/includes? (request-text user-msgs* 0) "A-v1")))))))
+
+(deftest mcp-prompt-does-not-consume-attached-contexts-test
+  (testing "MCP prompts neither send attached contexts nor mark them as sent (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [user-msgs* (atom [])
+              mocks (capturing-llm-mocks user-msgs* (atom []))
+              attached [{:type "file" :path path}]]
+          (with-redefs [f.mcp/all-prompts (constantly [{:name "my-prompt"
+                                                        :server "test-server"
+                                                        :arguments []}])
+                        f.prompt/get-prompt! (fn [_name _arguments _db]
+                                               {:messages [{:role "user"
+                                                            :content [{:type :text
+                                                                       :text "MCP prompt body"}]}]})]
+            (let [{:keys [chat-id]} (prompt! {:message "/test-server:my-prompt" :contexts attached} mocks)]
+              (is (nil? (get-in (h/db) [:chats chat-id :sent-attached-contexts])))
+              (is (not (string/includes? (request-text user-msgs* 0) "A-v1")))
+              (h/reset-messenger!)
+              (prompt! {:message "real prompt" :chat-id chat-id :contexts attached} mocks)
+              (is (string/includes? (request-text user-msgs* 1) "A-v1")))))))))
+
+(deftest attached-contexts-resent-after-history-reset-test
+  (testing "attached contexts are sent again once the history holding them is compacted, rolled back or cleared (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [user-msgs* (atom [])
+              mocks (capturing-llm-mocks user-msgs* (atom []))
+              attached [{:type "file" :path path}]
+              {:keys [chat-id]} (prompt! {:message "one" :contexts attached} mocks)
+              sent-in-full? (fn [message]
+                              (h/reset-messenger!)
+                              (prompt! {:message message :chat-id chat-id :contexts attached} mocks)
+                              (string/includes? (request-text user-msgs* (dec (count @user-msgs*))) "A-v1"))]
+          (is (not (sent-in-full? "two")))
+          (testing "after compaction"
+            (shared/compact-side-effect! {:chat-id chat-id
+                                          :full-model "openai/gpt-5.2"
+                                          :db* (h/db*)
+                                          :messenger (h/messenger)}
+                                         false)
+            (is (sent-in-full? "three")))
+          (testing "after rollback"
+            (f.chat/rollback-chat {:chat-id chat-id
+                                   :include ["messages"]
+                                   :content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])}
+                                  (h/db*) (h/messenger) (h/metrics))
+            (is (sent-in-full? "four")))
+          (testing "after clear"
+            (f.chat/clear-chat {:chat-id chat-id :messages true} (h/db*) (h/messenger) (h/metrics))
+            (is (sent-in-full? "five"))))))))
+
+(deftest attached-contexts-tracked-for-unanswered-turn-test
+  (testing "attached contexts of a turn that failed before any response are tracked once its messages reach the history (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [user-msgs* (atom [])
+              attached [{:type "file" :path path}]
+              failing-mocks {:all-tools-mock (constantly [])
+                             :api-mock (fn [{:keys [user-messages on-error]}]
+                                         (swap! user-msgs* conj user-messages)
+                                         (on-error {:message "boom"}))}
+              {:keys [chat-id]} (prompt! {:message "one" :contexts attached} failing-mocks)]
+          (is (string/includes? (request-text user-msgs* 0) "A-v1"))
+          (is (some #(string/includes? (str (get-in % [:content 1 :text])) "A-v1")
+                    (get-in (h/db) [:chats chat-id :messages]))
+              "the unanswered user message is kept in the history")
+          (h/reset-messenger!)
+          (prompt! {:message "two" :chat-id chat-id :contexts attached}
+                   (capturing-llm-mocks user-msgs* (atom [])))
+          (is (= "two" (request-text user-msgs* 1))
+              "not sent twice"))))))
+
+(deftest title-generation-skips-attached-contexts-test
+  (testing "the first title request gets the prompt but not the attached contexts (#683)"
+    (h/reset-components!)
+    (with-temp-file
+      "A-v1"
+      (fn [path]
+        (let [title-calls* (atom [])]
+          (prompt-with-title! {:message "Help me debug" :contexts [{:type "file" :path path}]}
+                              {:sync-prompt-mock (fn [params]
+                                                   (swap! title-calls* conj params)
+                                                   {:output-text "Title"})})
+          (let [title-text (->> (first @title-calls*) :user-messages first :content (keep :text) (string/join "\n"))]
+            (is (string/includes? title-text "Help me debug"))
+            (is (not (string/includes? title-text "A-v1")))))))))
+
 (deftest basic-tool-calling-prompt-test
   (testing "Asking to list directories, LLM will check for allowed directories and then list files"
     (h/reset-components!)
@@ -3022,8 +3214,8 @@
           (is (= 3 @build-calls*)
               "Switching back to the first agent should also trigger a rebuild"))))))
 
-(deftest prompt-cache-stable-context-change-test
-  (testing "Static prompt cache is rebuilt when stable context content changes"
+(deftest prompt-cache-attached-context-change-test
+  (testing "Changing a context-area file keeps the static prompt, even with autoSyncSystemPrompt: it goes in the user message (#683)"
     (h/reset-components!)
     (h/config! {:chat {:autoSyncSystemPrompt true}})
     (let [build-calls* (atom 0)
@@ -3042,38 +3234,46 @@
               {:keys [chat-id]} (prompt! {:message "Hi" :contexts [ctx-v1]} mocks)]
           (is (= 1 @build-calls*))
           (h/reset-messenger!)
-          (prompt! {:message "Again" :chat-id chat-id :contexts [ctx-v1]} mocks)
-          (is (= 1 @build-calls*) "Same stable context should reuse cached static instructions")
-          (h/reset-messenger!)
           (prompt! {:message "Changed" :chat-id chat-id :contexts [ctx-v2]} mocks)
-          (is (= 2 @build-calls*) "Changed stable context should rebuild static instructions"))))))
+          (is (= 1 @build-calls*) "Changed context-area file must not rebuild static instructions")
+          (is (not-any? #(string/includes? (str (get-in % [:content :text])) "System prompt changed")
+                        (:chat-content-received (h/messages)))
+              "No system prompt changed notice"))))))
 
-(deftest prompt-cache-repo-map-content-intentionally-does-not-change-test
-  (testing "Changing only repoMap content does not rebuild static instructions because repoMap is an expensive cached snapshot"
+(deftest prompt-cache-repo-map-in-user-message-test
+  (testing "repoMap goes in the user message, so its changes are announced without rebuilding static instructions (#683)"
     (h/reset-components!)
     (h/config! {:chat {:autoSyncSystemPrompt true}})
     (let [build-calls* (atom 0)
-          repo-map-calls* (atom 0)
+          tree* (atom "TREE-1")
+          user-msgs* (atom [])
           real-build f.prompt/build-chat-instructions]
       (with-redefs [f.context/agents-file-contexts (constantly [])
                     f.context/raw-contexts->refined (fn [contexts _db] contexts)
-                    f.index/repo-map (fn [& _]
-                                       (str "TREE-" (swap! repo-map-calls* inc)))
+                    f.index/repo-map (fn [& _] @tree*)
                     f.prompt/build-chat-instructions
                     (fn [& args]
                       (swap! build-calls* inc)
                       (apply real-build args))]
         (let [mocks {:all-tools-mock (constantly [])
-                     :api-mock (fn [{:keys [on-message-received]}]
+                     :api-mock (fn [{:keys [user-messages on-first-response-received on-message-received]}]
+                                 (swap! user-msgs* conj user-messages)
+                                 (on-first-response-received {:type :text :text "ok"})
+                                 (on-message-received {:type :text :text "ok"})
                                  (on-message-received {:type :finish}))}
+              turn-text (fn [idx] (->> (get @user-msgs* idx) first :content (keep :text) (string/join "\n")))
               ctx {:type :repoMap}
               {:keys [chat-id]} (prompt! {:message "Hi" :contexts [ctx]} mocks)]
-          (is (= 1 @build-calls*))
-          (is (= 1 @repo-map-calls*) "Initial cache miss renders the repoMap snapshot")
+          (is (string/includes? (turn-text 0) "TREE-1"))
           (h/reset-messenger!)
           (prompt! {:message "Again" :chat-id chat-id :contexts [ctx]} mocks)
-          (is (= 1 @build-calls*) "repoMap presence, not repoMap content, is part of cache identity")
-          (is (= 1 @repo-map-calls*) "Cache hit must not rebuild the expensive repoMap"))))))
+          (is (not (string/includes? (turn-text 1) "repo-map")) "Unchanged repoMap is not sent again")
+          (reset! tree* "TREE-2")
+          (h/reset-messenger!)
+          (prompt! {:message "Files changed" :chat-id chat-id :contexts [ctx]} mocks)
+          (is (string/includes? (turn-text 2) "<repo-map/>") "Changed repoMap is announced")
+          (is (not (string/includes? (turn-text 2) "TREE-2")))
+          (is (= 1 @build-calls*) "repoMap never rebuilds the static instructions"))))))
 
 (deftest prompt-cache-absolute-prompt-file-change-test
   (testing "Static prompt cache is rebuilt when an absolute systemPromptFile changes"
