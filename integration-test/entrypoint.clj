@@ -6,6 +6,7 @@
    [clojure.test :as t]
    [integration.eca :as eca]
    [integration.chat.hooks-test]
+   [integration.fixture :as fixture]
    [llm-mock.server :as llm-mock.server]
    [mcp-mock.server :as mcp-mock.server]))
 
@@ -25,6 +26,7 @@
     integration.chat.background-jobs-test
     integration.chat.subagent-test
     integration.chat.list-test
+    integration.chat.rollback-test
     integration.chat.inline-prompt-test
     integration.rewrite.openai-test])
 
@@ -101,16 +103,65 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
                     :shutdown p/destroy-tree
                     :err :out})))))
 
+(defn ^:private java-major-version
+  "Major version of the `java` on PATH, or nil."
+  []
+  (try
+    (let [{:keys [out err]} (shell {:out :string :err :string :continue true} "java" "-version")]
+      (some->> (str err out) (re-find #"version \"(\d+)") second parse-long))
+    (catch Exception _ nil)))
+
+(defn ^:private train-jvm-aot-cache!
+  "Records a JVM AOT cache (JDK 25+) from one server session, so the servers
+  tests start load and link most classes from it, cutting their startup by
+  ~40%. Best-effort: returns the cache path, or nil when training failed and
+  tests should just run without it."
+  []
+  (let [cache (str (fs/path eca/*eca-out-dir* "eca.aot"))
+        session #(binding [eca/*jvm-opts* [(str "-XX:AOTCacheOutput=" cache)]
+                           eca/*exit-on-server-error?* false]
+                   (eca/start-process!)
+                   (eca/request! (fixture/initialize-request))
+                   (eca/notify! (fixture/initialized-notification))
+                   (eca/client-awaits-server-notification :config/updated)
+                   (eca/client-awaits-server-notification :tool/serverUpdated)
+                   (eca/request! (fixture/shutdown-request))
+                   (eca/notify! (fixture/exit-notification))
+                   ;; the JVM writes the cache while exiting
+                   (eca/clean!))
+        fail! (fn [reason]
+                (println "JVM AOT cache training failed, running without it:" reason)
+                (some-> eca/*eca-process* p/destroy-tree)
+                (alter-var-root #'eca/*eca-process* (constantly nil))
+                (alter-var-root #'eca/*mock-client* (constantly nil))
+                (try (fs/delete-if-exists cache) (catch Exception _))
+                nil)]
+    (try
+      (fs/delete-if-exists cache)
+      (println "Training JVM AOT cache:" cache)
+      (let [result (timeout (* 2 60 1000) session)]
+        (cond
+          (= :timed-out result) (fail! "timed out")
+          (not (fs/exists? cache)) (fail! "no cache written")
+          :else (do (println (format "JVM AOT cache ready: %s (%d MB)" cache (quot (fs/size cache) 1048576)))
+                    cache)))
+      (catch Exception e
+        (fail! (str e))))))
+
 #_{:clojure-lsp/ignore [:clojure-lsp/unused-public-var]}
 (defn run-all
   "Run all tests in given namespaces NSES or all `namespaces` if not provided,
   using the specified BINARY eca server.
 
-  Sets `eca/*eca-binary-path*` to BINARY and `eca/*eca-out-dir*` to
-  `./integration-test/out`
+  Sets `eca/*eca-binary-path*` to BINARY, `eca/*eca-out-dir*` to
+  `./integration-test/out` and `eca/*models-dev-url*` to the LLM mock's
+  models.dev fixture, keeping servers off the network.
 
   If PROXY is provided, sets `eca/*http-proxy*` to it and starts a
   transient Tinyproxy server.
+
+  If BINARY is the JVM launcher and `java` is 25+, first trains a JVM AOT
+  cache all servers start from (see `train-jvm-aot-cache!`).
 
   Runs tests with a timeout, exiting with the sum of failures and
   errors, if any."
@@ -125,6 +176,7 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
     (let [out-dir (str (fs/absolutize (fs/path "integration-test" "out")))]
       (fs/create-dirs out-dir)
       (alter-var-root #'eca/*eca-out-dir* (constantly out-dir)))
+    (alter-var-root #'eca/*models-dev-url* (constantly llm-mock.server/models-dev-url))
     (when proxy
       (alter-var-root #'eca/*http-proxy* (constantly proxy-http))
       (println "Routing requests through proxy:" eca/*http-proxy*)
@@ -135,9 +187,17 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
     (llm-mock.server/start!)
     (mcp-mock.server/start!)
 
+    (when (and (eca/jvm-launcher? (eca/binary-path binary))
+               (some-> (java-major-version) (>= 25)))
+      (when-let [cache (train-jvm-aot-cache!)]
+        (alter-var-root #'eca/*jvm-opts* (constantly [(str "-XX:AOTCache=" cache)]))))
+
+    ;; Safety net against hung tests, not a perf budget: keep ~2x headroom over
+    ;; the slowest CI runners (JVM suite takes ~4m45s on slow Linux runners and
+    ;; up to ~7m on Windows), otherwise healthy runs fail with a timeout.
     (let [timeout-minutes (if (re-find #"(?i)win|mac" (System/getProperty "os.name"))
-                            10 ;; win and mac ci runs take longer
-                            5)
+                            15 ;; win and mac ci runs take longer
+                            10)
           test-results (timeout (* timeout-minutes 60 1000)
                                 #(with-log-tail-report
                                    (apply t/run-tests nses)))]

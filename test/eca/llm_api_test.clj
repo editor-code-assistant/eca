@@ -475,6 +475,48 @@
         (is (= {:effort "medium" :summary "auto"} (get-in @captured* [:extra-payload :reasoning])))
         (is (nil? (get-in @captured* [:extra-payload :reasoning_effort])))))))
 
+(deftest prompt-mistral-dialect-test
+  ;; #674: Mistral rejects `reasoning_content` on assistant messages, so only
+  ;; Mistral endpoints replay reasoning as thinking chunks.
+  (let [config {:providers {"mistral" {:api "openai-chat" :url "https://api.mistral.ai/v1"}
+                            "la-plateforme" {:api "openai-chat" :url "https://api.mistral.ai/v1"}
+                            "openrouter" {:api "openai-chat" :url "https://openrouter.ai/api/v1"}}}
+        prompt-with (fn [provider model]
+                      (let [captured* (atom nil)]
+                        (with-redefs [llm-providers.openai-chat/chat-completion!
+                                      (fn [opts _callbacks] (reset! captured* opts) :ok)]
+                          (#'eca.llm-api/prompt!
+                           {:provider provider
+                            :model model
+                            :model-capabilities {}
+                            :config config}))
+                        @captured*))]
+    (testing "mistral replays reasoning as thinking chunks"
+      (is (match? {:dialect :mistral}
+                  (prompt-with "mistral" "mistral-large-4"))))
+
+    (testing "a provider with another name on a mistral.ai URL does the same"
+      (is (match? {:dialect :mistral}
+                  (prompt-with "la-plateforme" "mistral-large-4"))))
+
+    (testing "Mistral models on gateways keep the default reasoning_content replay"
+      (is (match? {:dialect nil}
+                  (prompt-with "openrouter" "mistralai/mistral-large-4"))))))
+
+(deftest chat-dialect-test
+  (testing "built-in provider base"
+    (is (= :mistral (#'eca.llm-api/chat-dialect "mistral" "https://my-proxy.example.com/v1"))))
+  (testing "mistral.ai hosts"
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai/v1")))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://codestral.mistral.ai/v1")))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://API.Mistral.AI"))))
+  (testing "other hosts, look-alike hosts and bad URLs"
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://openrouter.ai/api/v1")))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://notmistral.ai/v1")))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai.evil.com/v1")))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "not a url")))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" nil)))))
+
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"
     (let [captured* (atom nil)]

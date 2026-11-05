@@ -257,11 +257,15 @@
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (let [body (parse-body request)
-          config (config/all @db*)]
-      (handlers/chat-rollback
-       (assoc components :config config)
-       {:chat-id chat-id :content-id (:contentId body)})
-      (no-content))))
+          config (config/all @db*)
+          {:keys [error]} (handlers/chat-rollback
+                           (assoc components :config config)
+                           {:chat-id chat-id :content-id (:contentId body)})]
+      (if error
+        (error-response (if (= "invalid_request" (:code error)) 400 404)
+                        (:code error)
+                        (:message error))
+        (no-content)))))
 
 (defn handle-clear [{:keys [db*] :as components} _request chat-id]
   (if-not (chat-or-404 db* chat-id)

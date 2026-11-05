@@ -10,6 +10,11 @@
 
 (set! *warn-on-reflection* true)
 
+(def ^:private tls-via-plaintext-proxy-error
+  "How the JDK reports a TLS handshake reaching the plaintext test proxy: an
+  unrecognized SSL message or, e.g. on macOS with JDK 25, a reset connection."
+  #"Unrecognized SSL message, plaintext connection\?|Remote host terminated the handshake")
+
 (deftest hato-client-make-test
   (testing "proxy http setup"
     (with-proxy {}
@@ -58,7 +63,7 @@
           ;; HTTPS request
           (is (thrown-with-msg? ;; expected as we only testing rerouting through proxy
                Exception
-               #"Unrecognized SSL message, plaintext connection?" (hato/post "https://localhost/https" {:http-client client})))
+               tls-via-plaintext-proxy-error (hato/post "https://localhost/https" {:http-client client})))
           (let [req2 (second @reqs*)]
             (is (= {:method "CONNECT" :uri "localhost:443"} (select-keys  req2 [:method :uri]))))))))
 
@@ -79,7 +84,7 @@
         (let [client (client/hato-client-make {:eca.client-http/proxy-https {:host *proxy-host* :port *proxy-port* :username "us" :password "ps"}})]
           (is (thrown-with-msg?
                Exception
-               #"Unrecognized SSL message, plaintext connection?" (hato/post "https://localhost/auth" {:http-client client})))
+               tls-via-plaintext-proxy-error (hato/post "https://localhost/auth" {:http-client client})))
           (is (= {:method "CONNECT" :uri "localhost:443"} (select-keys @req* [:method :uri])) @req*)))))
 
   (testing "Rejects requests when proxy username and password are incorrect"
@@ -137,7 +142,7 @@
           ;; HTTPS request routes via CONNECT using same creds
           (is (thrown-with-msg?
                Exception
-               #"Unrecognized SSL message, plaintext connection?"
+               tls-via-plaintext-proxy-error
                (hato/post "https://localhost/https" {:http-client client})))
 
           (is (= {:method "CONNECT" :uri "localhost:443"}
@@ -195,7 +200,7 @@
 
             (is (thrown-with-msg? ;; expected as we only testing rerouting through proxy
                  Exception
-                 #"Unrecognized SSL message, plaintext connection?" (hato/get "https://localhost/test" {:http-client client/*hato-http-client*})))
+                 tls-via-plaintext-proxy-error (hato/get "https://localhost/test" {:http-client client/*hato-http-client*})))
             (is (= {:method "CONNECT" :uri "localhost:443"} (select-keys @req* [:method :uri])))
 
             (finally

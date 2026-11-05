@@ -13,7 +13,8 @@
    [eca.logger :as logger]
    [eca.shared :as shared])
   (:import
-   [java.util Base64]))
+   [java.util Base64 Locale]
+   [java.util.concurrent.locks ReentrantLock]))
 
 (set! *warn-on-reflection* true)
 
@@ -28,6 +29,43 @@
 (def ^:private directory-tree-max-depth 10)
 
 (def ^:private view-image-max-bytes (* 5 1024 1024))
+
+(defonce ^:private file-edit-locks (atom {}))
+
+(defn ^:private file-lock-key [path]
+  (let [normalized (shared/normalize-path path)]
+    (if shared/windows-os?
+      (.toLowerCase ^String normalized Locale/ROOT)
+      normalized)))
+
+(defn ^:private with-file-path-lock
+  "Serialize filesystem mutations for a canonical path, retaining its lock only while in use."
+  [path f]
+  (let [key (file-lock-key path)
+        entry (get (swap! file-edit-locks update key
+                          (fn [entry]
+                            (update (or entry {:lock (ReentrantLock.) :users 0}) :users inc)))
+                   key)
+        ^ReentrantLock lock (:lock entry)]
+    (try
+      (.lockInterruptibly lock)
+      (try
+        (f)
+        (finally (.unlock lock)))
+      (finally
+        (swap! file-edit-locks
+               (fn [locks]
+                 (if (= 1 (get-in locks [key :users]))
+                   (dissoc locks key)
+                   (update-in locks [key :users] dec))))))))
+
+(defn ^:private with-file-path-locks
+  "Acquire multiple path locks in a stable order to avoid move-related deadlocks."
+  [paths f]
+  (let [paths (->> paths (map file-lock-key) distinct sort)]
+    (if-let [path (first paths)]
+      (with-file-path-lock path #(with-file-path-locks (rest paths) f))
+      (f))))
 
 (def ^:private image-signatures
   "Byte offsets and expected bytes that a file of each media type must start with."
@@ -236,12 +274,14 @@
   (let [path (get arguments "path")
         content (get arguments "content")]
     (or (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
-        (let [old-content (try (slurp path) (catch Exception _ nil))]
-          (fs/create-dirs (fs/parent (fs/path path)))
-          (spit path content)
-          (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
-                 :rollback-changes [{:path path
-                                     :content old-content}])))))
+        (with-file-path-lock path
+          (fn []
+            (let [old-content (try (slurp path) (catch Exception _ nil))]
+              (fs/create-dirs (fs/parent (fs/path path)))
+              (spit path content)
+              (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
+                     :rollback-changes [{:path path
+                                         :content old-content}])))))))
 
 (defn ^:private write-file-summary [{:keys [args]}]
   (if (get args "path")
@@ -455,26 +495,29 @@
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
       (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
-      (let [original-content (get arguments "original_content")
-            new-content      (get arguments "new_content")
-            all?             (boolean (get arguments "all_occurrences"))
-            initial-content  (slurp path)
-            result           (apply-file-edit-strategy initial-content original-content new-content all? path)
-            write!           (fn [res]
-                               (spit path (:new-full-content res))
-                               (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
-                                   (assoc :rollback-changes [{:path    path
-                                                              :content initial-content}])))]
-        (if (:new-full-content result)
-          (let [current-content (slurp path)]
-            (if (= current-content (:original-full-content result))
-              (write! result)
-              ;; Optimistic retry once against latest content
-              (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
-                (if (:new-full-content retry)
-                  (write! retry)
-                  (handle-file-change-result {:error :conflict} path nil)))))
-          (handle-file-change-result result path nil)))))
+      (with-file-path-lock
+        path
+        (fn []
+          (let [original-content (get arguments "original_content")
+                new-content      (get arguments "new_content")
+                all?             (boolean (get arguments "all_occurrences"))
+                initial-content  (slurp path)
+                result           (apply-file-edit-strategy initial-content original-content new-content all? path)
+                write!           (fn [res]
+                                   (spit path (:new-full-content res))
+                                   (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                                       (assoc :rollback-changes [{:path    path
+                                                                  :content (:original-full-content res)}])))]
+            (if (:new-full-content result)
+              (let [current-content (slurp path)]
+                (if (= current-content (:original-full-content result))
+                  (write! result)
+                  ;; Optimistic retry once against latest content
+                  (let [retry (apply-file-edit-strategy current-content original-content new-content all? path)]
+                    (if (:new-full-content retry)
+                      (write! retry)
+                      (handle-file-change-result {:error :conflict} path nil)))))
+              (handle-file-change-result result path nil)))))))
 
 (defn ^:private preview-file-change [arguments _]
   (let [path (get arguments "path")
@@ -500,16 +543,18 @@
 (defn ^:private move-file [arguments _]
   (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
                                                ["destination" (complement fs/exists?) "Path $destination already exists"]])
-      (let [source (get arguments "source")
-            destination (get arguments "destination")
-            directory? (fs/directory? source)
-            source-content (when-not directory? (slurp source))]
-        (fs/move source destination {:replace-existing false})
-        (cond-> (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
-          (not directory?) (assoc :rollback-changes [{:path destination
-                                                      :content nil}
-                                                     {:path source
-                                                      :content source-content}])))))
+      (with-file-path-locks [(get arguments "source") (get arguments "destination")]
+        (fn []
+          (let [source (get arguments "source")
+                destination (get arguments "destination")
+                directory? (fs/directory? source)
+                source-content (when-not directory? (slurp source))]
+            (fs/move source destination {:replace-existing false})
+            (cond-> (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
+              (not directory?) (assoc :rollback-changes [{:path destination
+                                                          :content nil}
+                                                         {:path source
+                                                          :content source-content}])))))))
 
 (defn ^:private move-file-summary [{:keys [args]}]
   (let [source (get args "source")

@@ -8,6 +8,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.tool-calls :as tc]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
@@ -336,7 +337,31 @@
       (is (match? {:message "OpenAI response status: 503 body: auth_unavailable"
                    :error-type :overloaded
                    :status 503}
-                  (get-in (h/db) [:chats chat-id :prompt-error]))))))
+                  (get-in (h/db) [:chats chat-id :prompt-error])))
+      (is (match? {:chat-id chat-id
+                   :role :system
+                   :content {:type :progress
+                             :state :finished
+                             :error {:message "OpenAI response status: 503 body: auth_unavailable"
+                                     :type "overloaded"}}}
+                  (last (:chat-content-received (h/messages))))
+          "the finished progress says the turn failed, and why"))))
+
+(deftest finished-progress-without-error-test
+  (testing "a turn that succeeds finishes without an error"
+    (h/reset-components!)
+    (let [{:keys [chat-id]}
+          (prompt!
+           {:message "Hello"}
+           {:all-tools-mock (constantly [])
+            :api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                        (on-first-response-received {:type :text :text "Hi"})
+                        (on-message-received {:type :text :text "Hi"})
+                        (on-message-received {:type :finish}))})
+          finished (last (filter #(= :progress (get-in % [:content :type]))
+                                 (:chat-content-received (h/messages))))]
+      (is (= chat-id (:chat-id finished)))
+      (is (= {:type :progress :state :finished} (:content finished))))))
 
 (deftest provider-max-auto-continues-test
   (is (= 3 (#'f.chat/provider-max-auto-continues {} "openai")))
@@ -1054,6 +1079,22 @@
           "Should NOT re-title after manual rename")
       (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))))
 
+  (testing "a title set while the title request runs is kept"
+    (h/reset-components!)
+    (let [chat-id* (atom nil)
+          sync-mock (fn [_]
+                      ;; The client renames the chat before the title arrives.
+                      (f.chat/update-chat {:chat-id @chat-id* :title "Set By Client"}
+                                          (h/db*) (h/messenger) (h/metrics))
+                      {:output-text "Auto Title"})
+          _ (reset! chat-id* "rename-race-chat")
+          {:keys [chat-id]} (prompt-with-title! {:message "Help me debug" :chat-id "rename-race-chat"}
+                                                {:sync-prompt-mock sync-mock})]
+      (is (= "Set By Client" (get-in (h/db) [:chats chat-id :title])))
+      (is (not-any? #(= "Auto Title" (get-in % [:content :title]))
+                    (:chat-content-received (h/messages)))
+          "the generated title isn't announced either")))
+
   (testing "title disabled in config skips all generation"
     (h/reset-components!)
     (let [sync-prompt-calls* (atom [])
@@ -1147,10 +1188,7 @@
         {#'f.chat/trigger-auto-compact!
          (fn [chat-ctx _all-tools user-messages]
            (swap! auto-compact-count* inc)
-           (#'f.chat/prompt-messages!
-            user-messages
-            :auto-compact
-            (assoc chat-ctx :auto-compacted? true)))}
+           (#'f.chat/resume-after-compact! chat-ctx user-messages))}
         (fn []
           (let [{:keys [_chat-id]}
                 (prompt!
@@ -1805,6 +1843,237 @@
     ((get-in f.tools.chat/definitions ["compact_chat" :handler]) arguments {:db* (h/db*) :chat-id chat-id})
     {:error false :contents [{:type :text :text "file contents"}]}))
 
+(defn ^:private repeated-auto-compact-api-mock
+  "API mock for a single long turn that crosses the auto-compact threshold
+   again after compacting. `respond` is called with the 1-based LLM call number
+   and the helpers {:usage! :read! :compact! :finish! :overflow!}."
+  [api-calls* respond]
+  (fn [{:keys [user-messages on-first-response-received on-message-received
+               on-prepare-tool-call on-tools-called on-usage-updated on-error]}]
+    (swap! api-calls* conj user-messages)
+    (on-first-response-received)
+    (respond
+     (count @api-calls*)
+     {:usage! (fn [input-tokens]
+                (on-usage-updated {:input-tokens input-tokens :output-tokens 0}))
+      :read! (fn [id]
+               (on-prepare-tool-call {:id id :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+               (on-tools-called [{:id id :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+      :compact! (fn [id]
+                  (on-prepare-tool-call {:id id :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Summary\"}"})
+                  (on-tools-called [{:id id :full-name "eca__compact_chat" :arguments {"summary" "Summary"}}]))
+      :finish! (fn []
+                 (on-message-received {:type :text :text "Done"})
+                 (on-message-received {:type :finish}))
+      :overflow! (fn []
+                   (on-error {:error/type :context-overflow
+                              :message "token limit exceeded"}))})))
+
+(defn ^:private repeated-auto-compact-prompt!
+  ([chat-id api-calls* respond]
+   (repeated-auto-compact-prompt! chat-id api-calls* respond {}))
+  ([chat-id api-calls* respond config]
+   (h/reset-components!)
+   (h/config! (merge {:autoCompactPercentage 75
+                      :autoCompactMaxPerTurn 3
+                      :prompts {:compact "Summarize the chat."}}
+                     config))
+   (swap! (h/db*) assoc-in [:models "openai/gpt-5.2"] {:tools true :limit {:context 1000}})
+   (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+     (prompt!
+      {:message "Long task" :chat-id chat-id}
+      {:all-tools-mock (constantly steered-compact-tools)
+       :call-tool-mock steered-compact-call-tool-mock
+       :api-mock (repeated-auto-compact-api-mock api-calls* respond)}))))
+
+(defn ^:private compact-markers [chat-id]
+  (filterv #(= "compact_marker" (:role %)) (get-in (h/db) [:chats chat-id :messages])))
+
+(deftest auto-compact-again-later-in-same-turn-test
+  (testing "the threshold check compacts again when the context fills up again in the same turn"
+    (let [chat-id "recompact-threshold-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1")) "crossing the threshold compacts"))
+           ;; First compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: under the threshold at first, then above it again.
+           3 (do (usage! 100)
+                 (is (some? (read! "call-2")) "the compacted context is under the threshold, so the turn goes on")
+                 (usage! 800)
+                 (when (some? (read! "call-3"))
+                   (finish!)))
+           ;; Second compaction prompt.
+           4 (compact! "compact-2")
+           ;; Task resumed again.
+           5 (finish!))))
+      (is (= 5 (count @api-calls*))
+          "task, compaction, resumed task, second compaction, resumed task")
+      (is (= 2 (count (compact-markers chat-id))))
+      (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
+                   {:role "user" :content [{:type :text :text "Long task"}]}]
+                  (nth @api-calls* 4 nil))
+          "the task resumes after the second compaction")
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "no second compaction when the compacted context is still above the threshold (no loop)"
+    (let [chat-id "recompact-still-big-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: the compacted context is still above the threshold.
+           3 (do (usage! 900)
+                 (when (some? (read! "call-2"))
+                   (finish!))))))
+      (is (= 3 (count @api-calls*)))
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest context-overflow-later-in-same-turn-auto-compacts-test
+  (testing "a context overflow after the compacted context was accepted compacts again instead of failing"
+    (let [chat-id "recompact-overflow-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish! overflow!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; First compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: one response under the threshold, then the provider rejects the next request.
+           3 (do (usage! 100)
+                 (is (some? (read! "call-2")))
+                 (overflow!))
+           ;; Overflow fallback compaction prompt.
+           4 (compact! "compact-2")
+           ;; Task resumed again.
+           5 (finish!))))
+      (is (= 5 (count @api-calls*)))
+      (is (= 2 (count (compact-markers chat-id))))
+      (is (match? {:chat-content-received
+                   (m/embeds [{:role :system
+                               :content {:type :text
+                                         :text "Context window exceeded. Auto-compacting conversation..."}}])}
+                  (h/messages)))
+      (is (not-any? #(some-> % :content :text (string/includes? "Context window exceeded: this request is larger"))
+                    (:chat-content-received (h/messages)))
+          "the overflow is recovered, not surfaced as an error")
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "an overflow right after compacting still surfaces the error instead of looping (#391)"
+    (let [chat-id "recompact-overflow-at-once-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! overflow!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: the provider rejects the first request after the compaction.
+           3 (overflow!))))
+      (is (= 3 (count @api-calls*)))
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (match? {:chat-content-received
+                   (m/embeds [{:role :system
+                               :content {:type :text
+                                         :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
+                  (h/messages)))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest auto-compact-limit-per-turn-test
+  (testing "a turn that keeps refilling the context stops auto-compacting after 3 compactions"
+    (let [chat-id "recompact-limit-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompts.
+           (2 4 6) (compact! (str "compact-" call-number))
+           ;; Resumed tasks: the context refills above the threshold every time.
+           (3 5 7) (do (usage! 100)
+                       (read! (str "call-" call-number "-a"))
+                       (usage! 800)
+                       (when (some? (read! (str "call-" call-number "-b")))
+                         (finish!))))))
+      (is (= 7 (count @api-calls*))
+          "task, then 3 times a compaction and the resumed task, with no 4th compaction")
+      (is (= 3 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "autoCompactMaxPerTurn 1 compacts only once per turn"
+    (let [chat-id "recompact-limit-one-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt.
+           2 (compact! "compact-1")
+           ;; Resumed task: the context refills above the threshold, but the limit is reached.
+           3 (do (usage! 100)
+                 (read! "call-2")
+                 (usage! 800)
+                 (when (some? (read! "call-3"))
+                   (finish!)))))
+       {:autoCompactMaxPerTurn 1})
+      (is (= 3 (count @api-calls*)))
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
+
+  (testing "after the limit, a context overflow surfaces the error instead of compacting again"
+    (let [chat-id "recompact-limit-overflow-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! overflow!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompts.
+           (2 4 6) (compact! (str "compact-" call-number))
+           ;; Resumed tasks: the context refills above the threshold.
+           (3 5) (do (usage! 100)
+                     (read! (str "call-" call-number "-a"))
+                     (usage! 800)
+                     (is (nil? (read! (str "call-" call-number "-b")))))
+           ;; Last resumed task: the provider rejects a request.
+           7 (do (usage! 100)
+                 (read! "call-7-a")
+                 (overflow!)))))
+      (is (= 7 (count @api-calls*)))
+      (is (= 3 (count (compact-markers chat-id))))
+      (is (match? {:chat-content-received
+                   (m/embeds [{:role :system
+                               :content {:type :text
+                                         :text #(string/includes? % "Context window exceeded: this request is larger")}}])}
+                  (h/messages)))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
 (deftest steered-compact-test
   (testing "a /compact steered while the turn runs compacts at the tool-call boundary with its instructions, then resumes the task (#600)"
     (h/reset-components!)
@@ -1884,6 +2153,94 @@
       (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
       (is (not (true? (get-in (h/db) [:chats chat-id :compacting?]))))
       (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest steered-compact-text-response-does-not-reuse-stale-summary-test
+  (h/reset-components!)
+  (h/config! {:prompts {:compact "Summarize the chat. {{additionalUserInput}}"}})
+  (let [chat-id "steered-compact-text-only-chat"
+        api-calls* (atom [])]
+    (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+      (prompt!
+       {:message "Rename rfq to query" :chat-id chat-id}
+       {:all-tools-mock (constantly steered-compact-tools)
+        :call-tool-mock steered-compact-call-tool-mock
+        :api-mock
+        (fn [{:keys [user-messages on-first-response-received on-message-received
+                     on-prepare-tool-call on-tools-called]}]
+          (swap! api-calls* conj user-messages)
+          (case (count @api-calls*)
+            1 (do
+                (on-first-response-received {:type :text :text "Reading"})
+                (on-message-received {:type :text :text "Reading"})
+                (on-prepare-tool-call {:id "call-1"
+                                       :full-name "eca__read_file"
+                                       :arguments-text "{\"path\":\"/foo\"}"})
+                (swap! (h/db*) assoc-in [:chats chat-id :last-summary] "stale summary")
+                (f.chat/prompt-steer {:chat-id chat-id :message "/compact Keep only the rename details"}
+                                     (h/db*) (h/messenger) (h/config) (h/metrics))
+                (on-tools-called [{:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {"path" "/foo"}}]))
+            2 (do
+                (on-first-response-received)
+                (on-message-received {:type :text :text "A summary without the compact tool call."})
+                (on-message-received {:type :finish}))))}))
+    (let [messages (get-in (h/db) [:chats chat-id :messages])
+          content (:chat-content-received (h/messages))]
+      (is (= 2 (count @api-calls*))
+          "the original task must not resume after a failed compaction")
+      (is (not-any? #(= "compact_marker" (:role %)) messages)
+          "a textual response must not create a compact marker")
+      (is (not-any? #(string/includes? (pr-str (:content %)) "stale summary") messages)
+          "the prior summary must not be inserted into history")
+      (is (nil? (get-in (h/db) [:chats chat-id :last-summary])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+      (is (nil? (get-in (h/db) [:chats chat-id :compacting?])))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status])))
+      (is (match? (m/embeds [{:role :system
+                              :content {:type :text
+                                        :text #(and (string/includes? % "Compaction failed: the model did not submit a summary")
+                                                    (string/includes? % "The conversation was not compacted."))}}])
+                  content)
+          "the user should see why the compaction did not happen"))))
+
+(deftest stopped-compaction-does-not-end-later-turns-early-test
+  (testing "a /compact turn stopped after compact_chat ran (here by a postToolCall hook) does not end later turns at their first tool call"
+    (h/reset-components!)
+    (h/config! {:prompts {:compact "Summarize the chat."}})
+    (let [chat-id "stopped-compaction-chat"
+          continuation* (atom ::not-called)]
+      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (fn [_db* _chat-ctx tool-call-id _event-data]
+                                                        (if (= "compact-1" tool-call-id)
+                                                          {:stop-turn? true :stop-reason "halt" :stop-hook-name "guard"}
+                                                          {:stop-turn? false}))}
+        (fn []
+          (prompt!
+           {:message "/compact" :chat-id chat-id}
+           {:all-tools-mock (constantly steered-compact-tools)
+            :call-tool-mock steered-compact-call-tool-mock
+            :api-mock
+            (fn [{:keys [on-first-response-received on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received)
+              (on-prepare-tool-call {:id "compact-1" :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Renamed rfq to query\"}"})
+              (on-tools-called [{:id "compact-1" :full-name "eca__compact_chat" :arguments {"summary" "Renamed rfq to query"}}]))})
+          (prompt!
+           {:message "Keep going" :chat-id chat-id}
+           {:all-tools-mock (constantly steered-compact-tools)
+            :call-tool-mock steered-compact-call-tool-mock
+            :api-mock
+            (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called]}]
+              (on-first-response-received {:type :text :text "Reading"})
+              (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+              (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+              (on-message-received {:type :text :text "Done"})
+              (on-message-received {:type :finish}))})))
+      (is (match? {:new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}
+                  @continuation*)
+          "the LLM loop continues with the tool results instead of ending the turn")
       (is (nil? (get-in (h/db) [:chats chat-id :compact-done?])))
       (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
 
@@ -2509,12 +2866,90 @@
     (enable-incremental-updates!)
     (let [chat-id (two-turn-chat!)]
       (h/reset-messenger!)
-      (f.chat/rollback-chat {:chat-id chat-id
-                             :include ["messages"]
-                             :content-id "missing"}
-                            (h/db*) (h/messenger) (h/metrics))
+      (is (match? {:error {:code "content_not_found"}}
+                  (f.chat/rollback-chat {:chat-id chat-id
+                                         :include ["messages"]
+                                         :content-id "missing"}
+                                        (h/db*) (h/messenger) (h/metrics))))
       (is (= 4 (count (get-in (h/db) [:chats chat-id :messages]))))
       (is (= {} (h/messages))))))
+
+(defn ^:private seed-compacted-chat!
+  "Seeds the history from #669: an id-bearing user message, an idless
+   assistant answer, an idless compaction marker and summary, then a turn
+   whose tool call recorded a change to `path` for rollback."
+  [path]
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :status :idle
+          :messages [{:role "user" :content [{:type :text :text "first"}] :content-id "u1"}
+                     {:role "assistant" :content [{:type :text :text "answer"}]}
+                     {:role "compact_marker" :content {:auto? false}}
+                     {:role "user" :content [{:type :text :text "summary"}]}
+                     {:role "user" :content [{:type :text :text "second"}] :content-id "u2"}
+                     {:role "tool_call_output" :content {:id "t1"
+                                                         :name "write_file"
+                                                         :output {:contents [{:type :text :text "ok"}]}}}
+                     {:role "assistant" :content [{:type :text :text "done"}]}]
+          :tool-calls {"t1" {:rollback-changes [{:path path :content "before"}]}}}))
+
+(deftest rollback-chat-target-validation-test
+  (let [file (str (fs/create-temp-file {:prefix "eca-rollback" :suffix ".txt"}))
+        setup! (fn []
+                 (h/reset-components!)
+                 (spit file "after")
+                 (seed-compacted-chat! file))
+        rollback! (fn [params]
+                    (f.chat/rollback-chat (merge {:chat-id "c1" :include ["messages" "tools"]} params)
+                                          (h/db*) (h/messenger) (h/metrics)))]
+    (try
+      (doseq [[desc params code] [["null" {:content-id nil} "invalid_request"]
+                                  ["absent" {} "invalid_request"]
+                                  ["blank" {:content-id " "} "invalid_request"]
+                                  ["non-string" {:content-id 42} "invalid_request"]
+                                  ["unknown" {:content-id "missing"} "content_not_found"]]]
+        (testing (str "a " desc " content-id is rejected before touching history, files or clients")
+          (setup!)
+          (let [messages-before (get-in (h/db) [:chats "c1" :messages])
+                save-calls* (atom 0)]
+            (with-redefs [db/save-chat! (fn [& _] (swap! save-calls* inc))]
+              (is (match? {:error {:code code :message string?}}
+                          (rollback! params))))
+            (is (= messages-before (get-in (h/db) [:chats "c1" :messages])))
+            (is (= "after" (slurp file)) "tool changes must not be reverted")
+            (is (zero? @save-calls*))
+            (is (= {} (h/messages))))))
+
+      (testing "an unknown chat is rejected without materializing it"
+        (setup!)
+        (is (match? {:error {:code "chat_not_found" :message string?}}
+                    (rollback! {:chat-id "ghost" :content-id "u1"})))
+        (is (not (contains? (:chats (h/db)) "ghost"))))
+
+      (testing "a valid target still rolls back the messages and tool changes from it"
+        (setup!)
+        (is (= {} (rollback! {:content-id "u2"})))
+        (is (match? [{:role "user" :content-id "u1"}
+                     {:role "assistant"}
+                     {:role "compact_marker"}
+                     {:role "user" :content [{:text "summary"}]}]
+                    (get-in (h/db) [:chats "c1" :messages])))
+        (is (= "before" (slurp file))))
+
+      (testing "a turn stored as several messages is rolled back from its first one"
+        (h/reset-components!)
+        (swap! (h/db*) assoc-in [:chats "c1"]
+               {:id "c1"
+                :messages [{:role "user" :content [{:type :text :text "a"}] :content-id "u1"}
+                           {:role "assistant" :content [{:type :text :text "b"}]}
+                           {:role "user" :content [{:type :text :text "prompt 1"}] :content-id "u2"}
+                           {:role "assistant" :content [{:type :text :text "prompt 2"}] :content-id "u2"}
+                           {:role "assistant" :content [{:type :text :text "reply"}]}]})
+        (is (= {} (rollback! {:content-id "u2" :include ["messages"]})))
+        (is (= ["a" "b"]
+               (mapv #(get-in % [:content 0 :text]) (get-in (h/db) [:chats "c1" :messages])))))
+      (finally
+        (fs/delete-if-exists file)))))
 
 (deftest add-flag-test
   (testing "Legacy clients get chat/cleared and a full replay including the flag"

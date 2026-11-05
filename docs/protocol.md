@@ -779,7 +779,8 @@ interface ChatTextContent {
     /**
      * The unique identifier of this content.
      * Mostly used to rollback messages.
-     * Current, only user messages contain this.
+     * Currently, only user messages contain this, though not all of them
+     * (e.g. a compaction summary has none).
      */
     contentId?: string;
 
@@ -806,6 +807,20 @@ interface ChatProgressContent {
      * May be omitted when state is 'finished'.
      */
     text?: string;
+
+    /**
+     * Only when state is 'finished': present when the turn ended because
+     * of an error (a provider or network error, a context overflow…),
+     * which was also shown in the chat as text. Absent when it succeeded.
+     */
+    error?: {
+        message: string;
+        /**
+         * The kind of error, e.g. 'network', 'overloaded', 'rate-limited',
+         * 'quota-exhausted', 'auth', 'context-overflow', 'unknown'.
+         */
+        type?: string;
+    };
 }
 
 /**
@@ -1178,7 +1193,10 @@ interface ChatToolCallRunContent {
 }
 
 /**
- * Tool call that server is running to report to LLM later, sent once per id.
+ * Tool call that server is running to report to LLM later.
+ * First sent when the call starts; may be sent again for the same id while it
+ * runs (e.g. with updated `progress`, or subagent step `details`), so clients
+ * should update the existing tool call rather than add a new one.
  */
 interface ChatToolCallRunningContent {
     type: 'toolCallRunning';
@@ -1216,6 +1234,32 @@ interface ChatToolCallRunningContent {
      * Clients may use this to present different UX for this tool call.
      */
     details?: ToolCallDetails;
+
+    /**
+     * Latest progress reported by the tool while running, mirroring MCP's
+     * `notifications/progress`. Sent at most about once per second per call.
+     */
+    progress?: ToolCallProgress;
+}
+
+/**
+ * Progress of a running tool call, mirroring MCP's progress notification params.
+ */
+interface ToolCallProgress {
+    /**
+     * The progress so far; increases with each report, even if `total` is unknown.
+     */
+    progress: number;
+
+    /**
+     * Total progress required, if known.
+     */
+    total?: number;
+
+    /**
+     * Description of the current progress.
+     */
+    message?: string;
 }
 
 /**
@@ -1869,10 +1913,12 @@ interface ChatPromptSteerRemoveParams {
 ### Chat rollback (↩)
 
 A client request to rollback chat messages to before a specific user sent message using `contentId`.
-Clients should show an option close to user sent messages in chat to rollback, calling this method.
+Clients should show an option close to user sent messages in chat to rollback, calling this method, only for
+messages carrying a `contentId`: some user messages, like a compaction summary, have none.
 Server will then remove the messages from its memory after that contentId and produce `chat/cleared` followed 
 with `chat/contentReceived` with the kept messages. Clients with the `incrementalUpdates` capability receive
-a single `chat/truncated` instead.
+a single `chat/truncated` instead. When the chat is unknown or `contentId` is missing or matches no message,
+the server returns an error without changing the history or any file.
 
 _Request:_ 
 
@@ -1887,7 +1933,8 @@ interface ChatRollbackParams {
     chatId: string;
     
     /**
-     * The message content id.
+     * The contentId of the message to roll back to: it and every later
+     * message are removed.
      */
     contentId: string;
     
@@ -1903,7 +1950,13 @@ type ChatRollbackInclude = 'messages' | 'tools';
 _Response:_
 
 ```typescript
-interface ChatRollbackResponse {}
+interface ChatRollbackResponse {
+    /**
+     * Present when nothing was rolled back: the chat is unknown, `contentId`
+     * is missing or blank (`invalid_request`) or matches no message of the chat.
+     */
+    error?: { code: 'chat_not_found' | 'invalid_request' | 'content_not_found'; message: string };
+}
 ```
 
 ### Chat clear (↩)

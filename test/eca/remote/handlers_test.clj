@@ -359,6 +359,41 @@
     (let [response (handlers/handle-stop (components) nil "c1")]
       (is (= 409 (:status response))))))
 
+(deftest handle-rollback-test
+  (let [request (fn [body]
+                  {:body (java.io.ByteArrayInputStream.
+                          (.getBytes ^String (json/generate-string body) "UTF-8"))})
+        seed! #(swap! (h/db*) assoc-in [:chats "c1"]
+                      {:id "c1"
+                       :status :idle
+                       :messages [{:role "user" :content [{:type :text :text "hi"}] :content-id "u1"}
+                                  {:role "assistant" :content [{:type :text :text "hello"}]}]})
+        error-code #(get-in (json/parse-string (:body %) true) [:error :code])]
+    (testing "returns 404 for missing chat"
+      (let [response (handlers/handle-rollback (components) (request {:contentId "u1"}) "nonexistent")]
+        (is (= 404 (:status response)))
+        (is (= "chat_not_found" (error-code response)))))
+
+    (testing "returns 400 without touching history for a null contentId"
+      (seed!)
+      (let [response (handlers/handle-rollback (components) (request {:contentId nil}) "c1")]
+        (is (= 400 (:status response)))
+        (is (= "invalid_request" (error-code response)))
+        (is (= 2 (count (get-in (h/db) [:chats "c1" :messages]))))))
+
+    (testing "returns 404 without touching history for an unknown contentId"
+      (seed!)
+      (let [response (handlers/handle-rollback (components) (request {:contentId "missing"}) "c1")]
+        (is (= 404 (:status response)))
+        (is (= "content_not_found" (error-code response)))
+        (is (= 2 (count (get-in (h/db) [:chats "c1" :messages]))))))
+
+    (testing "returns 204 and rolls back to a known contentId"
+      (seed!)
+      (let [response (handlers/handle-rollback (components) (request {:contentId "u1"}) "c1")]
+        (is (= 204 (:status response)))
+        (is (= [] (get-in (h/db) [:chats "c1" :messages])))))))
+
 (deftest handle-prompt-test
   (testing "returns 400 for missing message"
     (let [request {:body (java.io.ByteArrayInputStream. (.getBytes "{}" "UTF-8"))}

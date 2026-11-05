@@ -1201,6 +1201,18 @@
       (is (not (re-find #"- code:" desc))
           "primary-only agents should not appear in subagent list")))
 
+  (testing "description-suffix holds only the available subagents catalog"
+    (let [{:keys [description description-suffix]} (get (f.tools.agent/definitions test-config test-db) "spawn_agent")]
+      (is (string/starts-with? description-suffix "\n\nAvailable agents:\n"))
+      (is (string/includes? description-suffix "- explorer: Explores codebases"))
+      (is (string/ends-with? description description-suffix))))
+
+  (testing "no agents catalog without available subagents"
+    (let [{:keys [description description-suffix]} (get (f.tools.agent/definitions {:agent {"code" {:mode "primary"}}} test-db)
+                                                         "spawn_agent")]
+      (is (nil? description-suffix))
+      (is (not (string/includes? description "Available agents:")))))
+
   (testing "summary-fn formats agent name with activity"
     (let [summary-fn (:summary-fn (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
       (is (= "explorer: searching files"

@@ -518,45 +518,47 @@
     (take (- end start) (drop start messages))
     messages))
 
-(defn ^:private build-description
-  "Build tool description with available agents and models listed."
+(defn ^:private agents-catalog
+  "The tool description part listing the agents `parent-agent-name` can spawn,
+   or nil when there are none."
   [config parent-agent-name]
-  (let [base-description (tools.util/read-tool-description "spawn_agent")
-        agents (all-agents config parent-agent-name)
-        agents-section (str "\n\nAvailable agents:\n"
-                            (->> agents
-                                 (map (fn [{:keys [name description]}]
-                                        (str "- " name ": " description)))
-                                 (str/join "\n")))]
-    (str base-description agents-section)))
+  (when-let [agents (seq (all-agents config parent-agent-name))]
+    (str "\n\nAvailable agents:\n"
+         (->> agents
+              (map (fn [{:keys [name description]}]
+                     (str "- " name ": " description)))
+              (str/join "\n")))))
 
 (defn definitions
   ([config db]
    (definitions config db nil))
   ([config _db parent-agent-name]
-   {"spawn_agent"
-    {:description (build-description config parent-agent-name)
-     :parameters  {:type       "object"
-                   :properties {"agent"    {:type        "string"
-                                            :description "Name of the agent to spawn or continue"}
-                                "task"     {:type        "string"
-                                            :description "The detailed instructions for the agent"}
-                                "activity" {:type        "string"
-                                            :description "Optional concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
-                                "chat_id"  {:type        "string"
-                                            :description "Optional chat_id returned by an earlier spawn_agent call of this chat, to continue that subagent conversation. Repeat its agent. It keeps its model and variant unless you override them."}
-                                "model"    {:type        "string"
-                                            :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
-                                "variant"  {:type        "string"
-                                            :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
-                   :required   ["agent" "task"]}
-     :handler     #'spawn-agent
-     :summary-fn  (fn [{:keys [args]}]
-                    (if-let [agent-name (get args "agent")]
-                      (if-let [activity (get (normalize-arguments args) "activity")]
-                        (format "%s: %s" agent-name activity)
-                        agent-name)
-                      "Spawning agent"))}}))
+   (let [catalog (agents-catalog config parent-agent-name)]
+     {"spawn_agent"
+      {:description (str (tools.util/read-tool-description "spawn_agent") catalog)
+       ;; Kept after a `prompts.tools` override of the description.
+       :description-suffix catalog
+       :parameters  {:type       "object"
+                     :properties {"agent"    {:type        "string"
+                                              :description "Name of the agent to spawn or continue"}
+                                  "task"     {:type        "string"
+                                              :description "The detailed instructions for the agent"}
+                                  "activity" {:type        "string"
+                                              :description "Optional concise label (max 3-4 words) shown in the UI while the agent runs, e.g. \"exploring codebase\", \"reviewing changes\", \"analyzing tests\"."}
+                                  "chat_id"  {:type        "string"
+                                              :description "Optional chat_id returned by an earlier spawn_agent call of this chat, to continue that subagent conversation. Repeat its agent. It keeps its model and variant unless you override them."}
+                                  "model"    {:type        "string"
+                                              :description "Optional sub-agent model override. Reserved for explicit user override only. Omit unless the user explicitly named a model."}
+                                  "variant"  {:type        "string"
+                                              :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
+                     :required   ["agent" "task"]}
+       :handler     #'spawn-agent
+       :summary-fn  (fn [{:keys [args]}]
+                      (if-let [agent-name (get args "agent")]
+                        (if-let [activity (get (normalize-arguments args) "activity")]
+                          (format "%s: %s" agent-name activity)
+                          agent-name)
+                        "Spawning agent"))}})))
 
 (defmethod tools.util/tool-call-details-before-invocation :spawn_agent
   [_name arguments _server {:keys [db config chat-id tool-call-id]}]

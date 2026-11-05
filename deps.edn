@@ -8,7 +8,7 @@
         borkdude/dynaload {:mvn/version "0.3.5"}
         dev.ericdallo/rewrite-json {:mvn/version "0.1.1"}
         selmer/selmer {:mvn/version "1.12.69"}
-        babashka/fs {:mvn/version "0.5.26"}
+        babashka/fs {:mvn/version "0.5.33"}
         babashka/process {:mvn/version "0.6.23"}
         br.dev.zz/parc {:git/url "https://github.com/souenzzo/parc"
                         :git/sha "76f0714e6b93a053d67d473c33dfc279dfb94d23"}
@@ -45,7 +45,7 @@
          :extra-paths ["test"]
          :main-opts ["-m" "kaocha.runner"]}
   :build {:extra-paths ["resources"]
-          :extra-deps {babashka/fs {:mvn/version "0.5.22"}
+          :extra-deps {babashka/fs {:mvn/version "0.5.33"}
                        babashka/process {:mvn/version "0.6.23"}}
           :replace-deps {io.github.clojure/tools.build {:tag "v0.10.7" :sha "573711e"}
                          com.github.ericdallo/deps-bin {:mvn/version "1.0.0"}

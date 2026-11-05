@@ -73,10 +73,19 @@ If you switch between models with very different context sizes (e.g. 128k and 1M
 
 When set (globally or per-agent), it takes precedence over `autoCompactPercentage`, which is only used as a fallback for models whose context window is not larger than that value.
 
+A long turn can fill the context again after a compaction, so ECA can auto-compact more than once in the same turn. Each compaction sends the whole context to the LLM, so `autoCompactMaxPerTurn` limits how many times a single turn may auto-compact. This stops a turn that keeps refilling the context (e.g. reading the same huge file again after each compaction) from compacting without end. When the limit is reached, a context overflow is shown as an error. The next prompt starts counting from zero.
+
+```javascript title="~/.config/eca/config.json"
+{
+  "autoCompactMaxPerTurn": 3
+}
+```
+
 | Property                | Default | Description                                                       |
 |-------------------------|---------|-------------------------------------------------------------------|
 | `autoCompactPercentage` | `75`    | Percentage of context window usage that triggers auto-compaction. |
 | `autoCompactTokensLeft` | -       | Remaining context tokens at or below which auto-compaction triggers. Takes precedence over `autoCompactPercentage`. |
+| `autoCompactMaxPerTurn` | `3`     | Maximum number of auto-compactions in a single turn.              |
 
 ## Context overflow recovery
 
@@ -91,7 +100,7 @@ Instead of showing this error to the user, ECA automatically recovers:
 
 This happens transparently — the user sees a brief "Context window exceeded. Auto-compacting conversation..." notice, and the task continues without manual intervention.
 
-If recovery itself fails (e.g., the conversation is too large even after pruning), ECA falls back to displaying the error so the user can manually compact or start a new chat.
+If recovery itself fails (e.g., the conversation is too large even after pruning), or the turn already reached `autoCompactMaxPerTurn`, ECA falls back to displaying the error so the user can manually compact or start a new chat.
 
 ## File Reading
 

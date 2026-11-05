@@ -350,6 +350,18 @@
                         :resolved-name (:full-name resolved-tool)})
           resolved-tool))))
 
+(defn ^:private override-description
+  "Replaces the tool description with its `prompts.tools` override, the agent one
+   taking precedence over the global one. The tool `:description-suffix`, a part
+   built at runtime like the spawn_agent agents catalog, is kept after it."
+  [tool config agent-name]
+  (if-let [override (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
+                        (get-in config [:prompts :tools (:full-name tool)]))]
+    (assoc tool :description (if-let [suffix (:description-suffix tool)]
+                               (str (string/trimr override) suffix)
+                               override))
+    tool))
+
 (defn all-tools
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers.
@@ -369,12 +381,7 @@
                          (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
-                        (mapv (fn [tool]
-                                (update tool :description
-                                        (fn [desc]
-                                          (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
-                                              (get-in config [:prompts :tools (:full-name tool)])
-                                              desc)))))
+                        (mapv #(override-description % config agent-name))
                         (filterv (fn [tool]
                                    (and (not (tool-disabled? tool disabled-tools))
                                         ;; check for enabled-fn if present
@@ -402,10 +409,54 @@
        all-tools
        (remove #(= f.tools.tool-search/tool-full-name (:full-name %)) all-tools)))))
 
+(def ^:private progress-report-interval-ms 1000)
+
+(defn ^:private throttle
+  "Returns {:call! :stop!}. `call!` passes its argument to `f` at most once per
+   `interval-ms`, always delivering the latest argument. After `stop!` returns,
+   `f` is never called again."
+  [f interval-ms]
+  (let [lock (Object.)
+        last-call-ms* (volatile! nil)
+        pending* (volatile! ::none)
+        scheduled?* (volatile! false)
+        stopped?* (volatile! false)
+        safe-f (fn [x]
+                 (vreset! last-call-ms* (System/currentTimeMillis))
+                 (try (f x)
+                      (catch Exception e
+                        (logger/warn logger-tag (format "Throttled call failed: %s" (.getMessage e))))))]
+    {:call! (fn [x]
+              (locking lock
+                (when-not @stopped?*
+                  (let [wait-ms (if-let [last-ms @last-call-ms*]
+                                  (- (+ ^long last-ms ^long interval-ms) (System/currentTimeMillis))
+                                  0)]
+                    (cond
+                      @scheduled?* (vreset! pending* x)
+
+                      (<= wait-ms 0) (safe-f x)
+
+                      :else
+                      (do (vreset! pending* x)
+                          (vreset! scheduled?* true)
+                          (future
+                            (Thread/sleep (long wait-ms))
+                            (locking lock
+                              (vreset! scheduled?* false)
+                              (let [x @pending*]
+                                (vreset! pending* ::none)
+                                (when-not (or @stopped?* (= ::none x))
+                                  (safe-f x)))))))))))
+     :stop! (fn []
+              (locking lock
+                (vreset! stopped?* true)
+                (vreset! pending* ::none)))}))
+
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
-                  {:keys [trust]}]
+                  {:keys [trust on-progress]}]
   (logger/info logger-tag (format "Calling tool '%s' with args '%s'" full-name arguments))
   (let [arguments (update-keys arguments clojure.core/name)
         db @db*
@@ -438,10 +489,18 @@
                                                              :call-state-fn call-state-fn
                                                              :state-transition-fn state-transition-fn
                                                              :trust trust})
-                             (f.mcp/call-tool! server-name tool-name arguments {:db db
-                                                                                :db* db*
-                                                                                :config config
-                                                                                :metrics metrics})))
+                             (let [{:keys [call! stop!]} (when on-progress
+                                                           (throttle on-progress progress-report-interval-ms))]
+                               ;; Stopping before returning keeps a late progress report
+                               ;; from reaching the client after the call's result.
+                               (try
+                                 (f.mcp/call-tool! server-name tool-name arguments {:db db
+                                                                                    :db* db*
+                                                                                    :config config
+                                                                                    :metrics metrics
+                                                                                    :on-progress call!})
+                                 (finally
+                                   (when stop! (stop!)))))))
                        (tools.util/maybe-truncate-output config tool-call-id))]
         (logger/debug logger-tag "Tool call result: " result)
         (metrics/count-up! "tool-called" {:name resolved-full-name :error (:error result)} metrics)

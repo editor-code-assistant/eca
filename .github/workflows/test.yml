@@ -18,6 +18,12 @@ on:
 
   pull_request:
 
+env:
+  # Single source of truth for the Clojure tooling, also part of the dependency
+  # cache keys so bumping it refreshes ~/.deps.clj (bb's own Clojure tools).
+  CLOJURE_CLI_VERSION: '1.12.0.1530'
+  BB_VERSION: '1.12.200'
+
 jobs:
   unit-test:
     runs-on: ${{matrix.os}}
@@ -25,12 +31,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        jdk: [24]
+        # 25 is preinstalled on all runner images (no JDK download) and
+        # supports the AOT cache used by the JVM integration tests.
+        jdk: [25]
         include:
           - os: windows-latest
-            jdk: 24
+            jdk: 25
           - os: macos-latest
-            jdk: 24
+            jdk: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,8 +53,22 @@ jobs:
       - name: Install Clojure
         uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1530'
-          bb: '1.12.200'
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+          bb: ${{ env.BB_VERSION }}
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          # Keyed per job: jobs resolve different aliases, and with a shared
+          # key only the first job to finish would ever save its subset.
+          key: clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-${{ hashFiles('deps.edn', 'bb.edn', 'integration-test/mcp-server-sample/deps.edn', 'integration-test/mcp-server-sample/bb.edn') }}
+          restore-keys: |
+            clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-
+            clj-deps-${{ runner.os }}-${{ github.job }}-
 
       - name: Run tests
         run: bb test
@@ -57,12 +79,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        jdk: [24]
+        jdk: [25]
         include:
           - os: windows-latest
-            jdk: 24
+            jdk: 25
           - os: macos-latest
-            jdk: 24
+            jdk: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,14 +93,26 @@ jobs:
       - name: Set up JDK ${{ matrix.jdk }}
         uses: actions/setup-java@v4
         with:
-          distribution: 'adopt'
+          distribution: 'temurin'
           java-version: ${{ matrix.jdk }}
 
       - name: Install clojure build tools
         uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1530'
-          bb: '1.12.200'
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+          bb: ${{ env.BB_VERSION }}
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-${{ hashFiles('deps.edn', 'bb.edn', 'integration-test/mcp-server-sample/deps.edn', 'integration-test/mcp-server-sample/bb.edn') }}
+          restore-keys: |
+            clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-
+            clj-deps-${{ runner.os }}-${{ github.job }}-
 
       - name: Generate embedded binary
         run: |
@@ -103,8 +137,20 @@ jobs:
       - name: Install Clojure
         uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1530'
-          bb: '1.12.200'
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+          bb: ${{ env.BB_VERSION }}
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-${{ hashFiles('deps.edn', 'bb.edn', 'integration-test/mcp-server-sample/deps.edn', 'integration-test/mcp-server-sample/bb.edn') }}
+          restore-keys: |
+            clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-
+            clj-deps-${{ runner.os }}-${{ github.job }}-
 
       - uses: graalvm/setup-graalvm@v1
         with:
@@ -135,17 +181,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 24
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          distribution: 'adopt'
-          java-version: 24
+          distribution: 'temurin'
+          java-version: 25
 
       - name: Install clojure build tools
         uses: DeLaGuardo/setup-clojure@13.6.1
         with:
-          cli: '1.12.0.1530'
-          bb: '1.12.200'
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+          bb: ${{ env.BB_VERSION }}
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-${{ hashFiles('deps.edn', 'bb.edn', 'integration-test/mcp-server-sample/deps.edn', 'integration-test/mcp-server-sample/bb.edn') }}
+          restore-keys: |
+            clj-deps-${{ runner.os }}-${{ github.job }}-${{ env.CLOJURE_CLI_VERSION }}-${{ env.BB_VERSION }}-
+            clj-deps-${{ runner.os }}-${{ github.job }}-
 
       - name: Install tinyproxy
         run: |

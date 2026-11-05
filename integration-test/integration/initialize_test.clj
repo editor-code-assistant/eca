@@ -4,6 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
+   [llm-mock.server :as llm-mock.server]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
@@ -47,7 +48,10 @@
                    :agents ["code" "plan"]
                    :selectAgent "plan"
                    :welcomeMessage (m/pred #(string/includes? % "Welcome to ECA!"))}}
-           (eca/client-awaits-server-notification :config/updated)))))
+           (eca/client-awaits-server-notification :config/updated))))
+
+    (testing "models.dev catalog comes from the LLM mock, not the network"
+      (is (pos? (llm-mock.server/models-dev-requests)))))
 
   (testing "Native tools updated"
     (is (match?

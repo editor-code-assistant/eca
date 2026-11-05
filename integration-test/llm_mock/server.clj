@@ -1,5 +1,6 @@
 (ns llm-mock.server
   (:require
+   [clojure.java.io :as io]
    [integration.eca :as eca]
    [llm-mock.anthropic :as llm-mock.anthropic]
    [llm-mock.ollama :as llm-mock.ollama]
@@ -8,6 +9,22 @@
    [org.httpkit.server :as hk]))
 
 (def port 5550)
+
+(def models-dev-url
+  "Served in place of https://models.dev/api.json, so servers under test neither
+   depend on the network nor on the live catalog's content."
+  (str "http://localhost:" port "/models-dev/api.json"))
+
+;; Verbatim subset of https://models.dev/api.json with only the providers and
+;; models the tests rely on. To add one, copy its entry from the live catalog.
+(def ^:private models-dev-json (delay (slurp (io/resource "llm_mock/models_dev.json"))))
+
+(defonce ^:private models-dev-requests* (atom 0))
+
+(defn models-dev-requests
+  "How many times servers under test fetched the models.dev catalog."
+  []
+  @models-dev-requests*)
 
 (defonce ^:private server* (atom nil))
 
@@ -54,6 +71,13 @@
         (and (= :post request-method)
              (= uri "/ollama/api/chat"))
         (llm-mock.ollama/handle-ollama-chat req)
+
+        (and (= :get request-method)
+             (= uri "/models-dev/api.json"))
+        (do (swap! models-dev-requests* inc)
+            {:status 200
+             :headers {"Content-Type" "application/json"}
+             :body @models-dev-json})
 
         :else {:status 404 :headers {} :body "not found"}))))
 

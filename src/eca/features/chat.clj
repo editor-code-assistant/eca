@@ -713,22 +713,52 @@
    so the resume continuation does not fire."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-  (let [{:keys [stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)]
+  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)
+        current-prompt-ctx (assoc chat-ctx :prompt-id (get-in @db* [:chats chat-id :prompt-id]))]
     (when stop-turn?
-      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
-      (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
-    {:stop-after-finish? stop-turn?}))
+      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+    (when (or stop-turn? (not compacted?))
+      (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
+    {:stop-after-finish? (or stop-turn? (not compacted?))}))
+
+(def ^:private resume-after-compact-message
+  {:role "user"
+   :content [{:type :text
+              :text "Continue with the task. The previous user request was:"}]})
 
 (defn ^:private resume-after-compact!
-  "on-after-finish! for a mid-turn compaction: resume the original user task."
+  "on-after-finish! for a mid-turn compaction: resume the original user task.
+   A turn can compact more than once, so a resume prefix from an earlier
+   compaction is not repeated. The resumed turn carries a fresh post-compact
+   guard, see `auto-compact-suppressed?`."
   [chat-ctx user-messages]
   (prompt-messages!
-   (concat [{:role "user"
-             :content [{:type :text
-                        :text "Continue with the task. The previous user request was:"}]}]
-           user-messages)
+   (cons resume-after-compact-message
+         (remove #(= resume-after-compact-message (select-keys % [:role :content])) user-messages))
    :auto-compact
-   (assoc chat-ctx :auto-compacted? true)))
+   (assoc chat-ctx :post-compact-guard* (atom true))))
+
+(defn ^:private auto-compact-suppressed?
+  "Whether auto-compaction must not run (again) in this turn: a preCompact hook
+   blocked it (`:auto-compacted?`, kept for the rest of the turn), the turn
+   reached `autoCompactMaxPerTurn`, or the chat was just compacted and no
+   response showed the compacted context under the threshold yet
+   (`:post-compact-guard*`). Compacting again before that could loop, as the
+   compacted context alone may still be too big. #391"
+  [{:keys [config agent auto-compactions post-compact-guard*] :as chat-ctx}]
+  (let [max-per-turn (lifecycle/auto-compact-max-per-turn config agent)]
+    (boolean (or (:auto-compacted? chat-ctx)
+                 (and max-per-turn (>= (or auto-compactions 0) max-per-turn))
+                 (some-> post-compact-guard* deref)))))
+
+(defn ^:private release-post-compact-guard!
+  "Called on each usage update: once the compacted context is under the
+   auto-compact threshold, compaction may run again later in the same turn."
+  [{:keys [db* chat-id agent full-model config post-compact-guard*]}]
+  (when (and post-compact-guard*
+             @post-compact-guard*
+             (not (lifecycle/auto-compact? chat-id agent full-model config @db*)))
+    (reset! post-compact-guard* false)))
 
 (defn ^:private trigger-compact!
   "Compact the chat in the middle of a running turn, then resume the original
@@ -761,7 +791,10 @@
       (let [db             @db*
             compact-prompt (f.prompt/compact-prompt (shared/not-blank custom-instructions) all-tools agent config db)]
         (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
-        (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+        (swap! db* update-in [:chats chat-id]
+               #(-> %
+                    (dissoc :last-summary :compact-done?)
+                    (assoc :auto-compacting? true)))
         (prompt-messages!
          [{:role "user" :content "Compact the chat following the template:"}
           {:role "user" :content compact-prompt}]
@@ -774,15 +807,20 @@
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task.
    When a hook blocks compaction without stopping the turn, the original task is
-   (re)sent as a new prompt, marked so auto-compaction is not retried."
+   (re)sent as a new prompt, marked so auto-compaction is not retried.
+   Counts the auto-compactions of the turn, see `autoCompactMaxPerTurn`."
   [chat-ctx all-tools user-messages]
-  (trigger-compact! chat-ctx all-tools user-messages
-                    {:trigger "auto"
-                     :on-blocked (fn []
-                                   (prompt-messages! user-messages
-                                                     :auto-compact-blocked
-                                                     (assoc chat-ctx :auto-compacted? true))
-                                   nil)}))
+  (let [{:keys [chat-id config agent auto-compactions] :as chat-ctx} (update chat-ctx :auto-compactions (fnil inc 0))]
+    (when (= (lifecycle/auto-compact-max-per-turn config agent) auto-compactions)
+      (logger/warn logger-tag "Last auto-compaction allowed in this turn" {:chat-id chat-id
+                                                                         :auto-compactions auto-compactions}))
+    (trigger-compact! chat-ctx all-tools user-messages
+                      {:trigger "auto"
+                       :on-blocked (fn []
+                                     (prompt-messages! user-messages
+                                                       :auto-compact-blocked
+                                                       (assoc chat-ctx :auto-compacted? true))
+                                     nil)})))
 
 (defn ^:private log-api-switch!
   "Log when the user swaps to a model whose api differs from the chat's
@@ -1087,7 +1125,9 @@
         (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
                                                              :status (get-in @db* [:chats chat-id :status])}))
       (swap! db* assoc-in [:chats chat-id :status] :running)
-      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+      ;; :compact-done? is consumed when its compaction is applied; one left behind by a
+      ;; compaction stopped before that would end this turn at its first tool call.
+      (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error :compact-done?)
       (when (and run-hooks? (:user-content-id chat-ctx))
         ;; Kept until the LLM responds, so a turn that is stopped, fails or is
         ;; superseded before that doesn't lose what the user typed.
@@ -1164,6 +1204,7 @@
                                         (logger/warn logger-tag "Failed to update provider quota" e)))))
             on-usage-updated (fn [usage]
                                (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
+                                 (release-post-compact-guard! chat-ctx)
                                  ;; Never let the context-breakdown (a display-only
                                  ;; aid) throw into the streaming path, or the error
                                  ;; gets misclassified as a retryable provider error.
@@ -1221,7 +1262,10 @@
                                                  :config config
                                                  :provider-auth provider-auth
                                                  :subagent? true})]
-                (when output-text
+                ;; A title set meanwhile (chat/update, e.g. a client renaming
+                ;; the chat while this request ran) wins over the generated one.
+                (when (and output-text
+                           (not (get-in @db* [:chats chat-id :title-custom?])))
                   (let [title (sanitize-title output-text)]
                     (swap! db* assoc-in [:chats chat-id :title] title)
                     (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
@@ -1229,7 +1273,7 @@
                       (db/save-chat! @db* chat-id metrics))))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                 (not (:auto-compacted? chat-ctx)))
+                 (not (auto-compact-suppressed? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
           (start-prompt-worker! chat-ctx
            (fn []
@@ -1425,8 +1469,7 @@
                                                ;; (postCompact provides compact_summary; postRequest would
                                                ;; just see the trailing "Compacted successfully!" tool result).
                                                (get-in @db* [:chats chat-id :compact-done?])
-                                               (do (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
-                                                   (lifecycle/finish-chat-prompt! :idle
+                                               (do (lifecycle/finish-chat-prompt! :idle
                                                                                   (assoc chat-ctx :skip-post-request-hooks? true))
                                                    nil)
 
@@ -1446,7 +1489,7 @@
                                                    ;; and the task resumes, so the LLM never sees them as text. #610
                                                    (consume-steered-native-command! chat-id db* chat-ctx)
                                                    (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                                            (not (:auto-compacted? chat-ctx)))
+                                                            (not (auto-compact-suppressed? chat-ctx)))
                                                      (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
                                                      (continue-turn!))))))))
                                   received-msgs* add-to-history! user-messages)
@@ -1623,7 +1666,7 @@
 
                                 (and (= :context-overflow error-type)
                                      (not compacting?)
-                                     (not (:auto-compacted? chat-ctx))
+                                     (not (auto-compact-suppressed? chat-ctx))
                                      compactable?)
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
@@ -2644,53 +2687,82 @@
         (db/save-chat! @db* chat-id metrics))))
   {})
 
+(defn ^:private rollback-target-idx
+  "Index of the first message carrying `content-id`. A turn may store several
+   messages under the same id, so rolling it back removes all of them."
+  [messages content-id]
+  (first (keep-indexed (fn [idx message]
+                         (when (= content-id (:content-id message)) idx))
+                       messages)))
+
+(defn ^:private rollback-error [code message]
+  (logger/warn logger-tag "Chat rollback rejected:" message)
+  {:error {:code code :message message}})
+
 (defn rollback-chat
-  "Remove messages from chat in db until content-id matches.
+  "Remove the message identified by content-id and every message after it.
    Then notify the client: `chat/truncated` when it supports incremental
-   updates, otherwise `chat/cleared` followed by the kept messages."
+   updates, otherwise `chat/cleared` followed by the kept messages.
+   Returns an `:error` without touching history or files when the chat is
+   unknown or content-id is missing or matches no message: many messages have
+   no id, so a nil id would match the first of those instead (#669)."
   [{:keys [chat-id content-id include]} db* messenger metrics]
-  (db/hydrate-chat! db* chat-id metrics)
-  (let [include (if (seq include)
-                  (set include)
-                  ;; backwards compatibility
-                  #{"messages" "tools"})
-        all-messages (get-in @db* [:chats chat-id :messages])
-        tool-calls (get-in @db* [:chats chat-id :tool-calls])
-        new-messages (when (contains? include "messages")
-                       (vec (take-while #(not= (:content-id %) content-id) all-messages)))
-        removed-messages (when (contains? include "tools")
-                           (vec (drop-while #(not= (:content-id %) content-id) all-messages)))
-        rollback-changes (->> removed-messages
-                              (filter #(= "tool_call_output" (:role %)))
-                              (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
-                              flatten
-                              reverse)]
-    (doseq [{:keys [path content]} rollback-changes]
-      (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
-      (if content
-        (spit path content)
-        (io/delete-file path true)))
-    (when new-messages
-      (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-      ;; Rollback is the user's recovery tool for a chat that got into a bad
-      ;; state. Persist immediately so the cleaned-up history survives a
-      ;; restart instead of relying on the next unrelated save.
-      (db/save-chat! @db* chat-id metrics)
-      (if (history/incremental-updates? @db*)
-        (when (< (count new-messages) (count all-messages))
-          (messenger/chat-truncated messenger {:chat-id chat-id
-                                               :content-id content-id}))
-        (do
-          (messenger/chat-cleared
-           messenger
-           {:chat-id chat-id
-            :messages true})
-          (send-chat-contents!
-           new-messages
-           {:chat-id chat-id
-            :db* db*
-            :messenger messenger}))))
-    {}))
+  (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+    (db/hydrate-chat! db* chat-id metrics)
+    (let [chat (get-in @db* [:chats chat-id])
+          all-messages (vec (:messages chat))
+          target-idx (some->> (shared/not-blank content-id)
+                              (rollback-target-idx all-messages))]
+      (cond
+        (nil? chat)
+        (rollback-error "chat_not_found" (str "Chat " chat-id " not found"))
+
+        (not (shared/not-blank content-id))
+        (rollback-error "invalid_request" "contentId is required and must be a non-blank string")
+
+        (nil? target-idx)
+        (rollback-error "content_not_found" (str "No message with contentId " content-id " in chat " chat-id))
+
+        :else
+        (let [include (if (seq include)
+                        (set include)
+                        ;; backwards compatibility
+                        #{"messages" "tools"})
+              tool-calls (:tool-calls chat)
+              new-messages (when (contains? include "messages")
+                             (into [] (take target-idx) all-messages))
+              removed-messages (when (contains? include "tools")
+                                 (subvec all-messages target-idx))
+              rollback-changes (->> removed-messages
+                                    (filter #(= "tool_call_output" (:role %)))
+                                    (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
+                                    flatten
+                                    reverse)]
+          (doseq [{:keys [path content]} rollback-changes]
+            (logger/info (format "Rolling back change for '%s' to content: '%s'" path content))
+            (if content
+              (spit path content)
+              (io/delete-file path true)))
+          (when new-messages
+            (swap! db* assoc-in [:chats chat-id :messages] new-messages)
+            ;; Rollback is the user's recovery tool for a chat that got into a bad
+            ;; state. Persist immediately so the cleaned-up history survives a
+            ;; restart instead of relying on the next unrelated save.
+            (db/save-chat! @db* chat-id metrics)
+            (if (history/incremental-updates? @db*)
+              (messenger/chat-truncated messenger {:chat-id chat-id
+                                                   :content-id content-id})
+              (do
+                (messenger/chat-cleared
+                 messenger
+                 {:chat-id chat-id
+                  :messages true})
+                (send-chat-contents!
+                 new-messages
+                 {:chat-id chat-id
+                  :db* db*
+                  :messenger messenger}))))
+          {})))))
 
 (defn ^:private find-last-message-idx
   "Find the last message index matching content-id by checking both
