@@ -20,6 +20,30 @@
   "models.dev catalog URL servers fetch instead of the live one, if set."
   nil)
 
+(defn ^:private clojure-user-config-dir
+  "The Clojure CLI's user config dir, resolved the way the CLI does."
+  []
+  (or (not-empty (System/getenv "CLJ_CONFIG"))
+      (some-> (not-empty (System/getenv "XDG_CONFIG_HOME")) (fs/path "clojure") str)
+      (str (fs/path (fs/home) ".clojure"))))
+
+(defn ^:private server-env
+  "The runner's environment, isolated from the developer's own ECA config and
+  pointing servers at the test doubles."
+  []
+  (cond-> (-> (into {} (System/getenv))
+              ;; Config sources servers read at startup, before the
+              ;; initializationOptions' pureConfig applies: their ${cmd:...}
+              ;; values run (and can hang) and e.g. OTLP metrics turn on.
+              (dissoc "ECA_CONFIG")
+              (assoc "XDG_CONFIG_HOME" (str (fs/path *eca-out-dir* "config"))
+                     ;; ...but keep child `clojure` processes (e.g. the sample
+                     ;; MCP server) on the developer's Clojure config.
+                     "CLJ_CONFIG" (clojure-user-config-dir)
+                     "XDG_CACHE_HOME" (str (fs/path *eca-out-dir* "cache"))))
+    *http-proxy* (assoc "HTTP_PROXY" *http-proxy*)
+    *models-dev-url* (assoc "ECA_MODELS_DEV_URL" *models-dev-url*)))
+
 (defn start-server
   "Start the ECA server from the given BINARY.
 
@@ -27,9 +51,9 @@ If BINARY is `clojure`, invokes the server from source via the Clojure CLI.
 
 Logs output to `*eca-out-dir*/server.stderr.txt`.
 
-If `*http-proxy*` is set, passes it as the `HTTP_PROXY` environment variable.
-
-If `*models-dev-url*` is set, passes it as the `ECA_MODELS_DEV_URL` environment variable."
+Runs it isolated from the developer's ECA config (see `server-env`), passing
+`*http-proxy*` as `HTTP_PROXY` and `*models-dev-url*` as `ECA_MODELS_DEV_URL`
+when set."
   [binary]
   (let [binary-path (str (fs/absolutize (or (fs/which binary) (fs/which (str "./" binary))
                                             (throw (Exception. (str "Cannot locate eca binary: " binary))))))
@@ -40,20 +64,15 @@ If `*models-dev-url*` is set, passes it as the `ECA_MODELS_DEV_URL` environment 
 
     (println :--eca.integration.start-server/starting :cmd cmd-full :log-path log-path :http-proxy *http-proxy*)
     (p/process cmd-full
-               (cond-> {:err  log-path
-                        :extra-env {"XDG_CACHE_HOME" (str (fs/path *eca-out-dir* "cache"))}
-                        :exit-fn (fn [{:keys [cmd exit]}]
-                                   (when (not= exit 0)
-                                     (println :--eca.integration.start-server/exited :cmd cmd :exit-status exit)
-                                     (try
-                                       (println :log (slurp log-path))
-                                       (catch Exception _e))
-                                     (System/exit exit)))}
-                 *http-proxy*
-                 (assoc-in [:extra-env "HTTP_PROXY"] *http-proxy*)
-
-                 *models-dev-url*
-                 (assoc-in [:extra-env "ECA_MODELS_DEV_URL"] *models-dev-url*)))))
+               {:err  log-path
+                :env (server-env)
+                :exit-fn (fn [{:keys [cmd exit]}]
+                           (when (not= exit 0)
+                             (println :--eca.integration.start-server/exited :cmd cmd :exit-status exit)
+                             (try
+                               (println :log (slurp log-path))
+                               (catch Exception _e))
+                             (System/exit exit)))})))
 
 (defn start-process! []
   (let [server (start-server *eca-binary-path*)
