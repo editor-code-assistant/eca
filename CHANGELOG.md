@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.170.1
+
 - Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
 - Fix auto-compaction running only once per turn: long (e.g. steered) turns now compact again when the context refills, up to `autoCompactMaxPerTurn` (default 3).
 - Fix `chat/rollback` with a null `contentId` truncating history at the first message without one and reverting later file changes; invalid targets now return an error. #669
