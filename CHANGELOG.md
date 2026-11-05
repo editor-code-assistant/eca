@@ -5,6 +5,7 @@
 - Support the `ECA_MODELS_DEV_URL` env var to fetch the models.dev catalog from a mirror instead.
 - Fix `prompts.tools` overrides of `spawn_agent` and `fetch_rule` dropping their available agents and path-scoped rules lists; they're now appended after the override. #671
 - Fix Ollama models stopping after announcing a tool call in long chats: send past tool calls as `tool_calls` and merge each response into a single assistant message. #672
+- Fix `network` and `connectTimeoutSeconds` settings in `extraConfigs` files being ignored: absolute and `~` paths are now read at startup. #688
 
 ## 0.170.1
 

@@ -580,23 +580,33 @@
         (fs/file (fs/path root (str expanded)))
         (fs/file expanded)))))
 
+(defn ^:private extra-config-paths
+  "The `:extraConfigs` entries, also accepting a single path string."
+  [extra-configs]
+  (cond
+    (string? extra-configs) [extra-configs]
+    (sequential? extra-configs) extra-configs
+    :else []))
+
+(defn ^:private absolute-extra-config-path?
+  "Whether an `:extraConfigs` entry is absolute once `~` is expanded, i.e.
+   resolvable without workspace roots."
+  [path]
+  (fs/absolute? (fs/expand-home (str path))))
+
 (defn ^:private config-from-extra-configs
   "Reads and deep-merges every existing file listed in `:extraConfigs`, in
    listed order (later entries win). Missing paths are logged and skipped;
    parse errors are logged, surfaced via `*extra-config-error*` and skipped.
    Non-recursive: an `:extraConfigs` declared inside an extra file is ignored."
   [paths roots config]
-  (let [paths (cond
-                (string? paths) [paths]
-                (sequential? paths) paths
-                :else [])
-        layers (mapv (fn [path]
+  (let [layers (mapv (fn [path]
                        (let [^File config-file (resolve-extra-config-file path roots)]
                          (if (.exists config-file)
                            (some-> (safe-read-json-string (slurp config-file) (var *extra-config-error*))
                                    (parse-dynamic-string-values (fs/file (fs/parent config-file))))
                            (logger/warn logger-tag (format "extraConfigs path not found, skipping: %s" (.getPath config-file))))))
-                     paths)]
+                     (extra-config-paths paths))]
     (merge-config-layers deep-merge config layers)))
 
 (defn ^:private resolve-agent-inheritance
@@ -900,17 +910,22 @@
 
 (defn read-file-configs
   "Reads and merges config from file-based sources only (initial config,
-  env var, global file, custom file). Does not include
-  `initializationOptions` or local project config. Useful for config
-  needed before the server is fully initialized (e.g. network/TLS
-  settings)."
+  env var, global file, custom file), then the `extraConfigs` they list
+  with absolute or `~` paths. Does not include `initializationOptions`,
+  local project config or relative `extraConfigs`, which resolve against
+  workspace roots. Useful for config needed before the server is fully
+  initialized (e.g. network/TLS settings)."
   []
-  (-> {}
-      (merge-config (initial-config))
-      (merge-config (config-from-envvar))
-      (merge-config (if (some? @custom-config-file-path*)
+  (as-> {} $
+    (merge-config $ (initial-config))
+    (merge-config $ (config-from-envvar))
+    (merge-config $ (if (some? @custom-config-file-path*)
                       (config-from-custom)
-                      (config-from-global-file)))))
+                      (config-from-global-file)))
+    ;; Workspace roots are only known after `initialize`.
+    (config-from-extra-configs (filterv absolute-extra-config-path? (extra-config-paths (:extraConfigs $)))
+                               nil
+                               $)))
 
 (defn validation-error []
   (cond

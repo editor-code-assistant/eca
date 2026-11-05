@@ -116,6 +116,28 @@
       (is (= "from-rel"
              (:defaultAgent (#'config/all* {:workspace-folders [{:uri (shared/filename->uri (str dir))}]})))))))
 
+(deftest read-file-configs-extra-configs-test
+  (testing "startup config applies absolute extraConfigs, so their network settings are honored (#688)"
+    (let [dir (fs/create-temp-dir)
+          extra-file (fs/file dir "config.local.json")
+          global-file (fs/file dir "config.json")
+          warnings* (atom [])]
+      (try
+        (spit extra-file (json/generate-string {:network {:caCertFile "/path/to/ca-bundle.pem"}
+                                                :connectTimeoutSeconds 30}))
+        (spit global-file (json/generate-string {:extraConfigs [(str extra-file) "relative.json"]}))
+        (with-redefs [config/global-config-file (constantly global-file)
+                      config/config-from-envvar (constantly nil)
+                      config/custom-config-file-path* (atom nil)
+                      logger/warn (fn [& args] (swap! warnings* conj (string/join " " args)))]
+          (let [file-config (config/read-file-configs)]
+            (is (= "/path/to/ca-bundle.pem" (get-in file-config [:network :ca-cert-file])))
+            (is (= 30 (:connectTimeoutSeconds file-config)))
+            (testing "relative entries need workspace roots, unknown at startup, so they are skipped"
+              (is (not-any? #(string/includes? % "relative.json") @warnings*)))))
+        (finally
+          (fs/delete-tree dir))))))
+
 (defn ^:private plugin-config-flow
   [{:keys [global roots init env custom extras pure?]}]
   (let [dir (fs/create-temp-dir)]

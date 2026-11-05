@@ -8,6 +8,10 @@ ECA supports proxy, custom CA certificates, and mutual TLS (mTLS) for environmen
 
 All network settings apply globally to LLM API requests **and** MCP HTTP transports.
 
+!!! info "Read once at startup"
+
+    Network settings are read when ECA starts, so restart it after changing them. Besides env vars, they come from the global config (or `--config-file`), `ECA_CONFIG` and the [`extraConfigs`](./introduction.md#ways-to-configure) files these list with absolute or `~` paths, not from `initializationOptions`, project `.eca/config.json` or relative `extraConfigs` paths.
+
 ## Proxy
 
 ECA reads proxy configuration from the standard environment variables:
