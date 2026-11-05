@@ -256,14 +256,18 @@
 
   (testing "absolute hook file runs when it exists"
     (h/reset-components!)
-    (fs/with-temp-dir [dir {}]
-      (let [hook-file (str (fs/create-file (fs/file dir "hook.sh")))]
-        (h/config! {:hooks {"test" {:type "preRequest"
-                                    :actions [{:type "shell" :file hook-file}]}}})
-        (let [opts* (atom nil)]
-          (with-redefs [f.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
-            (f.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
-          (is (match? {:file hook-file} @opts*)))))))
+    ;; Not fs/with-temp-dir: with babashka.fs < 0.5.27 its forced cleanup
+    ;; throws a ClassCastException on JDK 25.
+    (let [dir (fs/create-temp-dir)]
+      (try
+        (let [hook-file (str (fs/create-file (fs/file dir "hook.sh")))]
+          (h/config! {:hooks {"test" {:type "preRequest"
+                                      :actions [{:type "shell" :file hook-file}]}}})
+          (let [opts* (atom nil)]
+            (with-redefs [f.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
+              (f.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
+            (is (match? {:file hook-file} @opts*))))
+        (finally (fs/delete-tree dir))))))
 
 ;;; New features tests
 
