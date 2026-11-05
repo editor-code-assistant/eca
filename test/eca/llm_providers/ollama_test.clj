@@ -116,16 +116,16 @@
           [{:role "user" :content "Count with me: 1"}
            {:role "assistant" :content "2"}]))))
   (testing "With tool_call history"
-  (is (match?
-       [{:role "user" :content "List the files you are allowed"}
-        {:role "assistant"
-         :content "Ok!"
-         :tool_calls [{:type "function"
-                       :function {:name "eca__list_allowed_directories"
-                                  :arguments {}}}]}
-        {:role "tool" :content "Allowed directories: /foo/bar\n"}
-        {:role "assistant" :content "I see /foo/bar"}]
-       (#'llm-providers.ollama/normalize-messages
+    (is (match?
+         [{:role "user" :content "List the files you are allowed"}
+          {:role "assistant"
+           :content "Ok!"
+           :tool_calls [{:type "function"
+                         :function {:name "eca__list_allowed_directories"
+                                    :arguments {}}}]}
+          {:role "tool" :content "Allowed directories: /foo/bar\n"}
+          {:role "assistant" :content "I see /foo/bar"}]
+         (#'llm-providers.ollama/normalize-messages
           [{:role "user" :content "List the files you are allowed"}
            {:role "assistant" :content "Ok!"}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
@@ -135,7 +135,7 @@
                                                :output {:contents [{:type :text
                                                                     :error false
                                                                     :text "Allowed directories: /foo/bar"}]}}}
-           {:role "assistant" :content "I see /foo/bar"}])))))
+           {:role "assistant" :content "I see /foo/bar"}]))))
   (testing "Reasoning, text and tool call of one response merge into one message"
     (is (match?
          [{:role "user" :content "Add a todo"}
@@ -168,7 +168,7 @@
                         {:function {:name "eca__grep"}}]}]
          (#'llm-providers.ollama/normalize-messages
           [{:role "tool_call" :content {:id "c1" :full-name "eca__read_file" :arguments {}}}
-           {:role "tool_call" :content {:id "c2" :full-name "eca__grep" :arguments {}}}]))))
+           {:role "tool_call" :content {:id "c2" :full-name "eca__grep" :arguments {}}}])))))
 
 (deftest chat-stream-cancelled-test
   (testing "watchdog aborts a hung stream when cancelled, surfacing a silent error"
