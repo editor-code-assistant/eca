@@ -191,18 +191,17 @@
                                                (filter number?)
                                                (apply min))
             full-content-lines            (string/split-lines (slurp (fs/file (fs/canonicalize path))))
-            maybe-truncated-content-lines (cond->> full-content-lines
-                                            line-offset (drop line-offset)
-                                            limit       (take limit))
+            maybe-truncated-content-lines (cond->> (drop line-offset full-content-lines)
+                                            limit (take limit))
             was-truncated?                (not= (- (count full-content-lines) line-offset)
                                                 (count maybe-truncated-content-lines))
             content                       (string/join "\n" maybe-truncated-content-lines)]
         (tools.util/single-text-content (if was-truncated?
                                           (str content "\n\n"
-                                               "[CONTENT TRUNCATED] Showing lines " (if line-offset (inc line-offset) 1)
-                                               " to " (+ (or line-offset 0) limit)
+                                               "[CONTENT TRUNCATED] Showing lines " (inc line-offset)
+                                               " to " (+ line-offset limit)
                                                " of " (count full-content-lines) " total lines. "
-                                               "Use line_offset=" (+ (or line-offset 0) limit)
+                                               "Use line_offset=" (+ line-offset limit)
                                                " parameter to read more content.")
                                           content)))))
 

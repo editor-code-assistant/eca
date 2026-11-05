@@ -1,0 +1,7 @@
+{:linters
+ {;; plumcp generates `?transport` with its `defkey` macro, which
+  ;; clj-kondo/clojure-lsp can't see through.
+  :unresolved-var {:exclude [plumcp.core.client.client-support/?transport]}
+  ;; scripts/make.clj fns are babashka task entrypoints, referenced only
+  ;; from bb.edn.
+  :clojure-lsp/unused-public-var {:exclude #{make}}}}

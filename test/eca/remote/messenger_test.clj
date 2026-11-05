@@ -178,8 +178,7 @@
 
 (deftest question-remains-remotely-answerable-without-subscribers-test
   (let [editor-result (java.util.concurrent.CompletableFuture.)
-        inner (reify messenger/IMessenger
-                (ask-question [_ _] editor-result))
+        inner (h/stub-messenger {:ask-question (constantly editor-result)})
         connections (sse/create-connections)
         m (remote.messenger/make-broadcast-messenger inner connections)
         result (messenger/ask-question m {:request-id "offline"})]
@@ -194,10 +193,10 @@
 (deftest remote-answer-during-editor-attachment-test
   (let [editor-result (java.util.concurrent.CompletableFuture.)
         m* (atom nil)
-        inner (reify messenger/IMessenger
-                (ask-question [_ _]
-                  (is (true? (remote.messenger/answer-question! @m* "early" "remote" false)))
-                  editor-result))
+        inner (h/stub-messenger
+               {:ask-question (fn [_]
+                                (is (true? (remote.messenger/answer-question! @m* "early" "remote" false)))
+                                editor-result)})
         m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
         broadcasts* (atom [])]
     (reset! m* m)
@@ -219,8 +218,7 @@
                             (if fails?
                               (throw (ex-info "editor failed" {}))
                               {:answer "editor" :cancelled false})))
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _] editor-result))
+          inner (h/stub-messenger {:ask-question (constantly editor-result)})
           m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
           watcher (java.util.concurrent.CompletableFuture.)
           broadcasts* (atom [])]
@@ -243,8 +241,7 @@
             (.cancel watcher true)))))))
 
 (deftest editor-dispatch-error-completes-question-test
-  (let [inner (reify messenger/IMessenger
-                (ask-question [_ _] (throw (ex-info "dispatch failed" {}))))
+  (let [inner (h/stub-messenger {:ask-question (fn [_] (throw (ex-info "dispatch failed" {})))})
         m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
         broadcasts* (atom [])]
     (with-redefs [sse/broadcast! (fn [& args] (swap! broadcasts* conj args))]
@@ -258,8 +255,7 @@
 
 (deftest pending-question-invokes-broadcast-test
   (let [editor-result (java.util.concurrent.CompletableFuture.)
-        inner (reify messenger/IMessenger
-                (ask-question [_ _] editor-result))
+        inner (h/stub-messenger {:ask-question (constantly editor-result)})
         connections (sse/create-connections)
         m (remote.messenger/make-broadcast-messenger inner connections)
         broadcasts* (atom [])]
@@ -290,8 +286,7 @@
                             (if (instance? Exception response)
                               (throw response)
                               response)))
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _] editor-result))
+          inner (h/stub-messenger {:ask-question (constantly editor-result)})
           m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
           result (messenger/ask-question m {:request-id "async"})
           watcher (get-in @(:pending-questions* m) ["async" :watcher])]
@@ -313,10 +308,10 @@
 
 (deftest remote-answer-survives-losing-editor-dispatch-error-test
   (let [m* (atom nil)
-        inner (reify messenger/IMessenger
-                (ask-question [_ _]
-                  (is (true? (remote.messenger/answer-question! @m* "dispatch-race" "remote" false)))
-                  (throw (ex-info "late dispatch failure" {}))))
+        inner (h/stub-messenger
+               {:ask-question (fn [_]
+                                (is (true? (remote.messenger/answer-question! @m* "dispatch-race" "remote" false)))
+                                (throw (ex-info "late dispatch failure" {})))})
         m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))]
     (reset! m* m)
     (let [result (messenger/ask-question m {:request-id "dispatch-race"})]
@@ -326,14 +321,14 @@
 (deftest question-resolution-is-first-claim-wins-test
   (doseq [[editor-first? fails?] [[true false] [false false] [false true]]]
     (let [editor-result (promise)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _]
-                    (reify clojure.lang.IDeref
-                      (deref [_]
-                        (let [response @editor-result]
-                          (if fails?
-                            (throw (ex-info "losing editor failure" {}))
-                            response))))))
+          inner (h/stub-messenger
+                 {:ask-question (fn [_]
+                                  (reify clojure.lang.IDeref
+                                    (deref [_]
+                                      (let [response @editor-result]
+                                        (if fails?
+                                          (throw (ex-info "losing editor failure" {}))
+                                          response)))))})
           m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
           result (messenger/ask-question m {:request-id "race"})
           watcher (get-in @(:pending-questions* m) ["race" :watcher])
@@ -368,8 +363,8 @@
             (when remote-result (future-cancel remote-result))))))))
 
 (deftest watcher-attachment-waits-for-winning-publication-test
-  (let [inner (reify messenger/IMessenger
-                (ask-question [_ _] (doto (promise) (deliver {:answer "editor" :cancelled false}))))
+  (let [inner (h/stub-messenger
+               {:ask-question (fn [_] (doto (promise) (deliver {:answer "editor" :cancelled false})))})
         m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
         claimed (promise)
         attaching (promise)
@@ -412,8 +407,7 @@
 (deftest cancellation-error-does-not-prevent-watcher-cleanup-test
   (let [editor-result (proxy [java.util.concurrent.CompletableFuture] []
                         (cancel [_] (throw (ex-info "cancel failed" {}))))
-        inner (reify messenger/IMessenger
-                (ask-question [_ _] editor-result))
+        inner (h/stub-messenger {:ask-question (constantly editor-result)})
         m (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
         result (messenger/ask-question m {:request-id "cancel-error"})
         watcher (get-in @(:pending-questions* m) ["cancel-error" :watcher])]
@@ -432,10 +426,10 @@
 (deftest ask-question-reaches-editor-and-sse-when-both-connected-test
   (testing "with an SSE client connected, inner (editor) still receives chat/askQuestion"
     (let [inner-params* (atom nil)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ params]
-                    (reset! inner-params* params)
-                    (promise)))
+          inner (h/stub-messenger
+                 {:ask-question (fn [params]
+                                  (reset! inner-params* params)
+                                  (promise))})
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -450,9 +444,9 @@
 
 (deftest ask-question-sse-answer-wins-test
   (testing "an SSE answer resolves the call when both transports are connected"
-    (let [inner (reify messenger/IMessenger
-                  ;; editor never answers
-                  (ask-question [_ _params] (promise)))
+    (let [inner (h/stub-messenger
+                 ;; editor never answers
+                 {:ask-question (fn [_params] (promise))})
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -474,8 +468,7 @@
     ;; A CompletableFuture models the jsonrpc PendingRequest: future-cancellable,
     ;; and cancelling it is what fires $/cancelRequest in the real ServerMessenger.
     (let [inner-result (java.util.concurrent.CompletableFuture.)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _params] inner-result))
+          inner (h/stub-messenger {:ask-question (constantly inner-result)})
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)
@@ -491,8 +484,7 @@
 (deftest ask-question-future-cancel-resolves-question-test
   (testing "future-cancel resolves the question as cancelled, cancels the editor request and follows the Future contract"
     (let [inner-result (java.util.concurrent.CompletableFuture.)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _params] inner-result))
+          inner (h/stub-messenger {:ask-question (constantly inner-result)})
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner (sse/create-connections))
           result (messenger/ask-question broadcast-messenger {:chat-id "c1" :question "Q?" :request-id "req-1"})]
       (is (not (future-done? result)))
@@ -507,8 +499,7 @@
 (deftest ask-question-editor-answer-wins-test
   (testing "an editor answer resolves the call and cleans up the SSE pending entry"
     (let [inner-promise (promise)
-          inner (reify messenger/IMessenger
-                  (ask-question [_ _params] inner-promise))
+          inner (h/stub-messenger {:ask-question (constantly inner-promise)})
           sse-connections* (sse/create-connections)
           broadcast-messenger (remote.messenger/make-broadcast-messenger inner sse-connections*)
           os (java.io.ByteArrayOutputStream.)

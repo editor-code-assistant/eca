@@ -74,6 +74,35 @@
         (= v :block) (promise)
         :else (future v)))))
 
+(defn stub-messenger
+  "An IMessenger for tests exercising only some methods: each method calls the
+   fn under its name in `overrides` (e.g. :ask-question) with the method args,
+   without `this`, and returns its result as-is. Other methods are no-ops."
+  [overrides]
+  (when-let [unknown (seq (remove (set (keys (:sigs messenger/IMessenger))) (keys overrides)))]
+    (throw (ex-info "Unknown IMessenger methods" {:methods unknown})))
+  (letfn [(call [k & args] (when-let [f (get overrides k)] (apply f args)))]
+    (reify messenger/IMessenger
+      (chat-content-received [_ data] (call :chat-content-received data))
+      (chat-cleared [_ params] (call :chat-cleared params))
+      (chat-truncated [_ params] (call :chat-truncated params))
+      (chat-status-changed [_ params] (call :chat-status-changed params))
+      (chat-deleted [_ params] (call :chat-deleted params))
+      (chat-opened [_ params] (call :chat-opened params))
+      (rewrite-content-received [_ data] (call :rewrite-content-received data))
+      (tool-server-updated [_ params] (call :tool-server-updated params))
+      (tool-server-removed [_ params] (call :tool-server-removed params))
+      (config-updated [_ params] (call :config-updated params))
+      (provider-updated [_ params] (call :provider-updated params))
+      (jobs-updated [_ params] (call :jobs-updated params))
+      (showMessage [_ msg] (call :showMessage msg))
+      (progress [_ params] (call :progress params))
+      (editor-diagnostics [_ uri] (call :editor-diagnostics uri))
+      (editor-definition [_ uri position] (call :editor-definition uri position))
+      (editor-references [_ uri position include-declaration]
+        (call :editor-references uri position include-declaration))
+      (ask-question [_ params] (call :ask-question params)))))
+
 (defn ^:private make-components []
   {:db* (atom db/initial-db)
    :messenger (->TestMessenger (atom {}) (atom []) (atom nil) (atom nil) (atom nil))

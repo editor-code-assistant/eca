@@ -619,8 +619,7 @@
           (future
             (if http-client
               (try (pp/stop! http-client) (catch Exception _))
-              ;; ?transport is macro-generated in plumcp, invisible to clj-kondo.
-              (try (pp/stop-client-transport! #_{:clj-kondo/ignore [:unresolved-var]} (pcs/?transport client) false) (catch Exception _))))))
+              (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _))))))
       (swap! db* assoc-in [:mcp-clients name :status] :stopped)
       (on-server-updated (->server name server-config :stopped @db*))
       (swap! db* update :mcp-clients dissoc name)
@@ -1042,17 +1041,16 @@
   [msg]
   (when (string? msg)
     (let [m (string/lower-case msg)]
-      (boolean
-       (or (string/includes? m "unauthorized")
-           (string/includes? m "authentication")
-           (string/includes? m "authorization")
-           (string/includes? m "invalid token")
-           (string/includes? m "invalid_token")
-           (string/includes? m "access token")
-           (string/includes? m "token expired")
-           (string/includes? m "session expired")
-           (string/includes? m "401")
-           (string/includes? m "403"))))))
+      (or (string/includes? m "unauthorized")
+          (string/includes? m "authentication")
+          (string/includes? m "authorization")
+          (string/includes? m "invalid token")
+          (string/includes? m "invalid_token")
+          (string/includes? m "access token")
+          (string/includes? m "token expired")
+          (string/includes? m "session expired")
+          (string/includes? m "401")
+          (string/includes? m "403")))))
 
 (defn ^:private request-tool-call
   "Sends a tools/call request and returns the JSON-RPC response, or

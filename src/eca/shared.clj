@@ -569,10 +569,10 @@
                    m)))
 
 (defn map->snake-cased-map
-  "Converts top-level keyword keys to snake_case strings.
- Used for hook script inputs to follow shell/bash conventions."
+  "Converts top-level keyword keys to snake_case keywords, leaving other keys
+ and nested maps as-is. Used for hook script inputs to follow shell/bash conventions."
   [m]
-  (update-keys m #(if (keyword %) (csk/->snake_case %) %)))
+  (update-keys m #(if (keyword? %) (csk/->snake_case %) %)))
 
 (defn obfuscate
   "Obfuscate all but first `preserve-num` and last `preserve-num` characters of a string.

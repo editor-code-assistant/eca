@@ -5,7 +5,7 @@
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-providers.copilot :as llm-providers.copilot]
    [eca.llm-providers.errors :as llm-providers.errors]
-   [eca.messenger :as messenger]))
+   [eca.test-helper :as h]))
 
 (def ^:private test-provider-settings
   "Provider settings using plain HTTP so requests route through the test proxy."
@@ -233,11 +233,10 @@
 (defn ^:private answering-messenger
   "Messenger stub whose ask-question records params in `asked*` and answers `answer`."
   [asked* answer]
-  (reify messenger/IMessenger
-    (chat-content-received [_ _data])
-    (ask-question [_ params]
-      (reset! asked* params)
-      (doto (promise) (deliver answer)))))
+  (h/stub-messenger
+   {:ask-question (fn [params]
+                    (reset! asked* params)
+                    (doto (promise) (deliver answer)))}))
 
 (deftest model-not-supported-error?-test
   (testing "matches 400 with model_not_supported in string body"

@@ -116,10 +116,11 @@
    (get-credential key-rc nil))
   ([key-rc netrc-file]
    (when-let [spec (parse-key-rc key-rc)]
-     (when-let [credentials (load-all-credentials netrc-file)]
-       (when-let [matched (first (filter #(match-credential % spec) credentials))]
-         (logger/debug logger-tag "Found credential for" key-rc)
-         (:password matched))))))
+     (when-let [matched (->> (load-all-credentials netrc-file)
+                             (filter #(match-credential % spec))
+                             first)]
+       (logger/debug logger-tag "Found credential for" key-rc)
+       (:password matched)))))
 
 (defn check-credential-files
   "Performs diagnostic checks on credential files for /doctor command.

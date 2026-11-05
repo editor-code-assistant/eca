@@ -3,7 +3,7 @@
 /.lein-failures
 .nrepl-port
 **/.lsp/.cache
-.clj-kondo
+**/.clj-kondo/*
 !/.clj-kondo/config.edn
 /out
 target/

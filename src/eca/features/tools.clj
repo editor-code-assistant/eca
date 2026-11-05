@@ -328,11 +328,6 @@
                 tool))
             tools))))
 
-(defn deferrable-tools
-  "Tools kept out of the LLM context until loaded with `eca__search_tools`."
-  [all-tools]
-  (filterv :deferrable all-tools))
-
 (defn tools-for-llm
   "Tools whose schemas should be sent to the LLM on this turn."
   [all-tools]

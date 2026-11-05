@@ -10,7 +10,7 @@
    [eca.features.login :as login]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.copilot :as llm-providers.copilot]
-   [eca.messenger :as messenger]
+   [eca.test-helper :as h]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -160,14 +160,13 @@
   "Messenger stub recording chat contents in `contents*` and answering
    ask-question requests from the `answers*` queue, recording them in `asked*`."
   [contents* asked* answers*]
-  (reify messenger/IMessenger
-    (chat-content-received [_ data] (swap! contents* conj data))
-    (chat-status-changed [_ _params])
-    (ask-question [_ params]
-      (swap! asked* conj params)
-      (let [answer (first @answers*)]
-        (swap! answers* rest)
-        (doto (promise) (deliver answer))))))
+  (h/stub-messenger
+   {:chat-content-received #(swap! contents* conj %)
+    :ask-question (fn [params]
+                    (swap! asked* conj params)
+                    (let [answer (first @answers*)]
+                      (swap! answers* rest)
+                      (doto (promise) (deliver answer))))}))
 
 (deftest handle-step-asks-question-when-supported-test
   (testing "provider and login method are asked via chat/askQuestion instead of text menus"

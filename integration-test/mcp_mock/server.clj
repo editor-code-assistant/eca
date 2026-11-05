@@ -3,8 +3,8 @@
 
   Implements the MCP streamable-http transport protocol over HTTP,
   handling JSON-RPC requests for initialize, tools/list, tools/call,
-  and prompts/list. Supports configurable tools, instructions, and
-  request tracking for test assertions."
+  and prompts/list. Supports dynamic tool registration (the add-tool
+  tool) and request tracking for test assertions."
   (:require
    [cheshire.core :as json]
    [org.httpkit.server :as hk])
@@ -56,11 +56,6 @@
   (atom {:tools default-tools
          :instructions default-instructions}))
 
-(defn get-requests
-  "Returns all JSON-RPC requests received by the mock server."
-  []
-  @requests*)
-
 (defn get-requests-by-method
   "Returns all requests matching the given JSON-RPC method."
   [method]
@@ -70,11 +65,6 @@
   "Clears all recorded requests."
   []
   (reset! requests* []))
-
-(defn set-config!
-  "Override the mock server configuration. Keys: :tools, :instructions."
-  [config]
-  (swap! config* merge config))
 
 (defn reset-config! []
   (reset! config* {:tools default-tools
@@ -88,7 +78,7 @@
 
 (defn notify-tools-changed!
   "Push a notifications/tools/list_changed event to all connected SSE clients.
-   Call set-config! first to update the tool list before triggering this."
+   Update the tool list in `config*` first, as `call-add-tool` does."
   []
   (let [msg {:jsonrpc "2.0" :method "notifications/tools/list_changed"}]
     (doseq [ch @sse-channels*]
