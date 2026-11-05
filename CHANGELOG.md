@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621
+- Fix auto-compaction running only once per turn: long (e.g. steered) turns now compact again when the context refills, up to `autoCompactMaxPerTurn` (default 3).
 
 ## 0.170.0
 
