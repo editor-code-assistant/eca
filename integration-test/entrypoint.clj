@@ -135,9 +135,12 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
     (llm-mock.server/start!)
     (mcp-mock.server/start!)
 
+    ;; Safety net against hung tests, not a perf budget: keep ~2x headroom over
+    ;; the slowest CI runners (JVM suite takes ~4m45s on slow Linux runners and
+    ;; up to ~7m on Windows), otherwise healthy runs fail with a timeout.
     (let [timeout-minutes (if (re-find #"(?i)win|mac" (System/getProperty "os.name"))
-                            10 ;; win and mac ci runs take longer
-                            5)
+                            15 ;; win and mac ci runs take longer
+                            10)
           test-results (timeout (* timeout-minutes 60 1000)
                                 #(with-log-tail-report
                                    (apply t/run-tests nses)))]
