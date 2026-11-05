@@ -350,6 +350,18 @@
                         :resolved-name (:full-name resolved-tool)})
           resolved-tool))))
 
+(defn ^:private override-description
+  "Replaces the tool description with its `prompts.tools` override, the agent one
+   taking precedence over the global one. The tool `:description-suffix`, a part
+   built at runtime like the spawn_agent agents catalog, is kept after it."
+  [tool config agent-name]
+  (if-let [override (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
+                        (get-in config [:prompts :tools (:full-name tool)]))]
+    (assoc tool :description (if-let [suffix (:description-suffix tool)]
+                               (str (string/trimr override) suffix)
+                               override))
+    tool))
+
 (defn all-tools
   "Returns all available tools, including both native ECA tools
    (like filesystem and shell tools) and tools provided by MCP servers.
@@ -369,12 +381,7 @@
                          (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
-                        (mapv (fn [tool]
-                                (update tool :description
-                                        (fn [desc]
-                                          (or (get-in config [:agent agent-name :prompts :tools (:full-name tool)])
-                                              (get-in config [:prompts :tools (:full-name tool)])
-                                              desc)))))
+                        (mapv #(override-description % config agent-name))
                         (filterv (fn [tool]
                                    (and (not (tool-disabled? tool disabled-tools))
                                         ;; check for enabled-fn if present

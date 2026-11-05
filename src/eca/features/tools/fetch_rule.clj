@@ -99,39 +99,40 @@
        "  paths: " (string/join ", " paths) "\n"
        "  enforce: " (string/join ", " (or enforce ["modify"]))))
 
-(defn ^:private build-description
+(defn ^:private rules-catalog
+  "The tool description part listing the path-scoped rules available to the
+   chat, or nil when there are none."
   [config db chat-id agent-name]
-  (let [base-description (tools.util/read-tool-description "fetch_rule")
-        roots (:workspace-folders db)
-        full-model (get-in db [:chats chat-id :model])
-        rules (f.rules/path-scoped-rules config roots agent-name full-model)]
-    (if (seq rules)
-      (str base-description
-           "\n\nAvailable path-scoped rules"
+  (let [roots (:workspace-folders db)
+        full-model (get-in db [:chats chat-id :model])]
+    (when-let [rules (seq (f.rules/path-scoped-rules config roots agent-name full-model))]
+      (str "\n\nAvailable path-scoped rules"
            (when chat-id
              " for the current chat")
            ":\n"
            (->> rules
                 (map describe-rule)
-                (string/join "\n")))
-      base-description)))
+                (string/join "\n"))))))
 
 (defn definitions
   [config db chat-id agent-name]
-  {"fetch_rule"
-   {:description (build-description config db chat-id agent-name)
-    :parameters {:type "object"
-                 :properties {"id" {:type "string"
-                                    :description "The exact rule id from the path-scoped rules catalog"}
-                              "path" {:type "string"
-                                      :description "The exact absolute file or directory path you plan to work with"}}
-                 :required ["id" "path"]}
-    :handler #'fetch-rule
-    :enabled-fn (fn [{:keys [db config agent chat-id]}]
-                  (let [roots (:workspace-folders db)
-                        full-model (get-in db [:chats chat-id :model])]
-                    (seq (f.rules/path-scoped-rules config roots agent full-model))))
-    :summary-fn (fn [{:keys [args]}]
-                  (if-let [rule-id (get args "id")]
-                    (format "Fetching rule '%s'" rule-id)
-                    "Fetching rule"))}})
+  (let [catalog (rules-catalog config db chat-id agent-name)]
+    {"fetch_rule"
+     {:description (str (tools.util/read-tool-description "fetch_rule") catalog)
+      ;; Kept after a `prompts.tools` override of the description.
+      :description-suffix catalog
+      :parameters {:type "object"
+                   :properties {"id" {:type "string"
+                                      :description "The exact rule id from the path-scoped rules catalog"}
+                                "path" {:type "string"
+                                        :description "The exact absolute file or directory path you plan to work with"}}
+                   :required ["id" "path"]}
+      :handler #'fetch-rule
+      :enabled-fn (fn [{:keys [db config agent chat-id]}]
+                    (let [roots (:workspace-folders db)
+                          full-model (get-in db [:chats chat-id :model])]
+                      (seq (f.rules/path-scoped-rules config roots agent full-model))))
+      :summary-fn (fn [{:keys [args]}]
+                    (if-let [rule-id (get args "id")]
+                      (format "Fetching rule '%s'" rule-id)
+                      "Fetching rule"))}}))

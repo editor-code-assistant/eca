@@ -95,6 +95,8 @@ You can create an agent and define its prompt, tool call approval and default mo
     }
     ```
 
+    The override replaces the whole description, except for the lists ECA builds at runtime: the available agents of `eca__spawn_agent` and the path-scoped rules of `eca__fetch_rule` are still appended after it.
+
 ## Subagents
 
 ECA can spawn foreground subagents in a chat, they are agents which `mode` is `subagent`.

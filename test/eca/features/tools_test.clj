@@ -137,7 +137,43 @@
           dir-tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)
           read-tool (some #(when (= "eca__read_file" (:full-name %)) %) tools)]
       (is (= "Global description" (:description dir-tool)))
-      (is (= "Code read_file description" (:description read-tool))))))
+      (is (= "Code read_file description" (:description read-tool)))))
+  (testing "Override without dynamic description part is used verbatim"
+    (let [config {:prompts {:tools {"eca__directory_tree" "Custom description\n"}}}
+          tools (f.tools/all-tools "123" "code" {} config)
+          tool (some #(when (= "eca__directory_tree" (:full-name %)) %) tools)]
+      (is (= "Custom description\n" (:description tool)))))
+  (testing "Override keeps the spawn_agent agents catalog after the custom description"
+    (let [agents {"explorer" {:mode "subagent" :description "Explores codebases"}}
+          spawn-description (fn [config]
+                              (->> (f.tools/all-tools "123" "code" {} config)
+                                   (some #(when (= "eca__spawn_agent" (:full-name %)) %))
+                                   :description))]
+      (is (= "Custom spawn description\n\nAvailable agents:\n- explorer: Explores codebases"
+             (spawn-description {:agent agents
+                                 :prompts {:tools {"eca__spawn_agent" "Custom spawn description\n"}}})))
+      (is (= "Code spawn description\n\nAvailable agents:\n- explorer: Explores codebases"
+             (spawn-description {:agent (assoc agents "code" {:prompts {:tools {"eca__spawn_agent" "Code spawn description"}}})
+                                 :prompts {:tools {"eca__spawn_agent" "Global spawn description"}}})))))
+  (testing "Override keeps the fetch_rule path-scoped rules catalog after the custom description"
+    (with-redefs [f.rules/path-scoped-rules (constantly [{:id "rule-1"
+                                                          :name "format.md"
+                                                          :scope :global
+                                                          :paths ["**/*.clj"]}])]
+      (let [db {:workspace-folders []
+                :chats {"chat-1" {:agent "code"
+                                  :model "anthropic/claude-sonnet-4-20250514"}}}
+            config {:prompts {:tools {"eca__fetch_rule" "Custom fetch description"}}}
+            tool (some #(when (= "eca__fetch_rule" (:full-name %)) %)
+                       (f.tools/all-tools "chat-1" "code" db config))]
+        (is (= (str "Custom fetch description\n\n"
+                    "Available path-scoped rules for the current chat:\n"
+                    "- format.md\n"
+                    "  id: rule-1\n"
+                    "  scope: global\n"
+                    "  paths: **/*.clj\n"
+                    "  enforce: modify")
+               (:description tool)))))))
 
 (deftest get-disabled-tools-test
   (testing "merges global and agent-specific disabled tools"
