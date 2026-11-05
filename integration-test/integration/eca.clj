@@ -16,6 +16,9 @@
 (def ^:dynamic *http-proxy*
   "Current HTTP proxy URL for routing requests, if set."
   nil)
+(def ^:dynamic *models-dev-url*
+  "models.dev catalog URL servers fetch instead of the live one, if set."
+  nil)
 
 (defn start-server
   "Start the ECA server from the given BINARY.
@@ -24,7 +27,9 @@ If BINARY is `clojure`, invokes the server from source via the Clojure CLI.
 
 Logs output to `*eca-out-dir*/server.stderr.txt`.
 
-If `*http-proxy*` is set, passes it as the `HTTP_PROXY` environment variable."
+If `*http-proxy*` is set, passes it as the `HTTP_PROXY` environment variable.
+
+If `*models-dev-url*` is set, passes it as the `ECA_MODELS_DEV_URL` environment variable."
   [binary]
   (let [binary-path (str (fs/absolutize (or (fs/which binary) (fs/which (str "./" binary))
                                             (throw (Exception. (str "Cannot locate eca binary: " binary))))))
@@ -45,7 +50,10 @@ If `*http-proxy*` is set, passes it as the `HTTP_PROXY` environment variable."
                                        (catch Exception _e))
                                      (System/exit exit)))}
                  *http-proxy*
-                 (assoc-in [:extra-env "HTTP_PROXY"] *http-proxy*)))))
+                 (assoc-in [:extra-env "HTTP_PROXY"] *http-proxy*)
+
+                 *models-dev-url*
+                 (assoc-in [:extra-env "ECA_MODELS_DEV_URL"] *models-dev-url*)))))
 
 (defn start-process! []
   (let [server (start-server *eca-binary-path*)

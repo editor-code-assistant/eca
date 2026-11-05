@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Support the `ECA_MODELS_DEV_URL` env var to fetch the models.dev catalog from a mirror instead.
+
 ## 0.170.1
 
 - Serialize concurrent edits to the same file and preserve the latest pre-edit content for rollback. #621

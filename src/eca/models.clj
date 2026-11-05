@@ -19,7 +19,7 @@
 
 (def ^:private logger-tag "[MODELS]")
 
-(def ^:private models-dev-api-url "https://models.dev/api.json")
+(def ^:private default-models-dev-api-url "https://models.dev/api.json")
 (def ^:private models-dev-timeout-ms 5000)
 (def ^:private provider-models-timeout-ms 10000)
 
@@ -65,8 +65,15 @@
        "anthropic-beta" (when (and anthropic? oauth?) "oauth-2025-04-20"))
       extra-headers))))
 
+(defn ^:private models-dev-api-url
+  "The models.dev catalog URL, overridable with the `ECA_MODELS_DEV_URL` env var
+   (e.g. a mirror, or the integration tests' local fixture)."
+  []
+  (or (not-empty (config/get-env "ECA_MODELS_DEV_URL"))
+      default-models-dev-api-url))
+
 (defn ^:private fetch-models-dev-data []
-  (let [{:keys [status body]} (http/get models-dev-api-url
+  (let [{:keys [status body]} (http/get (models-dev-api-url)
                                         {:throw-exceptions? false
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout models-dev-timeout-ms

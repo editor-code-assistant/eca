@@ -427,6 +427,7 @@ ECA support lots of providers via its supported APIs (openai-chat, openai-respon
     ```
     
 Models capabilities and configurations are retrieved from [models.dev](https://models.dev) API.
+To use a mirror instead (e.g. in air-gapped environments), set the `ECA_MODELS_DEV_URL` env var to a URL serving the same JSON as `https://models.dev/api.json`.
 
 ## Config
 

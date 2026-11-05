@@ -107,8 +107,9 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
   "Run all tests in given namespaces NSES or all `namespaces` if not provided,
   using the specified BINARY eca server.
 
-  Sets `eca/*eca-binary-path*` to BINARY and `eca/*eca-out-dir*` to
-  `./integration-test/out`
+  Sets `eca/*eca-binary-path*` to BINARY, `eca/*eca-out-dir*` to
+  `./integration-test/out` and `eca/*models-dev-url*` to the LLM mock's
+  models.dev fixture, keeping servers off the network.
 
   If PROXY is provided, sets `eca/*http-proxy*` to it and starts a
   transient Tinyproxy server.
@@ -126,6 +127,7 @@ LogLevel Info" (:host proxy-conf) (:port proxy-conf) (:user proxy-conf) (:pass p
     (let [out-dir (str (fs/absolutize (fs/path "integration-test" "out")))]
       (fs/create-dirs out-dir)
       (alter-var-root #'eca/*eca-out-dir* (constantly out-dir)))
+    (alter-var-root #'eca/*models-dev-url* (constantly llm-mock.server/models-dev-url))
     (when proxy
       (alter-var-root #'eca/*http-proxy* (constantly proxy-http))
       (println "Routing requests through proxy:" eca/*http-proxy*)

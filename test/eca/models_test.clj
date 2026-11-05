@@ -7,6 +7,7 @@
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]
    [eca.cache :as cache]
+   [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.models :as models]))
@@ -43,7 +44,8 @@
 (deftest fetch-models-dev-data-test
   (testing "Uses hato with json-string-keys and global client options"
     (let [request* (atom nil)]
-      (with-redefs [http/get (fn [url opts]
+      (with-redefs [config/get-env (constantly nil)
+                    http/get (fn [url opts]
                                (reset! request* [url opts])
                                {:status 200
                                 :body {"openai" {"api" "https://api.openai.com"}}})]
@@ -54,6 +56,20 @@
         (is (= 5000 (get-in @request* [1 :timeout])))
         (is (= :json-string-keys (get-in @request* [1 :as])))
         (is (false? (get-in @request* [1 :throw-exceptions?]))))))
+
+  (testing "ECA_MODELS_DEV_URL overrides the URL, a blank value keeps the default"
+    (let [url* (atom nil)
+          env* (atom nil)]
+      (with-redefs [config/get-env (fn [k] (when (= "ECA_MODELS_DEV_URL" k) @env*))
+                    http/get (fn [url _opts]
+                               (reset! url* url)
+                               {:status 200 :body {}})]
+        (reset! env* "http://localhost:5550/models-dev/api.json")
+        (#'models/fetch-models-dev-data)
+        (is (= "http://localhost:5550/models-dev/api.json" @url*))
+        (reset! env* "")
+        (#'models/fetch-models-dev-data)
+        (is (= "https://models.dev/api.json" @url*)))))
 
   (testing "Throws on non-200 status"
     (with-redefs [http/get (fn [_url _opts]
