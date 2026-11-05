@@ -1572,8 +1572,8 @@
         },
         "tools": {
           "type": "object",
-          "description": "Custom descriptions for specific tools. Key is the tool name.",
-          "markdownDescription": "Custom descriptions for specific tools. Key is the tool name.",
+          "description": "Custom descriptions for specific tools. Key is the tool name. Runtime lists, like the available agents of eca__spawn_agent and the path-scoped rules of eca__fetch_rule, are still appended.",
+          "markdownDescription": "Custom descriptions for specific tools. Key is the tool name. Runtime lists, like the available agents of `eca__spawn_agent` and the path-scoped rules of `eca__fetch_rule`, are still appended.",
           "additionalProperties": {
             "type": "string"
           }
