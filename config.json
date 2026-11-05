@@ -548,8 +548,8 @@
     },
     "network": {
       "type": "object",
-      "description": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",
-      "markdownDescription": "Network configuration for custom CA certificates and mTLS client certificates. Values support dynamic string interpolation (e.g. `${env:SSL_CERT_FILE}`).",
+      "description": "Network configuration for custom CA certificates and mTLS client certificates, read once at startup from the global config or ECA_CONFIG, plus the extraConfigs they list with absolute or ~ paths (not initializationOptions or project config). Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",
+      "markdownDescription": "Network configuration for custom CA certificates and mTLS client certificates, read once at startup from the global config or `ECA_CONFIG`, plus the `extraConfigs` they list with absolute or `~` paths (not `initializationOptions` or project config). Values support dynamic string interpolation (e.g. `${env:SSL_CERT_FILE}`).",
       "additionalProperties": false,
       "properties": {
         "caCertFile": {
