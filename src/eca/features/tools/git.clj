@@ -48,7 +48,7 @@
                             (or (string/starts-with? cmd "git ")
                                 (string/starts-with? cmd "git;")
                                 (string/starts-with? cmd "gh "))))
-           "command must start with 'git' or 'gh' (optionally preceded by 'cd <path> &&')"]])
+           "command must start with 'git' or 'gh' (optionally preceded by 'cd <path> &&'): pass the full command line, e.g. 'git status' rather than 'status'"]])
         (let [work-dir (or (some-> (:workspace-folders db)
                                    first
                                    :uri
@@ -118,7 +118,7 @@
    {:description (tools.util/read-tool-description "git")
     :parameters {:type "object"
                  :properties {"command" {:type "string"
-                                         :description "The git or gh command to execute."}
+                                         :description "The full command line to execute, starting with `git` or `gh` (e.g. `git status`, `gh pr view 123`)."}
                               "operation" {:type "string"
                                            :description "The git operation being performed."
                                            :enum ["status" "diff" "log" "add" "commit" "push"

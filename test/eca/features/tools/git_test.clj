@@ -23,7 +23,16 @@
          {:error true
           :contents [{:type :text
                       :text #"command must start with 'git' or 'gh'"}]}
-         (run-git! {"command" "ls -lh"} {})))))
+         (run-git! {"command" "ls -lh"} {}))))
+  (testing "a bare subcommand gets a hint to pass the full command line"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text #"pass the full command line, e.g. 'git status' rather than 'status'"}]}
+         (run-git! {"command" "status" "operation" "status"} {}))))
+  (testing "the command parameter asks for the full command line"
+    (is (re-find #"starting with `git` or `gh`"
+                 (get-in f.tools.git/definitions ["git" :parameters :properties "command" :description])))))
 
 (deftest git-command-shell-config-test
   (testing "no custom shell by default"

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix models calling the `git` tool with a bare subcommand like `status`: its `command` parameter now asks for the full `git`/`gh` command line, and the error says so.
+
 ## 0.170.2
 
 - Support the `ECA_MODELS_DEV_URL` env var to fetch the models.dev catalog from a mirror instead.
