@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.170.4
+
 - Make the `code` agent implement stated behavior literally and check each requirement, including failure paths, before finishing, instead of stopping once existing tests pass.
 - Remind the model to check the request requirement by requirement when it completes the last task of the `task` tool.
 - Tell models that `shell_command` background jobs stop when ECA exits, so a service meant to keep running is started detached instead.
