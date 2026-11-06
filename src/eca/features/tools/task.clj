@@ -419,6 +419,10 @@
     (assoc state :active-summary nil)
     state))
 
+(def ^:private all-done-reminder
+  (str "All tasks are done. Before your final answer, go back through the user's request requirement by requirement: "
+       "check that each one is implemented and verified, including edge cases and failure paths, and handle anything still missing."))
+
 (defn ^:private op-complete [{:strs [ids]} {:keys [db* chat-id]}]
   (let [result (mutate-task! db* chat-id
                              (fn [state]
@@ -452,7 +456,9 @@
         (success state
                  (str (format "Completed task(s): %s" (str/join ", " (sort ids)))
                       (when (seq unblocked)
-                        (format "\nUnblocked: %s" (str/join ", " unblocked)))))))))
+                        (format "\nUnblocked: %s" (str/join ", " unblocked)))
+                      (when (all-tasks-done? state)
+                        (str "\n" all-done-reminder))))))))
 
 (defn ^:private op-delete [{:strs [ids]} {:keys [db* chat-id]}]
   (let [result (mutate-task! db* chat-id

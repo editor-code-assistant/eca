@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Make the `code` agent implement stated behavior literally and check each requirement, including failure paths, before finishing, instead of stopping once existing tests pass.
+- Remind the model to check the request requirement by requirement when it completes the last task of the `task` tool.
+
 ## 0.170.3
 
 - Fix models calling the `git` tool with a bare subcommand like `status`: its `command` parameter now asks for the full `git`/`gh` command line, and the error says so.
