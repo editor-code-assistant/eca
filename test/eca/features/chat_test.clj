@@ -246,7 +246,7 @@
       (swap! (h/db*) assoc :models priced-models)
       (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/token :api-key "sk-key"})
       (prompt! {:message "Hey!"} {:all-tools-mock (constantly []) :api-mock api-mock})
-      (is (match? [{:session-tokens 15 :session-cost "0.00" :quota m/absent}]
+      (is (match? [{:session-tokens 15 :session-cost "0.00002" :quota m/absent}]
                   (usage-contents)))
       (is (empty? (:provider-updated (h/messages))))
       (is (nil? (get-in (h/db) [:provider-quotas "openai"]))))))

@@ -12,6 +12,7 @@
    [selmer.parser :as selmer])
   (:import
    [java.lang ProcessHandle]
+   [java.math MathContext]
    [java.net URI]
    [java.nio.charset StandardCharsets]
    [java.nio.file Paths]
@@ -316,6 +317,15 @@
 
 (defn multi-str [& strings] (string/join "\n" (remove nil? (flatten strings))))
 
+(defn ^:private format-cost
+  "USD cost with 2 decimals, or with 2 significant digits below one cent
+   (e.g. 0.0012) so cheap models don't show 0.00."
+  [cost]
+  (let [rounded (.round (bigdec cost) (MathContext. 2))]
+    (if (< 0 rounded 0.01M)
+      (.toPlainString (.stripTrailingZeros rounded))
+      (format "%.2f" (double cost)))))
+
 (defn tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities]
   (when-let [{:keys [input-token-cost output-token-cost
                      input-cache-creation-token-cost input-cache-read-token-cost]} model-capabilities]
@@ -327,8 +337,8 @@
             input-cost (if (and input-cache-read-tokens input-cache-read-token-cost)
                          (+ input-cost (* input-cache-read-tokens input-cache-read-token-cost))
                          input-cost)]
-        (format "%.2f" (+ input-cost
-                          (* output-tokens output-token-cost)))))))
+        (format-cost (+ input-cost
+                        (* output-tokens output-token-cost)))))))
 
 (defn tokens-per-second
   "Output tokens per second as an integer. Returns nil when the token count or

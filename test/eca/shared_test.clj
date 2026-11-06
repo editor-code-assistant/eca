@@ -174,6 +174,17 @@
       (is (= "0.73" (shared/tokens->cost 30 nil 30 20 model-capabilities))))
     (testing "with both cache creation and read tokens"
       (is (= "0.78" (shared/tokens->cost 30 10 30 20 model-capabilities))))
+    (testing "costs below one cent keep 2 significant digits instead of showing 0.00"
+      (let [cheap {:input-token-cost 0.000001 :output-token-cost 0.000002}]
+        (are [expected input-tokens output-tokens]
+             (= expected (shared/tokens->cost input-tokens nil nil output-tokens cheap))
+          "0.0012" 1000 100
+          "0.00002" 10 5
+          "0.005" 5000 0
+          "0.01" 9990 0
+          "0.02" 20000 0
+          "1.23" 1234567 0
+          "0.00" 0 0)))
     (testing "returns nil when model is missing from db"
       (is (nil? (shared/tokens->cost 30 nil nil 20 {}))))
     (testing "returns nil when mandatory costs are missing"

@@ -4,6 +4,7 @@
 
 - Fix models calling the `git` tool with a bare subcommand like `status`: its `command` parameter now asks for the full `git`/`gh` command line, and the error says so.
 - Fix provider errors like 504 or OpenRouter's 520 ending the turn instead of being retried: any 5xx is now retried, as the OpenAI and Anthropic SDKs do.
+- Fix costs below one cent showing as `0.00` in usage and `/costs`: they now keep 2 significant digits (e.g. `0.0012`), larger costs still show cents.
 
 ## 0.170.2
 

@@ -1016,14 +1016,17 @@ interface ChatUsageContent {
     messageOutputTps?: number;
     
     /**
-     * The cost of the last sent message summing input + output tokens.
+     * The cost of the last sent message summing input + output tokens, in
+     * USD with 2 decimals, or 2 significant digits below one cent (e.g.
+     * `0.0012`).
      * Absent when the model has no pricing or the chat uses a subscription
      * login (see `quota`).
      */
     lastMessageCost?: string; 
     
     /**
-     * The cost of the whole chat session so far.
+     * The cost of the whole chat session so far, formatted like
+     * `lastMessageCost`.
      * Absent when the model has no pricing or the chat uses a subscription
      * login (see `quota`).
      */
