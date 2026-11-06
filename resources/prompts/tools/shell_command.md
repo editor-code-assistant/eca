@@ -21,6 +21,7 @@ Background execution:
     (e.g., `"dev-server"`, `"file-watcher"`, `"docker-compose"`).
   - Background commands return immediately with a job ID.
   - Use `eca__bg_job` with action `read_output` to check output, or `kill` to stop the process.
+  - Background jobs are stopped when ECA exits. For a process that must keep running after you finish (e.g. a service the user asked you to set up), start it detached instead: `nohup <command> > <log file> 2>&1 &`.
 
 Usage notes:
   - The `command` argument is required.
