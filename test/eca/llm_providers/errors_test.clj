@@ -162,6 +162,13 @@
              :body "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
              :message "Anthropic response status: 503 body: ..."}))))
 
+  (testing "rate limit pattern in any 5xx body"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 520
+             :body "{\"error\":{\"message\":\"Upstream rate limit exceeded\"}}"
+             :message "LLM response status: 520 body: ..."}))))
+
   (testing "message-only fallback for rate limit"
     (is (= {:error/type :rate-limited}
            (llm-providers.errors/classify-error
@@ -234,7 +241,16 @@
            (llm-providers.errors/classify-error
             {:status 502
              :body "Bad Gateway"
-             :message "LLM response status: 502 body: Bad Gateway"})))))
+             :message "LLM response status: 502 body: Bad Gateway"}))))
+
+  (testing "any other 5xx, like gateway timeouts and Cloudflare's 520-524"
+    (doseq [status [501 504 520 521 522 523 524 599]]
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              {:status status
+               :body ""
+               :message (str "LLM response status: " status " body: ")}))
+          (str status)))))
 
 (deftest classify-error-network-test
   (testing "DNS resolution failure is network"
@@ -569,6 +585,19 @@
                 {:status 502
                  :body "Bad Gateway"
                  :message "LLM response status: 502 body: Bad Gateway"}))))
+
+  (testing "OpenRouter relaying an upstream provider's 520 is retryable"
+    (let [body "{\"error\":{\"message\":\"Provider returned error\",\"code\":520,\"metadata\":{\"raw\":\"error code: 520\\n\",\"provider_name\":\"Z.AI\",\"is_byok\":false}}}"]
+      (is (true? (llm-providers.errors/retryable?
+                  {:status 520
+                   :body body
+                   :message (str "LLM response status: 520 body: " body)})))))
+
+  (testing "other 4xx are not retryable"
+    (is (false? (llm-providers.errors/retryable?
+                 {:status 404
+                  :body "Not Found"
+                  :message "LLM response status: 404 body: Not Found"}))))
 
   (testing "503 with overloaded_error pattern (rate-limited) is retryable"
     (is (true? (llm-providers.errors/retryable?

@@ -724,7 +724,7 @@ Notes:
 
 ### Retry Policy and Rules
 
-ECA automatically retries requests on common transient errors (429, 500, 502, 503, 529), provider overload errors, and premature stream termination. The provider-level `retry` object controls the retry budget and exponential backoff for both normal chats and sub-agents:
+ECA automatically retries requests on common transient errors (429 and any 5xx server error, like 500, 503, 504, 520 or 529, as the OpenAI and Anthropic SDKs do), provider overload errors, and premature stream termination. The provider-level `retry` object controls the retry budget and exponential backoff for both normal chats and sub-agents:
 
 | Option | Default | Description |
 |--------|---------|-------------|

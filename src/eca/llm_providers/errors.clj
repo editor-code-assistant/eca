@@ -73,6 +73,13 @@
                     :else nil)]
     (some #(re-find % text) patterns)))
 
+(defn ^:private server-error-status?
+  "Any 5xx, as the OpenAI and Anthropic SDKs retry, including non-standard
+   ones like Anthropic's 529 or Cloudflare's 520-524 (e.g. OpenRouter relaying
+   an upstream provider failure)."
+  [status]
+  (and (int? status) (<= 500 status 599)))
+
 (defn ^:private classify-by-status-and-body
   [{:keys [status body]}]
   (cond
@@ -94,14 +101,14 @@
     (= 429 status)
     {:error/type :rate-limited}
 
-    (and (#{500 502 503 529} status)
+    (and (server-error-status? status)
          (matches-any-pattern? body rate-limited-patterns))
     {:error/type :rate-limited}
 
     (#{401 403} status)
     {:error/type :auth}
 
-    (#{500 502 503 529} status)
+    (server-error-status? status)
     {:error/type :overloaded}
 
     :else nil))
@@ -210,7 +217,7 @@
      :invalid-image     — provider rejected an image in the request (e.g. too small)
      :quota-exhausted   — exhausted usage or billing quota reported by a provider
      :rate-limited      — transient 429 or rate limit pattern in body/message
-     :overloaded        — provider overloaded (503, 529, etc.)
+     :overloaded        — provider-side failure (any 5xx: 500, 503, 520, 529, etc.)
      :network           — connection-level failure (DNS, connect refused/timeout, dropped)
      :auth              — authentication/authorization failure (401, 403)
      :unknown           — unclassified error"
