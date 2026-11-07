@@ -279,6 +279,20 @@
               {:type :text :text "Second line"}]
              (:content (nth msgs 2)))))))
 
+(deftest chat-messages-keeps-memory-block-without-state-test
+  (testing "a memory block is emitted as stored, like other text ECA adds; only the internal state is left out"
+    (let [content [{:type :text :text "hello"}
+                   {:type :text :text "Current date: 2026-11-13"}
+                   {:type :memory-context :text "<memory-index>- Shown note</memory-index>"}
+                   {:type :image :base64 "iVBOR..." :media-type "image/png"}]
+          db {:chats {"chat-m" {:messages [{:role "user"
+                                            :content content
+                                            :memory {"/mem/hidden.md" {:hash "h" :name "Hidden note" :label "global"}}
+                                            :content-id "u1"}]}}}
+          {:keys [messages]} (read-chat/chat-messages db "chat-m" {})]
+      (is (= [{:role "user" :content content :content-id "u1"}]
+             (vec messages))))))
+
 (deftest chat-messages-preserves-tool-map-content-test
   (testing "structured tool content maps are preserved as stored"
     (let [{:keys [messages]} (read-chat/chat-messages sample-db "chat-3" {})

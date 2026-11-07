@@ -6,6 +6,8 @@
    [clojure.string :as string]
    [eca.diff :as diff]
    [eca.features.index :as f.index]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.usage :as f.memory.usage]
    [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.smart-edit :as smart-edit]
    [eca.features.tools.text-match :as text-match]
@@ -196,6 +198,8 @@
             was-truncated?                (not= (- (count full-content-lines) line-offset)
                                                 (count maybe-truncated-content-lines))
             content                       (string/join "\n" maybe-truncated-content-lines)]
+        ;; Only memory files are tracked, and record-read! re-checks the flags.
+        (f.memory.usage/record-read! ctx path)
         (tools.util/single-text-content (if was-truncated?
                                           (str content "\n\n"
                                                "[CONTENT TRUNCATED] Showing lines " (inc line-offset)
@@ -218,6 +222,32 @@
                          line-offset
                          (+ line-offset limit))))))
     "Reading file"))
+
+(defn ^:private require-valid-memory-content
+  "Error result when `path` is inside one of the chat's memory dirs and
+   `content` would not be a valid memory file (YAML frontmatter mapping with
+   non-blank `name` and `description`), else nil. A malformed memory file
+   would be silently skipped by the memory index, so such writes are rejected
+   before any byte hits disk."
+  [path content ctx]
+  (when (and path content (f.memory/memory-path? (:db ctx) (:config ctx) path))
+    (when-let [error (f.memory/memory-content-error content)]
+      (tools.util/single-text-content error :error))))
+
+(defn ^:private with-memory-hashes
+  "`result` with `:memory-hashes` `{<abs path> <note hash or nil>}` for each of
+   `paths` inside one of the chat's memory dirs: the note hash right after
+   this write, nil when the path holds no note now (the source of a move).
+   Memory delivery compares it with the current hash, so a later edit of the
+   same note from outside the chat is still reported. No key when no path is
+   a memory path. Call after the write."
+  [result ctx paths]
+  (let [hashes (into {}
+                     (comp (filter #(f.memory/memory-path? (:db ctx) (:config ctx) %))
+                           (map (fn [path] [(f.memory/abs-path path) (f.memory/file-note-hash path)])))
+                     paths)]
+    (cond-> result
+      (seq hashes) (assoc :memory-hashes hashes))))
 
 (defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
@@ -275,12 +305,15 @@
     (or (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
         (with-file-path-lock path
           (fn []
-            (let [old-content (try (slurp path) (catch Exception _ nil))]
-              (fs/create-dirs (fs/parent (fs/path path)))
-              (spit path content)
-              (assoc (tools.util/single-text-content (format "Successfully wrote to %s" path))
-                     :rollback-changes [{:path path
-                                         :content old-content}])))))))
+            (or (require-valid-memory-content path content ctx)
+                (let [old-content (try (slurp path) (catch Exception _ nil))]
+                  (fs/create-dirs (fs/parent (fs/path path)))
+                  (spit path content)
+                  (f.memory.usage/record-write! ctx path)
+                  (-> (tools.util/single-text-content (format "Successfully wrote to %s" path))
+                      (assoc :rollback-changes [{:path path
+                                                :content old-content}])
+                      (with-memory-hashes ctx [path])))))))))
 
 (defn ^:private write-file-summary [{:keys [args]}]
   (if (get args "path")
@@ -503,10 +536,14 @@
                 initial-content  (slurp path)
                 result           (apply-file-edit-strategy initial-content original-content new-content all? path)
                 write!           (fn [res]
-                                   (spit path (:new-full-content res))
-                                   (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
-                                       (assoc :rollback-changes [{:path    path
-                                                                  :content (:original-full-content res)}])))]
+                                   (or (require-valid-memory-content path (:new-full-content res) ctx)
+                                       (do
+                                         (spit path (:new-full-content res))
+                                         (f.memory.usage/record-write! ctx path)
+                                         (-> (handle-file-change-result res path (format "Successfully replaced content in %s." path))
+                                             (assoc :rollback-changes [{:path    path
+                                                                        :content (:original-full-content res)}])
+                                             (with-memory-hashes ctx [path])))))]
             (if (:new-full-content result)
               (let [current-content (slurp path)]
                 (if (= current-content (:original-full-content result))
@@ -539,7 +576,7 @@
                path)
        :error))))
 
-(defn ^:private move-file [arguments _]
+(defn ^:private move-file [arguments ctx]
   (or (tools.util/invalid-arguments arguments [["source" fs/exists? "$source is not a valid path"]
                                                ["destination" (complement fs/exists?) "Path $destination already exists"]])
       (with-file-path-locks [(get arguments "source") (get arguments "destination")]
@@ -547,13 +584,22 @@
           (let [source (get arguments "source")
                 destination (get arguments "destination")
                 directory? (fs/directory? source)
+                ;; Resolved before the move: the ledger and the memory hashes
+                ;; use the physical path, and a moved link keeps its target.
+                source-key (f.memory/abs-path source)
                 source-content (when-not directory? (slurp source))]
-            (fs/move source destination {:replace-existing false})
-            (cond-> (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
-              (not directory?) (assoc :rollback-changes [{:path destination
-                                                          :content nil}
-                                                         {:path source
-                                                          :content source-content}])))))))
+            (or (require-valid-memory-content destination source-content ctx)
+                (do
+                  (fs/move source destination {:replace-existing false})
+                  (f.memory.usage/record-move! ctx source-key destination)
+                  (cond-> (tools.util/single-text-content (format "Successfully moved %s to %s" source destination))
+                    ;; A directory move gets no memory hashes: the notes below
+                    ;; it show once as a change in the next memory block.
+                    (not directory?) (-> (assoc :rollback-changes [{:path destination
+                                                                    :content nil}
+                                                                   {:path source
+                                                                    :content source-content}])
+                                         (with-memory-hashes ctx [source-key destination]))))))))))
 
 (defn ^:private move-file-summary [{:keys [args]}]
   (let [source (get args "source")
@@ -576,7 +622,7 @@
                                            :description (format "Maximum depth to traverse (default: %s)" directory-tree-max-depth)}}
                  :required ["path"]}
     :handler #'directory-tree
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'directory-tree-summary}
    "read_file"
    {:description (tools.util/read-tool-description "read_file")
@@ -589,7 +635,7 @@
                                        :description "Maximum lines to read (default: {{readFileMaxLines}})"}}
                  :required ["path"]}
     :handler #'read-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'read-file-summary}
    "view_image"
    {:description (tools.util/read-tool-description "view_image")
@@ -610,7 +656,7 @@
                                          :description "The complete content to write to the file"}}
                  :required ["path" "content"]}
     :handler #'write-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :write})
     :summary-fn #'write-file-summary}
    "edit_file"
    {:description (tools.util/read-tool-description "edit_file")
@@ -625,7 +671,7 @@
                                                  :description "Whether to replace all occurrences of the file or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :write})
     :summary-fn #'edit-file-summary}
    "preview_file_change"
    {:description (tools.util/read-tool-description "preview_file_change")
@@ -640,7 +686,7 @@
                                                  :description "Whether to preview replacing all occurrences or just the first one (default)"}}
                  :required ["path" "original_content" "new_content"]}
     :handler #'preview-file-change
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn (constantly "Previewing change")}
    "move_file"
    {:description (tools.util/read-tool-description "move_file")
@@ -651,7 +697,7 @@
                                              :description "The new absolute file path to move to."}}
                  :required ["source" "destination"]}
     :handler #'move-file
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["source" "destination"] {:trust-memory-paths :write})
     :summary-fn #'move-file-summary}
    "grep"
    {:description (tools.util/read-tool-description "grep")
@@ -669,7 +715,7 @@
                                              :description "Output format: 'content' shows matching lines with context, 'files_with_matches' shows only file paths (default), 'count' shows match counts per file"}}
                  :required ["path" "pattern"]}
     :handler #'grep
-    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
+    :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"] {:trust-memory-paths :read})
     :summary-fn #'grep-summary}})
 
 (defmethod tools.util/tool-call-details-before-invocation :edit_file [_name arguments _server _ctx]

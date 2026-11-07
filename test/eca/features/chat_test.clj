@@ -6,11 +6,14 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
+   [eca.features.memory :as f.memory]
+   [eca.features.memory.delivery :as f.memory.delivery]
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
@@ -155,6 +158,12 @@
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
 
+(defn ^:private date-text-item
+  "The cursor-style current-date stamp appended to the user message once per
+   day change (see chat.clj prompt!)."
+  []
+  {:type :text :text (str "Current date: " (java.time.LocalDate/now))})
+
 (defn ^:private deep-sleep
   "Sleep for the given duration in milliseconds, ignoring interrupts.
    Continues sleeping until the full duration has elapsed."
@@ -267,7 +276,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Hey!"}]}
+                     :messages [{:role "user" :content [{:type :text :text "Hey!"}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Hey you!"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -301,7 +311,7 @@
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
       (is (match?
-           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
+           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"} (date-text-item)]}]}}
            (:chats (h/db)))
           "the unanswered message is kept so the next prompt and /resume still have it (eca-intellij#27)")
       (is (match?
@@ -398,7 +408,8 @@
       (is (= 2 (count @requests*)))
       (is (= (first @requests*) (second @requests*))
           "a no-output retry must replay the original task, not a contextless continuation")
-      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}
+                                           (date-text-item)]}
                    {:role "assistant" :content [{:type :text :text "Recovered"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))
@@ -425,7 +436,7 @@
                             {:all-tools-mock (constantly [])
                              :api-mock api-mock}))]
     (is (= 2 (count @requests*)))
-    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"} (date-text-item)]}
                  {:role "assistant" :content [{:type :text :text "Partial"}]}
                  {:role "user"
                   :content [{:type :text
@@ -621,7 +632,7 @@
           {:keys [chat-id]} (prompt! {:message "hello"}
                                      {:all-tools-mock (constantly [])
                                       :api-mock (fn [{:keys [on-error]}] (on-error error-data))})]
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (not (contains? (get-in (h/db) [:chats chat-id]) :unsent-user-messages)))
       (prompt! {:message "second" :chat-id chat-id}
@@ -631,8 +642,8 @@
                             (on-first-response-received {:type :text :text "ok"})
                             (on-message-received {:type :text :text "ok"})
                             (on-message-received {:type :finish}))})
-      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"}]}]) @past-messages*))
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]) @past-messages*))
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}
                    {:role "user" :content [{:type :text :text "second"}]}
                    {:role "assistant" :content [{:type :text :text "ok"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))))
@@ -644,7 +655,7 @@
                {:all-tools-mock (constantly [])
                 :api-mock (fn [_]
                             (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics) {}))})
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]
                   (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest transient-tls-recovery-guards-test
@@ -694,7 +705,8 @@
           chat-id-1 (:chat-id res-1)]
       (is (match?
            {chat-id-1 {:id chat-id-1
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}
+                                                          (date-text-item)]}
                                   {:role "assistant" :content [{:type :text :text "2 mississippi"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -734,7 +746,8 @@
             chat-id-2 (:chat-id res-2)]
         (is (match?
              {chat-id-2 {:id chat-id-2
-                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}
+                                                            (date-text-item)]}
                                     {:role "assistant" :content [{:type :text :text "2 mississippi"}]}
                                     {:role "user" :content [{:type :text :text "3 mississippi"}]}
                                     {:role "assistant" :content [{:type :text :text "4 mississippi"}]}]}}
@@ -1508,8 +1521,51 @@
                   (h/messages)))
       (is (match? {:prompt-type :auto-compact-blocked
                    :chat-ctx {:auto-compacted? true}}
-                  @prompted*)))))
+                  @prompted*))))
 
+  (testing "the resumed task gets a fresh memory block for the new window"
+    (h/reset-components!)
+    (let [prompted* (atom [])
+          old-block {:type :memory-context :text "<memory-changes description=\"old\">\n- Old\n</memory-changes>"}
+          original-messages [@#'f.chat/resume-after-compact-message
+                             {:role "user"
+                              :content [{:type :text :text "keep going"} old-block]
+                              :memory {"/m/old.md" {:hash "old" :name "Old" :label "global"}}}]
+          chat-ctx {:db* (h/db*)
+                    :config (h/config)
+                    :chat-id "chat-1"
+                    :agent "code"
+                    :messenger (h/messenger)
+                    :metrics (h/metrics)}]
+      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})
+                    f.prompt/compact-prompt (constantly "compact")
+                    f.memory.delivery/turn-block
+                    (fn [_] {:block {:text "<memory-index description=\"fresh\">\n- Fresh\n</memory-index>"
+                                     :memory {"/m/new.md" {:hash "new" :name "Fresh" :label "global"}}}
+                             :entries [] :render nil})
+                    f.chat/prompt-messages! (fn [user-messages prompt-type prompt-ctx]
+                                              (swap! prompted* conj {:user-messages user-messages
+                                                                     :prompt-type prompt-type
+                                                                     :chat-ctx prompt-ctx}))]
+        (#'f.chat/trigger-auto-compact! chat-ctx [] original-messages)
+        ((get-in (first @prompted*) [:chat-ctx :on-after-finish!])))
+      (let [resume-call (second @prompted*)
+            resumed (vec (rest (:user-messages resume-call)))
+            resumed-user (last resumed)]
+        (is (= :auto-compact (:prompt-type resume-call)))
+        (is (= 2 (count (:user-messages resume-call)))
+            "only one resume prefix remains")
+        (is (true? @(get-in resume-call [:chat-ctx :post-compact-guard*])))
+        (is (not (get-in resume-call [:chat-ctx :auto-compacted?])))
+        (is (not (string/includes? (pr-str resumed) "old"))
+            "the old block built for the old window is gone")
+        (is (= [{:type :text :text "keep going"}
+                {:type :memory-context :text "<memory-index description=\"fresh\">\n- Fresh\n</memory-index>"}]
+               (:content resumed-user))
+            "the resumed user message carries the fresh full index")
+        (is (= {"/m/new.md" {:hash "new" :name "Fresh" :label "global"}}
+               (:memory resumed-user))
+            "the state travels with the block")))))
 
 (defn ^:private make-tool-output-msg [id text]
   {:role "tool_call_output"
@@ -1612,7 +1668,8 @@
              {chat-id {:id chat-id
                        :messages [{:role "user"
                                    :content [{:type :text :text "Check @/path/to/file please"}
-                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
+                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}
+                                             (date-text-item)]}
                                   {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
              (:chats (h/db)))))))
   (testing "When prompt contains @missing-file we do not add context noise"
@@ -1631,7 +1688,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text msg}]}
+                     :messages [{:role "user" :content [{:type :text :text msg}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -1724,9 +1782,12 @@
                                                     :arguments []}])
                     f.prompt/get-prompt! (fn [_name _arguments _db]
                                            {:messages [{:role "user"
-                                                       :content [{:type :text
-                                                                  :text "MCP prompt body"}]}]})]
+                                                        :content [{:type :text
+                                                                   :text "MCP prompt body"}]}]})]
         (let [{:keys [chat-id]} (prompt! {:message "/test-server:my-prompt" :contexts [cursor]} mocks)]
+          (is (match? [{:role "user"
+                        :content [{:type :text :text "MCP prompt body"}]}]
+                      (first @user-msgs*)))
           (is (nil? (get-in (h/db) [:chats chat-id :last-editor-state])))
           (is (not (string/includes? (->> @user-msgs* first first :content (keep :text) (string/join "\n"))
                                      "<cursor")))
@@ -1952,7 +2013,8 @@
                          :contents [{:type :text :text "Allowed directories: /foo/bar"}]})})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}]}
+                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}
@@ -2114,9 +2176,9 @@
           "task, compaction, resumed task, second compaction, resumed task")
       (is (= 2 (count (compact-markers chat-id))))
       (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
-                   {:role "user" :content [{:type :text :text "Long task"}]}]
+                   {:role "user" :content [{:type :text :text "Long task"} (date-text-item)]}]
                   (nth @api-calls* 4 nil))
-          "the task resumes after the second compaction")
+          "the task resumes after the second compaction with one current-date block")
       (is (= :idle (get-in (h/db) [:chats chat-id :status])))))
 
   (testing "no second compaction when the compacted context is still above the threshold (no loop)"
@@ -2169,7 +2231,7 @@
                               :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nSummary"}]}])
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
-                   {:role "user" :content [{:type :text :text "Long task"}]}]
+                   {:role "user" :content [{:type :text :text "Long task"} (date-text-item)]}]
                   (nth @api-calls* 2 nil))
           "the task resumes after the compaction")
       (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
@@ -2355,7 +2417,7 @@
                   (second @api-calls*))
           "the compact prompt carries the steered instructions")
       (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
-                   {:role "user" :content [{:type :text :text "Rename rfq to query"}]}]
+                   {:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}]
                   (nth @api-calls* 2))
           "the original task resumes after the compaction")
       (let [messages (:chat-content-received (h/messages))
@@ -2365,7 +2427,7 @@
                              messages)]
         (is (match? {:content {:type :text :content-id string?}} steer-echo)
             "the consumed steer is echoed to the client as the user message it was typed as")
-        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}
                                          {:role "assistant" :content [{:type :text :text "Reading"}]}
                                          {:role "tool_call" :content {:id "call-1"}}
                                          {:role "tool_call_output" :content {:id "call-1"}}
@@ -2377,7 +2439,7 @@
                                          {:role "compact_marker" :content {:auto? false}}
                                          {:role "user" :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nRenamed rfq to query"}]}
                                          {:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
-                                         {:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+                                         {:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}
                                          {:role "assistant" :content [{:type :text :text "Done"}]}]}}
                     (:chats (h/db)))
             "the compaction prompt is tied to the /compact echo so rolling back to it undoes the compaction; the raw command never enters history")
@@ -2684,7 +2746,8 @@
 
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
+                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-3"  :full-name "eca__ro_tool_3" :arguments {}
@@ -2793,7 +2856,8 @@
                      :contents [{:type :text :text "RO tool call 3 result"}]})))})]
       (is (match? {chat-id
                    {:id chat-id
-                    :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
+                    :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}
+                                                       (date-text-item)]}
                                {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
                                {:role "tool_call_output" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}
                                                                    :output {:error false
@@ -3006,7 +3070,8 @@
       ;; Verify initial state
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                 {:role "assistant" :content [{:type :text :text "2"}]}]}}
            (:chats (h/db))))
 
@@ -3027,7 +3092,8 @@
         ;; Verify we now have 4 messages
         (is (match?
              {chat-id {:id chat-id
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                   {:role "assistant" :content [{:type :text :text "2"}]}
                                   {:role "user" :content [{:type :text :text "3"}] :content-id second-content-id}
                                   {:role "assistant" :content [{:type :text :text "4"}]}]}}
@@ -3043,7 +3109,8 @@
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?
              {chat-id {:id chat-id
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                   {:role "assistant" :content [{:type :text :text "2"}]}]}}
              (:chats (h/db))))
 
@@ -3052,7 +3119,8 @@
              {:chat-clear [{:chat-id chat-id :messages true}]
               :chat-content-received
               [{:chat-id chat-id
-                :content {:type :text :text "\nCount with me: 1" :content-id first-content-id}
+                :content {:type :text :text (str "\nCount with me: 1\n" (:text (date-text-item)))
+                          :content-id first-content-id}
                 :role "user"}
                {:chat-id chat-id
                 :content {:type :text :text "\n2"}
@@ -3328,7 +3396,7 @@
         (h/config! {:chat {:autoSyncSystemPrompt true}
                     :prompts {:chat nil}
                     :agent {"code" {:prompts {:chat nil}
-                                      :systemPromptFile (str prompt-file)}}})
+                                    :systemPromptFile (str prompt-file)}}})
         (with-redefs [f.prompt/build-chat-instructions
                       (fn [& args]
                         (swap! build-calls* inc)
@@ -3912,10 +3980,33 @@
                                         :contexts sha?
                                         :rules sha?
                                         :skills sha?
-                                        :tools sha?}
+                                        :tools sha?
+                                        :memory m/absent}
                      :agent "plan"
                      :model "openai/gpt-4.1"}
                     (get-in (h/db) [:chats chat-id :prompt-cache])))))))
+
+(deftest memory-signature-category-test
+  (h/reset-components!)
+  (let [signature (fn [memory-config]
+                    (#'f.chat/static-prompt-cache-signature
+                     [] [] [] [] "code" (assoc (config/initial-config) :memory memory-config) "chat-1" [] (h/db)))
+        changed (fn [old-signature new-signature]
+                  (#'f.chat/changed-system-prompt-categories
+                   {:agent "code" :model "m" :static-signature old-signature} new-signature "code" "m"))
+        off (signature {:enabled false})
+        on (signature {:enabled true})]
+    (testing "memory off adds no key, so a chat saved before the key existed sees no change"
+      (is (not (contains? off :memory)))
+      (is (= [] (changed off off))))
+    (testing "turning memory on or off names the category"
+      (is (= ["memory"] (changed off on)))
+      (is (= ["memory"] (changed on off))))
+    (testing "the effective write mode is part of the signature"
+      (is (= ["memory"] (changed on (signature {:enabled true :writeMode "explicit"}))))
+      (is (= [] (changed (signature {:enabled true :writeMode "explicit"})
+                         (signature {:enabled true :writeMode "typo"})))
+          "an invalid write mode means explicit"))))
 
 (deftest message-content->chat-content-image-test
   (testing "image_generation_call role replays as a single :image ChatContent under assistant"
@@ -4116,7 +4207,8 @@
       (is (match? {:chat-id "inline-3" :status :prompting} resp))
       (is (= title-before (get-in (h/db) [:chats "inline-3" :title])))
       (is (nil? (:chat-opened (h/messages))))
-      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}]}
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}
+                                                     (date-text-item)]}
                              {:role "user" :content [{:type :text :text "second"}]}])
                   (get-in (h/db) [:chats "inline-3" :messages]))))))
 
@@ -4146,7 +4238,8 @@
       (testing "copied history + new turn, dangling tool call dropped"
         (is (match? (m/embeds [{:role "user" :content [{:type :text :text "original question"}]}
                                {:role "assistant" :content [{:type :text :text "original answer"}]}
-                               {:role "user" :content [{:type :text :text "btw what is bar?"}]}])
+                               {:role "user" :content [{:type :text :text "btw what is bar?"}
+                                                       (date-text-item)]}])
                     (get-in (h/db) [:chats "inline-fork-1" :messages])))
         (is (not-any? #(= "tool_call" (:role %))
                       (get-in (h/db) [:chats "inline-fork-1" :messages]))))
@@ -4166,6 +4259,21 @@
                         {:all-tools-mock (constantly [])
                          :api-mock inline-finish-mock})
         (is (= "high" (get-in (h/db) [:chats "inline-fork-1" :variant])))))))
+
+(deftest inline-prompt-fork-keeps-memory-state-test
+  (testing "the copied history keeps memory blocks and their :memory state"
+    (h/reset-components!)
+    (let [memory-msg {:role "user"
+                      :content [{:type :text :text "q"}
+                                {:type :memory-context :text "<memory-index>x</memory-index>"}]
+                      :memory {"/m/a.md" {:hash "h" :name "A" :label "global"}}}]
+      (swap! (h/db*) assoc-in [:chats "source-1"]
+             {:id "source-1"
+              :model "openai/gpt-5.2"
+              :messages [memory-msg {:role "assistant" :content [{:type :text :text "a"}]}]})
+      (inline-prompt! {:chat-id "inline-mem-1" :source-chat-id "source-1" :message "more?"}
+                      {:all-tools-mock (constantly []) :api-mock inline-finish-mock})
+      (is (= memory-msg (first (get-in (h/db) [:chats "inline-mem-1" :messages])))))))
 
 (deftest inline-prompt-model-resolution-test
   (testing "chatInline.model config wins over the source chat's model"
@@ -4278,7 +4386,7 @@
       (is (match? {:chat-id "inline-orphan" :status :prompting} resp))
       (is (match? {:kind :inline} (get-in (h/db) [:chats "inline-orphan"])))
       ;; no copied history: the first message is the new question itself
-      (is (match? {:role "user" :content [{:text "hi"}]}
+      (is (match? {:role "user" :content [{:text "hi"} (date-text-item)]}
                   (first (get-in (h/db) [:chats "inline-orphan" :messages])))))))
 
 (deftest inline-prompt-variant-config-test
@@ -4560,3 +4668,573 @@
       (is (= "company-litellm/big"
              (resolve-model nil "main" {:defaultModel "explorer-small"}))))))
 
+
+(deftest memory-consolidating-flag-test
+  (h/with-memory-root
+    (fn [_root]
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (let [flags* (atom [])
+            api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                       (swap! flags* conj (get-in (h/db) [:chats "chat-1" :memory-consolidating?]))
+                       (on-first-response-received {:type :text :text "x"})
+                       (on-message-received {:type :text :text "x"})
+                       (on-message-received {:type :finish}))]
+        (testing "the flag is set for the whole consolidation turn"
+          (prompt! {:message "/memory-consolidate" :chat-id "chat-1"}
+                   {:all-tools-mock (constantly []) :api-mock api-mock})
+          (is (= [true] @flags*)
+              "the LLM call of the consolidation turn sees the flag")
+          (is (true? (get-in (h/db) [:chats "chat-1" :memory-consolidating?]))
+              "the flag is not cleared when the turn finishes"))
+        (testing "the next normal user prompt clears the flag"
+          (prompt! {:message "hello" :chat-id "chat-1"}
+                   {:all-tools-mock (constantly []) :api-mock api-mock})
+          (is (= [true nil] @flags*))
+          (is (nil? (get-in (h/db) [:chats "chat-1" :memory-consolidating?]))))))))
+
+(defn ^:private write-memory-note!
+  "Writes one valid memory note."
+  [file name]
+  (fs/create-dirs (fs/parent file))
+  (spit (str file) (str "---\nname: " name "\ntype: fact\ndescription: About " name "\n---\n\nbody\n")))
+
+(deftest memory-consolidating-flag-survives-continuations-test
+  (h/with-memory-root
+    (fn [_root]
+      (testing "auto-continue runs in a consolidation turn and keeps the flag"
+        (h/reset-components!)
+        (h/config! {:memory {:enabled true :writeMode "agent"}
+                    :providers {"openai" {:retry {:maxAutoContinues 1}}}})
+        (let [flags* (atom [])
+              api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                         (let [n (count (swap! flags* conj (get-in (h/db) [:chats "chat-1" :memory-consolidating?])))]
+                           (on-first-response-received {:type :text :text "x"})
+                           (on-message-received {:type :text :text "Partial"})
+                           (on-message-received (if (= 1 n)
+                                                  {:type :finish :premature? true}
+                                                  {:type :finish}))))]
+          (prompt! {:message "/memory-consolidate" :chat-id "chat-1"}
+                   {:all-tools-mock (constantly []) :api-mock api-mock})
+          (is (= [true true] @flags*)
+              "the premature finish is auto-continued, and the continuation keeps the flag")
+          (is (true? (get-in (h/db) [:chats "chat-1" :memory-consolidating?])))))
+      (testing "a steered /btw during a consolidation does not clear the flag"
+        (h/reset-components!)
+        (h/config! {:memory {:enabled true :writeMode "agent"}})
+        (let [flags* (atom [])
+              api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                         (let [n (count (swap! flags* conj (get-in (h/db) [:chats "chat-1" :memory-consolidating?])))]
+                           (on-first-response-received {:type :text :text "x"})
+                           (when (= 1 n)
+                             ;; The steered /btw runs `prompt*` on the running chat,
+                             ;; then forks and prompts the fork.
+                             (f.chat/prompt-steer {:chat-id "chat-1" :message "/btw why?"}
+                                                  (h/db*) (h/messenger) (h/config) (h/metrics)))
+                           (on-message-received {:type :text :text "x"})
+                           (on-message-received {:type :finish})))]
+          (prompt! {:message "/memory-consolidate" :chat-id "chat-1"}
+                   {:all-tools-mock (constantly []) :api-mock api-mock})
+          (is (= [true true] @flags*)
+              "the consolidation request and the forked /btw request both see the flag of the consolidating chat")
+          (is (true? (get-in (h/db) [:chats "chat-1" :memory-consolidating?]))))))))
+
+(deftest memory-index-loaded-notification-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (let [api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                       (on-first-response-received {:type :text :text "x"})
+                       (on-message-received {:type :text :text "x"})
+                       (on-message-received {:type :finish}))
+            mocks {:all-tools-mock (constantly []) :api-mock api-mock}
+            notifications #(:memory-index-loaded (h/messages))]
+        (testing "each normal prompt notifies with the current store counts"
+          (prompt! {:message "hello" :chat-id "chat-1"} mocks)
+          (is (match? {:chat-id "chat-1"
+                       :count 1
+                       :total-count 1
+                       :items [{:name "Cache" :type "fact" :source "global" :path string?}]}
+                      (last (notifications))))
+          (testing "no dedupe: the same store notifies again"
+            (prompt! {:message "again" :chat-id "chat-1"} mocks)
+            (is (= 2 (count (notifications))))
+            (is (= 1 (:count (last (notifications)))))))
+        (testing "chat/open notifies for the current store"
+          (f.chat/open-chat! {:chat-id "chat-1"} (h/db*) (h/messenger) (h/config) (h/metrics))
+          (is (= 3 (count (notifications))))
+          (is (= 1 (:count (last (notifications))))))
+        (testing "nothing when memory is disabled"
+          (h/config! {:memory {:enabled false}})
+          (prompt! {:message "disabled" :chat-id "chat-1"} mocks)
+          (f.chat/open-chat! {:chat-id "chat-1"} (h/db*) (h/messenger) (h/config) (h/metrics))
+          (is (= 3 (count (notifications)))))
+        (testing "an empty store reports zero counts"
+          (fs/delete-tree (fs/file root "global"))
+          (h/config! {:memory {:enabled true}})
+          (prompt! {:message "empty store" :chat-id "chat-1"} mocks)
+          (is (= {:chat-id "chat-1" :count 0 :total-count 0 :items []}
+                 (last (notifications)))))
+        (testing "a subagent chat gets nothing"
+          (write-memory-note! (fs/file root "global" "b.md") "Sub")
+          (swap! (h/db*) assoc-in [:chats "sub-1"] {:id "sub-1" :subagent true})
+          (let [before (count (notifications))]
+            (f.chat/open-chat! {:chat-id "sub-1"} (h/db*) (h/messenger) (h/config) (h/metrics))
+            (is (= before (count (notifications))))))
+        (testing "a scan error sends nothing"
+          (let [before (count (notifications))]
+            (with-redefs [f.memory/scan-memories (fn [& _] (throw (ex-info "boom" {})))]
+              (f.chat/open-chat! {:chat-id "chat-1"} (h/db*) (h/messenger) (h/config) (h/metrics)))
+            (is (= before (count (notifications))))))))))
+
+;; ---------------------------------------------------------------------------
+;; Memory blocks stored in user messages and the date stamp
+
+(defn ^:private memory-block
+  "The :memory-context block of a message content, when present."
+  [content]
+  (some #(when (= :memory-context (:type %)) %) content))
+
+(defn ^:private recording-api-mock
+  "api-mock that records every LLM request options map and finishes the turn
+   with a plain text reply."
+  [captured*]
+  (fn [{:keys [on-first-response-received on-message-received] :as opts}]
+    (swap! captured* conj opts)
+    (when on-first-response-received
+      (on-first-response-received {:type :text :text "response"}))
+    (when on-message-received
+      (on-message-received {:type :text :text "response"})
+      (on-message-received {:type :finish}))))
+
+(defn ^:private run-recorded-prompt!
+  "Prompts and returns the captured LLM request options (nil when the command
+   path never calls the LLM)."
+  [params captured*]
+  (prompt! params {:all-tools-mock (constantly [])
+                   :api-mock (recording-api-mock captured*)})
+  (last @captured*))
+
+(deftest pruned-memory-hashes-survive-incomplete-compaction-test
+  (doseq [outcome [:blocked :failed]]
+    (testing (name outcome)
+      (h/with-memory-root
+        (fn [root]
+          (h/reset-components!)
+          (h/config! {:memory {:enabled true :writeMode "agent"}
+                      :prompts {:compact "Summarize the chat."}})
+          (let [note (fs/file root "global" "a.md")
+                captured* (atom [])
+                calls* (atom 0)
+                prune! @#'f.chat/prune-tool-results!]
+            (write-memory-note! note "Cache")
+            (run-recorded-prompt! {:message "first" :chat-id "chat-1"} captured*)
+            ;; A native write changed the note after the stored memory index.
+            (spit (str note) "new body\n" :append true)
+            (let [entry (first (f.memory/scan-memories (h/db)))
+                  hashes {(:path entry) (f.memory/note-hash entry)}]
+              (swap! (h/db*) update-in [:chats "chat-1" :messages] conj
+                     (assoc-in (make-tool-output-msg "own-write" "old visible output")
+                               [:content :output :memory-hashes] hashes))
+              (with-redefs-fn
+                {#'f.chat/prune-tool-results! (fn [db* chat-id _] (prune! db* chat-id {:protect-budget 0}))
+                 #'lifecycle/run-pre-compact-hooks!
+                 (constantly (if (= :blocked outcome)
+                               {:blocked? true :stop-turn? true :hook-name "guard"}
+                               {:blocked? false}))}
+                #(prompt! {:message "continue" :chat-id "chat-1"}
+                          {:all-tools-mock (constantly [])
+                           :api-mock (fn [{:keys [on-error]}]
+                                       (if (= 1 (swap! calls* inc))
+                                         (on-error {:error/type :context-overflow :message "token limit exceeded"})
+                                         (on-error {:message "compaction failed"})))}))
+              (is (= (if (= :blocked outcome) 1 2) @calls*)
+                  "the hook blocks compaction, or the compaction model request fails")
+              (let [messages (get-in (h/db) [:chats "chat-1" :messages])
+                    output (some #(when (= "own-write" (get-in % [:content :id]))
+                                    (get-in % [:content :output])) messages)]
+                (is (= hashes (:memory-hashes output)))
+                (is (= [{:type :text :text "[content cleared to reduce context size]"}] (:contents output)))
+                (is (not-any? #(= "compact_marker" (:role %)) messages)))
+              (let [opts (run-recorded-prompt! {:message "later" :chat-id "chat-1"} captured*)]
+                (is (nil? (memory-block (:content (last (:user-messages opts)))))
+                    "the own write must not be reported as an outside memory change")))))))))
+
+(deftest memory-consolidating-flag-survives-retry-and-hook-test
+  (doseq [continuation [:retry :post-request]]
+    (testing (name continuation)
+      (h/with-memory-root
+        (fn [_root]
+          (h/reset-components!)
+          (h/config! {:memory {:enabled true :writeMode "agent"}})
+          (let [flags* (atom [])
+                hook-calls* (atom 0)]
+            (with-redefs-fn
+              {#'lifecycle/run-post-request-hooks!
+               (fn [_]
+                 (when (and (= :post-request continuation)
+                            (= 1 (swap! hook-calls* inc)))
+                   {:follow-up-text "Check the consolidation once more."}))}
+              #(prompt! {:message "/memory-consolidate" :chat-id "chat-1"}
+                        {:all-tools-mock (constantly [])
+                         :api-mock
+                         (fn [{:keys [on-error on-first-response-received on-message-received]}]
+                           (let [n (count (swap! flags* conj (get-in (h/db) [:chats "chat-1" :memory-consolidating?])))]
+                             (if (and (= :retry continuation) (= 1 n))
+                               (on-error {:code "server_is_overloaded"
+                                          :message "Our servers are currently overloaded. Please try again later."
+                                          :error/source :openai-responses})
+                               (do (on-first-response-received {:type :text :text "Done"})
+                                   (on-message-received {:type :text :text "Done"})
+                                   (on-message-received {:type :finish})))))}))
+            (is (= [true true] @flags*)
+                "the resumed model request stays in the consolidation turn")
+            (is (true? (get-in (h/db) [:chats "chat-1" :memory-consolidating?])))))))))
+
+(deftest memory-consolidating-flag-survives-mid-loop-compaction-test
+  (h/with-memory-root
+    (fn [_root]
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}
+                  :prompts {:compact "Summarize the chat."}})
+      (let [flags* (atom [])]
+        (prompt! {:message "/memory-consolidate" :chat-id "chat-1"}
+                 {:all-tools-mock (constantly steered-compact-tools)
+                  :call-tool-mock steered-compact-call-tool-mock
+                  :api-mock
+                  (fn [{:keys [on-first-response-received on-message-received
+                               on-prepare-tool-call on-tools-called]}]
+                    (let [n (count (swap! flags* conj (get-in (h/db) [:chats "chat-1" :memory-consolidating?])))]
+                      (case n
+                        1 (do (on-first-response-received)
+                              (on-prepare-tool-call {:id "read-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+                              (f.chat/prompt-steer {:chat-id "chat-1" :message "/compact"}
+                                                   (h/db*) (h/messenger) (h/config) (h/metrics))
+                              (on-tools-called [{:id "read-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+                        2 (do (on-first-response-received)
+                              (on-prepare-tool-call {:id "compact-1" :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Memory review in progress\"}"})
+                              (on-tools-called [{:id "compact-1" :full-name "eca__compact_chat"
+                                                 :arguments {"summary" "Memory review in progress"}}]))
+                        3 (do (on-first-response-received {:type :text :text "Done"})
+                              (on-message-received {:type :text :text "Done"})
+                              (on-message-received {:type :finish})))))})
+        (is (= [true true true] @flags*)
+            "the task, compaction, and resumed task all keep the consolidation flag")
+        (is (some #(= "compact_marker" (:role %))
+                  (get-in (h/db) [:chats "chat-1" :messages])))
+        (is (= :idle (get-in (h/db) [:chats "chat-1" :status])))))))
+
+(deftest memory-block-position-in-user-message-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (let [captured* (atom [])
+            opts (run-recorded-prompt! {:message "hello"
+                                        :chat-id "chat-1"
+                                        :contexts [{:type "image"
+                                                    :media-type "image/png"
+                                                    :base64 "aGk="}]}
+                                       captured*)
+            content (:content (last (:user-messages opts)))]
+        (is (= "hello" (-> content first :text)))
+        (is (= [:text :memory-context :image] (mapv :type (rest content)))
+            "after the user text: the date line, then the memory block, then images")
+        (is (string/starts-with? (-> content second :text) "Current date:"))))))
+
+(deftest memory-block-is-stored-and-reused-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (let [captured* (atom [])
+            first-opts (run-recorded-prompt! {:message "first" :chat-id "chat-1"} captured*)
+            first-user (last (:user-messages first-opts))
+            block (memory-block (:content first-user))]
+        (is (some? block) "the first prompt of a window carries a full index")
+        (is (string/includes? (:text block) "<memory-index"))
+        (is (= 1 (count (:memory first-user))) "the state rides the message")
+        (let [stored (->> (get-in (h/db) [:chats "chat-1" :messages])
+                          (filter #(contains? % :memory))
+                          first)]
+          (is (= (:content first-user) (:content stored))
+              "the stored message keeps the block exactly as sent")
+          (is (= (:memory first-user) (:memory stored))
+              "the stored message keeps the state")
+          (testing "a later prompt with no external change adds no block"
+            (let [second-opts (run-recorded-prompt! {:message "second" :chat-id "chat-1"} captured*)
+                  second-user (last (:user-messages second-opts))]
+              (is (nil? (memory-block (:content second-user))))
+              (is (not (contains? second-user :memory)))
+              (is (some #(= (:content stored) (:content %))
+                        (:past-messages second-opts))
+                  "the stored block is re-sent unchanged as a past message")
+              (is (= stored (->> (get-in (h/db) [:chats "chat-1" :messages])
+                                 (filter #(contains? % :memory))
+                                 first))
+                  "the earlier message is never rewritten"))))))))
+
+(deftest memory-block-after-manual-compaction-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (swap! (h/db*) assoc-in [:chats "chat-1"]
+             {:id "chat-1"
+              :messages [{:role "user"
+                          :content [{:type :text :text "old"}
+                                    {:type :memory-context
+                                     :text "<memory-index description=\"old\">old</memory-index>"}]
+                          :memory {"/m/a.md" {:hash "old" :name "Cache" :label "global"}}
+                          :content-id "u1"}
+                         {:role "compact_marker" :content {:auto? false} :content-id "c1"}]})
+      (let [captured* (atom [])
+            opts (run-recorded-prompt! {:message "after compaction" :chat-id "chat-1"} captured*)
+            block (memory-block (:content (last (:user-messages opts))))]
+        (is (some? block) "the new window gets a full index")
+        (is (string/includes? (:text block) "<memory-index"))
+        (is (map? (:memory (last (:user-messages opts)))))))))
+
+(deftest memory-block-window-reset-paths-test
+  (testing "clearing the chat gives a full index on the next prompt"
+    (h/with-memory-root
+      (fn [root]
+        (write-memory-note! (fs/file root "global" "a.md") "Cache")
+        (h/reset-components!)
+        (h/config! {:memory {:enabled true :writeMode "agent"}})
+        (swap! (h/db*) assoc-in [:chats "chat-1"]
+               {:id "chat-1"
+                :messages [{:role "user"
+                            :content [{:type :text :text "old"}
+                                      {:type :memory-context :text "<memory-index>old</memory-index>"}]
+                            :memory {"/m/a.md" {:hash "old" :name "Cache" :label "global"}}
+                            :content-id "u1"}]})
+        (f.chat/clear-chat {:chat-id "chat-1" :messages true} (h/db*) (h/messenger) (h/metrics))
+        (let [captured* (atom [])
+              opts (run-recorded-prompt! {:message "fresh" :chat-id "chat-1"} captured*)]
+          (is (string/includes? (:text (memory-block (:content (last (:user-messages opts)))))
+                                "<memory-index"))))))
+
+  (testing "a rollback that keeps the block sends no new block; a deeper rollback sends a full index"
+    (h/with-memory-root
+      (fn [root]
+        (write-memory-note! (fs/file root "global" "a.md") "Cache")
+        (h/reset-components!)
+        (h/config! {:memory {:enabled true :writeMode "agent"}})
+        (let [captured* (atom [])
+              _ (run-recorded-prompt! {:message "first" :chat-id "chat-1"} captured*)
+              messages (get-in (h/db) [:chats "chat-1" :messages])
+              mem-idx (first (keep-indexed (fn [i m] (when (contains? m :memory) i)) messages))
+              mem-id (:content-id (nth messages mem-idx))]
+          (is (some? mem-id) "the first prompt stored the memory message")
+          ;; A synthetic assistant reply after the block, so the rollback has a
+          ;; later anchor that must keep the memory message.
+          (swap! (h/db*) update-in [:chats "chat-1" :messages]
+                 (fnil conj []) {:role "assistant"
+                                 :content [{:type :text :text "reply"}]
+                                 :content-id "assistant-1"})
+          (f.chat/rollback-chat {:chat-id "chat-1" :content-id "assistant-1" :include ["messages"]}
+                                (h/db*) (h/messenger) (h/metrics))
+          (let [opts (run-recorded-prompt! {:message "after rollback" :chat-id "chat-1"} captured*)]
+            (is (nil? (memory-block (:content (last (:user-messages opts)))))
+                "the older state is exact, so no block is added")
+            (is (not (contains? (last (:user-messages opts)) :memory))))
+          (f.chat/rollback-chat {:chat-id "chat-1" :content-id mem-id :include ["messages"]}
+                                (h/db*) (h/messenger) (h/metrics))
+          (is (empty? (get-in (h/db) [:chats "chat-1" :messages]))
+              "the memory message is rolled away")
+          (let [opts (run-recorded-prompt! {:message "deeper rollback" :chat-id "chat-1"} captured*)]
+            (is (string/includes? (:text (memory-block (:content (last (:user-messages opts)))))
+                                  "<memory-index")))))))
+
+  (testing "a fork keeps the state, so the forked chat sends no block"
+    (h/with-memory-root
+      (fn [root]
+        (write-memory-note! (fs/file root "global" "a.md") "Cache")
+        (h/reset-components!)
+        (h/config! {:memory {:enabled true :writeMode "agent"}})
+        (let [captured* (atom [])
+              _ (run-recorded-prompt! {:message "first" :chat-id "chat-1"} captured*)
+              mem-msg (->> (get-in (h/db) [:chats "chat-1" :messages])
+                           (filter #(contains? % :memory))
+                           first)
+              {fork-id :chat-id} (f.chat/fork-chat {:chat-id "chat-1"
+                                                    :content-id (:content-id mem-msg)}
+                                                   (h/db*) (h/messenger) (h/metrics))]
+          (is (string? fork-id))
+          (let [opts (run-recorded-prompt! {:message "forked" :chat-id fork-id} captured*)]
+            (is (nil? (memory-block (:content (last (:user-messages opts)))))
+                "the fork inherits the state with its messages")
+            (is (not (contains? (last (:user-messages opts)) :memory))))))))
+
+  (testing "an imported chat gets a full index"
+    (h/with-memory-root
+      (fn [root]
+        (write-memory-note! (fs/file root "global" "a.md") "Cache")
+        (h/reset-components!)
+        (h/config! {:memory {:enabled true :writeMode "agent"}})
+        (let [captured* (atom [])
+              _ (run-recorded-prompt! {:message "first" :chat-id "chat-1"} captured*)
+              export (f.chat.export/build-export @(h/db*) "chat-1")]
+          (swap! (h/db*) assoc-in [:chats "imported"]
+                 {:id "imported" :messages (get-in export [:chat :messages])})
+          (let [opts (run-recorded-prompt! {:message "hi" :chat-id "imported"} captured*)]
+            (is (string/includes? (:text (memory-block (:content (last (:user-messages opts)))))
+                                  "<memory-index")
+                "the export stripped the old block, so the new window needs a full index")))))))
+
+(deftest date-stamp-in-user-message-test
+  (testing "the first prompt carries today's date; a second prompt on the same day does not"
+    (h/reset-components!)
+    (h/config! {:env "test"})
+    (let [captured* (atom [])
+          first-opts (run-recorded-prompt! {:message "first" :chat-id "chat-1"} captured*)
+          second-opts (run-recorded-prompt! {:message "second" :chat-id "chat-1"} captured*)]
+      (is (some #(= (:text (date-text-item)) (:text %))
+                (:content (last (:user-messages first-opts))))
+          "the first prompt of the window gets the date")
+      (is (not-any? #(string/starts-with? (str (:text %)) "Current date:")
+                    (:content (last (:user-messages second-opts))))
+          "the same day adds no duplicate date line")))
+
+  (testing "a stored date from an earlier day does not suppress today's date"
+    (h/reset-components!)
+    (h/config! {:env "test"})
+    (swap! (h/db*) assoc-in [:chats "chat-1"]
+           {:id "chat-1"
+            :messages [{:role "user"
+                        :content [{:type :text :text "old"}
+                                  {:type :text :text "Current date: 2020-01-01"}]
+                        :content-id "u1"}]})
+    (let [captured* (atom [])
+          opts (run-recorded-prompt! {:message "new day" :chat-id "chat-1"} captured*)]
+      (is (some #(= (:text (date-text-item)) (:text %))
+                (:content (last (:user-messages opts)))))))
+
+  (testing "a compaction marker starts a new date window"
+    (h/reset-components!)
+    (h/config! {:env "test"})
+    (swap! (h/db*) assoc-in [:chats "chat-1"]
+           {:id "chat-1"
+            :messages [{:role "user"
+                        :content [{:type :text :text "old"}
+                                  {:type :text :text "Current date: 2020-01-01"}]
+                        :content-id "u1"}
+                       {:role "compact_marker" :content {:auto? false} :content-id "c1"}]})
+    (let [captured* (atom [])
+          opts (run-recorded-prompt! {:message "after compaction" :chat-id "chat-1"} captured*)]
+      (is (some #(= (:text (date-text-item)) (:text %))
+                (:content (last (:user-messages opts)))))))
+
+  (testing "a rollback to before the date re-adds it"
+    (h/reset-components!)
+    (h/config! {:env "test"})
+    (swap! (h/db*) assoc-in [:chats "chat-1"]
+           {:id "chat-1"
+            :messages [{:role "user"
+                        :content [{:type :text :text "old"}
+                                  {:type :text :text "Current date: 2020-01-01"}]
+                        :content-id "u1"}]})
+    (f.chat/rollback-chat {:chat-id "chat-1" :content-id "u1" :include ["messages"]}
+                          (h/db*) (h/messenger) (h/metrics))
+    (is (empty? (get-in (h/db) [:chats "chat-1" :messages])))
+    (let [captured* (atom [])
+          opts (run-recorded-prompt! {:message "after rollback" :chat-id "chat-1"} captured*)]
+      (is (some #(= (:text (date-text-item)) (:text %))
+                (:content (last (:user-messages opts))))))))
+
+(deftest title-request-strips-memory-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (let [titles* (atom [])
+            sync-mock (fn [params]
+                        (swap! titles* conj params)
+                        {:output-text "Title"})]
+        (prompt-with-title! {:message "Help me debug"}
+                            {:sync-prompt-mock sync-mock
+                             :config {:memory {:enabled true :writeMode "agent"}}})
+        (let [user (first (:user-messages (first @titles*)))]
+          (is (nil? (memory-block (:content user)))
+              "the title model does not see the memory block")
+          (is (not (contains? user :memory)))
+          (is (= "Help me debug" (-> user :content first :text))))))))
+
+(deftest with-memory-block-keeps-string-prompts-test
+  (testing "a command prompt (string content) survives the block, as after a mid-turn compaction"
+    (let [block {:text "<memory-index>x</memory-index>" :memory {"/m/a.md" {:hash "h"}}}
+          message (#'f.chat/with-memory-block {:role "user" :content "Review my memory files"} block)]
+      (is (= [{:type :text :text "Review my memory files"}
+              {:type :memory-context :text "<memory-index>x</memory-index>"}]
+             (:content message)))
+      (is (= {"/m/a.md" {:hash "h"}} (:memory message))))))
+
+(deftest chat-open-replay-hides-memory-blocks-test
+  (h/reset-components!)
+  (h/config! {:env "test"})
+  (swap! (h/db*) assoc-in [:chats "chat-1"]
+         {:id "chat-1"
+          :messages [{:role "user"
+                      :content [{:type :text :text "hi"}
+                                {:type :text :text "Current date: 2026-01-01"}
+                                {:type :memory-context :text "<memory-index>secret</memory-index>"}]
+                      :memory {"/m/a.md" {:hash "h" :name "A" :label "global"}}
+                      :content-id "u1"}]})
+  (f.chat/open-chat! {:chat-id "chat-1"} (h/db*) (h/messenger) (h/config) (h/metrics))
+  (let [replayed (->> (:chat-content-received (h/messages))
+                      (mapcat :content))]
+    (is (not-any? #(= :memory-context (:type %)) replayed))
+    (is (not (string/includes? (pr-str replayed) "memory-index"))
+        "the replay shows the text blocks only")))
+
+(deftest prompt-show-includes-memory-block-without-storing-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (let [captured* (atom [])
+            _ (run-recorded-prompt! {:message "/prompt-show" :chat-id "chat-1"} captured*)]
+        (is (empty? @captured*) "prompt-show never calls the LLM")
+        (is (string/includes? (pr-str (h/messages)) "<memory-index"))
+        (is (empty? (get-in (h/db) [:chats "chat-1" :messages]))
+            "the block is shown, not stored")))))
+
+(deftest memory-fail-open-prompts-without-block-test
+  (h/with-memory-root
+    (fn [root]
+      (write-memory-note! (fs/file root "global" "a.md") "Cache")
+      (h/reset-components!)
+      (h/config! {:memory {:enabled true :writeMode "agent"}})
+      (let [captured* (atom [])]
+        (with-redefs [f.memory/scan-memories (fn [& _] (throw (ex-info "boom" {})))
+                      logger/warn (fn [& _] nil)]
+          (run-recorded-prompt! {:message "hello" :chat-id "chat-1"} captured*))
+        (is (= 1 (count @captured*)) "the prompt still goes out")
+        (let [user (last (:user-messages (first @captured*)))]
+          (is (nil? (memory-block (:content user))))
+          (is (not (contains? user :memory))))))))
+
+(deftest unsent-user-messages-keep-memory-state-test
+  (h/reset-components!)
+  (swap! (h/db*) assoc-in [:chats "chat-1"]
+         {:id "chat-1"
+          :unsent-user-messages
+          {:content-id "u1"
+           :messages [{:role "user"
+                       :content [{:type :text :text "hi"}
+                                 {:type :memory-context :text "<memory-index>x</memory-index>"}]
+                       :memory {"/m/a.md" {:hash "h" :name "A" :label "global"}}}]}})
+  (lifecycle/record-unsent-user-messages! (h/db*) "chat-1")
+  (let [stored (last (get-in (h/db) [:chats "chat-1" :messages]))]
+    (is (= "u1" (:content-id stored)))
+    (is (some? (memory-block (:content stored))))
+    (is (= {"/m/a.md" {:hash "h" :name "A" :label "global"}}
+           (:memory stored))
+        "the state survives the unsent-message path")))

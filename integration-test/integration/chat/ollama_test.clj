@@ -49,7 +49,7 @@
         (is (match?
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
-                         {:role "user" :content "Tell me a joke!"}]}
+                         {:role "user" :content (str "Tell me a joke!\n" (h/date-line))}]}
              (llm.mocks/get-req-body :simple-text-0)))))
 
     (testing "We reply"
@@ -100,7 +100,7 @@
         (is (match?
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
-                         {:role "user" :content "Tell me a joke!"}
+                         {:role "user" :content (str "Tell me a joke!\n" (h/date-line))}
                          {:role "assistant" :content "Knock knock!"}
                          {:role "user" :content "Who's there?"}
                          {:role "assistant" :content "Foo"}
@@ -150,7 +150,7 @@
         (is (match?
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
-                         {:role "user" :content "hello!"}]}
+                         {:role "user" :content (str "hello!\n" (h/date-line))}]}
              (llm.mocks/get-req-body :reasoning-0)))))
 
     (testing "We reply"
@@ -181,7 +181,7 @@
         (is (match?
              {:model "qwen3"
               :messages [{:role "system" :content (m/pred string?)}
-                         {:role "user" :content "hello!"}
+                         {:role "user" :content (str "hello!\n" (h/date-line))}
                          {:role "assistant" :content "I should say hello\n\nhello there!"}
                          {:role "user" :content "how are you?"}]}
              (llm.mocks/get-req-body :reasoning-1)))))))
@@ -257,7 +257,7 @@
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:model "qwen3"
-              :messages [{:role "user" :content "What files you see?"}
+              :messages [{:role "user" :content (str "What files you see?\n" (h/date-line))}
                          {:role "assistant"
                           :content "I will list files"
                           :tool_calls [{:type "function"

@@ -28,6 +28,7 @@
     integration.chat.list-test
     integration.chat.rollback-test
     integration.chat.inline-prompt-test
+    integration.chat.memory-test
     integration.rewrite.openai-test])
 
 (defn timeout [timeout-ms callback]

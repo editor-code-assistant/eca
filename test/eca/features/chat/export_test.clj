@@ -62,6 +62,25 @@
       (is (not (contains? chat :last-status-payload)))
       (is (not (contains? chat :prompt-cache))))))
 
+(deftest build-export-strips-memory-test
+  (let [memory-block {:type :memory-context :text "<memory-index>notes</memory-index>"}
+        chat (update sample-chat :messages conj
+                     {:role "user"
+                      :content [{:type :text :text "question"} memory-block]
+                      :memory {"/home/u/.config/eca/memory/global/note.md"
+                               {:hash "abc" :name "Note" :label "global"}}
+                      :content-id "c4" :created-at 4})
+        export (sut/build-export {:chats {"chat-1" chat}} "chat-1")
+        messages (get-in export [:chat :messages])]
+    (is (= 4 (count messages)) "the message itself stays")
+    (is (= [{:type :text :text "question"}]
+           (:content (last messages)))
+        "the memory block is removed, the other blocks stay")
+    (is (not (contains? (last messages) :memory))
+        "the :memory state does not travel in the export")
+    (is (not (string/includes? (sut/export->edn export) "memory-context"))
+        "nothing memory-shaped remains in the serialized export")))
+
 (deftest export->edn-round-trips-test
   (testing "the export serializes and reads back equal (incl. #uuid prompt-id)"
     (let [export (sut/build-export sample-db "chat-1")

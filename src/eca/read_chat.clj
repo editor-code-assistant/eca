@@ -133,7 +133,10 @@
    Throws ex-info if chat-id is not found in the db.
 
    :messages is filtered per opts (since, until, role) and otherwise preserves
-   persisted message shape.
+   persisted message shape. That includes memory blocks, like every other text
+   that ECA adds to a user message. The one exception is the internal `:memory`
+   state of such a message: bookkeeping that the model never sees, with the
+   names and paths of all notes.
    :warnings contains informational strings about silent exclusions (e.g. messages
    without :created-at that were dropped by the time filter)."
   [db chat-id opts]
@@ -143,7 +146,9 @@
           time-filter? (or (:since-ms bounds) (:until-ms bounds))
           excluded-no-ts (when time-filter?
                            (count (remove :created-at messages)))]
-      {:messages (filter #(message-matches? bounds (:role opts) %) messages)
+      {:messages (->> messages
+                      (filter #(message-matches? bounds (:role opts) %))
+                      (map #(dissoc % :memory)))
        :warnings (cond-> []
                    (and time-filter? (pos? excluded-no-ts))
                    (conj (str excluded-no-ts " message(s) without :created-at were excluded by time filter")))})

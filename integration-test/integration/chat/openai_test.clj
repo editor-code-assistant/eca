@@ -42,7 +42,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}]
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :simple-text-0)))))
 
@@ -71,7 +71,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
              (llm.mocks/get-req-body :simple-text-1)))))
@@ -105,7 +105,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-line)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Foo"}]}
@@ -148,7 +148,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}]
+             {:input [{:role "user" :content [{:type "input_text" :text "hello!"} {:type "input_text" :text (h/date-line)}]}]
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :reasoning-0)))))
 
@@ -182,7 +182,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "hello!"} {:type "input_text" :text (h/date-line)}]}
                       {:type "reasoning"
                        :id "123"
                        :summary [{:type "summary_text" :text "I should say hello"}]
@@ -276,7 +276,7 @@
         (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "What files you see?"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "What files you see?"} {:type "input_text" :text (h/date-line)}]}
                       {:type "reasoning"
                        :id "123"
                        :summary [{:type "summary_text" :text "I should call tool eca__directory_tree"}]

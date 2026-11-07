@@ -5,6 +5,8 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.index :as f.index]
+   [eca.features.memory :as memory]
+   [eca.features.memory.usage :as memory.usage]
    [eca.features.tools.filesystem :as f.tools.filesystem]
    [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.util :as tools.util]
@@ -822,3 +824,283 @@
               {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
       ;; Verify that spit was never called
       (is (false? @spit-called*)))))
+
+(deftest memory-approval-trust-test
+  ;; Memory dirs sit outside the workspace, which would prompt on every access.
+  ;; Memory paths are trusted instead (like workspace paths): reads never
+  ;; prompt while memory is enabled; writes only in writeMode "agent" — in
+  ;; "explicit" mode the approval prompt is what makes a write explicit.
+  ;; Tools without memory trust (shell_command idiom) still prompt.
+  (let [db {:workspace-folders [{:uri (h/file-uri "file:///repo/one") :name "one"}]}
+        memory-root (fs/file (h/file-path "/tmp/eca-test-mem-root"))
+        agent-config {:memory {:enabled true :writeMode "agent"}}
+        explicit-config {:memory {:enabled true :writeMode "explicit"}}
+        disabled-config {}
+        approval-fn (fn [tool] (get-in f.tools.filesystem/definitions [tool :require-approval-fn]))]
+    (with-redefs [memory/memory-root-dir (constantly memory-root)]
+      (let [mem-dirs (memory/memory-dirs db)
+            global-dir (:dir (first (filter #(= :global (:tier %)) mem-dirs)))
+            mem-file (str (fs/file global-dir "a.md"))
+            outside-file (h/file-path "/etc/hostname")
+            ctx (fn [config] {:db db :config config})]
+        (testing "reads of memory files never prompt while memory is enabled"
+          (doseq [tool ["read_file" "grep" "directory_tree"]]
+            (is (nil? ((approval-fn tool) {"path" mem-file} (ctx agent-config))) tool)
+            (is (nil? ((approval-fn tool) {"path" mem-file} (ctx explicit-config))) tool)))
+        (testing "writes follow writeMode"
+          (is (nil? ((approval-fn "write_file") {"path" mem-file "content" "x"} (ctx agent-config))))
+          (is (some? ((approval-fn "write_file") {"path" mem-file "content" "x"} (ctx explicit-config)))
+              "explicit mode: the approval prompt is the enforcement"))
+        (testing "during /memory-consolidate memory writes prompt, reads still do not"
+          (let [consolidating-db (assoc-in db [:chats "c1" :memory-consolidating?] true)
+                sub-db (-> consolidating-db
+                           (assoc-in [:chats "sub" :parent-chat-id] "c1"))
+                cctx (fn [d chat-id] {:db d :config agent-config :chat-id chat-id})]
+            (doseq [tool ["write_file" "edit_file"]]
+              (is (some? ((approval-fn tool) {"path" mem-file "content" "x"} (cctx consolidating-db "c1"))) tool)
+              (is (some? ((approval-fn tool) {"path" mem-file "content" "x"} (cctx sub-db "sub")))
+                  (str tool ": a subagent of the consolidating chat prompts too")))
+            (is (some? ((approval-fn "move_file")
+                        {"source" mem-file "destination" (str (fs/file global-dir "b.md"))}
+                        (cctx consolidating-db "c1"))))
+            (is (nil? ((approval-fn "read_file") {"path" mem-file} (cctx consolidating-db "c1"))))
+            (testing "another chat is not affected"
+              (is (nil? ((approval-fn "write_file") {"path" mem-file "content" "x"}
+                         (cctx consolidating-db "other")))))))
+        (testing "a subagent never gets write trust, reads still work"
+          (let [sub-db (assoc-in db [:chats "sub" :subagent] true)
+                sctx {:db sub-db :config agent-config :chat-id "sub"}]
+            (doseq [tool ["write_file" "edit_file"]]
+              (is (some? ((approval-fn tool) {"path" mem-file "content" "x"} sctx))
+                  (str tool ": a subagent must not write memory files unasked")))
+            (is (some? ((approval-fn "move_file")
+                        {"source" mem-file "destination" (str (fs/file global-dir "b.md"))} sctx)))
+            (is (nil? ((approval-fn "read_file") {"path" mem-file} sctx))
+                "read trust stays for subagents")))
+        (testing "move_file trusts a memory path only when both ends are trusted"
+          (is (nil? ((approval-fn "move_file")
+                     {"source" mem-file "destination" (str (fs/file global-dir "b.md"))} (ctx agent-config))))
+          (is (some? ((approval-fn "move_file")
+                      {"source" mem-file "destination" outside-file} (ctx agent-config)))))
+        (testing "memory disabled removes the trust"
+          (is (some? ((approval-fn "read_file") {"path" mem-file} (ctx disabled-config)))))
+        (testing "paths outside both workspace and memory still prompt"
+          (is (some? ((approval-fn "read_file") {"path" outside-file} (ctx agent-config)))))
+        (testing "the plain arity (no trust opts), used by shell_command, still prompts for memory paths"
+          (is (some? ((tools.util/require-approval-when-outside-workspace ["path"])
+                      {"path" mem-file} (ctx agent-config)))))))))
+
+(deftest memory-write-validation-test
+  ;; A write_file/edit_file inside a memory dir that would leave the file
+  ;; unparseable or missing name/description must be rejected with an
+  ;; actionable error and no bytes hitting disk: such a file would silently
+  ;; vanish from the memory index.
+  (let [db {:workspace-folders [{:uri (h/file-uri "file:///repo/one") :name "one"}]}
+        memory-root (fs/file (h/file-path "/tmp/eca-test-mem-root"))
+        global-mem-file (str (fs/file memory-root "global" "a.md"))
+        repo-local-file (h/file-path "/repo/one/.eca/memory/b.md")
+        regular-file (h/file-path "/repo/one/src/core.clj")
+        ctx (fn [config] {:db db :config config})
+        enabled-config {:memory {:enabled true :writeMode "agent"}}
+        handler (fn [tool] (get-in f.tools.filesystem/definitions [tool :handler]))
+        valid-content "---\nname: A\ndescription: D\n---\n\nbody\n"]
+    (with-redefs [memory/memory-root-dir (constantly memory-root)
+                  ;; The file calls are stubbed, so the ledger must not run:
+                  ;; it would write a real usage.edn under this fixed path.
+                  memory.usage/record-write! (constantly nil)
+                  fs/exists? (constantly true)
+                  fs/readable? (constantly true)
+                  fs/directory? (constantly false)
+                  fs/create-dirs identity
+                  slurp (constantly valid-content)]
+      (testing "write_file rejects malformed content in memory dirs without writing"
+        (doseq [[label content] [["unparseable YAML" "---\nname: [unclosed\n---\n"]
+                                 ["missing name" "---\ndescription: D\n---\n\nbody\n"]
+                                 ["missing description" "---\nname: A\n---\n\nbody\n"]
+                                 ["blank description" "---\nname: A\ndescription:   \n---\n\nbody\n"]]]
+          (let [writes* (atom {})]
+            (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+              (let [result ((handler "write_file")
+                            {"path" global-mem-file "content" content}
+                            (ctx enabled-config))]
+                (is (match? {:error true} result) (str label " must error"))
+                (is (string/includes? (get-in result [:contents 0 :text])
+                                      "Invalid memory file content")
+                    (str label " must explain the invalid content"))
+                (is (string/includes? (get-in result [:contents 0 :text])
+                                      "fix and retry")
+                    (str label " must guide the model"))
+                (is (empty? @writes*) (str label " must not write")))))))
+      (testing "write_file treats repo-local .eca path as a plain file (shared tier removed)"
+        (let [writes* (atom {})]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (let [result ((handler "write_file")
+                          {"path" repo-local-file "content" "---\nname: A\n---\n"}
+                          (ctx enabled-config))]
+              (is (match? {:error false} result)
+                  "no memory validation outside memory dirs")
+              (is (= {repo-local-file "---\nname: A\n---\n"} @writes*))))))
+      (testing "write_file accepts valid memory content"
+        (let [writes* (atom {})]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (is (match? {:error false}
+                        ((handler "write_file")
+                         {"path" global-mem-file "content" valid-content}
+                         (ctx enabled-config))))
+            (is (= valid-content (get @writes* global-mem-file)))))
+        (testing "minimal valid frontmatter is accepted"
+          (let [writes* (atom {})]
+            (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+              (is (match? {:error false}
+                          ((handler "write_file")
+                           {"path" global-mem-file
+                            "content" "---\nname: A\ndescription: D\n---\n"}
+                           (ctx enabled-config))))))))
+      (testing "write_file outside memory dirs is not validated"
+        (let [writes* (atom {})]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (is (match? {:error false}
+                        ((handler "write_file")
+                         {"path" regular-file "content" "---\nname: [unclosed\n---\n"}
+                         (ctx enabled-config))))
+            (is (= "---\nname: [unclosed\n---\n" (get @writes* regular-file)))))
+        (testing "memory disabled means no validation"
+          (let [writes* (atom {})]
+            (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+              (is (match? {:error false}
+                          ((handler "write_file")
+                           {"path" global-mem-file "content" "---\nname: [unclosed\n---\n"}
+                           (ctx {}))))
+              (is (= "---\nname: [unclosed\n---\n" (get @writes* global-mem-file)))))))
+      (testing "edit_file rejecting a frontmatter-breaking edit without writing"
+        (let [writes* (atom {})]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (let [result ((handler "edit_file")
+                          {"path" global-mem-file
+                           "original_content" "description: D"
+                           "new_content" ""}
+                          (ctx enabled-config))]
+              (is (match? {:error true} result))
+              (is (string/includes? (get-in result [:contents 0 :text]) "`description`"))
+              (is (empty? @writes*) "the broken edit must not write")))))
+      (testing "a `#` that would cut frontmatter text is rejected in memory dirs only"
+        (let [writes* (atom {})
+              lossy "---\nname: A\ndescription: D\ntags: auth, #679\n---\n\nbody\n"]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (let [result ((handler "write_file")
+                          {"path" global-mem-file "content" lossy}
+                          (ctx enabled-config))]
+              (is (match? {:error true} result))
+              (is (string/includes? (get-in result [:contents 0 :text]) "would lose `#679`"))
+              (is (empty? @writes*) "nothing is written"))
+            (let [result ((handler "edit_file")
+                          {"path" global-mem-file
+                           "original_content" "description: D"
+                           "new_content" "description: see #679"}
+                          (ctx enabled-config))]
+              (is (match? {:error true} result))
+              (is (string/includes? (get-in result [:contents 0 :text]) "would lose `#679`"))
+              (is (empty? @writes*) "nothing is written"))
+            (is (match? {:error false}
+                        ((handler "write_file")
+                         {"path" global-mem-file
+                          "content" "---\nname: A\ndescription: D\ntags: 'auth, #679'\n---\n\nbody\n"}
+                         (ctx enabled-config)))
+                "the quoted value is written")
+            (is (match? {:error false}
+                        ((handler "write_file")
+                         {"path" regular-file "content" lossy}
+                         (ctx enabled-config)))
+                "other files keep their YAML as written")
+            (is (= lossy (get @writes* regular-file))))))
+      (testing "edit_file allowing safe edits that keep the file valid"
+        (let [writes* (atom {})]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (is (match? {:error false}
+                        ((handler "edit_file")
+                         {"path" global-mem-file
+                          "original_content" "description: D"
+                          "new_content" "description: Updated"}
+                         (ctx enabled-config))))
+            (is (= "---\nname: A\ndescription: Updated\n---\n\nbody\n"
+                   (get @writes* global-mem-file))
+                "the safe edit applies")))
+        (testing "edits outside memory dirs are not validated"
+          (let [writes* (atom {})]
+            (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+              (is (match? {:error false}
+                          ((handler "edit_file")
+                           {"path" regular-file
+                            "original_content" "description: D"
+                            "new_content" ""}
+                           (ctx enabled-config))))
+              (is (= "---\nname: A\n\n---\n\nbody\n" (get @writes* regular-file))
+                  "the edit applies unchanged outside memory dirs"))))))))
+
+(deftest memory-write-hashes-test
+  ;; The file tools stamp the note hash after a memory write, so memory
+  ;; delivery can tell the chat's own write from a later edit by someone else.
+  (let [root (fs/canonicalize (fs/create-temp-dir {:prefix "eca-memory-hashes-test"}))
+        db {:workspace-folders [{:uri (h/file-uri "file:///repo/one") :name "one"}]}
+        ctx {:db db :config {:memory {:enabled true :writeMode "agent"}}}
+        handler (fn [tool] (get-in f.tools.filesystem/definitions [tool :handler]))
+        content "---\nname: A\ndescription: D\n---\n\nbody\n"]
+    (try
+      (with-redefs [memory/memory-root-dir (constantly (fs/file root))]
+        (let [global (:dir (last (memory/memory-dirs db)))
+              a (str (fs/file global "a.md"))
+              b (str (fs/file global "b.md"))
+              outside (str (fs/file root "outside.md"))]
+          (testing "write_file stamps the hash of the written note"
+            (let [result ((handler "write_file") {"path" a "content" content} ctx)]
+              (is (some? (memory/file-note-hash a)))
+              (is (= {a (memory/file-note-hash a)} (:memory-hashes result)))))
+          (testing "write_file through dot segments stamps a canonical key immediately"
+            (let [alias (str (fs/path global ".." "global" "a.md"))
+                  result ((handler "write_file") {"path" alias "content" content} ctx)]
+              (is (= {a (memory/file-note-hash a)} (:memory-hashes result)))))
+          (testing "edit_file stamps the hash after the edit"
+            (let [before (memory/file-note-hash a)
+                  result ((handler "edit_file") {"path" a
+                                                 "original_content" "body"
+                                                 "new_content" "new body"} ctx)]
+              (is (= {a (memory/file-note-hash a)} (:memory-hashes result)))
+              (is (not= before (get-in result [:memory-hashes a])))))
+          (testing "move_file stamps nil for the source and the hash of the destination"
+            (let [result ((handler "move_file") {"source" a "destination" b} ctx)]
+              (is (= {a nil b (memory/file-note-hash b)} (:memory-hashes result)))))
+          (testing "a directory move stamps nothing: its notes show once as a change"
+            (let [source (fs/path global "nested")
+                  note (fs/path source "deep" "note.md")
+                  target (fs/path global "renamed" "deep" "note.md")]
+              (fs/create-dirs (fs/parent note))
+              (spit (str note) content)
+              (let [result ((handler "move_file") {"source" (str source)
+                                                    "destination" (str (fs/path global "renamed"))} ctx)]
+                (is (not (:error result)))
+                (is (fs/exists? target))
+                (is (not (contains? result :memory-hashes))))))
+          (testing "moving a symlink keeps its physical target hash and evidence"
+            (when-not shared/windows-os?
+              (let [link (fs/path global "link.md")
+                    moved (fs/path global "moved-link.md")]
+                (fs/create-sym-link link b)
+                (let [result ((handler "move_file") {"source" (str link) "destination" (str moved)} ctx)]
+                  (is (= {(memory/abs-path b) (memory/file-note-hash b)} (:memory-hashes result)))
+                  (is (fs/exists? b))))))
+          (testing "a write outside the memory dirs stamps nothing"
+            (is (not (contains? ((handler "write_file") {"path" outside "content" "x"} ctx)
+                                :memory-hashes))))
+          (testing "a rejected memory write stamps nothing"
+            (let [result ((handler "write_file") {"path" a "content" "no frontmatter"} ctx)]
+              (is (:error result))
+              (is (not (contains? result :memory-hashes)))))
+          (testing "move_file of an invalid note into a memory dir is rejected before the move"
+            (spit outside "no frontmatter")
+            (let [result ((handler "move_file") {"source" outside "destination" a} ctx)]
+              (is (:error result))
+              (is (string/includes? (get-in result [:contents 0 :text]) "Invalid memory file content"))
+              (is (fs/exists? outside) "the source stays where it was")
+              (is (not (fs/exists? a)))))))
+      (finally
+        (fs/delete-tree root)))))

@@ -8,6 +8,7 @@
    [eca.features.completion :as f.completion]
    [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
+   [eca.features.memory :as f.memory]
    [eca.features.plugins :as f.plugins]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
@@ -601,6 +602,15 @@
   (metrics/task metrics :eca/rewrite-prompt
     (handle-expected-errors
      (f.rewrite/prompt params db* config messenger metrics))))
+
+(defn memory-list [{:keys [db* config metrics]} _params]
+  (metrics/task metrics :eca/memory-list
+    (if (f.memory/enabled? config)
+      (let [db @db*]
+        {:memories (f.memory/list-memories db)
+         :skipped (f.memory/skipped-files db)})
+      {:error {:code "memory_disabled"
+               :message "memory is disabled"}})))
 
 (defn jobs-list [{:keys [db* metrics]} _params]
   (metrics/task metrics :eca/jobs-list

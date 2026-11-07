@@ -247,6 +247,7 @@
              :chatTitle "${classpath:prompts/title.md}"
              :compact "${classpath:prompts/compact.md}"
              :init "${classpath:prompts/init.md}"
+             :memoryConsolidate "${classpath:prompts/memory_consolidate.md}"
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
@@ -348,6 +349,10 @@
    :index {:ignoreFiles [{:type :gitignore}]
            :repoMap {:maxTotalEntries 800
                      :maxEntriesPerDir 50}}
+   :memory {:enabled false
+            :writeMode "agent"
+            :index {:maxEntries 100
+                    :maxTokens 2000}}
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :autoCompactPercentage 75

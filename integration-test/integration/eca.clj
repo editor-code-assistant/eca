@@ -64,6 +64,11 @@
     (with-open [_ (java.util.zip.ZipFile. (str path))] true)
     (catch Exception _ false)))
 
+(def ^:dynamic *extra-env*
+  "Extra environment variables merged into the spawned server process env,
+   e.g. {\"XDG_DATA_HOME\" <tmp>} to isolate the memory root."
+  {})
+
 (defn start-server
   "Start the ECA server from the given BINARY.
 
@@ -101,7 +106,7 @@ when set."
     (println :--eca.integration.start-server/starting :cmd cmd-full :log-path log-path :http-proxy *http-proxy*)
     (p/process cmd-full
                {:err  log-path
-                :env (server-env)
+                :env (merge (server-env) *extra-env*)
                 :exit-fn (fn [{:keys [cmd exit]}]
                            (when (not= exit 0)
                              (println :--eca.integration.start-server/exited :cmd cmd :exit-status exit)

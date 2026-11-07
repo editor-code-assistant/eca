@@ -43,7 +43,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}]
+             {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"} {:type "text" :text (h/date-line)}]}]
               :system (m/pred vector?)}
              (llm.mocks/get-req-body :simple-text-0)))))
 
@@ -72,7 +72,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}
+             {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"} {:type "text" :text (h/date-line)}]}
                          {:role "assistant" :content [{:type "text" :text "Knock knock!"}]}
                          {:role "user" :content [{:type "text" :text "Who's there?"}]}]}
              (llm.mocks/get-req-body :simple-text-1)))))
@@ -106,7 +106,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}
+             {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"} {:type "text" :text (h/date-line)}]}
                          {:role "assistant" :content [{:type "text" :text "Knock knock!"}]}
                          {:role "user" :content [{:type "text" :text "Who's there?"}]}
                          {:role "assistant" :content [{:type "text" :text "Foo"}]}
@@ -149,7 +149,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:messages [{:role "user" :content [{:type "text" :text "hello!"}]}]
+             {:messages [{:role "user" :content [{:type "text" :text "hello!"} {:type "text" :text (h/date-line)}]}]
               :system (m/pred vector?)}
              (llm.mocks/get-req-body :reasoning-0)))))
 
@@ -183,7 +183,7 @@
                                          :sessionCost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:messages [{:role "user" :content [{:type "text" :text "hello!"}]}
+             {:messages [{:role "user" :content [{:type "text" :text "hello!"} {:type "text" :text (h/date-line)}]}
                          {:role "assistant"
                           :content [{:type "thinking"
                                      :signature "enc-123"
@@ -277,7 +277,7 @@
         (match-content chat-id "system" {:type "usage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:messages [{:role "user" :content [{:type "text" :text "What files you see?"}]}
+             {:messages [{:role "user" :content [{:type "text" :text "What files you see?"} {:type "text" :text (h/date-line)}]}
                          {:role "assistant"
                           :content [{:type "thinking"
                                      :signature "enc-123"

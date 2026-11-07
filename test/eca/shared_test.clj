@@ -112,6 +112,20 @@
   (testing "supports explicit nil fallback for rule-like callers"
     (is (nil? (shared/safe-selmer-render "{% if broken %}" {} "label" nil)))))
 
+(deftest frontmatter-yaml-test
+  (testing "the raw lines between the --- lines, comments included"
+    (is (= "name: n\ntags: a, #679"
+           (shared/frontmatter-yaml "---\nname: n\ntags: a, #679\n---\nBody\n---\nmore"))))
+  (testing "CRLF files give the same lines"
+    (is (= "name: n\ndescription: d"
+           (shared/frontmatter-yaml "---\r\nname: n\r\ndescription: d\r\n---\r\nBody"))))
+  (testing "no frontmatter gives nil"
+    (is (nil? (shared/frontmatter-yaml "just a body")))
+    (is (nil? (shared/frontmatter-yaml ""))))
+  (testing "an unclosed frontmatter throws, like parse-md"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unclosed YAML frontmatter"
+                          (shared/frontmatter-yaml "---\nname: n")))))
+
 (deftest parse-md-invalid-frontmatter-test
   (testing "throws on unclosed frontmatter"
     (let [result (try

@@ -198,7 +198,10 @@
       ;; This check does not serialize broadcasting with concurrent resolution.
       (when (identical? result (get-in @pending-questions* [request-id :promise]))
         (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params)))
-      (question-result result #(resolve-question! pending-questions* request-id % true)))))
+      (question-result result #(resolve-question! pending-questions* request-id % true))))
+  (memory-index-loaded [_this params]
+    (messenger/memory-index-loaded inner params)
+    (sse/broadcast! sse-connections* "memory:index-loaded" (->camel params))))
 
 (defn make-broadcast-messenger
   "Creates a BroadcastMessenger with a fresh pending-questions registry.

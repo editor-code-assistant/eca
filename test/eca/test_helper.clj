@@ -7,6 +7,7 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.memory :as memory]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.shared :as shared]))
@@ -19,6 +20,31 @@
   (io/file (str (fs/create-temp-dir {:prefix "eca-test-cache"}))))
 
 (alter-var-root #'cache/global-dir (constantly (constantly isolated-cache-dir)))
+
+(def ^:private isolated-data-home
+  "Memory lives under XDG_DATA_HOME. Without isolation, a test that enables
+   memory scans the developer's real ~/.local/share/eca/memory and writes its
+   usage ledger. Redirect it to a per-run temp dir for the whole test JVM."
+  (str (fs/create-temp-dir {:prefix "eca-test-data"})))
+
+(alter-var-root #'config/get-env
+                (fn [get-env]
+                  (fn [env]
+                    (if (= "XDG_DATA_HOME" env)
+                      isolated-data-home
+                      (get-env env)))))
+
+(defn with-memory-root
+  "Calls `f` with a fresh memory root (a canonical `java.io.File`) and deletes
+   it afterwards. Canonical, because memory paths are compared in their
+   resolved form and the temp dir can be a link or a short Windows name."
+  [f]
+  (let [root (fs/file (fs/canonicalize (fs/create-temp-dir {:prefix "eca-test-memory"})))]
+    (try
+      (with-redefs [memory/memory-root-dir (constantly root)]
+        (f root))
+      (finally
+        (fs/delete-tree root)))))
 
 (def windows? (string/starts-with? (System/getProperty "os.name") "Windows"))
 
@@ -72,7 +98,9 @@
       (cond
         (instance? Throwable v) (throw v)
         (= v :block) (promise)
-        :else (future v)))))
+        :else (future v))))
+  (memory-index-loaded [_ params]
+    (swap! messages* update :memory-index-loaded (fnil conj []) params)))
 
 (defn stub-messenger
   "An IMessenger for tests exercising only some methods: each method calls the
@@ -101,6 +129,7 @@
       (editor-definition [_ uri position] (call :editor-definition uri position))
       (editor-references [_ uri position include-declaration]
         (call :editor-references uri position include-declaration))
+      (memory-index-loaded [_ params] (call :memory-index-loaded params))
       (ask-question [_ params] (call :ask-question params)))))
 
 (defn ^:private make-components []
