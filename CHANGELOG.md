@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Remove the `task` tool's reminder to re-check the whole request when the last task is done; tasks are already verified on `complete`.
+- Simplify the `code` agent's request-checking instructions: no literal reading of loose instructions, no final sweep, no handling of hypothetical edge cases.
+
 ## 0.170.5
 
 - Fix releases since 0.170.2 shipping no binaries: build macOS arm64 on `macos-15` as GitHub retired `macos-14`, and target macOS 14+ for both macOS binaries. #691
