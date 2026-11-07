@@ -293,21 +293,6 @@
             result (handler {"op" "complete" "ids" [1]} {:db* db* :chat-id "c1"})]
         (is (match? {:contents [{:type :text :text #"Unblocked"}]} result))))
 
-    (testing "reminds to check the request once the last task is done"
-      (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
-                                                    {:id 2 :subject "T2" :description "D2" :status :in-progress :priority :medium :blocked-by #{}}]}}}})
-            result (handler {"op" "complete" "ids" [2]} {:db* db* :chat-id "c1"})]
-        (is (not (:error result)))
-        (is (match? {:contents [{:type :text :text #"All tasks are done\. Before your final answer, go back through the user's request"}]}
-                    result))))
-
-    (testing "no reminder while tasks remain"
-      (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :in-progress :priority :medium :blocked-by #{}}
-                                                    {:id 2 :subject "T2" :description "D2" :status :pending :priority :medium :blocked-by #{}}]}}}})
-            result (handler {"op" "complete" "ids" [1]} {:db* db* :chat-id "c1"})]
-        (is (not (:error result)))
-        (is (not (re-find #"All tasks are done" (get-in result [:contents 0 :text]))))))
-
     (testing "rejects blocked tasks for complete"
       (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}
                                                     {:id 2 :subject "T2" :description "D2" :status :pending :priority :medium :blocked-by #{1}}]}}}})

@@ -28,6 +28,7 @@ Task Schema:
 Task Creation Guidance:
 - Order tasks by expected execution flow. Put prerequisite tasks before tasks that depend on them, and use `blocked_by` to record those dependencies explicitly.
 - Create tasks as independently executable units with concise, outcome-focused subjects. Keep steps separate if one can be completed before the next begins. If several planned steps will be carried out in the same unit of work, combine them into one task and put the substeps in the description.
+- Include requirements the user stated (exact behaviors, specified edge cases) in the acceptance criteria of the task that implements them.
 
 Workflow rules for this tool:
 1. PLAN: Use 'plan' to create the task list with initial tasks. You MUST wait for the tool to return the generated task ids before doing anything else. Do NOT execute any work or call other tools in the same step as 'plan'.
