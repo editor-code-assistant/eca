@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.170.5
+
 - Fix releases since 0.170.2 shipping no binaries: build macOS arm64 on `macos-15` as GitHub retired `macos-14`, and target macOS 14+ for both macOS binaries. #691
 
 ## 0.170.4
