@@ -280,7 +280,7 @@ jobs:
   macos-aarch64:
     needs: [build-jar, release-dev-build]
     continue-on-error: true
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       fail-fast: false
     steps:

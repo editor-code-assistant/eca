@@ -299,7 +299,7 @@ jobs:
   macos-aarch64:
     name: Build native MacOS aarch64 binary
     needs: [ build-jar]
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

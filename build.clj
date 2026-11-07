@@ -19,6 +19,17 @@
       (string/lower-case)
       (string/includes? "linux")))
 
+(def ^:private macos?
+  (-> (System/getProperty "os.name")
+      (string/lower-case)
+      (string/includes? "mac")))
+
+(def ^:private macos-min-version
+  "Oldest macOS the native binary runs on. Pinned because otherwise the linker
+  uses the build host's macOS version, so moving CI to a newer runner image
+  would silently drop support for older macOS versions."
+  "14.0")
+
 (defn clean [_]
   (b/delete {:path "target"}))
 
@@ -91,6 +102,8 @@
                         (when (and linux? aarch64?)
                           ["-Djdk.lang.Process.launchMechanism=vfork"
                            "-H:PageSize=65536"])
+                        (when macos?
+                          (str "-H:NativeLinkerOption=-mmacosx-version-min=" macos-min-version))
                         (when (= "true" (System/getenv "ECA_STATIC"))
                           ["--static"
                            (if (= "true" (System/getenv "ECA_MUSL"))
