@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add opt-in provider `dialect` config; `foundation-models` strips JSON-Schema type unions from tool parameters so Apple's on-device Foundation Models server accepts requests with tools.
 - Remove the `task` tool's reminder to re-check the whole request when the last task is done; tasks are already verified on `complete`.
 - Simplify the `code` agent's request-checking instructions: no literal reading of loose instructions, no final sweep, no handling of hypothetical edge cases.
 

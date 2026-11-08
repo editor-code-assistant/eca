@@ -658,6 +658,15 @@
             "github-copilot"
           ]
         },
+        "dialect": {
+          "type": "string",
+          "description": "Opt-in override for vendor-specific quirks of the `openai-chat` API wire format (message/tool-schema shape). Only needed for providers whose otherwise OpenAI-compatible endpoint deviates in ways ECA can't infer from the URL.",
+          "markdownDescription": "Opt-in override for vendor-specific quirks of the `openai-chat` API wire format (message/tool-schema shape). Only needed for providers whose otherwise OpenAI-compatible endpoint deviates in ways ECA can't infer from the URL. `mistral` is normally auto-detected; `foundation-models` strips JSON-Schema `type` unions (e.g. `[\"integer\", \"null\"]`) from tool parameters, which Apple's on-device Foundation Models server rejects.",
+          "enum": [
+            "mistral",
+            "foundation-models"
+          ]
+        },
         "fetchModels": {
           "type": "boolean",
           "description": "Whether to fetch available models from the provider's API.",

@@ -644,7 +644,8 @@
             :description "Get the weather"
             :parameters {:type "object"
                          :properties {:location {:type "string"}}}
-            :other-field "ignored"}]))))
+            :other-field "ignored"}]
+          nil))))
 
   (testing "preserves normalized schema order in emitted parameters"
     (is (= [[:type "object"]
@@ -656,7 +657,8 @@
                   :parameters (tools.util/reorder-schema-required-first
                                {:required ["location"]
                                 :type "object"
-                                :properties {:location {:type "string"}}})}])
+                                :properties {:location {:type "string"}}})}]
+                nil)
                first
                :function
                :parameters
@@ -665,7 +667,34 @@
   (testing "Empty tools list"
     (is (match?
          []
-         (#'llm-providers.openai-chat/->tools [])))))
+         (#'llm-providers.openai-chat/->tools [] nil))))
+
+  (testing "foundation-models dialect strips null from type unions anywhere in the schema"
+    (is (match?
+         [{:type "function"
+           :function {:name "eca__task"
+                      :parameters {:type "object"
+                                   :properties {:id {:type "integer"}
+                                                 :tasks {:type "array"
+                                                         :items {:type "object"
+                                                                 :properties {:priority {:type "string"}}}}}}}}]
+         (#'llm-providers.openai-chat/->tools
+          [{:full-name "eca__task"
+            :parameters {:type "object"
+                         :properties {:id {:type ["integer" "null"]}
+                                      :tasks {:type "array"
+                                              :items {:type "object"
+                                                      :properties {:priority {:type ["string" "null"]}}}}}}}]
+          :foundation-models))))
+
+  (testing "other dialects/nil leave type unions untouched"
+    (is (match?
+         [{:function {:parameters {:properties {:id {:type ["integer" "null"]}}}}}]
+         (#'llm-providers.openai-chat/->tools
+          [{:full-name "eca__task"
+            :parameters {:type "object"
+                         :properties {:id {:type ["integer" "null"]}}}}]
+          nil)))))
 
 (deftest transform-message-test
   (testing "Tool call transformation - returns assistant message with tool_calls"

@@ -258,16 +258,20 @@
 (defn ^:private chat-dialect
   "The chat-completions dialect of the endpoint that receives the request (see
    `eca.llm-providers.openai-chat/transform-message`), or nil for the common one.
-   :mistral for Mistral's own API: the built-in provider (or one inheriting it),
-   or any provider whose URL host is a subdomain of mistral.ai (api.mistral.ai,
-   codestral.mistral.ai). Gateways serving Mistral models (OpenRouter, LiteLLM, ...)
-   use their own message format, so model names are not used."
-  [base-provider api-url]
+   An explicit `(:dialect provider-config)` (e.g. \"foundation-models\" for
+   Apple's on-device Foundation Models server) always wins over inference.
+   Otherwise, :mistral for Mistral's own API: the built-in provider (or one
+   inheriting it), or any provider whose URL host is a subdomain of mistral.ai
+   (api.mistral.ai, codestral.mistral.ai). Gateways serving Mistral models
+   (OpenRouter, LiteLLM, ...) use their own message format, so model names are
+   not used."
+  [base-provider api-url explicit-dialect]
   (let [host (try (some-> api-url java.net.URI. .getHost string/lower-case)
                   (catch Exception _))]
-    (when (or (= "mistral" base-provider)
-              (string/ends-with? (str host) ".mistral.ai"))
-      :mistral)))
+    (cond
+      (shared/not-blank explicit-dialect) (keyword explicit-dialect)
+      (or (= "mistral" base-provider)
+          (string/ends-with? (str host) ".mistral.ai")) :mistral)))
 
 (defn ^:private extra-payload-considering-variant
   "Resolves the effective extra-payload by merging extraPayload with variant payload.
@@ -522,7 +526,7 @@
             :think-tag-start think-tag-start
             :think-tag-end think-tag-end
             :reasoning-history reasoning-history
-            :dialect (chat-dialect base-provider api-url)
+            :dialect (chat-dialect base-provider api-url (:dialect provider-config))
             :http-client http-client
             :api-url api-url
             :api-key api-key

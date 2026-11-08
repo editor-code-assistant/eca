@@ -96,10 +96,40 @@
     :else
     {:text nil :thinking nil}))
 
-(defn ^:private ->tools [tools]
+(defn ^:private drop-null-from-type-union
+  "A JSON-Schema `type` as a union array (e.g. [\"integer\" \"null\"]) is rejected
+   outright by Apple's on-device Foundation Models server, failing the whole
+   request. Collapse it to its first non-null member; single `type` strings
+   are left untouched."
+  [type]
+  (if (sequential? type)
+    (or (first (remove #{"null" :null} type)) type)
+    type))
+
+(defn ^:private sanitize-foundation-models-schema
+  "Recursively strips `null` out of JSON-Schema `type` unions anywhere in a
+   tool's `parameters` schema (including nested `properties`/`items`), so
+   requests to Apple's Foundation Models server aren't rejected (#dialect
+   `:foundation-models`). Leaves everything else untouched."
+  [schema]
+  (cond
+    (map? schema)
+    (into {}
+          (map (fn [[k v]]
+                 [k (if (= :type k) (drop-null-from-type-union v) (sanitize-foundation-models-schema v))]))
+          schema)
+
+    (sequential? schema)
+    (mapv sanitize-foundation-models-schema schema)
+
+    :else schema))
+
+(defn ^:private ->tools [tools dialect]
   (mapv (fn [tool]
           {:type "function"
            :function (-> (select-keys tool [:description :parameters])
+                         (cond-> (= :foundation-models dialect)
+                           (update :parameters sanitize-foundation-models-schema))
                          (assoc :name (:full-name tool)))})
         tools))
 
@@ -652,7 +682,7 @@
                 :stream stream?
                 :max_completion_tokens (or max-output-tokens 32000)}
                :temperature temperature
-               :tools (when (seq tools) (->tools tools))
+               :tools (when (seq tools) (->tools tools dialect))
                ;; Required by the OpenAI streaming spec to receive a final
                ;; chunk with `usage`. Strict OpenAI-compat servers (e.g. Gemini
                ;; via `/v1beta/openai`) omit usage without this flag.
@@ -714,7 +744,7 @@
                                           request-opts {:rid (llm-util/gen-rid)
                                                         :body (assoc-some body
                                                                           :messages new-messages-list
-                                                                          :tools (when (seq tools) (->tools tools)))
+                                                                          :tools (when (seq tools) (->tools tools dialect)))
                                                         :on-tools-called-wrapper on-tools-called-wrapper
                                                         :extra-headers extra-headers
                                                         :http-client http-client

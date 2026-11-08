@@ -505,17 +505,20 @@
 
 (deftest chat-dialect-test
   (testing "built-in provider base"
-    (is (= :mistral (#'eca.llm-api/chat-dialect "mistral" "https://my-proxy.example.com/v1"))))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "mistral" "https://my-proxy.example.com/v1" nil))))
   (testing "mistral.ai hosts"
-    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai/v1")))
-    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://codestral.mistral.ai/v1")))
-    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://API.Mistral.AI"))))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai/v1" nil)))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://codestral.mistral.ai/v1" nil)))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://API.Mistral.AI" nil))))
   (testing "other hosts, look-alike hosts and bad URLs"
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://openrouter.ai/api/v1")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://notmistral.ai/v1")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai.evil.com/v1")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "not a url")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" nil)))))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://openrouter.ai/api/v1" nil)))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://notmistral.ai/v1" nil)))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai.evil.com/v1" nil)))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" "not a url" nil)))
+    (is (nil? (#'eca.llm-api/chat-dialect "custom" nil nil))))
+  (testing "explicit config dialect wins over inference"
+    (is (= :foundation-models (#'eca.llm-api/chat-dialect "custom" "http://localhost:1976/v1" "foundation-models")))
+    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://openrouter.ai/api/v1" "mistral")))))
 
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"
