@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [clojure.walk :as walk]
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -112,17 +113,12 @@
    requests to Apple's Foundation Models server aren't rejected (#dialect
    `:foundation-models`). Leaves everything else untouched."
   [schema]
-  (cond
-    (map? schema)
-    (into {}
-          (map (fn [[k v]]
-                 [k (if (= :type k) (drop-null-from-type-union v) (sanitize-foundation-models-schema v))]))
-          schema)
-
-    (sequential? schema)
-    (mapv sanitize-foundation-models-schema schema)
-
-    :else schema))
+  (walk/postwalk
+   (fn [node]
+     (if (and (map? node) (contains? node :type))
+       (update node :type drop-null-from-type-union)
+       node))
+   schema))
 
 (defn ^:private ->tools [tools dialect]
   (mapv (fn [tool]
