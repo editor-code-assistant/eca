@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.mcp :as f.mcp]
    [matcher-combinators.test :refer [match?]]))
 
 (def ^:private example-diff
@@ -12,6 +13,28 @@
                      "-a"
                      "+b"
                      "+c"]))
+
+(deftest tool-call-details-before-invocation-clojure-mcp-dry-run-test
+  (testing "the dry run previewing the change is called with the chat id"
+    (let [call* (atom nil)]
+      (with-redefs [f.mcp/call-tool! (fn [server-name name args ctx]
+                                       (reset! call* {:server-name server-name :name name
+                                                      :args args :ctx ctx})
+                                       {:error false :contents [{:type :text :text "new content"}]})]
+        (is (match? {:type :fileChange
+                     :path "/home/alice/my-org/my-proj/new.clj"
+                     :linesAdded 1
+                     :linesRemoved 0}
+                    (f.tools/tool-call-details-before-invocation
+                     "file_write"
+                     {"file_path" "/home/alice/my-org/my-proj/new.clj" "content" "new content"}
+                     {:name "clojure-mcp" :version "0.2.0"}
+                     {} {} "chat-1" true "call-1"))))
+      (is (match? {:server-name "clojure-mcp"
+                   :name "file_write"
+                   :args {"dry_run" "new-source"}
+                   :ctx {:chat-id "chat-1"}}
+                  @call*)))))
 
 (deftest tool-call-details-after-invocation-clojure-mcp-clojure-edit-test
   (testing "Tool call details for the Clojure MCP clojure_edit tool"

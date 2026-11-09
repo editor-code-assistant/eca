@@ -143,12 +143,14 @@
       (match-content chat-id "system" {:type "usage"})
       (match-content chat-id "system" {:type "progress" :state "finished"})
 
-      (testing "MCP mock received tools/call request with correct arguments"
+      (testing "MCP mock received tools/call request with correct arguments and the chat id as sessionId"
         (let [call-reqs (mcp-mock/get-requests-by-method "tools/call")]
           (is (= 1 (count call-reqs)))
           (is (match? {:method "tools/call"
                        :params {:name "echo"
-                                :arguments {:message "hello from mcp"}}}
+                                :arguments {:message "hello from mcp"}
+                                :_meta {:progressToken string?
+                                        :sessionId chat-id}}}
                       (first call-reqs)))))
 
       (testing "LLM received tool result in second request"

@@ -801,6 +801,20 @@
         (is (= [{:progress 1 :total 2}] @reported*)
             "the throttled trailing report is dropped once the call returned")))))
 
+(deftest call-tool!-mcp-chat-id-test
+  (testing "the calling chat's id reaches the MCP call, which sends it as _meta.sessionId"
+    (let [ctx* (atom nil)]
+      (with-redefs [f.mcp/all-tools  (fn [_]
+                                       [{:name "tool" :server {:name "srv"}
+                                         :parameters {"type" "object" :properties {}}}])
+                    f.mcp/call-tool! (fn [_server _name _args ctx]
+                                       (reset! ctx* ctx)
+                                       {:error false :contents []})]
+        (f.tools/call-tool! "srv__tool" {} "chat-1" "call-1" "code"
+                            (h/db*) (h/config) (h/messenger) (h/metrics)
+                            identity identity nil))
+      (is (= "chat-1" (:chat-id @ctx*))))))
+
 (deftest call-tool!-mcp-missing-required-test
   (testing "INVALID_ARGS for missing required param on MCP tool"
     (is (match?

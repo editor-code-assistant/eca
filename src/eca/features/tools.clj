@@ -493,6 +493,7 @@
                                                                                     :db* db*
                                                                                     :config config
                                                                                     :metrics metrics
+                                                                                    :chat-id chat-id
                                                                                     :on-progress call!})
                                  (finally
                                    (when stop! (stop!)))))))

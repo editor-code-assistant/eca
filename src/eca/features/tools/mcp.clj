@@ -1056,13 +1056,19 @@
   "Sends a tools/call request and returns the JSON-RPC response, or
    ::call-timeout when no response or progress notification arrives within
    `tool-call-timeout-ms`. A timed-out request is cancelled on the server.
-   `on-progress`, when given, receives each progress report as
-   {:progress :total :message}."
-  [mcp-client name arguments on-progress]
+   `request-opts`:
+   - `:chat-id`, when given, is sent as `_meta.sessionId` so the server can
+     keep per-chat state.
+   - `:on-progress`, when given, receives each progress report as
+     {:progress :total :message}."
+  [mcp-client name arguments {:keys [chat-id on-progress]}]
   (let [progress-token (str (random-uuid))
-        ;; plumcp drops a caller-supplied _meta, so the token is set directly.
+        ;; plumcp drops a caller-supplied _meta, so its fields are set directly.
         request (-> (peg/make-call-tool-request name arguments)
-                    (assoc-in [:params :_meta :progressToken] progress-token))
+                    (assoc-in [:params :_meta :progressToken] progress-token)
+                    ;; MCP has no standard per-call session id; like other clients we
+                    ;; send our own, the chat id hooks get as chat_id. #696
+                    (cond-> chat-id (assoc-in [:params :_meta :sessionId] chat-id)))
         request-id (:id request)
         response* (promise)
         last-activity-ms* (atom (System/currentTimeMillis))]
@@ -1113,8 +1119,8 @@
    :plumcp.core/http-status on the error map.
    A timeout is followed by a short liveness ping: a silent server means the
    connection is stale (e.g. after machine suspend) and gets flagged for
-   re-initialization."
-  [mcp-client name arguments needs-reinit?* on-progress]
+   re-initialization. `request-opts` are passed to `request-tool-call`."
+  [mcp-client name arguments needs-reinit?* request-opts]
   (let [error-msg* (atom nil)
         call-opts {:on-error (fn [_id jsonrpc-error]
                                (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")
@@ -1132,7 +1138,7 @@
                                    (reset! needs-reinit?* true)))
                                nil)}
         result (try
-                 (let [response (request-tool-call mcp-client name arguments on-progress)]
+                 (let [response (request-tool-call mcp-client name arguments request-opts)]
                    (if (= ::call-timeout response)
                      response
                      (pcs/on-jsonrpc-response response "call-tool" call-opts)))
@@ -1165,10 +1171,10 @@
       :else
       (tool-call-error (or @error-msg* "MCP server returned empty response")))))
 
-(defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments on-progress]
+(defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments request-opts]
   (reinitialize-server! server-name mcp-client db* config metrics)
   (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
-    (do-call-tool new-client name arguments nil on-progress)
+    (do-call-tool new-client name arguments nil request-opts)
     (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
 
 (defn ^:private refresh-expired-auth!
@@ -1189,29 +1195,31 @@
       (not (try-refresh-token! server-name db* url metrics server-config)))))
 
 (defn call-tool!
-  "Calls an MCP server tool. `on-progress`, when given, receives each progress
+  "Calls an MCP server tool. `chat-id`, when given, is sent to the server as
+   `_meta.sessionId`. `on-progress`, when given, receives each progress
    report the server sends for the call as {:progress :total :message}."
-  [server-name name arguments {:keys [db db* config metrics on-progress]}]
+  [server-name name arguments {:keys [db db* config metrics] :as ctx}]
   (if-let [[mcp-client needs-reinit?*]
            (when-let [{:keys [client tools needs-reinit?*]} (get-in db [:mcp-clients server-name])]
              (when (some #(= name (:name %)) tools)
                [client needs-reinit?*]))]
-    (if (and needs-reinit?* db* config metrics
-             (or @needs-reinit?*
-                 (refresh-expired-auth! server-name db* config metrics)))
-      ;; Flagged, or expired token couldn't be refreshed — reinit before the call
-      (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments on-progress)
-      (let [result (do-call-tool mcp-client name arguments needs-reinit?* on-progress)]
-        (cond
-          ;; nil = transient transport error, retry once
-          (nil? result)
-          (do-call-tool mcp-client name arguments needs-reinit?* on-progress)
+    (let [request-opts (select-keys ctx [:chat-id :on-progress])]
+      (if (and needs-reinit?* db* config metrics
+               (or @needs-reinit?*
+                   (refresh-expired-auth! server-name db* config metrics)))
+        ;; Flagged, or expired token couldn't be refreshed — reinit before the call
+        (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments request-opts)
+        (let [result (do-call-tool mcp-client name arguments needs-reinit?* request-opts)]
+          (cond
+            ;; nil = transient transport error, retry once
+            (nil? result)
+            (do-call-tool mcp-client name arguments needs-reinit?* request-opts)
 
-          ;; Flagged during the call (e.g. HTTP 401/403/5xx) — reinit and retry
-          (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
-          (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments on-progress)
+            ;; Flagged during the call (e.g. HTTP 401/403/5xx) — reinit and retry
+            (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
+            (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments request-opts)
 
-          :else result)))
+            :else result))))
     (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
 
 (defn all-prompts [db]

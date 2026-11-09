@@ -56,7 +56,7 @@
                             "server-b" {:client :client-b
                                         :tools [{:name "shared_tool"}]})}
           calls* (atom [])]
-      (with-redefs [mcp/do-call-tool (fn [client name arguments needs-reinit?* _on-progress]
+      (with-redefs [mcp/do-call-tool (fn [client name arguments needs-reinit?* _request-opts]
                                          (swap! calls* conj {:client client
                                                             :name name
                                                             :arguments arguments
@@ -579,21 +579,21 @@
 (deftest do-call-tool-flags-reinit-on-auth-error-test
   (testing "JSON-RPC error without HTTP status but auth-like message flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             {:jsonrpc "2.0" :id "id-1" :error {:message "Unauthorized: token expired"}})]
         (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*))))
 
   (testing "ordinary JSON-RPC error without HTTP status does not flag reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             {:jsonrpc "2.0" :id "id-1" :error {:message "spreadsheet not found"}})]
         (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (false? @needs-reinit?*))))
 
   (testing "HTTP 401 still flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             {:jsonrpc "2.0" :id "id-1" :error {:message "boom" :plumcp.core/http-status 401}})]
         (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*)))))
@@ -611,7 +611,7 @@
 (deftest do-call-tool-timeout-test
   (testing "timeout + silent ping probe (dead connection) flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client opts]
                                (:timeout-value opts))]
@@ -622,7 +622,7 @@
 
   (testing "timeout + ping transport exception flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client _opts]
                                (throw (java.io.IOException. "Connection reset")))]
@@ -631,7 +631,7 @@
 
   (testing "timeout but server answers ping (slow tool): plain timeout error, no reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client _opts] {})]
         (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
@@ -642,7 +642,7 @@
 
   (testing "timeout on stdio server (no needs-reinit atom): plain timeout error, no probe"
     (let [pinged?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _on-progress]
+      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
                                             :eca.features.tools.mcp/call-timeout)
                     pmc/ping (fn [_client _opts] (reset! pinged?* true) {})]
         (let [result (#'mcp/do-call-tool (Object.) "tool" {} nil nil)]
@@ -665,7 +665,8 @@
                                                                   :message "working" :_meta {}}}))
                                                      (callback {:jsonrpc "2.0" :id (:id request) :result {:content []}}))))
                     pmc/cancel-sent-request (fn [_client id & _] (reset! cancelled* id))]
-        (is (= {:content []} (:result (#'mcp/request-tool-call (Object.) "tool" {} #(swap! reported* conj %)))))
+        (is (= {:content []} (:result (#'mcp/request-tool-call (Object.) "tool" {}
+                                                               {:on-progress #(swap! reported* conj %)}))))
         (is (nil? @cancelled*) "a completed call must not be cancelled")
         (is (= (mapv #(hash-map :progress % :total 5 :message "working") (range 5))
                @reported*)))))
@@ -684,6 +685,21 @@
 
   (testing "progress listeners are removed once calls finish"
     (is (empty? @@#'mcp/progress-listeners*))))
+
+(deftest request-tool-call-session-id-test
+  (let [sent-meta* (atom nil)]
+    (with-redefs [pcs/send-request-to-server (fn [_client request callback]
+                                               (reset! sent-meta* (get-in request [:params :_meta]))
+                                               (callback {:jsonrpc "2.0" :id (:id request) :result {:content []}}))]
+      (testing "the chat id is sent as _meta.sessionId next to the progress token"
+        (#'mcp/request-tool-call (Object.) "tool" {} {:chat-id "chat-1"})
+        (is (= #{:progressToken :sessionId} (set (keys @sent-meta*))))
+        (is (string? (:progressToken @sent-meta*)))
+        (is (= "chat-1" (:sessionId @sent-meta*))))
+
+      (testing "no sessionId is sent without a chat id"
+        (#'mcp/request-tool-call (Object.) "tool" {} nil)
+        (is (= #{:progressToken} (set (keys @sent-meta*))))))))
 
 (deftest reinitialize-server!-refreshes-before-init-test
   (testing "forces a token refresh before re-initializing (heals server-side expiry)"
@@ -717,7 +733,7 @@
                                              (swap! calls* conj [:refresh name url])
                                              true)
                     mcp/reinitialize-server! (fn [& _] (swap! calls* conj [:reinit]))
-                    mcp/do-call-tool (fn [client _name _args _nr _on-progress]
+                    mcp/do-call-tool (fn [client _name _args _nr _request-opts]
                                        (swap! calls* conj [:call client])
                                        {:error false :contents []})]
         (is (= {:error false :contents []}
@@ -731,7 +747,7 @@
       (with-redefs [mcp/try-refresh-token! (fn [_name _db* _url _metrics _config] nil)
                     mcp/reinitialize-server! (fn [name _client _db* _config _metrics]
                                                (swap! calls* conj [:reinit name]))
-                    mcp/do-call-tool (fn [client _name _args _nr _on-progress]
+                    mcp/do-call-tool (fn [client _name _args _nr _request-opts]
                                        (swap! calls* conj [:call client])
                                        {:error false :contents []})]
         (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
@@ -742,12 +758,54 @@
     (let [db* (call-tool-db* (+ (quot (System/currentTimeMillis) 1000) 3600))
           calls* (atom [])]
       (with-redefs [mcp/try-refresh-token! (fn [& _] (swap! calls* conj [:refresh]) true)
-                    mcp/do-call-tool (fn [client _name _args _nr _on-progress]
+                    mcp/do-call-tool (fn [client _name _args _nr _request-opts]
                                        (swap! calls* conj [:call client])
                                        {:error false :contents []})]
         (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
                                        :config call-tool-ctx-config :metrics {}})
         (is (= [[:call :client-s]] @calls*) "no refresh when token is not expired")))))
+
+(deftest call-tool!-sends-chat-id-as-session-id-test
+  (let [sent* (atom [])
+        fail-next-send?* (atom false)
+        db {:mcp-clients {"s" {:client :client-s :tools [{:name "tool"}]}}}]
+    (with-redefs [pcs/send-request-to-server (fn [client request callback]
+                                               (swap! sent* conj [client (-> request :params :_meta (dissoc :progressToken))])
+                                               (if (compare-and-set! fail-next-send?* true false)
+                                                 (throw (java.io.IOException. "Connection reset"))
+                                                 (callback {:jsonrpc "2.0" :id (:id request) :result {:content []}})))
+                  ;; A failed send drops its pending request from the client cache.
+                  pcs/get-client-cache-atom (constantly nil)
+                  pcs/remove-pending-client-request! (constantly nil)]
+      (testing "sent on the tools/call request"
+        (is (= {:error nil :contents []}
+               (mcp/call-tool! "s" "tool" {} {:db db :chat-id "chat-1"})))
+        (is (= [[:client-s {:sessionId "chat-1"}]] @sent*)))
+
+      (testing "sent again when a transient transport error retries the call"
+        (reset! sent* [])
+        (reset! fail-next-send?* true)
+        (is (= {:error nil :contents []}
+               (mcp/call-tool! "s" "tool" {} {:db db :chat-id "chat-1"})))
+        (is (= [[:client-s {:sessionId "chat-1"}]
+                [:client-s {:sessionId "chat-1"}]]
+               @sent*)))
+
+      (testing "sent through the re-initialized client"
+        (reset! sent* [])
+        (let [db* (atom {:mcp-clients {"s" {:client :client-s
+                                            :tools [{:name "tool"}]
+                                            :needs-reinit?* (atom true)}}})]
+          (with-redefs [mcp/reinitialize-server! (fn [server-name _client db* _config _metrics]
+                                                   (swap! db* assoc-in [:mcp-clients server-name :client] :new-client))]
+            (mcp/call-tool! "s" "tool" {} {:db @db* :db* db* :config call-tool-ctx-config :metrics {}
+                                           :chat-id "chat-1"}))
+          (is (= [[:new-client {:sessionId "chat-1"}]] @sent*))))
+
+      (testing "not sent without a chat id"
+        (reset! sent* [])
+        (mcp/call-tool! "s" "tool" {} {:db db})
+        (is (= [[:client-s {}]] @sent*))))))
 
 (deftest with-serialized-sends-test
   (testing "concurrent sends never interleave a message's writes"
