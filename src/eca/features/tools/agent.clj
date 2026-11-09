@@ -154,15 +154,15 @@
 
 (defn ^:private prompt-subagent!
   "Sends `message` to the subagent chat, claimed by this run's token."
-  [{:keys [db* messenger config metrics subagent-chat-id agent-name model variant trust token]} message]
+  [{:keys [db* messenger config metrics subagent-chat-id agent-name model variant token]} message]
   ;; Resolved at runtime to avoid a circular dependency with the chat ns.
+  ;; No :trust, which chat/prompt would store on the subagent (see `admit-new`).
   ((requiring-resolve 'eca.features.chat/prompt)
    (shared/assoc-some {:owner-token token
                        :chat-id subagent-chat-id
                        :model model
                        :agent agent-name
                        :contexts []
-                       :trust trust
                        :message message}
                       :variant variant)
    db* messenger config metrics))
@@ -293,18 +293,19 @@
 
 (defn ^:private admit-new
   "Registers the chat of a new subagent, claimed by this run's `token`."
-  [db {:keys [subagent-chat-id chat-id agent-name subagent model variant trust token]}]
+  [db {:keys [subagent-chat-id chat-id agent-name subagent model variant token]}]
   (when (contains? (:chats db) subagent-chat-id)
     (throw (ex-info "Subagent chat ID already exists." {:chat-id subagent-chat-id})))
   (-> db
       (assoc-in [:managed-chats subagent-chat-id] {:token token :workers 0})
+      ;; No :trust of its own: each tool call resolves the parent's
+      ;; (`db/resolve-trust`), so toggling it while the subagent runs applies (#504).
       (assoc-in [:chats subagent-chat-id]
                 (shared/assoc-some {:id subagent-chat-id
                                     :parent-chat-id chat-id
                                     :agent-name agent-name
                                     :subagent subagent
                                     :model model
-                                    :trust trust
                                     :current-step 0}
                                    :variant variant
                                    :max-steps (:max-steps subagent)))))

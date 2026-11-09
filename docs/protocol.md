@@ -2315,7 +2315,8 @@ interface ChatUpdateParams {
     /**
      * When true, enables trust mode for this chat — tool calls that would
      * normally require manual approval are auto-accepted. Does not override deny rules.
-     * Changes apply immediately to subsequent tool calls in the active prompt.
+     * Changes apply immediately to subsequent tool calls in the active prompt,
+     * including those of the subagents running in this chat.
      */
     trust?: boolean;
 }

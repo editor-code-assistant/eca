@@ -406,61 +406,50 @@
                       result)))))))
 
 (deftest spawn-agent-trust-propagation-test
-  (testing "forwards trust to subagent chat/prompt"
-    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
-          subagent-chat-id "subagent-tc-1"
-          chat-prompt-called* (promise)]
-      (with-redefs [requiring-resolve
-                    (fn [sym]
-                      (case sym
-                        eca.features.chat/prompt
-                        (fn [params _db* _messenger _config _metrics]
-                          (deliver chat-prompt-called* params)
-                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
-                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
-                                 [{:role "assistant"
-                                   :content [{:type :text :text "Done."}]}]))
-                        (clojure.lang.RT/var (namespace sym) (name sym))))]
-        ((spawn-handler)
-         {"agent" "explorer" "task" "find files" "activity" "exploring"}
-         {:db* db*
-          :config test-config
-          :messenger (h/messenger)
-          :metrics (h/metrics)
-          :chat-id "chat-1"
-          :tool-call-id "tc-1"
-          :call-state-fn (constantly {:status :executing})
-          :trust true})
-        (is (match? {:chat-id subagent-chat-id
-                     :agent "explorer"
-                     :trust true}
-                    @chat-prompt-called*)))))
-
-  (testing "does not forward trust when not set"
-    (let [db* (atom {:chats {"chat-1" {:id "chat-1" :model "test/model"}}})
-          subagent-chat-id "subagent-tc-1"
-          chat-prompt-called* (promise)]
-      (with-redefs [requiring-resolve
-                    (fn [sym]
-                      (case sym
-                        eca.features.chat/prompt
-                        (fn [params _db* _messenger _config _metrics]
-                          (deliver chat-prompt-called* params)
-                          (swap! db* assoc-in [:chats subagent-chat-id :status] :idle)
-                          (swap! db* assoc-in [:chats subagent-chat-id :messages]
-                                 [{:role "assistant"
-                                   :content [{:type :text :text "Done."}]}]))
-                        (clojure.lang.RT/var (namespace sym) (name sym))))]
-        ((spawn-handler)
-         {"agent" "explorer" "task" "find files" "activity" "exploring"}
-         {:db* db*
-          :config test-config
-          :messenger (h/messenger)
-          :metrics (h/metrics)
-          :chat-id "chat-1"
-          :tool-call-id "tc-1"
-          :call-state-fn (constantly {:status :executing})})
-        (is (nil? (:trust @chat-prompt-called*)))))))
+  ;; Trust toggled on the parent while its subagent runs applies to the
+  ;; subagent's next tool call, whatever the parent's trust was at spawn (#504).
+  ;; Drives the subagent's real chat/prompt up to its tool call approval.
+  (doseq [[spawn-trust toggled-trust] [[nil true] [false true] [true false]]]
+    (testing (format "parent trust %s at spawn, toggled to %s while the subagent runs"
+                     (pr-str spawn-trust) toggled-trust)
+      (h/reset-components!)
+      (h/config! {:env "test" :agent {"explorer" {:mode "subagent" :description "Explorer"}}})
+      (swap! (h/db*) assoc-in [:chats "parent"]
+             (cond-> {:id "parent" :model "openai/gpt-5.2"}
+               (some? spawn-trust) (assoc :trust spawn-trust)))
+      (let [approval-opts* (promise)]
+        (with-redefs [f.tools.agent/poll-interval-ms 10
+                      llm-api/sync-prompt! (constantly nil)
+                      config/await-plugins-resolved! (constantly true)
+                      f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
+                                                      :server {:name "eca"} :origin :native}])
+                      f.tools/approval (fn
+                                         ;; Filtering out denied skills, not a tool call.
+                                         ([_ _ _ _ _ _] :allow)
+                                         ([_ _ _ _ _ _ opts]
+                                          (deliver approval-opts* opts)
+                                          :allow))
+                      f.tools/call-tool! (constantly {:contents [{:type :text :text "looked up"}]})
+                      llm-api/sync-or-async-prompt!
+                      (fn [{:keys [on-first-response-received on-message-received
+                                   on-prepare-tool-call on-tools-called]}]
+                        (on-first-response-received {:type :text :text "start"})
+                        (f.chat/update-chat {:chat-id "parent" :trust toggled-trust}
+                                            (h/db*) (h/messenger) (h/metrics))
+                        (on-prepare-tool-call {:id "lookup" :full-name "eca__lookup" :arguments-text "{}"})
+                        (on-tools-called [{:id "lookup" :full-name "eca__lookup" :arguments {}}])
+                        (on-message-received {:type :text :text "done"})
+                        (on-message-received {:type :finish}))]
+          (let [result ((spawn-handler)
+                        {"agent" "explorer" "task" "find"}
+                        {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                         :chat-id "parent" :tool-call-id "trust"
+                         ;; The parent's trust at spawn, as `f.tools/call-tool!` passes it.
+                         :trust spawn-trust
+                         :call-state-fn (constantly {:status :executing})})]
+            (is (false? (:error result)))
+            (is (match? {:chat-id "subagent-trust" :trust toggled-trust}
+                        (deref approval-opts* 1000 ::not-called)))))))))
 
 (defn ^:private assistant-msg [text]
   {:role "assistant" :content [{:type :text :text text}]})

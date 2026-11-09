@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix trust toggled while a subagent runs not applying to it, e.g. turning trust off left the subagent auto-accepting tool calls. #504
+
 ## 0.170.6
 
 - Remove the `task` tool's reminder to re-check the whole request when the last task is done; tasks are already verified on `complete`.
