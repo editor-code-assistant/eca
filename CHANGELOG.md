@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.170.6
+
 - Remove the `task` tool's reminder to re-check the whole request when the last task is done; tasks are already verified on `complete`.
 - Simplify the `code` agent's request-checking instructions: no literal reading of loose instructions, no final sweep, no handling of hypothetical edge cases.
 
