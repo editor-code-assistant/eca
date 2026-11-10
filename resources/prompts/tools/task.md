@@ -32,8 +32,8 @@ Task Creation Guidance:
 
 Workflow rules for this tool:
 1. PLAN: Use 'plan' to create the task list with initial tasks. You MUST wait for the tool to return the generated task ids before doing anything else. Do NOT execute any work or call other tools in the same step as 'plan'.
-2. START & SYNC: Use 'start' immediately before beginning work on a task. Start ONLY tasks you are about to work on. Do not start tasks preemptively. You are FORBIDDEN to execute any work on a task unless its status is explicitly `in_progress`.
-3. DO THE WORK FIRST: After calling 'start', you MUST actually perform the work (write code, use tools, etc.). NEVER call 'complete' preemptively; only call 'complete' after the work has been done and objectively verified against the task's `description` acceptance criteria since the corresponding 'start'.
+2. START & SYNC: Use 'start' immediately before beginning work on a task. Start ONLY tasks you are about to work on. Do not start tasks preemptively. Don't send a 'start' in the same step as the 'complete' of a task that blocks it: 'start' rejects a task until its blockers are done.
+3. DO THE WORK FIRST: After calling 'start', you MUST actually perform the work (write code, use tools, etc.). NEVER call 'complete' preemptively; only call 'complete' after the work has been done and objectively verified against the task's `description` acceptance criteria.
 4. SUBAGENTS & PARALLEL WORK: For sequential work, keep only one task `in_progress`; later tasks must stay pending until you start them. Multiple tasks may be `in_progress` only for concurrent separate workstreams (e.g. separate subagents). Only the main agent updates the task list.
-5. COMPLETION TIMING: Once a task is verified, close it as soon as possible. Do not delay completion just to align with other tasks.
+5. COMPLETION TIMING: As soon as a task's acceptance criteria are verified, you MUST call 'complete' for it. Never leave finished work pending or `in_progress`, and do not delay completion just to align with other tasks.
 6. ADAPTABILITY: If completing tasks reveals follow-up work, use 'add' to append new tasks.
