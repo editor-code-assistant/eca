@@ -505,7 +505,7 @@
                  :properties {:op {:type "string"
                                    :enum ["read" "plan" "add" "update" "start" "complete" "delete" "clear"]
                                    :description "Operation to perform"}
-                              :id {:type ["integer" "null"]
+                              :id {:type "integer"
                                    :description "Task ID (required for update)"}
                               :ids {:type "array"
                                     :items {:type "integer"}

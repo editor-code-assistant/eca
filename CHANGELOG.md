@@ -4,6 +4,7 @@
 
 - Send the chat id as `_meta.sessionId` on MCP `tools/call` requests, so MCP servers can keep per-chat state. #696
 - Fix trust toggled while a subagent runs not applying to it, e.g. turning trust off left the subagent auto-accepting tool calls. #504
+- Improve the `task` tool: plain integer `id` so servers rejecting type unions (e.g. Apple `fm serve`) work, and rules no longer make models redo work after a missed `start`. #693
 
 ## 0.170.6
 

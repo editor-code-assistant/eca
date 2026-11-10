@@ -175,6 +175,19 @@
                     "  enforce: modify")
                (:description tool)))))))
 
+(deftest native-tool-schemas-test
+  (testing "Native tool schemas use a single `type` and no combinators, which some servers (e.g. Apple `fm serve`) reject"
+    (let [schema-nodes (fn [schema]
+                         (tree-seq map?
+                                   #(filter map? (cons (:items %) (vals (:properties %))))
+                                   schema))]
+      (is (= []
+             (for [tool (f.tools/native-tools {} {})
+                   node (schema-nodes (:parameters tool))
+                   :when (or (not ((some-fn nil? string?) (:type node)))
+                             (some #(contains? node %) [:anyOf :oneOf :allOf :$ref]))]
+               [(:name tool) node]))))))
+
 (deftest get-disabled-tools-test
   (testing "merges global and agent-specific disabled tools"
     (let [config {:disabledTools ["global_tool"]

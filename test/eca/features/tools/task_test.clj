@@ -279,6 +279,12 @@
         (is (= :done (get-in @db* [:chats "c1" :task :tasks 1 :status])))
         (is (nil? (get-in @db* [:chats "c1" :task :active-summary])))))
 
+    (testing "completes a pending task that was never started"
+      (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}]}}}})
+            result (handler {"op" "complete" "ids" [1]} {:db* db* :chat-id "c1"})]
+        (is (not (:error result)))
+        (is (= :done (get-in @db* [:chats "c1" :task :tasks 0 :status])))))
+
     (testing "leaves active summary if tasks are in-progress"
       (let [db* (atom {:chats {"c1" {:task {:active-summary "My task" :tasks [{:id 1 :subject "T1" :description "D1" :status :in-progress :priority :medium :blocked-by #{}}
                                                     {:id 2 :subject "T2" :description "D2" :status :in-progress :priority :medium :blocked-by #{}}]}}}})]
