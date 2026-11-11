@@ -164,11 +164,12 @@ Effect-only fields (`updatedInput`, `approval`, `replacedOutput`) change behavio
 
 Every hook receives these fields on stdin:
 
-- `hook_name`, `hook_type`, `workspaces`, `cwd`, `db_cache_path`, `session_id`, `eca_executable`
+- `hook_name`, `hook_type`, `workspaces`, `cwd`, `db_cache_path`, `session_id`, `eca_executable`, `eca_version`
   - `cwd` — the first workspace folder, matching the working directory ECA uses for hook commands.
   - `db_cache_path` — the workspace chat cache dir (holding `chats/index.transit.json` and per-chat files); pass it to `eca read-chat --db-cache-path`.
   - `session_id` — the cache session key: the `db_cache_path` dir name.
   - `eca_executable` — the launch command of the running ECA process (executable path for native binaries; the full `java ... -jar` invocation for JVM launches).
+  - `eca_version` — the version of the running ECA (e.g. `0.171.0`), so hooks can gate behavior on ECA features.
 
 **Chat-scoped hooks** (everything except `sessionStart`/`sessionEnd`) additionally receive `chat_id`, `agent`, `behavior` (deprecated alias of `agent`), `full_model`, and `variant`.
 

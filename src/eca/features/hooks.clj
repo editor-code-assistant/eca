@@ -4,6 +4,7 @@
    [babashka.process :as p]
    [cheshire.core :as json]
    [clojure.string :as string]
+   [eca.config :as config]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -32,7 +33,7 @@
 
 (defn base-hook-data
   "Returns common fields for ALL hooks: :workspaces, :cwd, :db-cache-path,
-   :session-id, and :eca-executable."
+   :session-id, :eca-executable, and :eca-version."
   [db]
   (let [workspaces (shared/get-workspaces db)
         db-cache-path (shared/db-cache-path db)]
@@ -40,7 +41,8 @@
      :cwd (first workspaces)
      :db-cache-path db-cache-path
      :session-id (session-id-from-db-cache-path db-cache-path)
-     :eca-executable @shared/eca-executable*}))
+     :eca-executable @shared/eca-executable*
+     :eca-version (config/eca-version)}))
 
 (defn chat-hook-data
   "Returns common fields for CHAT-RELATED hooks.
