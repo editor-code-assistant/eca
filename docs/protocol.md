@@ -1369,10 +1369,14 @@ interface ChatToolCallRejectedContent {
     
     /**
      * The reason why this tool call was rejected.
+     * 'hookStopped': a preToolCall hook stopped the turn (continue:false).
      * 'interrupted': the LLM response streaming this tool call failed
      * (e.g. connection dropped), so it will never run.
+     * 'invalidArguments': the LLM sent arguments that are not valid JSON;
+     * it gets the error as the result of the call and may send it again.
+     * 'user': no specific reason is known.
      */
-    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'userPromptStop' | 'userStop' | 'user' | 'interrupted';
+    reason: 'userChoiceDeny' | 'userConfigDeny' | 'hookRejected' | 'hookStopped' | 'userPromptStop' | 'userStop' | 'user' | 'interrupted' | 'invalidArguments';
     
     /**
      * Summary text to present about this tool call, 

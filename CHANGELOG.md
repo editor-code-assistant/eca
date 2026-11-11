@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix tool calls with invalid JSON arguments ending the turn silently or as a connection error: the LLM now gets the error as the call's result and can retry.
+- Fix `toolCallRejected` sending `reason` `user` for most rejections, and kebab-case for the rest: it now follows the protocol, with new `hookStopped` and `invalidArguments`.
 
 ## 0.171.0
 

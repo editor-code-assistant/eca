@@ -1017,7 +1017,8 @@
                                                                (string/includes? % invalid-arguments-error))}]}}}]
                   (:messages chat)))
       (is (= :rejected (get-in chat [:tool-calls "call-1" :status])))
-      (is (match? (m/embeds [{:role :assistant :content {:type :toolCallRejected :id "call-1"}}])
+      (is (match? (m/embeds [{:role :assistant
+                              :content {:type :toolCallRejected :id "call-1" :reason :invalidArguments}}])
                   (:chat-content-received (h/messages)))
           "clients must not keep showing the call as being prepared")
       (is (nil? (:prompt-error chat)))))
@@ -1079,6 +1080,13 @@
       (is (nil? (:auto-compacting? chat)))
       (is (some? (:prompt-error chat)))
       (is (= :idle (:status chat))))))
+
+(deftest rejected-reason-reaches-clients-test
+  (testing "a tool call denied by the config is rejected with that reason, not as rejected by the user"
+    (run-tool-rounds! {:approval :deny :rounds [[(valid-call "call-1")]]})
+    (is (match? (m/embeds [{:role :assistant
+                            :content {:type :toolCallRejected :id "call-1" :reason :userConfigDeny}}])
+                (:chat-content-received (h/messages))))))
 
 (deftest invalid-arguments-tool-call-output-contents-test
   (let [text (-> (#'tc/invalid-arguments-tool-call-output-contents invalid-arguments-error) first :text)]

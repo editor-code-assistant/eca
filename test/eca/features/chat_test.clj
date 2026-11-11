@@ -2828,8 +2828,8 @@
                     {:role :system :content {:type :progress :state :running :text "Generating"}}
                     {:role :system :content {:type :text :text "\nPrompt stopped\n"}}
                     {:role :system :content {:type :progress :state :finished}}
-                    {:role :assistant :content {:type :toolCallRejected :id "call-2" :name "ro_tool_2" :arguments {} :reason :user}}
-                    {:role :assistant :content {:type :toolCallRejected :id "call-1" :name "ro_tool_1" :arguments {} :reason :user}}]}
+                    {:role :assistant :content {:type :toolCallRejected :id "call-2" :name "ro_tool_2" :arguments {} :reason :userStop}}
+                    {:role :assistant :content {:type :toolCallRejected :id "call-1" :name "ro_tool_1" :arguments {} :reason :userStop}}]}
                   (h/messages))))))
 
 (deftest send-mcp-prompt-test

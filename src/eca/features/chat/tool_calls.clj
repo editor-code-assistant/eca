@@ -1,5 +1,6 @@
 (ns eca.features.chat.tool-calls
   (:require
+   [camel-snake-kebab.core :as csk]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
@@ -476,7 +477,10 @@
                                  :name (or (:name event-data) name)
                                  :server (or (:server event-data) server)
                                  :arguments (or (:arguments event-data) arguments)
-                                 :reason (:code (:reason event-data) :user)}
+                                 ;; :reason is a decision reason ({:code :text}); its code is
+                                 ;; kebab-case here and camelCase in the protocol.
+                                 :reason (or (some-> event-data :reason :code csk/->camelCaseKeyword)
+                                             :user)}
                                 :details (:details event-data)
                                 :summary (:summary event-data))))
 
@@ -1024,8 +1028,8 @@
                                                                                                     :error         (:error result)
                                                                                                     :outputs       (:contents result)
                                                                                                     :total-time-ms total-time-ms
-                                                                                                    :reason        :user-stop :details
-                                                                                                    details
+                                                                                                    :reason        {:code :user-stop}
+                                                                                                    :details       details
                                                                                                     :summary       summary})
                                                  (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
                                    (transition-tool-call! db*
@@ -1061,7 +1065,7 @@
                                                                                       :name      name
                                                                                       :server    server-name
                                                                                       :arguments arguments
-                                                                                      :reason    code
+                                                                                      :reason    {:code code}
                                                                                       :details   details
                                                                                       :summary   summary}))))}))
                 prepared (reduce (fn [acc [idx tool-call]]
