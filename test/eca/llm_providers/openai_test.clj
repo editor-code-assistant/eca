@@ -539,6 +539,57 @@
                     (first @tools-called*)))
         (is (= 2 (count @requests*)))))))
 
+(deftest create-response-invalid-tool-arguments-test
+  (testing "a tool call with invalid JSON arguments reaches the chat marked with :arguments-error instead of failing the response"
+    (doseq [[label output] [["in response.completed output" [{:type "function_call"
+                                                              :id "item-1"
+                                                              :call_id "call-1"
+                                                              :name "eca__shell_command"
+                                                              :arguments "{\"command\":\"ls"}]]
+                            ["only streamed via events" []]]]
+      (testing label
+        (let [tools-called* (atom [])
+              errors* (atom [])
+              requests* (atom [])]
+          (with-redefs [llm-providers.openai/base-responses-request!
+                        (fn [{:keys [on-stream] :as opts}]
+                          (swap! requests* conj opts)
+                          (when (= 1 (count @requests*))
+                            (on-stream "response.output_item.added"
+                                       {:item {:type "function_call"
+                                               :id "item-1"
+                                               :call_id "call-1"
+                                               :name "eca__shell_command"
+                                               :arguments ""}})
+                            (on-stream "response.function_call_arguments.delta"
+                                       {:item_id "item-1"
+                                        :delta "{\"command\":\"ls"})
+                            (on-stream "response.output_item.done"
+                                       {:item {:type "function_call"
+                                               :id "item-1"
+                                               :call_id "call-1"
+                                               :name "eca__shell_command"
+                                               :arguments "{\"command\":\"ls"}})
+                            (on-stream "response.completed"
+                                       {:response {:output output
+                                                   :usage {:input_tokens 10
+                                                           :output_tokens 5}
+                                                   :status "completed"}})))]
+            (llm-providers.openai/create-response!
+             (base-provider-params)
+             (base-callbacks
+              {:on-error (fn [error] (swap! errors* conj error))
+               :on-tools-called (fn [tool-calls]
+                                  (swap! tools-called* conj tool-calls)
+                                  {:new-messages [] :tools []})})))
+          (is (empty? @errors*))
+          (is (match? [[{:id "call-1"
+                         :full-name "eca__shell_command"
+                         :arguments {}
+                         :arguments-error #"^Unexpected end-of-input.* The arguments ended with: \{\"command\":\"ls$"}]]
+                      @tools-called*))
+          (is (= 2 (count @requests*)) "the tool loop goes on with the error as the call's result"))))))
+
 (deftest create-response-parallel-tool-calls-test
   (let [tool-batches* (atom [])
         requests* (atom [])

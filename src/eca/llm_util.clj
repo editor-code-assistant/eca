@@ -84,6 +84,29 @@
    ""
    (-> result :output :contents)))
 
+(def ^:private tool-call-arguments-tail-length
+  "How many characters from the end of invalid tool call arguments the LLM gets back."
+  200)
+
+(defn parse-tool-call-arguments
+  "Parses the JSON `arguments-text` of a tool call sent by the LLM, returning
+   {:arguments ...}. Never throws: for text that is not valid JSON, returns
+   empty :arguments and an :arguments-error telling the LLM what failed and how
+   its text ended, so the chat can reject only that call with the error as its
+   result, the same way for every provider."
+  [arguments-text]
+  (try
+    {:arguments (json/parse-string arguments-text)}
+    (catch Exception e
+      (let [text (str arguments-text)
+            tail-start (max 0 (- (count text) (long tool-call-arguments-tail-length)))]
+        {:arguments {}
+         :arguments-error (format "%s. The arguments ended with: %s%s"
+                                  (or (some-> (ex-message e) string/split-lines first)
+                                      "Invalid JSON")
+                                  (if (pos? tail-start) "..." "")
+                                  (subs text tail-start))}))))
+
 (defn log-request [tag rid url body headers]
   (let [obfuscated-headers (-> headers
                                (shared/update-some "Authorization" #(shared/obfuscate % {:preserve-num 8}))

@@ -856,7 +856,24 @@
             :tool-turn-id "turn-uuid"}
            tool-call))
       (is (= "reason-uuid" (:reason-id result)))
-      (is (not= (:id tool-call) (:llm-tool-call-id tool-call))))))
+      (is (not= (:id tool-call) (:llm-tool-call-id tool-call)))))
+
+  (testing "Non-stream tool calls with invalid JSON arguments are kept, marked with :arguments-error"
+    (let [result (#'llm-providers.openai-chat/response-body->result
+                  {:choices [{:message {:role "assistant"
+                                        :content ""
+                                        :tool_calls [{:id "call_1"
+                                                      :type "function"
+                                                      :function {:name "eca__shell_command"
+                                                                 :arguments "{\"command\":\"echo hi"}}]}}]
+                   :usage {:prompt_tokens 1 :completion_tokens 1}}
+                  (fn [& _] nil))]
+      (is (match? [{:llm-tool-call-id "call_1"
+                    :full-name "eca__shell_command"
+                    :arguments {}
+                    :arguments-error #"^Unexpected end-of-input"
+                    :tool-turn-id string?}]
+                  (:tools-to-call result))))))
 
 (deftest merge-adjacent-assistants-test
   (testing "All adjacent assistant messages are merged (even without reasoning_content)"
@@ -1465,24 +1482,28 @@
       (#'llm-providers.openai-chat/finish-reasoning! reasoning-state* on-reason)
       (is (not @on-reason-called?) "on-reason should not be called when :id is nil"))))
 
-(deftest execute-accumulated-tools-with-parse-errors-test
-  (testing "When all tools have parse errors, should NOT call on-tools-called-wrapper (prevents infinite loop)"
+(deftest execute-accumulated-tools-with-invalid-arguments-test
+  (testing "a tool call with invalid JSON arguments is passed on marked with :arguments-error, not dropped"
+    ;; Dropping it ended the turn silently: the LLM never learned its call failed.
     (let [tool-calls* (atom {"rid-0" {:index 0
                                       :id "call-123"
                                       :full-name "eca__write_file"
                                       :arguments-text "{\"path\": \"/tmp/test.txt\", \"content\": \"truncated..."}}) ;; Invalid JSON
-          wrapper-called? (atom false)
-          on-tools-called-wrapper (fn [& _] (reset! wrapper-called? true))]
+          passed-tools (atom nil)
+          on-tools-called-wrapper (fn [tools & _] (reset! passed-tools tools))]
       (#'llm-providers.openai-chat/execute-accumulated-tools!
        tool-calls*
        on-tools-called-wrapper
        (fn [_] {:new-messages []})
        (fn [& _]))
-      ;; The wrapper should NOT be called because there are no valid tools
-      (is (not @wrapper-called?)
-          "on-tools-called-wrapper should NOT be called when all tools have parse errors")))
+      (is (match? [{:id "call-123"
+                    :full-name "eca__write_file"
+                    :arguments {}
+                    :arguments-error #"^Unexpected end-of-input.* The arguments ended with: .*truncated\.\.\.$"
+                    :tool-turn-id string?}]
+                  @passed-tools))))
 
-  (testing "When some tools are valid and some have errors, should call wrapper with valid tools only"
+  (testing "a valid tool call next to an invalid one keeps its arguments"
     (let [tool-calls* (atom {"rid-0" {:index 0
                                       :id "call-123"
                                       :full-name "eca__read_file"
@@ -1498,9 +1519,47 @@
        on-tools-called-wrapper
        (fn [_] {:new-messages []})
        (fn [& _]))
-      ;; Should be called with only the valid tool
-      (is (= 1 (count @passed-tools)))
-      (is (= "call-123" (:id (first @passed-tools)))))))
+      (is (match? [{:id "call-123" :arguments {"path" "/tmp/test.txt"}}
+                   {:id "call-456" :arguments {} :arguments-error string?}]
+                  @passed-tools))
+      (is (not (contains? (first @passed-tools) :arguments-error))))))
+
+(deftest chat-completion-stream-invalid-tool-arguments-test
+  (testing "a streamed tool call whose arguments never close reaches the chat instead of ending the turn as a clean stop"
+    ;; The shape of a real response: finish_reason \"tool_calls\", arguments without the closing `\"}`.
+    (let [events* (atom [])
+          chunk (fn [delta & [finish-reason]]
+                  (str "data: "
+                       (json/generate-string {:choices [(cond-> {:index 0 :delta delta}
+                                                          finish-reason (assoc :finish_reason finish-reason))]})
+                       "\n\n"))
+          sse (str (chunk {:tool_calls [{:index 0
+                                         :id "call_1"
+                                         :function {:name "eca__compact_chat"
+                                                    :arguments "{\"summary\":\"Done so far"}}]})
+                   (chunk {:tool_calls [{:index 0 :function {:arguments "</summary>"}}]} "tool_calls")
+                   "data: [DONE]\n\n")]
+      (with-redefs [http/post (fn [_url _opts]
+                                {:status 200
+                                 :body (java.io.ByteArrayInputStream.
+                                        (.getBytes ^String sse java.nio.charset.StandardCharsets/UTF_8))})]
+        (llm-providers.openai-chat/chat-completion!
+         {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+          :user-messages [{:role "user" :content "hello"}]}
+         {:on-message-received (fn [msg] (swap! events* conj [:msg msg]))
+          :on-error (fn [error] (swap! events* conj [:error error]))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [tool-calls]
+                             (swap! events* conj [:tools tool-calls])
+                             nil)
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])}))
+      (is (match? [[:tools [{:full-name "eca__compact_chat"
+                             :llm-tool-call-id "call_1"
+                             :arguments {}
+                             :arguments-error #"The arguments ended with: \{\"summary\":\"Done so far</summary>$"}]]]
+                  @events*)
+          "no fake finish and no error: the chat decides how the turn goes on"))))
 
 (deftest deepseek-non-stream-reasoning-content-test
   (testing "response-body->result captures reasoning_content and normalization uses :text with :delta-reasoning?"

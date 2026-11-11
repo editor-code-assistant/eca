@@ -1,5 +1,6 @@
 (ns eca.features.chat.tool-calls
   (:require
+   [camel-snake-kebab.core :as csk]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
@@ -46,6 +47,21 @@
   [{:type :text
     :text (cond-> rejected-tool-call-message
             (shared/not-blank reason-text) (str "\nReason: " reason-text))}])
+
+(def ^:private max-invalid-arguments-rounds
+  "How many LLM responses in a row may hold a tool call with invalid JSON
+   arguments. The LLM gets the error back to retry; at this number the turn
+   stops, as a model that keeps failing would otherwise loop forever."
+  3)
+
+(defn ^:private invalid-arguments-tool-call-output-contents
+  "LLM-facing :contents for a tool call whose arguments were not valid JSON
+   (see `llm-util/parse-tool-call-arguments`), so it can send the call again."
+  [arguments-error]
+  [{:type :text
+    :text (str "This tool call did NOT run and made NO changes, because its arguments were not valid JSON: "
+               arguments-error
+               "\nIf the call is still needed, send it again with valid JSON arguments.")}])
 
 (defn ^:private update-tool-output-contents!
   "Apply `f` to the :contents of the tool_call_output message matching
@@ -461,7 +477,10 @@
                                  :name (or (:name event-data) name)
                                  :server (or (:server event-data) server)
                                  :arguments (or (:arguments event-data) arguments)
-                                 :reason (:code (:reason event-data) :user)}
+                                 ;; :reason is a decision reason ({:code :text}); its code is
+                                 ;; kebab-case here and camelCase in the protocol.
+                                 :reason (or (some-> event-data :reason :code csk/->camelCaseKeyword)
+                                             :user)}
                                 :details (:details event-data)
                                 :summary (:summary event-data))))
 
@@ -835,7 +854,11 @@
       stop-turn? (assoc :stop-reason stop-reason
                         :stop-hook-name stop-hook-name))))
 
-(defn on-tools-called! [{:keys [db* config chat-id agent messenger metrics] :as chat-ctx}
+(defn on-tools-called! [{:keys [db* config chat-id agent messenger metrics invalid-arguments-rounds*]
+                         ;; One counter per returned fn, i.e. per LLM tool loop:
+                         ;; see `max-invalid-arguments-rounds`.
+                         :or {invalid-arguments-rounds* (atom 0)}
+                         :as chat-ctx}
                         received-msgs* add-to-history! user-messages]
   (fn [tool-calls]
     ;; postToolCall hooks report continue:false through the tool call state,
@@ -863,6 +886,9 @@
           (when-not (string/blank? @received-msgs*)
             (add-to-history! {:role "assistant" :content [{:type :text :text @received-msgs*}]})
             (reset! received-msgs* ""))
+          (if (some :arguments-error tool-calls)
+            (swap! invalid-arguments-rounds* inc)
+            (reset! invalid-arguments-rounds* 0))
           (let [blocked-tool-call-infos* (atom (sorted-map))
                 prepare-tool-call
                 (fn prepare-tool-call [idx {:keys [id full-name] :as tool-call}]
@@ -881,13 +907,26 @@
                                                                                              :full-name full-name
                                                                                              :arguments (cond-> arguments
                                                                                                           spawn-agent? f.tools.agent/normalize-arguments))
-                        decision-plan                                                 (decide-tool-call-action
-                                                                                       tool-call all-tools @db* config agent chat-id
-                                                                                       {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
-                                                                                        :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
-                                                                                        :trust                 (db/resolve-trust @db* chat-id)
-                                                                                        :full-model            (:full-model chat-ctx)
-                                                                                        :variant               (:variant chat-ctx)})
+                        arguments-error                                               (:arguments-error tool-call)
+                        _                                                             (when arguments-error
+                                                                                        (logger/warn logger-tag "Tool call arguments are not valid JSON, rejecting the call"
+                                                                                                     {:tool-call-id id
+                                                                                                      :tool full-name
+                                                                                                      :error arguments-error}))
+                        decision-plan                                                 (if arguments-error
+                                                                                        ;; Nothing valid to approve or pass to hooks: reject with
+                                                                                        ;; the parse error, which the LLM gets as the call's result.
+                                                                                        {:decision  :deny
+                                                                                         :arguments (:arguments tool-call)
+                                                                                         :reason    {:code :invalid-arguments
+                                                                                                     :text arguments-error}}
+                                                                                        (decide-tool-call-action
+                                                                                         tool-call all-tools @db* config agent chat-id
+                                                                                         {:on-before-hook-action (partial lifecycle/notify-before-hook-action! chat-ctx)
+                                                                                          :on-after-hook-action  (partial lifecycle/notify-after-hook-action! chat-ctx)
+                                                                                          :trust                 (db/resolve-trust @db* chat-id)
+                                                                                          :full-model            (:full-model chat-ctx)
+                                                                                          :variant               (:variant chat-ctx)}))
                         {:keys [decision tool-call-blocked-by-hook? reason stop-turn?
                                 stop-reason stop-hook-name]} decision-plan
                         ;; updatedInput is surfaced inside the real preToolCall
@@ -899,7 +938,8 @@
                         _                                                             (swap! db* assoc-in [:chats chat-id :tool-calls id :arguments] arguments)
                         tool-call                                                     (assoc tool-call :arguments arguments)
                         ask?                                                          (= :ask decision)
-                        details                                                       (f.tools/tool-call-details-before-invocation name arguments server @db* config chat-id ask? id)
+                        details                                                       (when-not arguments-error
+                                                                                        (f.tools/tool-call-details-before-invocation name arguments server @db* config chat-id ask? id))
                         summary                                                       (f.tools/tool-call-summary all-tools full-name arguments config @db*)]
                     {:ask? ask?
                      :stop-batch? (and tool-call-blocked-by-hook? stop-turn?)
@@ -988,8 +1028,8 @@
                                                                                                     :error         (:error result)
                                                                                                     :outputs       (:contents result)
                                                                                                     :total-time-ms total-time-ms
-                                                                                                    :reason        :user-stop :details
-                                                                                                    details
+                                                                                                    :reason        {:code :user-stop}
+                                                                                                    :details       details
                                                                                                     :summary       summary})
                                                  (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
                                    (transition-tool-call! db*
@@ -1010,7 +1050,10 @@
                                      {:keys [code text]} (:decision-reason tool-call-state)]
                                  (add-to-history! {:role "tool_call" :content tool-call})
                                  (add-to-history! {:role    "tool_call_output"
-                                                   :content (assoc tool-call :output {:error true :contents (rejected-tool-call-output-contents text)})})
+                                                   :content (assoc tool-call :output {:error true
+                                                                                      :contents (if (= :invalid-arguments code)
+                                                                                                  (invalid-arguments-tool-call-output-contents text)
+                                                                                                  (rejected-tool-call-output-contents text))})})
                                  ;; Keyed by batch position: calls run out of order, but the
                                  ;; last rejected call in the batch still decides the outcome.
                                  (swap! blocked-tool-call-infos* assoc idx
@@ -1022,7 +1065,7 @@
                                                                                       :name      name
                                                                                       :server    server-name
                                                                                       :arguments arguments
-                                                                                      :reason    code
+                                                                                      :reason    {:code code}
                                                                                       :details   details
                                                                                       :summary   summary}))))}))
                 prepared (reduce (fn [acc [idx tool-call]]
@@ -1077,7 +1120,10 @@
                                                                    (config/all @db*))
                   with-fresh-auth #(some-> % (assoc :fresh-api-key refreshed-api-key
                                                     :provider-auth refreshed-provider-auth))]
-              (if-let [blocked-info (some-> @blocked-tool-call-infos* rseq first val)]
+              (if-let [blocked-info (let [blocked-infos (vals @blocked-tool-call-infos*)]
+                                      ;; A real rejection in the batch decides over calls with invalid arguments.
+                                      (or (last (remove #(= :invalid-arguments (:code %)) blocked-infos))
+                                          (last blocked-infos)))]
                 (let [reason-code
                       (if (map? blocked-info) (:code blocked-info) blocked-info)
                       stop-turn?
@@ -1086,12 +1132,30 @@
                       (when (map? blocked-info) (:stop-reason blocked-info))
                       stop-hook-name
                       (when (map? blocked-info) (:stop-hook-name blocked-info))]
-                  (if (contains? #{:hook-rejected :hook-stopped} reason-code)
-                    (if stop-turn?
+                  (if (contains? #{:hook-rejected :hook-stopped :invalid-arguments} reason-code)
+                    (cond
                       ;; Turn stop: stopReason is user-only; tool_call_output stays neutral.
+                      stop-turn?
                       (do (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
                           (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
                           nil)
+
+                      ;; The LLM keeps sending invalid arguments: end the turn as failed.
+                      (and (= :invalid-arguments reason-code)
+                           (>= @invalid-arguments-rounds* max-invalid-arguments-rounds))
+                      (let [message (format "The model sent tool calls with invalid JSON arguments %d times in a row, so the turn was stopped."
+                                            max-invalid-arguments-rounds)]
+                        (logger/warn logger-tag "Stopping the turn, tool call arguments are invalid again" {:chat-id chat-id})
+                        (swap! db* update-in [:chats chat-id]
+                               #(-> %
+                                    (dissoc :auto-compacting? :compacting?)
+                                    (assoc :prompt-error {:message message
+                                                          :error-type :invalid-tool-arguments})))
+                        (lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" message)})
+                        (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
+                        nil)
+
+                      :else
                       (with-fresh-auth
                         {:tools all-tools
                          :new-messages (shared/messages-after-last-compact-marker

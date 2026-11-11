@@ -297,6 +297,44 @@
                    [:msg {:type :finish :finish-reason "end_turn"}]]
                   @events*)))))
 
+(deftest chat!-streaming-invalid-tool-arguments-test
+  (testing "a streamed tool call with invalid JSON arguments reaches the chat marked with :arguments-error instead of failing the response"
+    (let [events* (atom [])
+          call-count* (atom 0)
+          tool-frames (frames-stream
+                       (make-frame "messageStart" {:role "assistant"})
+                       (make-frame "contentBlockStart" {:contentBlockIndex 0
+                                                        :start {:toolUse {:toolUseId "t1" :name "get_weather"}}})
+                       (make-frame "contentBlockDelta" {:contentBlockIndex 0
+                                                        :delta {:toolUse {:input "{\"city\": \"Par"}}})
+                       (make-frame "contentBlockStop" {:contentBlockIndex 0})
+                       (make-frame "messageStop" {:stopReason "tool_use"}))
+          final-frames (frames-stream
+                        (make-frame "messageStart" {:role "assistant"})
+                        (make-frame "contentBlockDelta" {:contentBlockIndex 0 :delta {:text "done"}})
+                        (make-frame "messageStop" {:stopReason "end_turn"}))
+          callbacks (assoc (collecting-callbacks events*)
+                           :on-prepare-tool-call (fn [_])
+                           :on-tools-called (fn [tool-calls]
+                                              (swap! events* conj [:tools tool-calls])
+                                              {:new-messages [{:role "user" :content "weather?"}]
+                                               :tools nil}))]
+      (with-redefs [http/post (fn [_ _]
+                                (swap! call-count* inc)
+                                {:status 200 :body (if (= 1 @call-count*) tool-frames final-frames)})]
+        (llm-providers.bedrock/chat!
+         {:model "model-x" :api-url "http://localhost:1" :api-key "k"
+          :user-messages [{:role "user" :content "weather?"}] :past-messages []}
+         callbacks))
+      (is (= 2 @call-count*) "the tool loop goes on with the error as the call's result")
+      (is (match? [[:tools [{:id "t1"
+                             :full-name "get_weather"
+                             :arguments {}
+                             :arguments-error #"^Unexpected end-of-input.* The arguments ended with: \{\"city\": \"Par$"}]]
+                   [:msg {:type :text :text "done"}]
+                   [:msg {:type :finish :finish-reason "end_turn"}]]
+                  @events*)))))
+
 (deftest chat!-error-paths-test
   (testing "non-200 response is surfaced as an error result"
     (with-client-proxied {}

@@ -40,6 +40,7 @@
         retries* (atom [])
         sleeps* (atom [])
         closed* (atom [])
+        tool-calls* (atom [])
         stream-response (fn [request-number events]
                           {:status 200
                            :body (proxy [java.io.ByteArrayInputStream]
@@ -82,13 +83,32 @@
         :on-retry #(swap! retries* conj %)
         :on-tools-called (fn [calls]
                            (swap! tools-called* inc)
+                           (swap! tool-calls* conj calls)
                            {:new-messages [{:role "tool_call" :content (first calls)}
                                            {:role "tool_call_output"
                                             :content {:id "call-1" :output {:contents [{:type :text :text "result"}]}}}]
                             :tools []})}))
     {:requests @requests* :tools-called @tools-called* :messages @messages*
      :reasons @reasons* :preparations @preparations* :searches @searches*
-     :errors @errors* :retries @retries* :sleeps @sleeps* :closed @closed*}))
+     :errors @errors* :retries @retries* :sleeps @sleeps* :closed @closed*
+     :tool-calls @tool-calls*}))
+
+(deftest invalid-tool-arguments-test
+  (testing "a tool call with invalid JSON arguments reaches the chat marked with :arguments-error instead of failing the response"
+    (let [{:keys [requests tool-calls messages errors retries]}
+          (post-tool-scenario!
+           {:initial-response (fn [_ respond]
+                                (respond (assoc-in tool-events [2 1 :delta :partial_json] "{\"path\": \"/tmp/a")))
+            :child-response (fn [_ respond] (respond final-events))})]
+      (is (match? [[{:id "call-1"
+                     :full-name "test_tool"
+                     :arguments {}
+                     :arguments-error #"^Unexpected end-of-input.* The arguments ended with: \{\"path\": \"/tmp/a$"}]]
+                  tool-calls))
+      (is (empty? errors) "not reported as a connection error")
+      (is (empty? retries))
+      (is (= 2 (count requests)) "the tool loop goes on with the error as the call's result")
+      (is (= [{:type :text :text "done"} {:type :finish :finish-reason "end_turn"}] messages)))))
 
 (deftest post-tool-network-retry-test
   (let [failure (javax.net.ssl.SSLException. "(bad_record_mac) Received fatal alert: bad_record_mac")
