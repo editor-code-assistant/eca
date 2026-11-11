@@ -465,9 +465,9 @@
       (let [tool-calls (->> (vals @content-block*)
                             (filter #(= :tool-use (:type %)))
                             (mapv (fn [{:keys [toolUseId name input-json]}]
-                                    {:id toolUseId
-                                     :full-name name
-                                     :arguments (json/parse-string input-json)})))]
+                                    (merge {:id toolUseId
+                                            :full-name name}
+                                           (llm-util/parse-tool-call-arguments input-json)))))]
         (when-let [tools-result (on-tools-called tool-calls)]
           (reissue-after-tools! ctx tools-result
                                 {:content-block* (atom {})

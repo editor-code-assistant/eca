@@ -1,6 +1,7 @@
 (ns eca.llm-util-test
   (:require
    [clojure.java.io :as io]
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.llm-util :as llm-util]
@@ -84,6 +85,27 @@
       (with-open [r (java.io.BufferedReader. (java.io.StringReader. sse))]
         (is (= [["before" {:type "before"}]]
                (vec (llm-util/event-data-seq r :stop-on-done? true))))))))
+
+(deftest parse-tool-call-arguments-test
+  (testing "valid JSON gives only the parsed arguments"
+    (is (= {:arguments {"path" "/tmp/a" "lines" [1 2]}}
+           (llm-util/parse-tool-call-arguments "{\"path\":\"/tmp/a\",\"lines\":[1,2]}"))))
+  (testing "no text gives no arguments, as sent for a tool without parameters"
+    (is (= {:arguments nil} (llm-util/parse-tool-call-arguments "")))
+    (is (= {:arguments nil} (llm-util/parse-tool-call-arguments nil))))
+  (testing "invalid JSON never throws: empty arguments and an error for the LLM"
+    (let [text "{\"summary\":\"Done so far</summary>"
+          {:keys [arguments arguments-error]} (llm-util/parse-tool-call-arguments text)]
+      (is (= {} arguments))
+      (is (string/starts-with? arguments-error "Unexpected end-of-input"))
+      (is (string/ends-with? arguments-error (str "The arguments ended with: " text)))
+      (is (not (string/includes? arguments-error "\n"))
+          "only the first line of the parser message, without its source location")))
+  (testing "only the end of long arguments is returned"
+    (let [text (str "{\"content\":\"" (apply str (repeat 500 "a")) " the end")
+          {:keys [arguments-error]} (llm-util/parse-tool-call-arguments text)]
+      (is (string/ends-with? arguments-error
+                             (str "The arguments ended with: ..." (subs text (- (count text) 200))))))))
 
 (deftest provider-api-key-with-key-rc-test
   (testing "provider-api-key uses keyRc when configured"

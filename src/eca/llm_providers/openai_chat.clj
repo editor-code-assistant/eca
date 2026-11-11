@@ -110,28 +110,21 @@
         tool-turn-id (when (seq (:tool_calls message)) (str (random-uuid)))
         tools-to-call (->> (:tool_calls message)
                            (map-indexed (fn [idx tool-call]
-                                          (let [full-name (:name (:function tool-call))
-                                                args-text (:arguments (:function tool-call))]
-                                            (try
-                                              (cond-> {:index idx
-                                                       ;; Provider-supplied tool_call_id is not safe to use as internal
-                                                       ;; identity (can be duplicated / contain spaces, etc).
-                                                       :id (new-internal-tool-call-id)
-                                                       :llm-tool-call-id (:id tool-call)
-                                                       :full-name full-name
-                                                       :arguments (json/parse-string args-text)}
-                                                tool-turn-id (assoc :tool-turn-id tool-turn-id)
-                                                ;; Preserve Google Gemini thought signatures
-                                                (get-in tool-call [:extra_content :google :thought_signature])
-                                                (assoc :external-id
-                                                       (get-in tool-call [:extra_content :google :thought_signature])))
-                                              (catch Exception e
-                                                (logger/warn logger-tag
-                                                             (format "Failed to parse JSON arguments for tool '%s': %s"
-                                                                     full-name
-                                                                     (ex-message e)))
-                                                nil)))))
-                           (remove nil?)
+                                          (cond-> (merge {:index idx
+                                                          ;; Provider-supplied tool_call_id is not safe to use as internal
+                                                          ;; identity (can be duplicated / contain spaces, etc).
+                                                          :id (new-internal-tool-call-id)
+                                                          :llm-tool-call-id (:id tool-call)
+                                                          :full-name (:name (:function tool-call))}
+                                                         ;; Invalid JSON marks the call with :arguments-error
+                                                         ;; for the chat to reject, as when streaming.
+                                                         (llm-util/parse-tool-call-arguments
+                                                          (:arguments (:function tool-call))))
+                                            tool-turn-id (assoc :tool-turn-id tool-turn-id)
+                                            ;; Preserve Google Gemini thought signatures
+                                            (get-in tool-call [:extra_content :google :thought_signature])
+                                            (assoc :external-id
+                                                   (get-in tool-call [:extra_content :google :thought_signature])))))
                            vec)
         ;; Mistral reasoning models return content as thinking + text chunks
         {text :text thinking :thinking} (split-stream-content (:content message))
@@ -502,22 +495,15 @@
                              ;; The accumulator is a map; ensure deterministic tool execution order.
                              ;; :index comes from OpenAI API, :stream-order is fallback for providers without it.
                              (sort-by #(or (:index %) (:stream-order %) 0)))
+        ;; Calls with invalid JSON arguments are kept, marked with :arguments-error:
+        ;; the chat rejects them with the error as their result, so the LLM can retry.
         completed-tools (->> all-accumulated
                              (filter #(every? % [:id :full-name :arguments-text]))
-                             (map (fn [{:keys [arguments-text full-name] :as tool-call}]
-                                    (try
-                                      (assoc tool-call :arguments (json/parse-string arguments-text))
-                                      (catch Exception e
-                                        (let [error-msg (format "Failed to parse JSON arguments for tool '%s': %s"
-                                                                full-name (ex-message e))]
-                                          (logger/warn logger-tag error-msg)
-                                          (assoc tool-call :arguments {} :parse-error error-msg)))))))
-        ;; Filter out tool calls with parse errors to prevent execution with invalid data
-        valid-tools (remove :parse-error completed-tools)]
-    (when (seq valid-tools)
-      ;; We have valid tools to execute, continue the conversation
+                             (map (fn [{:keys [arguments-text] :as tool-call}]
+                                    (merge tool-call (llm-util/parse-tool-call-arguments arguments-text)))))]
+    (when (seq completed-tools)
       (let [tool-turn-id (str (random-uuid))
-            tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) valid-tools)]
+            tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) completed-tools)]
         (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
         tools-with-turn-id))))
 
@@ -740,7 +726,7 @@
                               (close-reasoning!)
                               (if had-tool-calls?
                                 (when (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
-                                  ;; No executable tools (e.g. invalid JSON args): finish so the UI does not hang.
+                                  ;; No complete tool call (e.g. one without a name): finish so the UI does not hang.
                                   (on-message-received {:type :finish :finish-reason "stop"}))
                                 (when-let [finish-reason (:finish-reason data)]
                                   (when (not= finish-reason "tool_calls")

@@ -672,9 +672,9 @@
                                   "tool_use" (let [tool-calls (keep
                                                                (fn [content-block]
                                                                  (when (= "tool_use" (:type content-block))
-                                                                   {:id (:id content-block)
-                                                                    :full-name (:name content-block)
-                                                                    :arguments (json/parse-string (:input-json content-block))}))
+                                                                   (merge {:id (:id content-block)
+                                                                           :full-name (:name content-block)}
+                                                                          (llm-util/parse-tool-call-arguments (:input-json content-block)))))
                                                                (vals @content-block*))]
                                                (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
                                                  (let [messages (-> new-messages

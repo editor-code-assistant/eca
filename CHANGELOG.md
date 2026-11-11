@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix tool calls with invalid JSON arguments ending the turn silently or as a connection error: the LLM now gets the error as the call's result and can retry.
+
 ## 0.171.0
 
 - Send the chat id as `_meta.sessionId` on MCP `tools/call` requests, so MCP servers can keep per-chat state. #696

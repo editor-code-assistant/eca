@@ -2038,7 +2038,7 @@
 (defn ^:private repeated-auto-compact-api-mock
   "API mock for a single long turn that crosses the auto-compact threshold
    again after compacting. `respond` is called with the 1-based LLM call number
-   and the helpers {:usage! :read! :compact! :finish! :overflow!}."
+   and the helpers {:usage! :read! :compact! :invalid-compact! :finish! :overflow!}."
   [api-calls* respond]
   (fn [{:keys [user-messages on-first-response-received on-message-received
                on-prepare-tool-call on-tools-called on-usage-updated on-error]}]
@@ -2054,6 +2054,12 @@
       :compact! (fn [id]
                   (on-prepare-tool-call {:id id :full-name "eca__compact_chat" :arguments-text "{\"summary\":\"Summary\"}"})
                   (on-tools-called [{:id id :full-name "eca__compact_chat" :arguments {"summary" "Summary"}}]))
+      ;; A compact_chat call whose arguments are not valid JSON, as a provider passes it.
+      :invalid-compact! (fn [id]
+                          (let [arguments-text "{\"summary\":\"Summary</summary>"]
+                            (on-prepare-tool-call {:id id :full-name "eca__compact_chat" :arguments-text arguments-text})
+                            (on-tools-called [(merge {:id id :full-name "eca__compact_chat"}
+                                                     (llm-util/parse-tool-call-arguments arguments-text))])))
       :finish! (fn []
                  (on-message-received {:type :text :text "Done"})
                  (on-message-received {:type :finish}))
@@ -2131,6 +2137,42 @@
                    (finish!))))))
       (is (= 3 (count @api-calls*)))
       (is (= 1 (count (compact-markers chat-id))))
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
+(deftest compact-chat-with-invalid-arguments-is-sent-again-test
+  (testing "a compact_chat call with invalid JSON arguments gets its error back, so the LLM sends it again and the task resumes"
+    (let [chat-id "invalid-compact-arguments-chat"
+          api-calls* (atom [])]
+      (repeated-auto-compact-prompt!
+       chat-id api-calls*
+       (fn [call-number {:keys [usage! read! compact! invalid-compact! finish!]}]
+         (case call-number
+           ;; Original task: usage crosses the threshold, so the compaction takes over.
+           1 (do (usage! 800)
+                 (is (nil? (read! "call-1"))))
+           ;; Compaction prompt: the first compact_chat call is broken, the next one is fine.
+           2 (do (is (some? (invalid-compact! "compact-1"))
+                     "the compaction goes on, with the error as the result of the call")
+                 (compact! "compact-2"))
+           ;; Resumed task.
+           3 (finish!))))
+      (is (= 3 (count @api-calls*))
+          "task, compaction, resumed task: the compaction is not started again")
+      (is (= 1 (count (compact-markers chat-id))))
+      (is (match? (m/embeds [{:role "tool_call_output"
+                              :content {:id "compact-1"
+                                        :output {:error true
+                                                 :contents [{:type :text :text #"not valid JSON"}]}}}
+                             {:role "tool_call_output"
+                              :content {:id "compact-2" :output {:contents [{:type :text :text "Compacted successfully!"}]}}}
+                             {:role "user"
+                              :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nSummary"}]}])
+                  (get-in (h/db) [:chats chat-id :messages])))
+      (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
+                   {:role "user" :content [{:type :text :text "Long task"}]}]
+                  (nth @api-calls* 2 nil))
+          "the task resumes after the compaction")
+      (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
       (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
 
 (deftest context-overflow-later-in-same-turn-auto-compacts-test

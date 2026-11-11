@@ -793,19 +793,19 @@
                                                     (on-prepare-tool-call {:id call_id
                                                                            :full-name name
                                                                            :arguments-text arguments}))
-                                                  {:id call_id
-                                                   :item-id id
-                                                   :full-name name
-                                                   :arguments (json/parse-string arguments)}))
+                                                  (merge {:id call_id
+                                                          :item-id id
+                                                          :full-name name}
+                                                         (llm-util/parse-tool-call-arguments arguments))))
                                               (:output response)))
                                    ;; Fallback: some models stream tool calls via events
                                    ;; but return empty :output in response.completed
                                    (seq (keep (fn [[item-id {:keys [full-name id arguments]}]]
                                                 (when arguments
-                                                  {:id id
-                                                   :item-id item-id
-                                                   :full-name full-name
-                                                   :arguments (json/parse-string arguments)}))
+                                                  (merge {:id id
+                                                          :item-id item-id
+                                                          :full-name full-name}
+                                                         (llm-util/parse-tool-call-arguments arguments))))
                                               @tool-call-by-item-id*)))]
                 (on-usage-updated (let [input-cache-read-tokens (-> response :usage :input_tokens_details :cached_tokens)]
                                     {:input-tokens (if input-cache-read-tokens

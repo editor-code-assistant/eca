@@ -8,6 +8,7 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
    [eca.test-helper :as h]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
@@ -931,3 +932,159 @@
     (let [text (-> (#'tc/rejected-tool-call-output-contents "  ") first :text)]
       (is (string/includes? text "did NOT run"))
       (is (not (string/includes? text "Reason:"))))))
+
+(def ^:private invalid-arguments-error
+  "Unexpected end-of-input: was expecting closing quote for a string value. The arguments ended with: {\"path\":\"/tmp/a")
+
+(defn ^:private invalid-call
+  "A tool call as providers pass it when its arguments were not valid JSON."
+  [id]
+  {:id id :full-name "eca__test_tool" :arguments {} :arguments-error invalid-arguments-error})
+
+(defn ^:private valid-call [id]
+  {:id id :full-name "eca__test_tool" :arguments {"path" "/tmp/a"}})
+
+(defn ^:private run-tool-rounds!
+  "Passes each of `rounds` (the tool calls of one LLM response) to the same
+   on-tools-called! fn, as the tool loop of one prompt does. `approval` is the
+   approval of the calls with valid arguments; `chat` and `ctx` are added to
+   the chat's state and to the chat-ctx.
+   Returns {:results :called-arguments :approval-count :hook-types}."
+  [{:keys [rounds approval chat ctx] :or {approval :allow}}]
+  (h/reset-components!)
+  (let [chat-id "test-chat"
+        db* (h/db*)
+        _ (swap! db* (fn [db]
+                       (reduce (fn [db {:keys [id]}]
+                                 (assoc-in db [:chats chat-id :tool-calls id :status] :preparing))
+                               (assoc-in db [:chats chat-id] (merge {:status :running :messages []} chat))
+                               (apply concat rounds))))
+        chat-ctx (merge {:db* db*
+                         :config (h/config)
+                         :chat-id chat-id
+                         :provider "openai"
+                         :agent :default
+                         :messenger (h/messenger)
+                         :metrics (h/metrics)}
+                        ctx)
+        add-to-history! (fn [msg]
+                          (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+        called-arguments* (atom [])
+        approval-count* (atom 0)
+        hook-types* (atom [])]
+    (with-redefs [f.tools/all-tools (constantly [{:name "test_tool"
+                                                  :full-name "eca__test_tool"
+                                                  :origin :eca
+                                                  :server {:name "eca"}}])
+                  f.tools/approval (fn [& _]
+                                     (swap! approval-count* inc)
+                                     approval)
+                  f.hooks/trigger-if-matches! (fn [hook-type & _]
+                                                (swap! hook-types* conj hook-type)
+                                                nil)
+                  f.tools/call-tool! (fn [_ arguments & _]
+                                       (swap! called-arguments* conj arguments)
+                                       {:contents [{:text "ok" :type :text}]})
+                  f.tools/tool-call-details-before-invocation (fn [_ arguments & _]
+                                                                (when (empty? arguments)
+                                                                  (throw (ex-info "details need valid arguments" {}))))
+                  f.tools/tool-call-details-after-invocation (constantly nil)
+                  f.tools/tool-call-summary (constantly "Test tool")
+                  lifecycle/maybe-renew-auth-token (fn [_] nil)]
+      (let [on-tools-called (tc/on-tools-called! chat-ctx (atom "") add-to-history! [])]
+        {:results (mapv on-tools-called rounds)
+         :called-arguments @called-arguments*
+         :approval-count @approval-count*
+         :hook-types @hook-types*}))))
+
+(deftest on-tools-called!-invalid-arguments-test
+  (testing "a call with invalid JSON arguments is rejected with the error as its result, and the turn goes on"
+    (let [{:keys [results called-arguments approval-count hook-types]}
+          (run-tool-rounds! {:rounds [[(invalid-call "call-1")]]})
+          chat (get-in (h/db) [:chats "test-chat"])]
+      (is (match? [{:tools some? :new-messages some?}] results)
+          "the LLM gets the error and can send the call again")
+      (is (empty? called-arguments) "the tool must not run without valid arguments")
+      (is (zero? approval-count) "there is nothing valid to approve")
+      (is (not-any? #{:preToolCall :postToolCall} hook-types))
+      (is (match? [{:role "tool_call" :content {:id "call-1" :arguments {}}}
+                   {:role "tool_call_output"
+                    :content {:id "call-1"
+                              :output {:error true
+                                       :contents [{:type :text
+                                                   :text #(and (string/includes? % "did NOT run")
+                                                               (string/includes? % "not valid JSON")
+                                                               (string/includes? % invalid-arguments-error))}]}}}]
+                  (:messages chat)))
+      (is (= :rejected (get-in chat [:tool-calls "call-1" :status])))
+      (is (match? (m/embeds [{:role :assistant :content {:type :toolCallRejected :id "call-1"}}])
+                  (:chat-content-received (h/messages)))
+          "clients must not keep showing the call as being prepared")
+      (is (nil? (:prompt-error chat)))))
+
+  (testing "the calls with valid arguments in the same response still run"
+    (let [{:keys [results called-arguments]}
+          (run-tool-rounds! {:rounds [[(valid-call "call-1") (invalid-call "call-2")]]})]
+      (is (match? [{:new-messages some?}] results))
+      (is (= [{"path" "/tmp/a"}] called-arguments))
+      (is (= :completed (get-in (h/db) [:chats "test-chat" :tool-calls "call-1" :status])))
+      (is (= :rejected (get-in (h/db) [:chats "test-chat" :tool-calls "call-2" :status])))))
+
+  (testing "a rejection of another call in the same response still asks the user what to do"
+    (let [{:keys [results]}
+          (run-tool-rounds! {:approval :deny
+                             :rounds [[(valid-call "call-1") (invalid-call "call-2")]]})]
+      (is (= [nil] results) "the turn ends for the user's input, as without the invalid call")
+      (is (match? (m/embeds [{:role :system
+                              :content {:type :text :text "Tell ECA what to do differently for the rejected tool(s)"}}])
+                  (:chat-content-received (h/messages))))
+      (is (nil? (get-in (h/db) [:chats "test-chat" :prompt-error])))))
+
+  (testing "the turn fails when the LLM sends invalid arguments 3 responses in a row, after the valid calls ran"
+    (let [{:keys [results called-arguments]}
+          (run-tool-rounds! {:rounds [[(invalid-call "call-1")]
+                                      [(invalid-call "call-2")]
+                                      [(valid-call "call-3") (invalid-call "call-4")]]})
+          chat (get-in (h/db) [:chats "test-chat"])]
+      (is (match? [some? some? nil] results))
+      (is (= [{"path" "/tmp/a"}] called-arguments))
+      (is (match? {:message #"invalid JSON arguments 3 times in a row"
+                   :error-type :invalid-tool-arguments}
+                  (:prompt-error chat))
+          "a subagent must report this as a failure, not as its result")
+      (is (= :idle (:status chat)))
+      (is (match? (m/embeds [{:role :system
+                              :content {:type :text :text #"invalid JSON arguments 3 times in a row"}}])
+                  (:chat-content-received (h/messages))))))
+
+  (testing "a response without invalid arguments starts the count again"
+    (let [{:keys [results]}
+          (run-tool-rounds! {:rounds [[(invalid-call "call-1")]
+                                      [(invalid-call "call-2")]
+                                      [(valid-call "call-3")]
+                                      [(invalid-call "call-4")]
+                                      [(invalid-call "call-5")]]})]
+      (is (every? some? results))
+      (is (nil? (get-in (h/db) [:chats "test-chat" :prompt-error])))))
+
+  (testing "failing while compacting ends the compaction too, so the chat is not stuck in it"
+    (let [{:keys [results]}
+          (run-tool-rounds! {:chat {:auto-compacting? true}
+                             :ctx {:on-finished-side-effect #(throw (ex-info "the compaction must not be applied" {}))}
+                             :rounds [[(invalid-call "call-1")]
+                                      [(invalid-call "call-2")]
+                                      [(invalid-call "call-3")]]})
+          chat (get-in (h/db) [:chats "test-chat"])]
+      (is (match? [some? some? nil] results))
+      (is (nil? (:auto-compacting? chat)))
+      (is (some? (:prompt-error chat)))
+      (is (= :idle (:status chat))))))
+
+(deftest invalid-arguments-tool-call-output-contents-test
+  (let [text (-> (#'tc/invalid-arguments-tool-call-output-contents invalid-arguments-error) first :text)]
+    (is (string/includes? text "did NOT run"))
+    (is (string/includes? text "made NO changes"))
+    (is (string/includes? text invalid-arguments-error))
+    (is (string/includes? text "send it again with valid JSON arguments"))
+    (is (not (re-find #"(?i)split|shorter|smaller" text))
+        "no advice to split the call: for compact_chat only the last call would count")))
