@@ -791,6 +791,7 @@
       (is (contains? @result* :db_cache_path))
       (is (= (cache-session-id (:db_cache_path @result*)) (:session_id @result*)))
       (is (= (first (:workspaces @result*)) (:cwd @result*)))
+      (is (= (config/eca-version) (:eca_version @result*)))
       (is (not (contains? @result* :chat_id)))
       (is (not (contains? @result* :behavior)))
       (is (not (contains? @result* :agent)))))
@@ -876,6 +877,7 @@
       (is (contains? @input* :workspaces))
       (is (= (cache-session-id (:db_cache_path @input*)) (:session_id @input*)))
       (is (= (first (:workspaces @input*)) (:cwd @input*)))
+      (is (= (config/eca-version) (:eca_version @input*)))
       (is (not (contains? @input* :hook_event_name)))))
 
   (testing "preCompact can block with continue false and stopReason"
