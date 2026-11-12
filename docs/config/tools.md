@@ -289,6 +289,25 @@ Ready-to-use configs for some third-party MCP servers. Most remote servers work 
 
     [Docs](https://serply.io/docs).
 
+=== "Sofya"
+
+    [Sofya](https://sofya.co): web search, page fetch as markdown, AI extraction from a page and multi-source research with citations.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "sofya": {
+          "url": "https://mcp.sofya.co/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:SOFYA_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Get a key at [sofya.co/dashboard](https://sofya.co/dashboard), or drop `headers` to sign in via OAuth. Paid per call (search 1-2 credits, research 50), keep approval prompts on. [Docs](https://sofya.co/docs).
+
 === "You.com"
 
     [You.com](https://you.com/?utm_source=editor-code-assistant-eca&utm_medium=2026-08-oss-integrations&utm_content=docs): web search with citations, URL content extraction and multi-step research.
