@@ -639,7 +639,7 @@
       :blocked-hook-name nil
       :stop-reason nil
       :stop-hook-name nil}
-     (->> (:hooks config)
+     (->> (f.hooks/active-hooks config)
           ;; This function owns preRequest chaining, so it must select legacy
           ;; prePrompt hooks itself; hook-matches? only normalizes legacy types
           ;; for the generic trigger-if-matches! path.
@@ -2694,7 +2694,12 @@
                                        hook-data
                                        {}
                                        db
-                                       config)))
+                                       config)
+          (events/emit! {:db* db* :messenger messenger :metrics metrics :config config :chat-id chat-id}
+                        :chat/ended
+                        (assoc-some {:chat-id chat-id :agent agent :model model}
+                                    :variant variant
+                                    :parent-chat-id (db/parent-chat-id db chat-id)))))
       ;; Delete chat from memory; tombstone the id so the cache merge-on-write
       ;; never resurrects it from a cache file shared with another live server.
       (swap! db* (fn [db]

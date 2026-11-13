@@ -21,6 +21,7 @@
    [eca.modules :as modules]
    ;; loaded here so the native image has it: eca.modules resolves it lazily
    [eca.modules.built-in]
+   [eca.modules.events :as events]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -212,6 +213,9 @@
                                      {}
                                      @db*
                                      config)
+        (events/emit! {:db* db* :messenger messenger :metrics metrics :config config}
+                      :session/started
+                      {:workspaces (:workspace-folders @db*)})
         (config/deliver-plugins-resolved!)
         ;; Re-emit the chat config now that plugin agents are resolved, so the
         ;; editor's agent list reflects them even when model sync already
@@ -248,6 +252,7 @@
                                  {}
                                  @db*
                                  config)
+    (events/emit! {:db* db* :metrics metrics :config config} :session/ended {})
 
     ;; 3. Then shutdown
     (f.background-tasks/cleanup-all!)

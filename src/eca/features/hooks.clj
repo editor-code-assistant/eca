@@ -9,6 +9,7 @@
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -301,6 +302,12 @@
       (on-after-action result)
       result)))
 
+(defn active-hooks
+  "The configured hooks, while `:eca/hooks` is active."
+  [config]
+  (when (modules/active? config :eca/hooks)
+    (:hooks config)))
+
 (defn trigger-if-matches!
   "Run matching hooks of `hook-type` against `data` for side effects.
    Execution order is deterministic: hooks sorted by name, then actions
@@ -318,7 +325,7 @@
    config]
   (let [opts {:on-before-action on-before-action
               :on-after-action on-after-action}
-        matched-actions (for [[hook-key hook] (sort-by key (:hooks config))
+        matched-actions (for [[hook-key hook] (sort-by key (active-hooks config))
                               :when (hook-matches? hook-type data hook native-tools)
                               [i action] (map-indexed vector (:actions hook))]
                           [(name hook-key) hook i action])]
@@ -331,6 +338,7 @@
 
 (def module
   {:id :eca/hooks
+   ;; the hooks still run at their sites; disabling the module turns them all off
    :description "The user's shell hooks."
    :config-spec {:hooks {:type :map :default {}}}
    :commands (built-in-command/commands

@@ -8,6 +8,7 @@
 - Move the built-in commands and agents into modules; a command can also be typed by its full id, e.g. `/eca:compact`. #699
 - Decide tool approval in the `:tool/before-call` event, from `toolCall.approval` by `eca/approval`; a config deny stays deny. #699
 - Compact only while the `eca/compact-as-summary` module is active, and send modules a `:chat/usage-updated` event. #699
+- Run shell hooks only while the `eca/hooks` module is active, and send modules session, chat end and status events. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

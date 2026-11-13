@@ -7,6 +7,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -536,26 +537,40 @@
    Dedup state is stored at [:chats chat-id :last-status-payload]. Missing chats
    are ignored."
   [{:keys [db* chat-id config] :as chat-ctx}]
-  (when (some #(= :chatStatusChanged (keyword (:type %))) (vals (:hooks config)))
-    (let [path [:chats chat-id :last-status-payload]
-          ;; Compute inside the swap so the stored payload matches the db snapshot.
-          [old-db new-db] (swap-vals! db* (fn [db]
-                                            (if (get-in db [:chats chat-id])
-                                              (assoc-in db path (chat-status-payload db chat-id))
-                                              db)))
-          payload (get-in new-db path)]
-      (when (and (get-in new-db [:chats chat-id])
-                 (not= (get-in old-db path) payload))
-        (f.hooks/trigger-if-matches!
-         :chatStatusChanged
-         (merge (f.hooks/chat-hook-data new-db chat-ctx)
-                (when (get-in new-db [:chats chat-id :subagent])
-                  {:parent-chat-id (db/parent-chat-id new-db chat-id)})
-                (dissoc payload :chat-id))
-         ;; No action callbacks: advisory hooks do not render in the chat UI.
-         {}
-         new-db
-         config)))))
+  (let [hooks? (some #(= :chatStatusChanged (keyword (:type %))) (vals (f.hooks/active-hooks config)))
+        handlers? (seq (events/handlers config :chat/status-changed))]
+    (when (or hooks? handlers?)
+      (let [path [:chats chat-id :last-status-payload]
+            ;; Compute inside the swap so the stored payload matches the db snapshot.
+            [old-db new-db] (swap-vals! db* (fn [db]
+                                              (if (get-in db [:chats chat-id])
+                                                (assoc-in db path (chat-status-payload db chat-id))
+                                                db)))
+            payload (get-in new-db path)]
+        (when (and (get-in new-db [:chats chat-id])
+                   (not= (get-in old-db path) payload))
+          (let [parent-chat-id (when (get-in new-db [:chats chat-id :subagent])
+                                 (db/parent-chat-id new-db chat-id))]
+            (when handlers?
+              (events/emit! chat-ctx :chat/status-changed
+                            (assoc-some {:chat-id chat-id
+                                         :status (:status payload)
+                                         :pending-approval-ids (:pending-approval-tool-call-ids payload)
+                                         :pending-question-ids (:pending-question-tool-call-ids payload)
+                                         :running-tool-ids (:running-tool-call-ids payload)}
+                                        :waiting-reason (:waiting-reason payload)
+                                        :parent-chat-id parent-chat-id)))
+            (when hooks?
+              (f.hooks/trigger-if-matches!
+               :chatStatusChanged
+               (merge (f.hooks/chat-hook-data new-db chat-ctx)
+                      (when parent-chat-id
+                        {:parent-chat-id parent-chat-id})
+                      (dissoc payload :chat-id))
+               ;; No action callbacks: advisory hooks do not render in the chat UI.
+               {}
+               new-db
+               config))))))))
 
 (defn ^:private finished-error
   "The error that ended the turn (a provider or network error, a context
