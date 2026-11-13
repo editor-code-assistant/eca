@@ -257,6 +257,45 @@
         (sse-send! ch "message_stop" {:type "message_stop"})
         (hk/close ch)))))
 
+(defn ^:private create-guide-0
+  "The create agent reads the modules topic of ECA's guide, then answers."
+  [ch body]
+  (let [second-stage? (some (fn [{:keys [content]}]
+                              (some #(= "tool_result" (:type %)) content))
+                            (:messages body))]
+    (if-not second-stage?
+      (do
+        (sse-send! ch "content_block_start"
+                   {:type "content_block_start"
+                    :index 0
+                    :content_block {:type "tool_use"
+                                    :id "create-1"
+                                    :name "create__guide"}})
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 0
+                    :delta {:type "input_json_delta"
+                            :partial_json "{\"topic\":\"modules\"}"}})
+        (sse-send! ch "message_delta"
+                   {:type "message_delta"
+                    :delta {:stop_reason "tool_use"}
+                    :usage {:input_tokens 10
+                            :output_tokens 20}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
+        (hk/close ch))
+      (do
+        (sse-send! ch "content_block_delta"
+                   {:type "content_block_delta"
+                    :index 0
+                    :delta {:type "text_delta" :text "Modules are Clojure."}})
+        (sse-send! ch "message_delta"
+                   {:type "message_delta"
+                    :delta {:stop_reason "end_turn"}
+                    :usage {:input_tokens 15
+                            :output_tokens 10}})
+        (sse-send! ch "message_stop" {:type "message_stop"})
+        (hk/close ch)))))
+
 (defn ^:private mcp-add-tool-0 [ch body]
   (let [second-stage? (some (fn [{:keys [content]}]
                               (some #(= "tool_result" (:type %)) content))
@@ -479,6 +518,7 @@
                          :reasoning-1 (reasoning-1 ch)
                          :tool-calling-0 (tool-calling-0 ch body)
                          :mcp-tool-call-0 (mcp-tool-call-0 ch body)
+                         :create-guide-0 (create-guide-0 ch body)
                          :mcp-add-tool-0 (mcp-add-tool-0 ch body)
                          :bg-shell-0 (bg-shell-0 ch body)
                          :compact-0 (compact-0 ch)

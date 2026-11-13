@@ -1,7 +1,8 @@
 (ns integration.modules-test
   "Modules in the real server: an external module, interpreted with SCI,
    loaded from modules.<id>.source, its tools sent to the client and its
-   command run; and :eca/repl, an nREPL a client evaluates code with."
+   command run; :eca/repl, an nREPL a client evaluates code with; and the
+   create agent, its tools and its guide."
   (:require
    [babashka.fs :as fs]
    [bencode.core :as bencode]
@@ -10,6 +11,7 @@
    [integration.eca :as eca]
    [integration.fixture :as fixture]
    [integration.helper :refer [match-content]]
+   [llm-mock.mocks :as llm.mocks]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]])
   (:import
@@ -134,3 +136,40 @@
     (testing "/repl is listed"
       (is (match? {:commands (m/embeds [{:name "repl"}])}
                   (eca/request! (fixture/chat-query-commands-request {:query "repl"})))))))
+
+(defn- await-turn-end
+  "Consumes the chat's content notifications until its turn finishes."
+  [chat-id]
+  (loop [n 0]
+    (let [{:keys [content] :as notification} (eca/client-awaits-server-notification :chat/contentReceived)]
+      (when-not (or (and (= chat-id (:chatId notification))
+                         (= "progress" (:type content))
+                         (= "finished" (:state content)))
+                    (> n 50))
+        (recur (inc n))))))
+
+(deftest create-agent
+  (eca/start-process!)
+  (eca/request! (fixture/initialize-request))
+  (eca/notify! (fixture/initialized-notification))
+
+  (testing "clients list it after code and plan"
+    (is (match? {:chat {:agents ["code" "plan" "create"]}}
+                (eca/client-awaits-server-notification :config/updated))))
+
+  (testing "its chats get its prompt and tools, and its guide is ECA's docs"
+    (llm.mocks/set-case! :create-guide-0)
+    (let [resp (eca/request! (fixture/chat-prompt-request
+                              {:model "anthropic/claude-sonnet-4-6"
+                               :agent "create"
+                               :message "How do modules work?"}))]
+      (await-turn-end (:chatId resp))
+      (is (match? {:system (m/pred (fn [blocks]
+                                     (some #(string/includes? (:text %) "ECA — Editor Code Assistant (Create)")
+                                           blocks)))
+                   :tools (m/embeds [{:name "create__guide"} {:name "create__modules"} {:name "create__eval"}])
+                   :messages (m/embeds [{:role "user"
+                                         :content [{:type "tool_result"
+                                                    :tool_use_id "create-1"
+                                                    :content #"^# Modules\n"}]}])}
+                  (llm.mocks/get-req-body :create-guide-0))))))

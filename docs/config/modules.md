@@ -10,6 +10,8 @@ description: "ECA modules: list, enable and disable ECA's features, and write yo
 
 ECA's features are modules: the tools, the agents, MCP, the providers, shell hooks... You can list them, turn them off, and add your own: Clojure code that ECA runs with [SCI](https://github.com/babashka/sci), like clj-kondo hooks and clojure-lsp custom linters.
 
+The `create` agent can write a module with you: it reads this guide and the `eca.api` reference, checks that the module loads (`create__modules`), and tests it in the running ECA (`create__eval`, which asks before each run). From any agent, the built-in `eca-modules` skill gives the model the same guide.
+
 ## Listing and turning modules off
 
 `/modules` lists every module: whether it's active, where it comes from, and what it adds (tools, commands, prompt sections, event handlers, config keys).

@@ -242,8 +242,11 @@
   [sci-ctx path entry-ns]
   (swap! state* assoc :reloading path)
   (try
-    (sci/eval-string* sci-ctx (str "(require '" entry-ns " :reload-all)"))
-    (sci/eval-string* sci-ctx (str "(some-> (resolve '" entry-ns "/module) deref)"))
+    ;; SCI gives errors their file and line only on the thread it calls
+    ;; "main", and a module reloads on the watcher's
+    (let [sci-ctx (assoc sci-ctx :main-thread-id (.getId (Thread/currentThread)))]
+      (sci/eval-string* sci-ctx (str "(require '" entry-ns " :reload-all)"))
+      (sci/eval-string* sci-ctx (str "(some-> (resolve '" entry-ns "/module) deref)")))
     (finally
       (swap! state* dissoc :reloading))))
 

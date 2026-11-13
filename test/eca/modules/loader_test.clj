@@ -137,6 +137,13 @@
       (testing "/modules lists them as failed"
         (is (match? {:status :failed :source runtime :reason #"^Failed to load: Unable to resolve symbol"}
                     (some #(when (= runtime (:source %)) %) (modules/statuses {}))))))
+    (testing "a module broken on save says where, though the watcher reloads it on its own thread"
+      (let [path (write! global "modules/later.clj" "(ns acme.later) (def module {:id :acme/later})")]
+        (sync! {})
+        ;; a runtime error: analysis errors say where on any thread
+        (write! global "modules/later.clj" "(ns acme.later)\n\n(def module (/ 1 0))")
+        (is (match? [{:path path :status :failed :error #"Divide by zero \(later.clj:3:"}]
+                    (filter #(= path (:path %)) @(future (sync! {})))))))
     (testing "an invalid module loads, but is refused"
       (let [path (write! global "modules/invalid.clj" "(ns acme.invalid) (def module {:id :invalid})")]
         (is (match? [{:path path :status :loaded}] (filter #(= path (:path %)) (sync! {}))))

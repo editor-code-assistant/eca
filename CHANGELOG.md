@@ -25,6 +25,7 @@
 - Let modules ask for a compaction (`eca.api/request-compaction!`) and retry or compact after a failed LLM request (`:llm/request-failed`). #699
 - Add the `eca/repl` module, off by default (`--repl`): an nREPL on ECA's module runtime, with `eca.api.dev/ctx` and `eca.api.debug`. #699
 - Add the built-in `eca-modules` skill: the modules guide, the `eca.api` reference from the code and the modules loaded now. #699
+- Add the `create` agent: it helps configure and extend ECA with ECA's docs as its guide, and checks and tests modules. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

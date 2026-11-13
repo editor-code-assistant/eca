@@ -83,10 +83,14 @@
     (str calls (if (= 1 calls) " LLM call" " LLM calls")
          (when cost (str " ($" (shared/format-cost cost) ")")))))
 
-(defn ^:private module-text [{:keys [id module status reason source built-in? priority running?
-                                     warnings failures errors]
-                              :as entry}
-                             ctx]
+(defn module-text
+  "A module's entry in the `/modules` listing: status, source, reason,
+   contributions, warnings and last error. `entry` is one of
+   `eca.modules/statuses`, `ctx` has `:config` and `:db`."
+  [{:keys [id module status reason source built-in? priority running?
+           warnings failures errors]
+    :as entry}
+   ctx]
   (let [{:keys [description version]} module]
     (multi-str
      ;; a module that failed to load may have no id yet

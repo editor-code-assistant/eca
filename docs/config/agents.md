@@ -27,6 +27,7 @@ When `mode` is not set, the agent is usable in both roles (equivalent to `["prim
 |--------------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | __code__     | primary  | Default, generic, used to do most tasks, has access to all tools by default                                                                                             |
 | __plan__     | primary  | Specialized in building a plan before user switches to code agent and executes the complex task. Has no edit tools available, only preview changes.                     |
+| __create__   | primary  | Helps you configure and extend ECA: config, skills, rules, commands, hooks, MCP servers, [modules](./modules.md) and plugins. Reads ECA's docs as its guide, and checks and tests modules in the running ECA. |
 | __explorer__ | subagent | Fast agent specialized for exploring codebases. Finds files by patterns, searches code for keywords, or answers questions about the codebase. Read-only, no edit tools. |
 | __general__  | subagent | General-purpose agent for researching complex questions and executing multi-step tasks. Can be used to execute multiple units of work in parallel.                      |
 
