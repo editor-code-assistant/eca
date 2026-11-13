@@ -2,30 +2,13 @@
 
 ## Unreleased
 
-- Add the module runtime and `/modules`, to list modules and enable, disable or reload one for the session. #699
-- Move the LLM APIs and providers into modules, e.g. `eca/api-openai-chat` and `eca/deepseek`, each declaring its label and login. #699
-- Move the built-in tools into modules, e.g. `eca/filesystem` and `eca/shell`: disabling a module removes its tools. #699
-- Move the built-in commands and agents into modules; a command can also be typed by its full id, e.g. `/eca:compact`. #699
-- Decide tool approval in the `:tool/before-call` event, from `toolCall.approval` by `eca/approval`; a config deny stays deny. #699
-- Compact only while the `eca/compact-as-summary` module is active, and send modules a `:chat/usage-updated` event. #699
-- Run shell hooks only while the `eca/hooks` module is active, and send modules session, chat end and status events. #699
-- Build the system prompt from the modules' sections, in the same order; disabling a module drops its section. #699
-- Move MCP into the `eca/mcp` module: disabling it stops the servers and hides their tools, prompts and instructions. #699
-- Load external modules, interpreted with SCI, from `~/.config/eca/modules/`, `.eca/modules/`, plugins, `modules.<id>.source` and `--module`; they reload on save. #699
-- Name external module tools `<prefix>__<name>`, sent to clients as `tool/serverUpdated` of type `module`; modules can add tools and commands while they run. #699
-- Give modules chat state saved with the chat, prompts, extra context, notifications, dialogs, tool progress and calls, through `eca.api`. #699
-- Give modules background jobs, data folders, shell commands, metered LLM calls shown in `/costs`, and JSON, HTTP and file helpers. #699
-- Add `eca.api.dev` and `eca.api.test`, to develop modules from a REPL and test them, and a modules guide. #699
+- Add modular ECA: its features are now modules, which you can list, enable or disable, and extend with your own modules. #699
+  - `/modules` lists them and enables or disables one for the session; `modules.<id>.enabled` does it in the config.
+  - Write your own in Clojure, run with SCI: tools, commands, prompt sections and event handlers, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
+  - Modules add their config keys at the root of `config.json`, so ECA now warns about unknown root keys, at startup and in `/doctor`.
+  - Optional modules, off by default: `eca/repl` (`--repl`), `eca/remote` and `eca/otel`; `remote.enabled` and `otlp` still enable these two.
+  - New `create` agent and `eca-modules` skill, to configure ECA and write modules, with ECA's docs as their guide.
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
-- Accept modules' keys at the root of `config.json`'s schema; ECA warns about unknown root keys at startup and in `/doctor` instead. #699
-- Send modules the chat events `:chat/input`, `:chat/started`, `:chat/before-request`, `:chat/after-request`, `:chat/message-added` and `:chat/title`. #699
-- Send modules `:tool/after-call`, accept `:additional-context` on `:tool/before-call`, and run `:shell/before-exec` for every shell command ECA runs. #699
-- Let modules change what the model sees in every request (`:llm/before-request`), the merged config (`:config/resolve`) and the model list (`:models/resolve`). #699
-- Send modules the compaction events, let one compact the chat its own way with `eca.api/checkpoint!`, and run `/compact` with it. #699
-- Let modules ask for a compaction (`eca.api/request-compaction!`) and retry or compact after a failed LLM request (`:llm/request-failed`). #699
-- Add the `eca/repl` module, off by default (`--repl`): an nREPL on ECA's module runtime, with `eca.api.dev/ctx` and `eca.api.debug`. #699
-- Add the built-in `eca-modules` skill: the modules guide, the `eca.api` reference from the code and the modules loaded now. #699
-- Add the `create` agent: it helps configure and extend ECA with ECA's docs as its guide, and checks and tests modules. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 
