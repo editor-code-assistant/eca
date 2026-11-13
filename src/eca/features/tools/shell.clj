@@ -11,6 +11,7 @@
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules.events :as events]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -98,6 +99,51 @@
                                      "ECA_CHAT_ID" chat-id))}
                  input (assoc :in input)))))
 
+(defn ^:private file-command-line
+  "The command line that runs the script `file`, as `start-shell-process!`
+   runs it with the default shell."
+  [file]
+  (if (string/starts-with? (System/getProperty "os.name") "Windows")
+    (str "powershell.exe -ExecutionPolicy Bypass -File \"" file "\"")
+    (str "bash '" (string/replace (str file) "'" "'\\''") "'")))
+
+(defn ^:private changed-value
+  "`[value]`, the value `:shell/before-exec` handlers set for `k`, when it
+   differs from `old` and `valid?` accepts it; else nil, with a warning for
+   an invalid value."
+  [event k old valid?]
+  (let [new (get event k)]
+    (when (not= old new)
+      (if (valid? new)
+        [new]
+        (do (logger/warn logger-tag (format "Ignoring the %s a :shell/before-exec handler set: %s" k (pr-str new)))
+            nil)))))
+
+(defn before-exec
+  "Runs the `:shell/before-exec` event for the command `opts` would start,
+   `opts` being options of `start-shell-process!`, and returns `opts` with the
+   modules' changes: `:command` (run as a script), `:cwd` and `:env`. Values of
+   the wrong type are ignored. A script `:file` is offered as the command line
+   that runs it.
+   `ctx` carries `:config` and what the handlers get as their ctx; without
+   `:config` no event runs. `info` adds to the event what runs the command:
+   `:source` (`:tool`, `:hook` or `:module`) with its `:tool`, `:hook` or
+   `:module` name, plus `:timeout-ms` and `:background?`."
+  [ctx {:keys [script file cwd env] :as opts} info]
+  (if-not (:config ctx)
+    opts
+    (let [command (or script (file-command-line file))
+          event (events/emit! ctx :shell/before-exec
+                              (merge {:command command :cwd cwd :env env :timeout-ms nil :background? false}
+                                     (shared/assoc-some info :chat-id (:chat-id ctx))))
+          [new-command] (changed-value event :command command #(and (string? %) (not (string/blank? %))))
+          [new-cwd] (changed-value event :cwd cwd #(and (string? %) (not (string/blank? %))))
+          [new-env :as env-change] (changed-value event :env env #(or (nil? %) (map? %)))]
+      (cond-> opts
+        new-command (-> (dissoc :file) (assoc :script new-command))
+        new-cwd (assoc :cwd new-cwd)
+        env-change (assoc :env new-env)))))
+
 (def ^:private initial-output-wait-ms 2000)
 (def ^:private initial-output-poll-ms 200)
 
@@ -123,7 +169,7 @@
 (defn ^:private background-shell-command
   "Start a shell process in the background, register it as a background job,
    and return immediately with the job ID and any initial output."
-  [arguments {:keys [db db* chat-id messenger call-state-fn tool-call-id]}]
+  [arguments {:keys [db db* chat-id messenger call-state-fn tool-call-id] :as ctx}]
   (let [command (get arguments "command")
         bg-value (get arguments "background")
         summary (when (string? bg-value) bg-value)
@@ -139,10 +185,12 @@
 
       :else
       (try
-        (let [proc (start-shell-process! {:cwd work-dir
-                                          :script command
-                                          :out-mode :stream
-                                          :chat-id chat-id})
+        (let [proc (start-shell-process! (before-exec ctx
+                                                      {:cwd work-dir
+                                                       :script command
+                                                       :out-mode :stream
+                                                       :chat-id chat-id}
+                                                      {:source :tool :tool "eca__shell_command" :background? true}))
               on-exit (fn [completed-job]
                         (try
                           (let [output-lines (:lines @(:output* completed-job))
@@ -194,7 +242,7 @@
 
 (defn ^:private foreground-shell-command
   "Run a shell command synchronously, blocking until completion or timeout."
-  [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn]}]
+  [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn] :as ctx}]
   (let [command-args (get arguments "command")
         user-work-dir (get arguments "working_directory")
         timeout (min (or (get arguments "timeout") default-timeout) max-timeout)
@@ -205,11 +253,15 @@
         _ (logger/debug logger-tag "Running command:" command-args)
         result (try
                  (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                 (start-shell-process! (cond-> {:cwd work-dir
-                                                                :script command-args
-                                                                :chat-id chat-id}
-                                                         shell-path (assoc :shell-path shell-path)
-                                                         shell-args (assoc :shell-args shell-args))))]
+                                 (start-shell-process! (before-exec ctx
+                                                                    (cond-> {:cwd work-dir
+                                                                             :script command-args
+                                                                             :chat-id chat-id}
+                                                                      shell-path (assoc :shell-path shell-path)
+                                                                      shell-args (assoc :shell-args shell-args))
+                                                                    {:source :tool
+                                                                     :tool "eca__shell_command"
+                                                                     :timeout-ms timeout})))]
                    (do
                      (state-transition-fn :resources-created {:resources {:process proc}})
                      (try (deref proc

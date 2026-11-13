@@ -19,6 +19,7 @@
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
 - Accept modules' keys at the root of `config.json`'s schema; ECA warns about unknown root keys at startup and in `/doctor` instead. #699
 - Send modules the chat events `:chat/input`, `:chat/started`, `:chat/before-request`, `:chat/after-request`, `:chat/message-added` and `:chat/title`. #699
+- Send modules `:tool/after-call`, accept `:additional-context` on `:tool/before-call`, and run `:shell/before-exec` for every shell command ECA runs. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

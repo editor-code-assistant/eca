@@ -564,7 +564,8 @@
                                                 :preRequest
                                                 (merge (f.hooks/chat-hook-data db chat-ctx)
                                                        {:prompt (:final-prompt state)})
-                                                db)]
+                                                db
+                                                chat-ctx)]
         (let [{:keys [raw-error exit]} result
               exit-2? (= f.hooks/hook-rejection-exit-code exit)]
           ;; Notify after action

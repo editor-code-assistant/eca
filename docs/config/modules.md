@@ -150,8 +150,9 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant` and, in a s
 | `:chat/ended` | notify | `:chat-id`, `:agent`, `:model` | — |
 | `:chat/status-changed` | notify | `:status`, `:pending-approval-ids`, `:running-tool-ids`... | — |
 | `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used` | — |
-| `:tool/before-call` | transform | `:tool`, `:server`, `:arguments`, `:approval`, `:tool-call-id` | `:arguments`, `:approval`, `:reason`, `:block`, `:stop` |
-| `:shell/before-exec` | transform | `:command`, `:cwd`, `:env` (for `eca/shell!`) | `:command`, `:cwd`, `:env` |
+| `:tool/before-call` | transform | `:tool`, `:server`, `:arguments`, `:approval`, `:tool-call-id` | `:arguments`, `:approval`, `:reason`, `:block`, `:stop`, `:additional-context` (added to the call's output for the model) |
+| `:tool/after-call` | transform | `:tool`, `:server`, `:arguments`, `:result`, `:error?`, `:tool-call-id`, before the model, the client and postToolCall hooks see the result | `:result` (a result map, or a string), `:additional-context` (for the model only), `:stop` (after this batch of calls) |
+| `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, with `:tool`, `:hook` and `:hook-type`, or `:module`), for the shell, git and custom tools, shell hooks and `eca/shell!` | `:command`, `:cwd`, `:env` |
 
 More of ECA's events come in later versions. A module can define its own in `:defines` and send them with `(eca/emit! ctx event-id event)`.
 

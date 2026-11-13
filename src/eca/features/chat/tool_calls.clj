@@ -99,8 +99,9 @@
 (defn ^:private post-tool-call-stop-info
   "Single pass over tool-call states. Returns
    {:stop-turn? boolean :stop-reason string-or-nil :stop-hook-name string-or-nil}
-   describing whether any postToolCall hook requested a current-turn stop
-   (continue:false) and the first stop reason / hook name found, if any."
+   describing whether any postToolCall hook, or a module's :tool/after-call
+   handler, requested a current-turn stop (continue:false) and the first stop
+   reason / hook name found, if any, plus :stop-module when a module stopped."
   [tool-calls prompt-id]
   (let [current-prompt-stop? (fn [state]
                                (and (some? prompt-id)
@@ -113,7 +114,10 @@
                   (assoc :stop-reason (:post-tool-call-stop-reason state))
 
                   (and (nil? (:stop-hook-name acc)) (:post-tool-call-stop-hook-name state))
-                  (assoc :stop-hook-name (:post-tool-call-stop-hook-name state)))
+                  (assoc :stop-hook-name (:post-tool-call-stop-hook-name state))
+
+                  (and (nil? (:stop-module acc)) (:post-tool-call-stop-module state))
+                  (assoc :stop-module (:post-tool-call-stop-module state)))
                 acc))
             {:stop-turn? false :stop-reason nil :stop-hook-name nil}
             tool-calls)))
@@ -146,6 +150,59 @@
             (vals (get-in db [:chats chat-id :tool-calls])))
     waiting-approval-progress-text
     text))
+
+(defn ^:private module-result
+  "The tool result a `:tool/after-call` handler set as `:result`: a result map
+   with sequential `:contents`, whose `:error` defaults to the original's, or a
+   string, a text result. Nil for any other value."
+  [original new]
+  (cond
+    (and (map? new) (sequential? (:contents new)))
+    (assoc new :error (boolean (if (contains? new :error) (:error new) (:error original))))
+
+    (string? new)
+    {:error (boolean (:error original)) :contents [{:type :text :text new}]}))
+
+(defn ^:private run-after-call-event!
+  "Runs the `:tool/after-call` event for the `result` of a tool call that ran.
+   Returns `{:result :additional-context}`: the result, which modules may
+   replace, and the context they add for the model. A module's `:stop` is
+   recorded in the tool call state like a postToolCall hook's, so the turn
+   ends after this batch, and then the hooks don't run."
+  [{:keys [db* chat-id prompt-id] :as chat-ctx} tool-call-id {:keys [full-name server arguments]} result]
+  (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+    (let [event (events/emit! (assoc chat-ctx :tool-call-id tool-call-id) :tool/after-call
+                              (lifecycle/chat-event chat-ctx {:tool full-name
+                                                              :server server
+                                                              :arguments arguments
+                                                              :result result
+                                                              :error? (boolean (:error result))
+                                                              :tool-call-id tool-call-id}))
+          new-result (:result event)
+          changed-result (when-not (identical? result new-result)
+                           (or (module-result result new-result)
+                               (do (logger/warn logger-tag "Ignoring the :result a :tool/after-call handler set"
+                                                {:tool-call-id tool-call-id :result new-result})
+                                   nil)))]
+      (when (contains? event :stop)
+        (swap! db* update-in [:chats chat-id :tool-calls tool-call-id] assoc
+               :post-tool-call-stop? true
+               :post-tool-call-stop-prompt-id prompt-id
+               :post-tool-call-stop-reason (shared/not-blank (:stop event))
+               :post-tool-call-stop-module (::events/ended-by event)))
+      {:result (or changed-result result)
+       :additional-context (shared/not-blank (:additional-context event))})))
+
+(defn ^:private with-module-contexts
+  "`output`, a tool call output, with the modules' additional contexts for
+   the model after its contents."
+  [output contexts]
+  (if-let [entries (seq (keep (fn [context]
+                                (when-let [context (shared/not-blank context)]
+                                  {:type :text :text (lifecycle/wrap-additional-context context)}))
+                              contexts))]
+    (update output :contents #(into (vec %) entries))
+    output))
 
 (defn ^:private run-post-tool-call-hooks!
   "Run postToolCall hooks and append any additionalContext to the tool output.
@@ -487,15 +544,17 @@
                                 :summary (:summary event-data))))
 
     :trigger-post-tool-call-hook
-    (let [{:keys [stop-turn? stop-reason stop-hook-name]} (run-post-tool-call-hooks! db* chat-ctx tool-call-id event-data)]
-      (when (or stop-turn? stop-reason)
-        (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
-               (fn [state]
-                 (cond-> (or state {})
-                   stop-turn? (assoc :post-tool-call-stop? true
-                                     :post-tool-call-stop-prompt-id (:prompt-id chat-ctx))
-                   stop-reason (assoc :post-tool-call-stop-reason stop-reason)
-                   stop-hook-name (assoc :post-tool-call-stop-hook-name stop-hook-name))))))
+    ;; A module's :stop on :tool/after-call ended the chain, so no hook runs.
+    (when-not (:post-tool-call-stop-module (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id))
+      (let [{:keys [stop-turn? stop-reason stop-hook-name]} (run-post-tool-call-hooks! db* chat-ctx tool-call-id event-data)]
+        (when (or stop-turn? stop-reason)
+          (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
+                 (fn [state]
+                   (cond-> (or state {})
+                     stop-turn? (assoc :post-tool-call-stop? true
+                                       :post-tool-call-stop-prompt-id (:prompt-id chat-ctx))
+                     stop-reason (assoc :post-tool-call-stop-reason stop-reason)
+                     stop-hook-name (assoc :post-tool-call-stop-hook-name stop-hook-name)))))))
 
     ;; Actions on parts of the state
     :deliver-approval-false
@@ -731,6 +790,11 @@
    - :stop-turn? (boolean, when a successful hook returns continue:false)
    - :stop-reason (string, for hook turn stops)
    - :stop-hook-name (string, for hook turn stops)
+   - :stop-module (module id, when a module's handler stopped the turn)
+   - :additional-context (string, the modules' context for the call's output)
+
+   A module's :block or :stop ends the :tool/before-call chain, so then no
+   preToolCall hook runs: the hooks come last (4.17).
 
    The on-before-hook-action and on-after-hook-action callbacks are optional (default to noops)
    and are used for UI notifications. In tests, these can be omitted."
@@ -765,6 +829,7 @@
                              :model full-model
                              :variant variant})
         module-arguments (:arguments event arguments)
+        module-ended? (or (boolean (:block event)) (contains? event :stop))
         ;; A deny from the user's config stays deny, whatever a module answers.
         config-deny? (and (not= :deny (:approval event))
                           (modules/active? config :eca/approval)
@@ -792,24 +857,25 @@
                            :stop-reason nil
                            :stop-hook-name nil})
 
-        _ (f.hooks/trigger-if-matches!
-           :preToolCall
-           (merge (f.hooks/chat-hook-data db {:chat-id chat-id
-                                              :agent agent-name
-                                              :full-model full-model
-                                              :variant variant})
-                  {:tool-name name
-                   :server server-name
-                   :tool-input module-arguments
-                   :approval hook-approval
-                   :tool-call-id tool-call-id})
-           {:on-before-action on-before-hook-action
-            :on-after-action (fn [result]
-                               (on-after-hook-action (assoc result :tool-call-id tool-call-id))
-                               (swap! hook-state* process-pre-tool-call-hook-result result))
-            :native-tools native-tools}
-           db
-           config)
+        _ (when-not module-ended?
+            (f.hooks/trigger-if-matches!
+             :preToolCall
+             (merge (f.hooks/chat-hook-data db {:chat-id chat-id
+                                                :agent agent-name
+                                                :full-model full-model
+                                                :variant variant})
+                    {:tool-name name
+                     :server server-name
+                     :tool-input module-arguments
+                     :approval hook-approval
+                     :tool-call-id tool-call-id})
+             {:on-before-action on-before-hook-action
+              :on-after-action (fn [result]
+                                 (on-after-hook-action (assoc result :tool-call-id tool-call-id))
+                                 (swap! hook-state* process-pre-tool-call-hook-result result))
+              :native-tools native-tools}
+             db
+             config))
 
         ;; 3. Merge all updatedInput from hooks
         {:keys [hook-results approval-override tool-call-rejected-by-hook?
@@ -825,15 +891,19 @@
 
         ;; A module's :block rejects the call like a hook rejection; its :stop ends
         ;; the turn like a hook's continue:false.
-        module-block (shared/not-blank (:block event))
+        module-block (when (:block event)
+                       (or (shared/not-blank (:block event))
+                           (str "Tool call blocked by module '" (some-> (::events/ended-by event) symbol) "'")))
         module-stop (when (contains? event :stop) (or (shared/not-blank (:stop event)) ""))
         tool-call-rejected-by-hook? (or tool-call-rejected-by-hook? (some? module-block))
         tool-call-rejection-reason (if module-block
                                      (or tool-call-rejection-reason module-block)
                                      tool-call-rejection-reason)
+        stop-module (when (and module-stop (not stop-turn?)) (::events/ended-by event))
         stop-reason (if (and module-stop (not stop-turn?)) (shared/not-blank module-stop) stop-reason)
         stop-hook-name (if (and module-stop (not stop-turn?)) (some-> (::events/ended-by event) str) stop-hook-name)
         stop-turn? (or stop-turn? (some? module-stop))
+        module-context (shared/not-blank (:additional-context event))
 
         ;; A current-turn stop is not a tool-specific rejection, but it still
         ;; blocks this prepared tool and downstream must stop the agent loop.
@@ -896,7 +966,9 @@
              :arguments-modified? arguments-modified?}
       reason (assoc :reason reason)
       stop-turn? (assoc :stop-reason stop-reason
-                        :stop-hook-name stop-hook-name))))
+                        :stop-hook-name stop-hook-name)
+      stop-module (assoc :stop-module stop-module)
+      module-context (assoc :additional-context module-context))))
 
 (defn on-tools-called! [{:keys [db* config chat-id agent messenger metrics invalid-arguments-rounds*]
                          ;; One counter per returned fn, i.e. per LLM tool loop:
@@ -972,7 +1044,8 @@
                                                                                           :full-model            (:full-model chat-ctx)
                                                                                           :variant               (:variant chat-ctx)}))
                         {:keys [decision tool-call-blocked-by-hook? reason stop-turn?
-                                stop-reason stop-hook-name]} decision-plan
+                                stop-reason stop-hook-name stop-module]
+                         before-context :additional-context} decision-plan
                         ;; updatedInput is surfaced inside the real preToolCall
                         ;; hook finished block (see lifecycle/format-hook-output),
                         ;; so it respects visible:false / suppressOutput and the
@@ -1010,7 +1083,7 @@
                                  (let [delayed-future
                                        (delay
                                          (future
-                                           (let [result               (f.tools/call-tool! full-name
+                                           (let [tool-result          (f.tools/call-tool! full-name
                                                                                           arguments
                                                                                           chat-id
                                                                                           id
@@ -1023,11 +1096,19 @@
                                                                                           (partial transition-tool-call! db* chat-ctx id)
                                                                                           {:trust       (db/resolve-trust @db* chat-id)
                                                                                            :on-progress (partial report-tool-call-progress! db* chat-ctx id)})
-                                                 details              (f.tools/tool-call-details-after-invocation name arguments details result
+                                                 details              (f.tools/tool-call-details-after-invocation name arguments details tool-result
                                                                                                                   {:db           @db*
                                                                                                                    :config       config
                                                                                                                    :chat-id      chat-id
                                                                                                                    :tool-call-id id})
+                                                 ;; Modules may replace the result and add context
+                                                 ;; for the model, which only the history gets.
+                                                 {result        :result
+                                                  after-context :additional-context}
+                                                 (run-after-call-event! chat-ctx id {:full-name full-name
+                                                                                     :server    server-name
+                                                                                     :arguments arguments}
+                                                                        tool-result)
                                                  {:keys [start-time]} (get-tool-call-state @db* chat-id id)
                                                  total-time-ms        (- (System/currentTimeMillis) start-time)]
                                              (add-to-history! {:role    "tool_call"
@@ -1041,7 +1122,7 @@
                                                                :content (assoc tool-call
                                                                                :name name
                                                                                :error (:error result)
-                                                                               :output result
+                                                                               :output (with-module-contexts result [before-context after-context])
                                                                                :total-time-ms total-time-ms
                                                                                :details details
                                                                                :summary summary
@@ -1094,17 +1175,20 @@
                                      {:keys [code text]} (:decision-reason tool-call-state)]
                                  (add-to-history! {:role "tool_call" :content tool-call})
                                  (add-to-history! {:role    "tool_call_output"
-                                                   :content (assoc tool-call :output {:error true
-                                                                                      :contents (if (= :invalid-arguments code)
-                                                                                                  (invalid-arguments-tool-call-output-contents text)
-                                                                                                  (rejected-tool-call-output-contents text))})})
+                                                   :content (assoc tool-call :output (with-module-contexts
+                                                                                      {:error true
+                                                                                       :contents (if (= :invalid-arguments code)
+                                                                                                   (invalid-arguments-tool-call-output-contents text)
+                                                                                                   (rejected-tool-call-output-contents text))}
+                                                                                      [before-context]))})
                                  ;; Keyed by batch position: calls run out of order, but the
                                  ;; last rejected call in the batch still decides the outcome.
                                  (swap! blocked-tool-call-infos* assoc idx
                                         {:code code
                                          :stop-turn? (when tool-call-blocked-by-hook? stop-turn?)
                                          :stop-reason (when tool-call-blocked-by-hook? stop-reason)
-                                         :stop-hook-name (when tool-call-blocked-by-hook? stop-hook-name)})
+                                         :stop-hook-name (when tool-call-blocked-by-hook? stop-hook-name)
+                                         :stop-module (when tool-call-blocked-by-hook? stop-module)})
                                  (transition-tool-call! db* chat-ctx id :send-reject {:origin    origin
                                                                                       :name      name
                                                                                       :server    server-name
@@ -1175,12 +1259,16 @@
                       stop-reason
                       (when (map? blocked-info) (:stop-reason blocked-info))
                       stop-hook-name
-                      (when (map? blocked-info) (:stop-hook-name blocked-info))]
+                      (when (map? blocked-info) (:stop-hook-name blocked-info))
+                      stop-module
+                      (when (map? blocked-info) (:stop-module blocked-info))]
                   (if (contains? #{:hook-rejected :hook-stopped :invalid-arguments} reason-code)
                     (cond
                       ;; Turn stop: stopReason is user-only; tool_call_output stays neutral.
                       stop-turn?
-                      (do (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
+                      (do (if stop-module
+                            (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+                            (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
                           (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
                           nil)
 
@@ -1221,12 +1309,14 @@
                                                        :text "I rejected one or more tool calls with the following reason"}]})
                           (lifecycle/finish-chat-prompt! :idle chat-ctx)
                           nil))))
-                (let [{:keys [stop-turn? stop-reason stop-hook-name]} (post-tool-call-stop-info
-                                                                       (get-in @db* [:chats chat-id :tool-calls] {})
-                                                                       (:prompt-id chat-ctx))]
+                (let [{:keys [stop-turn? stop-reason stop-hook-name stop-module]}
+                      (post-tool-call-stop-info (get-in @db* [:chats chat-id :tool-calls] {})
+                                                (:prompt-id chat-ctx))]
                   (if stop-turn?
                     (do
-                      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
+                      (if stop-module
+                        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+                        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
                       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
                       nil)
                     (with-fresh-auth

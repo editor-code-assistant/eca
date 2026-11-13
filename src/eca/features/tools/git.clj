@@ -33,7 +33,7 @@
          "git commit -F - <<'EOF'\n<message>\nEOF\n"
          "gh pr create --body-file - <<'EOF'\n<body>\nEOF")))
 
-(defn ^:private git-command [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn]}]
+(defn ^:private git-command [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn] :as ctx}]
   (let [command (get arguments "command")]
     (or (tools.util/invalid-arguments
          arguments
@@ -58,11 +58,16 @@
               _ (logger/debug logger-tag "Running command:" command)
               result (try
                        (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
-                                       (shell/start-shell-process! (cond-> {:cwd work-dir
-                                                                            :script command
-                                                                            :chat-id chat-id}
-                                                                     shell-path (assoc :shell-path shell-path)
-                                                                     shell-args (assoc :shell-args shell-args))))]
+                                       (shell/start-shell-process! (shell/before-exec
+                                                                    ctx
+                                                                    (cond-> {:cwd work-dir
+                                                                             :script command
+                                                                             :chat-id chat-id}
+                                                                      shell-path (assoc :shell-path shell-path)
+                                                                      shell-args (assoc :shell-args shell-args))
+                                                                    {:source :tool
+                                                                     :tool "eca__git"
+                                                                     :timeout-ms default-timeout})))]
                          (do
                            (state-transition-fn :resources-created {:resources {:process proc}})
                            (try (deref proc default-timeout ::timeout)

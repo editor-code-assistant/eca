@@ -222,8 +222,11 @@
    - :preToolCall, :postToolCall (tool lifecycle)
    - :preCompact, :postCompact (compact lifecycle)
 
+   With `ctx`, which carries `:config`, the `:shell/before-exec` event runs
+   first, so modules can change the command.
+
    Returns map with :exit, :raw-output, :raw-error, :parsed"
-  [action name hook-type data db]
+  [action name hook-type data db & [ctx]]
   (case (:type action)
     "shell" (let [cwd (some-> (:workspace-folders db)
                               first
@@ -234,7 +237,15 @@
                   ;; Convert to snake_case for bash/shell conventions
                   ;; Nested keys (e.g. tool_input/tool_response): kebab-case (matches LLM format)
                   input (json/generate-string (shared/map->snake-cased-map
-                                               (merge {:hook-name name :hook-type hook-type} data)))]
+                                               (merge {:hook-name name :hook-type hook-type} data)))
+                  ;; modules may change the command first (:shell/before-exec)
+                  run-command! (fn [opts]
+                                 (run-and-parse-output!
+                                  (f.tools.shell/before-exec
+                                   ctx opts {:source :hook
+                                             :hook name
+                                             :hook-type hook-type
+                                             :timeout-ms (or (:timeout action) default-hook-timeout-ms)})))]
               (cond
                 (and shell file)
                 (logger/warn logger-tag (format "Hook '%s' has both 'shell' and 'file' - must have exactly one" name))
@@ -247,7 +258,7 @@
 
                 shell
                 (do (logger/debug logger-tag (format "Running hook '%s' inline shell '%s' with input '%s'" name shell input))
-                    (run-and-parse-output! {:cwd cwd :input input :script shell :timeout (:timeout action)}))
+                    (run-command! {:cwd cwd :input input :script shell :timeout (:timeout action)}))
 
                 file
                 (let [expanded (str (fs/expand-home file))
@@ -256,7 +267,7 @@
                                  (fs/file cwd expanded))]
                   (if (fs/exists? resolved)
                     (do (logger/debug logger-tag (format "Running hook '%s' file '%s' with input '%s'" name file input))
-                        (run-and-parse-output! {:cwd cwd :input input :file expanded :timeout (:timeout action)}))
+                        (run-command! {:cwd cwd :input input :file expanded :timeout (:timeout action)}))
                     (let [msg (format "Hook file not found: '%s' (relative paths resolve against the first workspace root)" (str resolved))]
                       (logger/warn logger-tag (format "Hook '%s': %s" name msg))
                       {:exit 1 :raw-output nil :raw-error msg :parsed nil})))))
@@ -283,7 +294,7 @@
   "Execute a single matched action: notify before, run, notify after.
    Returns the merged action result so the caller can inspect it without
    conflating 'what happened' with 'what to do next'."
-  [hook-type data {:keys [on-before-action on-after-action]} db hook-name hook i action]
+  [hook-type data {:keys [on-before-action on-after-action ctx]} db hook-name hook i action]
   (let [id (str (random-uuid))
         action-type (:type action)
         action-name (if (> (count (:actions hook)) 1)
@@ -296,7 +307,7 @@
               :hook-type hook-type
               :visible? visible?}]
     (on-before-action (select-keys base [:id :visible? :name :type]))
-    (let [result (merge (or (run-hook-action! action action-name hook-type data db)
+    (let [result (merge (or (run-hook-action! action action-name hook-type data db ctx)
                             {:exit 1})
                         base)]
       (on-after-action result)
@@ -324,7 +335,9 @@
    db
    config]
   (let [opts {:on-before-action on-before-action
-              :on-after-action on-after-action}
+              :on-after-action on-after-action
+              ;; for the :shell/before-exec event of each hook command
+              :ctx (shared/assoc-some {:config config} :chat-id (:chat-id data))}
         matched-actions (for [[hook-key hook] (sort-by key (active-hooks config))
                               :when (hook-matches? hook-type data hook native-tools)
                               [i action] (map-indexed vector (:actions hook))]

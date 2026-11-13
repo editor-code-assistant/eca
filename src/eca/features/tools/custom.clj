@@ -14,8 +14,8 @@
 (defn ^:private build-tool-fn
   "Creates a function that safely executes the command from a custom tool config.
   It substitutes {{placeholders}} in the command vector with LLM-provided arguments."
-  [{:keys [command]}]
-  (fn [args {:keys [db config chat-id]}]
+  [tool-name {:keys [command]}]
+  (fn [args {:keys [db config chat-id] :as ctx}]
     (let [resolved-command (reduce
                             (fn [s [arg-name arg-value]]
                               (string/replace s (str "{{" arg-name "}}") (str arg-value)))
@@ -32,11 +32,13 @@
           _ (logger/debug logger-tag "Running custom tool:" resolved-command)
           result (try
                    @(f.tools.shell/start-shell-process!
-                     (cond-> {:cwd work-dir
-                              :script resolved-command
-                              :chat-id chat-id}
-                       shell-path (assoc :shell-path shell-path)
-                       shell-args (assoc :shell-args shell-args)))
+                     (f.tools.shell/before-exec ctx
+                                                (cond-> {:cwd work-dir
+                                                         :script resolved-command
+                                                         :chat-id chat-id}
+                                                  shell-path (assoc :shell-path shell-path)
+                                                  shell-args (assoc :shell-args shell-args))
+                                                {:source :tool :tool (str "eca__" tool-name)}))
                    (catch Exception e
                      {:exit 1 :err (.getMessage e)}))
           exit (:exit result)
@@ -65,7 +67,7 @@
       :parameters {:type "object"
                    :properties (:properties schema)
                    :required (:required schema)}
-      :handler (build-tool-fn tool-config)}}))
+      :handler (build-tool-fn tool-name tool-config)}}))
 
 (defn definitions
   "Loads all custom tools from the config."

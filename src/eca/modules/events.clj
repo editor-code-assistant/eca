@@ -88,13 +88,17 @@
                       :accepts {:arguments "Replaces the arguments." :approval "Replaces the approval."
                                 :reason "Why, as {:code :text}: shown with the decision."
                                 :block "Rejects the call, with this reason for the model."
-                                :stop "Ends the turn, with this reason."}}
+                                :stop "Ends the turn, with this reason."
+                                :additional-context "Added to the call's output for the model, run or rejected."}}
    :tool/after-call {:kind :transform
-                     :doc "After a tool call ran."
-                     :payload {:tool "" :server "" :arguments "" :result "The result." :error? "" :tool-call-id ""}
-                     :accepts {:result "Replaces the result."
-                               :additional-context "Added to the result."
-                               :stop "Ends the turn, with this reason."}}
+                     :doc (str "After a tool call ran, before the model, the client and the postToolCall hooks "
+                               "see its result.")
+                     :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."
+                               :result "The result: {:error :contents}." :error? "Whether it failed."
+                               :tool-call-id ""}
+                     :accepts {:result "Replaces the result: a result map, or a string for a text result."
+                               :additional-context "Added to the result for the model only."
+                               :stop "Ends the turn after this batch of tool calls, with this reason."}}
    :chat/before-compact {:kind :transform
                          :doc "Before a compaction."
                          :payload {:trigger ":manual, :auto or :overflow." :instructions "Extra instructions."}
@@ -116,9 +120,15 @@
                 :payload {:messages "The chat's first messages."}
                 :accepts {:title "The title."}}
    :shell/before-exec {:kind :transform
-                       :doc "Before every shell command ECA runs."
-                       :payload {:command "" :cwd "" :env "" :timeout-ms "" :background? ""}
-                       :accepts {:command "" :cwd "" :env ""}}
+                       :doc (str "Before every shell command ECA runs: the shell and git tools, custom tools, "
+                                 "shell hooks and eca.api/shell!.")
+                       :payload {:command "The command line." :cwd "Its folder."
+                                 :env "Extra environment variables, name → value."
+                                 :timeout-ms "When it's killed, if ever." :background? "A background job."
+                                 :source (str ":tool, :hook or :module, with the :tool full name, the :hook name "
+                                              "and :hook-type, or the calling :module.")}
+                       :accepts {:command "Replaces the command line." :cwd "Replaces the folder."
+                                 :env "Replaces the extra environment variables."}}
    :config/resolve {:kind :transform
                     :doc "After all config layers merge."
                     :payload {:config "The config."}
@@ -205,13 +215,13 @@
   (every? (fn [[k expected]] (value-matches? expected (get event k))) match))
 
 (defn merge-changes
-  "Merges a handler's changes into the event: `:additional-context` adds up,
-   other keys replace. With `accepted`, other keys are ignored."
+  "Merges a handler's changes into the event: `:additional-context` adds up
+   (strings only), other keys replace. With `accepted`, other keys are ignored."
   [event changes accepted]
   (reduce-kv (fn [event k v]
                (cond
                  (and accepted (not (contains? accepted k))) event
-                 (= :additional-context k) (if (string/blank? v)
+                 (= :additional-context k) (if (or (not (string? v)) (string/blank? v))
                                              event
                                              (update event k #(if (string/blank? %) v (str % "\n" v))))
                  :else (assoc event k v)))

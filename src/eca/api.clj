@@ -488,21 +488,18 @@
   ([ctx command] (shell! ctx command nil))
   ([ctx command {:keys [cwd env input timeout-ms] :or {timeout-ms 60000}}]
    (let [config (config ctx)
-         event (events/emit! (assoc ctx :config config) :shell/before-exec
-                             {:command command
-                              :cwd (or cwd (first (workspaces ctx)) (System/getProperty "user.home"))
-                              :env env
-                              :timeout-ms timeout-ms
-                              :background? false})
          shell-config (get-in config [:toolCall :shellCommand])
-         proc ((requiring-resolve 'eca.features.tools.shell/start-shell-process!)
-               (cond-> {:cwd (:cwd event)
-                        :script (str (:command event))
-                        :env (:env event)
+         opts ((requiring-resolve 'eca.features.tools.shell/before-exec)
+               (assoc ctx :config config)
+               (cond-> {:cwd (or cwd (first (workspaces ctx)) (System/getProperty "user.home"))
+                        :script (str command)
                         :chat-id (:chat-id ctx)}
+                 env (assoc :env env)
                  input (assoc :input input)
                  (:path shell-config) (assoc :shell-path (:path shell-config))
-                 (:args shell-config) (assoc :shell-args (:args shell-config))))
+                 (:args shell-config) (assoc :shell-args (:args shell-config)))
+               (shared/assoc-some {:source :module :timeout-ms timeout-ms} :module (:module-id ctx)))
+         proc ((requiring-resolve 'eca.features.tools.shell/start-shell-process!) opts)
          result (try
                   (deref proc timeout-ms ::timeout)
                   (catch InterruptedException e
