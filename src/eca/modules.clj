@@ -15,7 +15,8 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules.config-spec :as config-spec]
-   [eca.shared :as shared])
+   [eca.shared :as shared]
+   [sci.lang])
   (:import
    [java.util.concurrent
     Callable
@@ -84,25 +85,33 @@
   @(requiring-resolve 'eca.modules.built-in/modules))
 
 (defn add-external!
-  "Adds or replaces an external module loaded from `source`."
-  [source module]
-  (swap-inputs! assoc-in [:external source] {:module module :source source}))
+  "Adds or replaces the external module loaded from `source`, its path.
+   `opts`: `:kind`, where the source was found; `:rank`, its precedence
+   (lower first: when two sources define the same id, the first keeps it);
+   `:expected-id`, the id the config gives it; `:plugin`; and `:error` when
+   the source didn't load, with a nil `module` (`:refused?` when it wasn't
+   loaded on purpose, e.g. another source loads its namespace)."
+  ([source module] (add-external! source module {}))
+  ([source module opts]
+   (swap-inputs! assoc-in [:external source] (merge opts {:module module :source source}))))
 
 (defn remove-external!
   [source]
   (swap-inputs! update :external dissoc source))
 
 (defn external-modules
-  "Loaded external modules: source → {:module :source}."
+  "Loaded external modules: source → {:module :source :kind :rank
+   :expected-id :plugin :error}."
   []
   (:external @registry*))
 
 ;; --- Validation
 
 (defn fn-like?
-  "Whether `x` can be called as a module function."
+  "Whether `x` can be called as a module function: a function, a var (also
+   an SCI one, from an external module) or a multimethod."
   [x]
-  (or (fn? x) (var? x) (instance? clojure.lang.MultiFn x)))
+  (or (fn? x) (var? x) (instance? clojure.lang.MultiFn x) (instance? sci.lang.Var x)))
 
 (defn ^:private qualified-kw? [x] (qualified-keyword? x))
 
@@ -317,17 +326,26 @@
 
 (defn ^:private resolve*
   [modules-config registry built-ins]
-  (let [candidates (concat (map (fn [m] {:id (:id m) :module m :source :built-in :built-in? true}) built-ins)
-                           (map (fn [[source {:keys [module]}]]
-                                  {:id (when (map? module) (:id module)) :module module :source source :built-in? false})
-                                (sort-by (comp str key) (:external registry))))
+  (let [{not-loaded true loaded false} (group-by (comp boolean :error)
+                                                 (sort-by (juxt #(:rank % Long/MAX_VALUE) :source)
+                                                          (vals (:external registry))))
+        candidates (concat (map (fn [m] {:id (:id m) :module m :source :built-in :built-in? true}) built-ins)
+                           (map (fn [{:keys [module source kind]}]
+                                  {:id (when (map? module) (:id module)) :module module :source source :kind kind
+                                   :built-in? false})
+                                loaded))
+        load-failed (for [{:keys [source kind expected-id error refused?]} not-loaded]
+                      {:id expected-id :module nil :source source :kind kind :built-in? false
+                       :status (if refused? :refused :failed)
+                       :reason (if refused? error (str "Failed to load: " error))})
         {:keys [valid refused]} (validate-candidates candidates)
         entries (map #(assoc % :priority (effective-priority % modules-config)) valid)
         {enabled false disabled true} (group-by #(boolean (disabled-reason % modules-config registry)) entries)
         disabled (map #(merge % (disabled-reason % modules-config registry)) disabled)
         {:keys [active declared conflicting]} (place enabled)
         active-ids (set (map :id active))
-        status-by-id (merge (into {} (map (juxt :id :status)) refused)
+        status-by-id (merge (into {} (map (juxt :id :status)) (filter :id load-failed))
+                            (into {} (map (juxt :id :status)) refused)
                             (into {} (map (juxt :id :status)) disabled)
                             (update-vals conflicting :status))
         unplaced (for [entry enabled
@@ -347,8 +365,8 @@
     {:active active
      :active-ids active-ids
      :declared declared
-     :statuses (vec (sort-by (comp str :id)
-                             (concat active disabled (vals conflicting) unplaced refused)))}))
+     :statuses (vec (sort-by (juxt (comp str :id) (comp str :source))
+                             (concat active disabled (vals conflicting) unplaced refused load-failed)))}))
 
 (def ^:private resolution-cache* (atom nil))
 
@@ -614,10 +632,15 @@
   (swap! registry* assoc :session-started? true)
   (reconcile! components config))
 
+(defn started?
+  "Whether `start!` ran, and `stop-all!` didn't since."
+  []
+  (boolean (:session-started? @registry*)))
+
 (defn reconcile-if-started!
   "`reconcile!`, once `start!` ran."
   [components config]
-  (when (:session-started? @registry*)
+  (when (started?)
     (reconcile! components config)))
 
 (defn stop-all!

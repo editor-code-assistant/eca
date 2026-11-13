@@ -93,6 +93,26 @@
       "hash": "sha256-XBwijxopsG0KfQNJD15k+vcTo8YWcpi6Fxz/wzz57Rg="
     },
     {
+      "mvn-path": "borkdude/edamame/1.6.44/edamame-1.6.44.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-Cn5djZEUa3vtbvWu/PMBA3beRyGutFyGQ5qHZ7+JKBA="
+    },
+    {
+      "mvn-path": "borkdude/edamame/1.6.44/edamame-1.6.44.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-ltOoZclJOWsmk/iGbJvrDZWfHq+sBV8/AZjXkaIXDmk="
+    },
+    {
+      "mvn-path": "borkdude/graal.locking/0.0.2/graal.locking-0.0.2.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-eFlpdVXBVNcgMM6zRTTPuqcKxLWJhAQdN4ULU733FF4="
+    },
+    {
+      "mvn-path": "borkdude/graal.locking/0.0.2/graal.locking-0.0.2.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-+CvjevOXlKnCti6k276mRMhp++Mlm5dK1MdZVH6FsvU="
+    },
+    {
       "mvn-path": "camel-snake-kebab/camel-snake-kebab/0.4.3/camel-snake-kebab-0.4.3.jar",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-gZHzNXdjENeFekCtMyVL5mrbNjgGsYE22IQxlpI6wsg="
@@ -2198,6 +2218,26 @@
       "hash": "sha256-n5CApUj6Z4YvtRUNFp8rO3XmccUZ8iZ9cffQByF59ek="
     },
     {
+      "mvn-path": "org/babashka/sci.impl.types/0.0.3/sci.impl.types-0.0.3.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-0zHboOBzjDgdc38YUlBw51tj8/Z+/IjTRQ2wDHVf5t4="
+    },
+    {
+      "mvn-path": "org/babashka/sci.impl.types/0.0.3/sci.impl.types-0.0.3.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-7enygoNRRIjgSH0t8ueav2PeAocbpfujPBQHpygVpvI="
+    },
+    {
+      "mvn-path": "org/babashka/sci/0.15.59/sci-0.15.59.jar",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-8DG3Z3TFy5cLSx9lL8yt/1y6ib4bCt5dMqnzvWYP0No="
+    },
+    {
+      "mvn-path": "org/babashka/sci/0.15.59/sci-0.15.59.pom",
+      "mvn-repo": "https://repo.clojars.org/",
+      "hash": "sha256-q42hmj6Tqvbxx9Ypppvs7INtmTObypkJ/AhK/YS2j/E="
+    },
+    {
       "mvn-path": "org/clj-commons/digest/1.4.100/digest-1.4.100.jar",
       "mvn-repo": "https://repo.clojars.org/",
       "hash": "sha256-Zk6MZey+So1GP1MYU5mE2X/b/uX98L6HLuA7/segvMA="
@@ -2706,6 +2746,16 @@
       "mvn-path": "org/clojure/tools.reader/1.5.0/tools.reader-1.5.0.pom",
       "mvn-repo": "https://repo1.maven.org/maven2/",
       "hash": "sha256-YasqEjhSBObFi4fT2OpHjpSYaiAKs6+yWuJ56q3DqZo="
+    },
+    {
+      "mvn-path": "org/clojure/tools.reader/1.5.2/tools.reader-1.5.2.jar",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-y5btDv3wuLw2JjLLdAZ+8iX2sD8/R4yLpEGC9qF6N7Y="
+    },
+    {
+      "mvn-path": "org/clojure/tools.reader/1.5.2/tools.reader-1.5.2.pom",
+      "mvn-repo": "https://repo1.maven.org/maven2/",
+      "hash": "sha256-uZlvXJtX4jSGPzlfzmT5fTBQtPWFMKYhWllpsILSFOc="
     },
     {
       "mvn-path": "org/codehaus/plexus/plexus-cipher/2.0/plexus-cipher-2.0.jar",

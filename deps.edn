@@ -6,6 +6,7 @@
         io.github.plumce/plumcp.core-json-cheshire {:mvn/version "0.3.0"}
         org.yaml/snakeyaml {:mvn/version "2.4"} ;; used by eca.shared for YAML parsing
         borkdude/dynaload {:mvn/version "0.3.5"}
+        org.babashka/sci {:mvn/version "0.15.59"} ;; runs external modules
         dev.ericdallo/rewrite-json {:mvn/version "0.1.1"}
         selmer/selmer {:mvn/version "1.12.69"}
         babashka/fs {:mvn/version "0.5.33"}

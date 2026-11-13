@@ -228,6 +228,24 @@
                      {:path (str (fs/canonicalize file))})))
            vec))))
 
+(defn ^:private read-modules
+  "The modules in a plugin's modules/ folder: its .clj and .cljc files and its
+   folders with a module.clj, as {:path <absolute-path> :plugin <plugin-name>}
+   entries. The module loader evaluates them."
+  [^java.io.File plugin-dir plugin-name]
+  (let [modules-dir (io/file plugin-dir "modules")]
+    (when (fs/directory? modules-dir)
+      (->> (fs/list-dir modules-dir)
+           (remove #(string/starts-with? (str (fs/file-name %)) "."))
+           (filter #(if (fs/directory? %)
+                      (fs/regular-file? (fs/path % "module.clj"))
+                      (contains? #{"clj" "cljc"} (fs/extension %))))
+           (map (fn [path]
+                  (cond-> {:path (str (fs/canonicalize path))}
+                    plugin-name (assoc :plugin plugin-name))))
+           (sort-by :path)
+           vec))))
+
 (defn ^:private read-skill-dirs
   "Returns skill directories from a plugin directory as a vector of
    {:dir <absolute-path> :plugin <plugin-name>} entries. `plugin-name` may be nil."
@@ -247,7 +265,8 @@
    {:config-fragment {...}  — deep-mergeable into ECA config (mcpServers, hooks, pluginSkillDirs, eca.json overrides)
     :agents {...}           — agent-name -> agent-config map (merged alongside markdown agents)
     :commands [{:path ... :plugin ...}] — appended to :commands config vector
-    :rules [{:path ...}]}   — appended to :rules config vector"
+    :rules [{:path ...}]    — appended to :rules config vector
+    :modules [{:path ... :plugin ...}]} — loaded by the module loader"
   ([^java.io.File plugin-dir]
    (discover-components plugin-dir nil))
   ([^java.io.File plugin-dir plugin-name]
@@ -262,7 +281,8 @@
      {:config-fragment config-fragment
       :agents (read-agents plugin-dir)
       :commands (read-commands plugin-dir plugin-name)
-      :rules (read-rules plugin-dir)})))
+      :rules (read-rules plugin-dir)
+      :modules (read-modules plugin-dir plugin-name)})))
 
 (defn ^:private merge-components
   "Merges components from multiple plugins into a single map.
@@ -279,11 +299,13 @@
              (update-in [:config-fragment :pluginSkillDirs] (fnil into []) new-skill-dirs))
            (update :agents merge (:agents components))
            (update :commands into (:commands components))
-           (update :rules into (:rules components)))))
+           (update :rules into (:rules components))
+           (update :modules into (:modules components)))))
    {:config-fragment {}
     :agents {}
     :commands []
-    :rules []}
+    :rules []
+    :modules []}
    components-list))
 
 (defn ^:private parse-sources
@@ -299,7 +321,7 @@
                  [(name source-name) source-url])))))
 
 (def ^:private empty-result
-  {:config-fragment {} :agents {} :commands [] :rules []})
+  {:config-fragment {} :agents {} :commands [] :rules [] :modules []})
 
 (defn ^:private plugin-dependencies
   "Returns the plugin refs a plugin depends on: the union of the marketplace

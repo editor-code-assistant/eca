@@ -22,6 +22,7 @@
    ;; loaded here so the native image has it: eca.modules resolves it lazily
    [eca.modules.built-in]
    [eca.modules.events :as events]
+   [eca.modules.loader :as loader]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -127,6 +128,24 @@
   (hash (update-vals (:providers config)
                      #(cond-> % (map? %) (update :key (comp boolean not-empty))))))
 
+(defn ^:private notify-module-load-errors!
+  "Tells the user about the external modules that failed to load."
+  [messenger changes]
+  (doseq [{:keys [path error]} changes
+          :when error]
+    (try
+      (messenger/showMessage messenger {:type :warning
+                                        :message (format "ECA module %s failed to load: %s" path error)})
+      (catch Exception _))))
+
+(defn ^:private sync-external-modules!
+  "Loads, reloads or drops the external modules to match their sources.
+   Returns what changed."
+  [db* messenger config]
+  (let [changes (loader/sync! config @db*)]
+    (notify-module-load-errors! messenger changes)
+    changes))
+
 (defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
@@ -153,7 +172,11 @@
                (f.tools/reconcile-servers! prev-config new-config db* messenger metrics)))
       (swap! db* assoc-in [:config-updated-fns :modules-reconcile]
              (fn [_prev-config new-config]
-               (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics} new-config)))
+               ;; modules.<id>.source may have changed
+               (let [changes (when (modules/started?)
+                               (sync-external-modules! db* messenger new-config))]
+                 (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
+                                                (if (seq changes) (config/all @db*) new-config)))))
       (swap! db* assoc-in [:config-updated-fns :tool-refresh]
              (fn [prev-config new-config]
                (when (and prev-config
@@ -200,11 +223,25 @@
               (logger/warn "[PLUGINS]" "Could not report plugin resolution failure:"
                            (ex-message notification-error))))))
       (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
+      (try
+        (sync-external-modules! db* messenger (config/all @db*))
+        (catch Exception e
+          (logger/error "[MODULES]" "Could not load external modules:" e)))
       (let [config (config/all @db*)]
         (try
           (modules/start! {:db* db* :messenger messenger :metrics metrics} config)
           (catch Exception e
             (logger/error "[MODULES]" "Could not start modules:" e)))
+        ;; external modules reload when their files change
+        (future
+          (loader/watch! {:running? #(not (:stopping @db*))
+                          :config-fn #(config/all @db*)
+                          :db-fn #(deref db*)
+                          :on-changes (fn [changes]
+                                        (notify-module-load-errors! messenger changes)
+                                        (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
+                                                                       (config/all @db*))
+                                        (notify-chat-config-state! db* messenger))}))
         ;; Trigger sessionStart before delivering plugins-resolved so it
         ;; completes before any chatStart hook can fire (chatStart waits
         ;; on await-plugins-resolved!).

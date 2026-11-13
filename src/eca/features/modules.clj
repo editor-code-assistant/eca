@@ -2,10 +2,12 @@
   "The `/modules` command: list the modules, and enable, disable or reload one
    for the session."
   (:require
+   [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.modules :as modules]
    [eca.modules.config-spec :as config-spec]
+   [eca.modules.loader :as loader]
    [eca.shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
@@ -67,7 +69,8 @@
                              ctx]
   (let [{:keys [description version]} module]
     (multi-str
-     (str (status-icon status "•") " `" id "`"
+     ;; a module that failed to load may have no id yet
+     (str (status-icon status "•") " `" (or id (str (fs/file-name source))) "`"
           (when version (str " " version))
           (when description (str " — " description)))
      (str "  " (string/join " · " (remove nil? [(if built-in? "built-in" (str "from `" source "`"))
@@ -135,7 +138,9 @@
         (case action
           "enable" (modules/set-enabled! id true)
           "disable" (modules/set-enabled! id false)
-          "reload" (modules/restart! components config id))
+          ;; an external module is evaluated again from its source first
+          "reload" (do (loader/reload! id config @db*)
+                       (modules/restart! components (fresh-config) id)))
         (let [config (fresh-config)
               _ (modules/reconcile-if-started! components config)
               after (:active-ids (modules/resolution config))

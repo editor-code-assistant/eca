@@ -1,11 +1,13 @@
 (ns eca.features.modules-test
   (:require
+   [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.core :as f.core]
    [eca.features.modules :as f.modules]
    [eca.modules :as modules]
+   [eca.modules.loader :as loader]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -70,6 +72,32 @@
       (is (= "No module `:eca/nope`. `/modules` lists them." (f.modules/handle! ["enable" "eca/nope"] (chat-ctx))))
       (is (match? #"Which module\?" (f.modules/handle! ["enable"] (chat-ctx))))
       (is (match? #"Unknown action `frob`" (f.modules/handle! ["frob" "eca/sample"] (chat-ctx)))))))
+
+(deftest external-modules-test
+  (reset! config/initialization-config* {:pureConfig true})
+  (config/clear-cache!)
+  (let [dir (str (fs/canonicalize (fs/create-temp-dir {:prefix "eca-modules-cmd"})))
+        good (str (fs/path dir "good.clj"))
+        broken (str (fs/path dir "broken.clj"))]
+    (try
+      (spit good "(ns acme.good) (defonce loads (atom 0)) (swap! loads inc)
+                  (def module {:id :acme/good :version \"1.0.0\" :description (str \"Load \" @loads)})")
+      (spit broken "(ns acme.broken) (def module (nope))")
+      (loader/set-cli-paths! [good broken])
+      (with-redefs [modules/built-in-modules (constantly test-modules)]
+        (loader/sync! (config/all (h/db)) (h/db))
+        (let [text (f.modules/handle! [] (chat-ctx))]
+          (testing "an external module shows where it comes from"
+            (is (string/includes? text "✅ `:acme/good` 1.0.0 — Load 1"))
+            (is (string/includes? text (str "from `" good "`"))))
+          (testing "a module that didn't load shows its file and why"
+            (is (string/includes? text "❌ `broken.clj`"))
+            (is (string/includes? text "failed: Failed to load: Unable to resolve symbol: nope"))))
+        (testing "reload evaluates an external module again"
+          (is (= "Reloaded `:acme/good`." (f.modules/handle! ["reload" "acme/good"] (chat-ctx))))
+          (is (string/includes? (f.modules/handle! [] (chat-ctx)) "— Load 2"))))
+      (finally
+        (fs/delete-tree dir)))))
 
 (deftest config-problems-test
   (with-redefs [modules/built-in-modules (constantly test-modules)]

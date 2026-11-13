@@ -140,6 +140,19 @@
           (is (= 1 (count (:rules result))))
           (is (string? (:path (first (:rules result)))))))
 
+      (testing "discovers modules: .clj files and folders with a module.clj"
+        (fs/create-dirs (fs/file plugin-dir "modules" "folder-module"))
+        (fs/create-dirs (fs/file plugin-dir "modules" "not-a-module"))
+        (spit (fs/file plugin-dir "modules" "file_module.clj") "(ns acme.file-module)")
+        (spit (fs/file plugin-dir "modules" "folder-module" "module.clj") "(ns acme.folder-module)")
+        (spit (fs/file plugin-dir "modules" "README.md") "# Modules")
+        (spit (fs/file plugin-dir "modules" ".hidden.clj") "(ns hidden)")
+        (let [result (#'plugins/discover-components (fs/file plugin-dir) "my-plugin")
+              modules-dir (str (fs/canonicalize (fs/file plugin-dir "modules")))]
+          (is (= [{:path (str (fs/path modules-dir "file_module.clj")) :plugin "my-plugin"}
+                  {:path (str (fs/path modules-dir "folder-module")) :plugin "my-plugin"}]
+                 (:modules result)))))
+
       (testing "discovers MCP servers in config-fragment"
         (spit (fs/file plugin-dir ".mcp.json")
               (json/generate-string
@@ -162,6 +175,7 @@
             (is (empty? (:agents result)))
             (is (empty? (:commands result)))
             (is (empty? (:rules result)))
+            (is (empty? (:modules result)))
             (is (nil? (get-in result [:config-fragment :mcpServers]))))))
       (finally
         (fs/delete-tree tmp-dir)))))
