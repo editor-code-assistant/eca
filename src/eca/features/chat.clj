@@ -900,6 +900,59 @@
                                                        (assoc chat-ctx :auto-compacted? true))
                                      nil)})))
 
+(def ^:private max-requested-compactions-per-turn
+  "Compactions modules may ask for in a turn when `autoCompactMaxPerTurn`
+   isn't set: a backstop against a module that keeps asking."
+  3)
+
+(defn ^:private take-compaction-request!
+  "Removes the compaction a module asked for (eca.api/request-compaction!)
+   from the chat and returns it, `{:module :trigger :instructions}`, when
+   the chat may compact now: not while it compacts, nor when this turn can't
+   auto-compact again (see `auto-compact-suppressed?`), reached its cap, or
+   had a requested compaction blocked."
+  [{:keys [db* chat-id prompt-id config agent auto-compactions] :as chat-ctx}]
+  (let [[old] (swap-vals! db* (fn [db]
+                                (cond-> db
+                                  (get-in db [:chats chat-id :compaction-request])
+                                  (update-in [:chats chat-id] dissoc :compaction-request))))
+        {:keys [compaction-request compacting? auto-compacting? compaction-blocked-prompt-id]}
+        (get-in old [:chats chat-id])]
+    (when (and compaction-request
+               (not compacting?)
+               (not auto-compacting?)
+               (not (auto-compact-suppressed? chat-ctx))
+               (< (or auto-compactions 0)
+                  (or (lifecycle/auto-compact-max-per-turn config agent) max-requested-compactions-per-turn))
+               (not (and prompt-id (= prompt-id compaction-blocked-prompt-id))))
+      compaction-request)))
+
+(defn ^:private trigger-requested-compact!
+  "Runs the compaction `request` asks for, a module's (see
+   `take-compaction-request!`) or a `{:compact ..}` answer to
+   `:llm/request-failed`, as an auto-compaction: it counts in the turn's,
+   then the task resumes. When it's blocked, no request runs again in this
+   prompt and `on-blocked` decides how the turn goes on."
+  [{:keys [db* chat-id prompt-id] :as chat-ctx} all-tools user-messages {:keys [module trigger instructions]} on-blocked]
+  (logger/info logger-tag "Compacting chat, as a module asked" {:chat-id chat-id :module module :trigger trigger})
+  (trigger-compact! (update chat-ctx :auto-compactions (fnil inc 0))
+                    all-tools
+                    user-messages
+                    {:trigger (if (= :manual trigger) "manual" "auto")
+                     :event-trigger (or trigger :auto)
+                     :custom-instructions instructions
+                     :on-blocked (fn []
+                                   (swap! db* assoc-in [:chats chat-id :compaction-blocked-prompt-id] prompt-id)
+                                   (on-blocked))}))
+
+(defn ^:private run-requested-compaction!
+  "Runs the compaction a module asked for, if any may run now (see
+   `take-compaction-request!`). Returns `{:result ..}`, what
+   `trigger-compact!` returned, when it ran one; nil otherwise."
+  [chat-ctx all-tools user-messages on-blocked]
+  (when-let [request (take-compaction-request! chat-ctx)]
+    {:result (trigger-requested-compact! chat-ctx all-tools user-messages request on-blocked)}))
+
 (defn ^:private log-api-switch!
   "Log when the user swaps to a model whose api differs from the chat's
    `:last-api`. Cross-api history reconciliation is handled by
@@ -1409,9 +1462,21 @@
                     (when (= :idle (get-in @db* [:chats chat-id :status]))
                       (db/save-chat! @db* chat-id metrics))))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
-        (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                 (not (auto-compact-suppressed? chat-ctx)))
+        (cond
+          ;; a module asked to compact (eca.api/request-compaction!)
+          (run-requested-compaction! chat-ctx all-tools user-messages
+                                     (fn []
+                                       (prompt-messages! user-messages
+                                                         :auto-compact-blocked
+                                                         (assoc chat-ctx :auto-compacted? true))
+                                       nil))
+          nil
+
+          (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+               (not (auto-compact-suppressed? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
+
+          :else
           (start-prompt-worker! chat-ctx
            (fn []
             (try
@@ -1632,10 +1697,14 @@
                                                    ;; Other steered native commands safe to run mid-turn execute here
                                                    ;; and the task resumes, so the LLM never sees them as text. #610
                                                    (consume-steered-native-command! chat-id db* chat-ctx)
-                                                   (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                                            (not (auto-compact-suppressed? chat-ctx)))
-                                                     (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                                     (continue-turn!))))))))
+                                                   (if-let [{:keys [result]} (run-requested-compaction!
+                                                                              chat-ctx tc-all-tools tc-user-messages
+                                                                              continue-turn!)]
+                                                     result
+                                                     (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                                              (not (auto-compact-suppressed? chat-ctx)))
+                                                       (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
+                                                       (continue-turn!)))))))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
@@ -1797,7 +1866,15 @@
                                   ;; with empty history it would just re-issue the same oversized request
                                   ;; under a new prompt-id and the error would never surface to the user. (#491)
                                   compactable? (boolean (seq (shared/messages-after-last-compact-marker
-                                                              (get-in db [:chats chat-id :messages] []))))]
+                                                              (get-in db [:chats chat-id :messages] []))))
+                                  ;; Modules are asked first (:llm/request-failed), once per prompt.
+                                  module-answer (when-not (or stale? compacting? (:module-recovery-attempted? chat-ctx))
+                                                  (lifecycle/request-failed-answer
+                                                   chat-ctx
+                                                   {:model full-model :user-messages user-messages}
+                                                   (assoc-some {:type error-type}
+                                                               :message message
+                                                               :status (:status error-data))))]
                               ;; Tool calls the failed response was still streaming are never
                               ;; resumed (a retry starts new ones), so reject them or clients
                               ;; keep showing them as in progress forever.
@@ -1807,6 +1884,48 @@
                                 stale?
                                 (logger/info logger-tag "Ignoring error for finished or superseded prompt"
                                              {:chat-id chat-id :message message})
+
+                                ;; A module asked to compact, then go on with the task.
+                                (:compact module-answer)
+                                (let [opts (:compact module-answer)
+                                      chat-ctx (assoc chat-ctx :module-recovery-attempted? true)]
+                                  (logger/info logger-tag "Compacting after a failed request, as a module asked"
+                                               {:chat-id chat-id :error-type error-type})
+                                  (trigger-requested-compact! chat-ctx all-tools user-messages
+                                                              {:trigger (or (when (map? opts) (:trigger opts))
+                                                                            (when (= :context-overflow error-type) :overflow))
+                                                               :instructions (when (map? opts) (:instructions opts))}
+                                                              (fn []
+                                                                (prompt-messages! user-messages
+                                                                                  :auto-compact-blocked
+                                                                                  (assoc chat-ctx :auto-compacted? true))
+                                                                nil)))
+
+                                ;; A module asked to send the request again.
+                                (:retry module-answer)
+                                (let [user-msgs-in-history? (boolean (when-let [user-content-id (:user-content-id chat-ctx)]
+                                                                       (some #(= user-content-id (:content-id %))
+                                                                             (get-in @db* [:chats chat-id :messages]))))
+                                      retry-messages (if user-msgs-in-history?
+                                                       [{:role "user"
+                                                         :content [{:type :text
+                                                                    :text "The previous request failed and was sent again. Continue with the task, do not redo completed steps."}]}]
+                                                       user-messages)]
+                                  (when (and (map? (:retry module-answer)) (seq (:retry module-answer)))
+                                    (logger/warn logger-tag "Retrying the failed request as is: request changes aren't supported yet"
+                                                 {:chat-id chat-id :changes (:retry module-answer)}))
+                                  (lifecycle/send-content! chat-ctx :system {:type :text :text "\nRetrying the request, as a module asked...\n"})
+                                  (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                  (lifecycle/finish-chat-prompt! :idle
+                                                                 (assoc chat-ctx
+                                                                        :on-finished-side-effect
+                                                                        (fn []
+                                                                          (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                        :on-after-finish!
+                                                                        (fn []
+                                                                          (prompt-messages! retry-messages
+                                                                                            :module-retry
+                                                                                            (assoc chat-ctx :module-recovery-attempted? true))))))
 
                                 (and (= :context-overflow error-type)
                                      (not compacting?)

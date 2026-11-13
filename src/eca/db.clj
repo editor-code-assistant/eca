@@ -107,6 +107,10 @@
                         :modules {:<module-id> ::any}
                         ;; added by modules for the next request (eca.api/add-context!)
                         :module-contexts [{:module :string :content :string}]
+                        ;; a compaction a module asked for (eca.api/request-compaction!), run
+                        ;; before the next LLM request; none after one was blocked in a prompt
+                        :compaction-request {:module :keyword :trigger :keyword :instructions :string}
+                        :compaction-blocked-prompt-id :uuid
                         ;; Context-area files/repoMap already delivered in the
                         ;; user message history: context key -> content sha-256. #683
                         :sent-attached-contexts {"<context-key>" :string}

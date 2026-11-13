@@ -243,6 +243,16 @@
                     request
                     request-changes)))))))
 
+(defn request-failed-answer
+  "Asks modules what to do about a failed LLM request of the chat
+   (`:llm/request-failed`): returns the first answer with `:retry` or
+   `:compact`, or nil, when ECA handles the failure as before."
+  [{:keys [config] :as chat-ctx} request error]
+  (when (seq (events/handlers config :llm/request-failed))
+    (let [answer (events/emit! chat-ctx :llm/request-failed (chat-event chat-ctx {:request request :error error}))]
+      (when (and (map? answer) (or (:retry answer) (:compact answer)))
+        answer))))
+
 (defn ^:private module-name [module-id]
   (if module-id (str (symbol module-id)) "?"))
 

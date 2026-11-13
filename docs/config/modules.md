@@ -145,6 +145,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant` and, in a s
 | `:chat/started` | notify | `:resumed?`, on a chat's first prompt | `:additional-context` (in the chat's startup context), `:stop` |
 | `:chat/before-request` | transform | `:prompt`, once per user message | `:prompt`, `:additional-context`, `:block`, `:stop` |
 | `:llm/before-request` | transform | `:request` (`:model`, `:instructions`, `:past-messages`, `:user-messages`, `:tools`), `:history`, `:since-checkpoint`, `:turn`, `:budget`, before every LLM call of a chat, tool loop included | `:request`: its messages, `:instructions` (not in the tool loop) and `:tools`; what the model sees, not the history. `:model` can't change yet. |
+| `:llm/request-failed` | handle | `:request` (`:model`, `:user-messages`), `:error` (`:type`, e.g. `:context-overflow`, `:message`, `:status`), after ECA's own retries; asked once per turn | `{:retry true}` (send it again) or `{:compact {:trigger :instructions}}` (compact, then resume); no answer: ECA's handling |
 | `:chat/after-request` | notify | `:response` | `:follow-up` (sent as the next user message), `:stop` |
 | `:chat/message-added` | notify | `:message` (`:role`, `:content`) | — |
 | `:chat/title` | handle | `:messages`, `:retitle?` | `{:title ".."}` instead of the model's |
@@ -169,7 +170,7 @@ Every function takes the `ctx` ECA passed to the module's function first.
 | Area | Functions |
 |------|-----------|
 | Module | `config`, `state`, `module-id`, `client`, `log`, `workspaces` |
-| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state`, `swap-chat-state!` (plain data, saved with the chat), `send-prompt!`, `add-context!` (for the next request), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it, e.g. from a `:chat/compact` handler) |
+| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state`, `swap-chat-state!` (plain data, saved with the chat), `send-prompt!`, `add-context!` (for the next request), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it, e.g. from a `:chat/compact` handler), `request-compaction!` (`{:trigger :instructions}`: compacts before the chat's next LLM request) |
 | User | `notify!`, `progress!` (in a tool), `ui?`, `confirm`, `select`, `input` |
 | Events | `emit!` |
 | Tools and commands | `tools`, `call-tool!`, `register-tool!`, `unregister-tool!`, `register-command!`, `unregister-command!` |

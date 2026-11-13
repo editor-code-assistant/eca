@@ -184,6 +184,29 @@
        {:module id :label label :data data :messages messages}))
     nil))
 
+(defn request-compaction!
+  "Asks ECA to compact the chat, e.g. from a `:chat/usage-updated` handler
+   when the context fills up. ECA does it before the chat's next LLM request,
+   with the `:chat/before-compact`, `:chat/compact` and `:chat/after-compact`
+   events, then the task goes on. `opts`: `:trigger`, `:auto` (default) or
+   `:manual`, and `:instructions`. Returns true when the request is kept;
+   false while the chat compacts. ECA drops it when the turn can't compact
+   again: right after a compaction, past `autoCompactMaxPerTurn` (3 when
+   unset), or after a blocked one."
+  ([ctx] (request-compaction! ctx nil))
+  ([ctx {:keys [trigger instructions]}]
+   (let [id (owner ctx)
+         chat-id (chat-id-of ctx)
+         request (shared/assoc-some {:module id :trigger (if (= :manual trigger) :manual :auto)}
+                                    :instructions (shared/not-blank instructions))
+         [_ new-db] (swap-vals! (db*-of ctx)
+                                (fn [db]
+                                  (let [chat (get-in db [:chats chat-id])]
+                                    (if (or (nil? chat) (:compacting? chat) (:auto-compacting? chat))
+                                      db
+                                      (assoc-in db [:chats chat-id :compaction-request] request)))))]
+     (identical? request (get-in new-db [:chats chat-id :compaction-request])))))
+
 (defn send-prompt!
   "Sends `text` to the chat as the user's next message: a new turn when the
    chat is idle, else once the running turn reaches its next step, as when the

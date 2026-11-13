@@ -74,10 +74,12 @@
                         :accepts {:request (str "Replaces the request's messages, :instructions (not in the tool "
                                                 "loop) or :tools; the history doesn't change. :model can't change yet.")}}
    :llm/request-failed {:kind :handle
-                        :doc "An LLM request failed."
-                        :payload {:request "The request." :error "The error, classified: e.g. {:type :context-overflow}."}
-                        :accepts {:retry "Request changes to retry with."
-                                  :compact "Compaction options: compact, then resume the turn."}}
+                        :doc (str "An LLM request of a chat failed, after ECA's own retries. Asked once per turn, "
+                                  "before ECA's recovery; no answer: ECA handles it as before.")
+                        :payload {:request "The request: :model and :user-messages."
+                                  :error "The error, classified: :type (e.g. :context-overflow), :message, :status."}
+                        :accepts {:retry "true: send the request again. Request changes aren't supported yet."
+                                  :compact "Compaction options, :trigger and :instructions: compact, then resume the turn."}}
    :chat/after-request {:kind :notify
                         :doc "The model finished responding to a user message."
                         :payload {:response "The response."}
