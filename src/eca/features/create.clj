@@ -238,7 +238,8 @@
                          "get the last value and what it printed. Use it to test a module with eca.api.test (mock-ctx,"
                          "run-tool, run-command, run-event), and to install, reload, remove or inspect modules with"
                          "eca.api.dev (install!, reload!, uninstall!, modules); changes last for this session. The code"
-                         "runs inside ECA, with its permissions, so ECA asks the user before each call. No Java interop."
+                         "runs inside ECA, with its permissions, so ECA asks the user before each call. Java interop"
+                         "works only on SCI's default classes, e.g. String, Integer and Exception."
                          (format "Times out after %d seconds." (quot eval-timeout-ms 1000)))
            :parameters {:type "object"
                         :properties {"code" {:type "string"

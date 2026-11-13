@@ -189,7 +189,7 @@ Other namespaces:
 - `eca.api.debug`: `db`, `chat-raw`, `config-raw`, `trace!`, `untrace!`; read-only, and only while the [REPL](#a-repl-on-eca) runs. `trace!` works only in the REPL itself.
 - `eca.api.test`: `mock-ctx`, `run-tool`, `run-command`, `run-event`, `recorded`, to test a module away from ECA's session.
 
-Inside SCI, modules see only these namespaces and `clojure.string`, `clojure.set`, `clojure.walk` and `clojure.edn`. There's no Java interop, `slurp` or `spit`: use `eca.api.fs` and `eca.api/shell!`.
+Inside SCI, modules see only these namespaces and `clojure.string`, `clojure.set`, `clojure.walk` and `clojure.edn`. Java interop works only on SCI's default classes, the same in ECA's native binary as on the JVM: `String`, `Integer`, `Double`, `Number`, `Object`, `Exception`, `ArithmeticException` and `AssertionError`, and by their full names `java.lang.IllegalArgumentException`, `clojure.lang.ExceptionInfo`, `java.io.StringWriter` and `java.io.StringReader`. There's no `slurp` or `spit`: use `eca.api.fs` and `eca.api/shell!`.
 
 ## A REPL on ECA
 

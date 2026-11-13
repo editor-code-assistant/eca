@@ -133,6 +133,21 @@
       (is (match? {:message "Hello from the REPL"}
                   (eca/client-awaits-server-notification :$/showMessage))))
 
+    (testing "Java interop on SCI's default classes works as on the JVM, also in the native binary"
+      (doseq [[code value] [["(.toUpperCase \"abc\")" "\"ABC\""]
+                            ["(.length \"abc\")" "3"]
+                            ["(String/valueOf 3)" "\"3\""]
+                            ["(Integer/parseInt \"42\")" "42"]
+                            ["Integer/MAX_VALUE" "2147483647"]
+                            ["(Double/parseDouble \"1.5\")" "1.5"]
+                            ["(.intValue 3.7)" "3"]
+                            ["(.getMessage (Exception. \"boom\"))" "\"boom\""]
+                            ["(try (throw (java.lang.IllegalArgumentException. \"bad\")) (catch Exception e (.getMessage e)))"
+                             "\"bad\""]
+                            ["(.getMessage (ex-info \"x\" {}))" "\"x\""]
+                            ["(let [w (java.io.StringWriter.)] (.write w \"hi\") (str w))" "\"hi\""]]]
+        (is (= value (:value (nrepl-eval port code))) code)))
+
     (testing "/repl is listed"
       (is (match? {:commands (m/embeds [{:name "repl"}])}
                   (eca/request! (fixture/chat-query-commands-request {:query "repl"})))))))

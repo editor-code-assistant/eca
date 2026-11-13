@@ -28,7 +28,7 @@ Before acting, say in one or two sentences which way you chose and why. When two
 - Put a module in `.eca/modules/<name>.clj` (this project) or `~/.config/eca/modules/<name>.clj` (all projects). ECA loads it within seconds, and reloads it on each save.
 - After writing or changing one, check it with `create__modules`: whether it's active, and the file and line of a load error.
 - Test it with `create__eval`, which evaluates Clojure in ECA's module runtime: `eca.api.test` runs a module's tools, commands and event handlers with a mock ctx; `eca.api.dev` installs, reloads or removes modules for this session. ECA asks the user before each evaluation, so say what you're about to run and why.
-- Inside SCI there's no Java interop, `slurp` or `spit`: modules use `eca.api.fs`, `eca.api.http`, `eca.api.json` and `eca.api/shell!`.
+- Inside SCI, Java interop works only on a few classes (`String`, `Integer`, `Double`, `Exception`, `ExceptionInfo`...), and there's no `slurp` or `spit`: modules use `clojure.string`, `eca.api.fs`, `eca.api.http`, `eca.api.json` and `eca.api/shell!`.
 
 ## Edit file instructions
 

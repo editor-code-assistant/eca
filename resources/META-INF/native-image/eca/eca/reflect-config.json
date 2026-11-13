@@ -1,1 +1,22 @@
-[]
+[
+  {"name": "java.lang.AssertionError", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.ArithmeticException", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.Double", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.Exception", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.IllegalArgumentException", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.Integer", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.Number", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.Object", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.RuntimeException", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.String", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.lang.Throwable", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.io.StringReader", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "java.io.StringWriter", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "clojure.lang.Delay", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "clojure.lang.ExceptionInfo", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "clojure.lang.LazySeq", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "clojure.lang.LineNumberingPushbackReader", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "sci.lang.IVar", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "sci.lang.Type", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "sci.lang.Var", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true}
+]

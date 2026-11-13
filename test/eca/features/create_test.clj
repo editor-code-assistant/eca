@@ -146,6 +146,12 @@
     (testing "no code"
       (is (match? {:error true} (call cfg "create__eval" {"code" " "}))))))
 
+(deftest eval-interop-test
+  (testing "Java interop on SCI's default classes, as the native binary allows it too"
+    (is (= "\"ABC\"" (:value (f.create/eval-code "(.toUpperCase \"abc\")" 10000))))
+    (is (= "42" (:value (f.create/eval-code "(Integer/parseInt \"42\")" 10000))))
+    (is (= "\"boom\"" (:value (f.create/eval-code "(.getMessage (Exception. \"boom\"))" 10000))))))
+
 (deftest eval-code-timeout-test
   (is (match? {:error "Timed out after 1 seconds"}
               (f.create/eval-code "(deref (promise))" 1000))))
