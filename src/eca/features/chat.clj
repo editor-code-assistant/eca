@@ -31,6 +31,7 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
 (set! *warn-on-reflection* true)
@@ -891,10 +892,11 @@
    {:custom-instructions string :content-id string}; otherwise leaves the steer
    message pending and returns nil."
   [chat-id db* {:keys [config] :as chat-ctx}]
-  (when-let [{:keys [args steer-msg]} (take-steered-command! chat-id db* config
-                                                             (fn [{:keys [type command]}]
-                                                               (and (= :eca-command type)
-                                                                    (= "compact" command))))]
+  (when-let [{:keys [args steer-msg]} (and (lifecycle/compaction-module-active? config)
+                                           (take-steered-command! chat-id db* config
+                                                                  (fn [{:keys [type command]}]
+                                                                    (and (= :eca-command type)
+                                                                         (= "compact" command)))))]
     (let [content-id (lifecycle/new-content-id)]
       (logger/info logger-tag "Steered /compact consumed" {:chat-id chat-id})
       (lifecycle/send-content! chat-ctx :user {:type :text
@@ -1234,7 +1236,22 @@
                                                             (merge {:type :usage} usage
                                                                    (when breakdown {:context-breakdown breakdown})
                                                                    (when-let [pct (lifecycle/auto-compact-threshold config agent (get-in usage [:limit :context]))]
-                                                                     {:auto-compact-percentage pct}))))))
+                                                                     {:auto-compact-percentage pct}))))
+                                 (let [context-limit (get-in usage [:limit :context])
+                                       session-tokens (:session-tokens usage)]
+                                   (events/emit! chat-ctx :chat/usage-updated
+                                                 {:chat-id chat-id
+                                                  :parent-chat-id (:parent-chat-id chat-ctx)
+                                                  :agent agent
+                                                  :model full-model
+                                                  :variant (:variant chat-ctx)
+                                                  :usage usage
+                                                  :session-tokens session-tokens
+                                                  :context-limit context-limit
+                                                  :context-used (when (and (number? session-tokens)
+                                                                           (number? context-limit)
+                                                                           (pos? context-limit))
+                                                                  (double (/ session-tokens context-limit)))}))))
             prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
             retitle? (= prompt-count 3)
             generate-title? (and (get-in config [:chat :title])
@@ -1686,7 +1703,8 @@
                                 (and (= :context-overflow error-type)
                                      (not compacting?)
                                      (not (auto-compact-suppressed? chat-ctx))
-                                     compactable?)
+                                     compactable?
+                                     (lifecycle/compaction-module-active? config))
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
                                                {:chat-id chat-id})

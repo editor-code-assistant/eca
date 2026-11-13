@@ -641,14 +641,25 @@
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
       "compact" (let [custom-instructions (string/join " " args)
-                      {:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions)]
-                  (if blocked?
+                      {:keys [blocked? reason hook-name stop-turn?]} (when (lifecycle/compaction-module-active? config)
+                                                                       (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions))]
+                  (cond
+                    ;; :eca/compact-as-summary owns compaction; disabled, nothing compacts
+                    (not (lifecycle/compaction-module-active? config))
+                    {:type :chat-messages
+                     :chats {chat-id {:messages [{:role "system"
+                                                  :content [{:type :text
+                                                             :text "No compaction module handled this chat."}]}]}}}
+
+                    blocked?
                     (do
                       ;; continue:false stops the turn; exit 2 blocks compaction only.
                       (if stop-turn?
                         (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
                         (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)}))
                       {:type :new-chat-status :status :idle})
+
+                    :else
                     (do
                       (swap! db* update-in [:chats chat-id]
                              #(-> %

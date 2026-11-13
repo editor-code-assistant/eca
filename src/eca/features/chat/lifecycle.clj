@@ -6,6 +6,7 @@
    [eca.features.login :as f.login]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules :as modules]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -43,17 +44,25 @@
                (< tokens-left context-limit))
       tokens-left)))
 
+(defn compaction-module-active?
+  "Whether `:eca/compact-as-summary`, which owns compaction, is active: without
+   it ECA never compacts on its own."
+  [config]
+  (modules/active? config :eca/compact-as-summary))
+
 (defn auto-compact-threshold
   "Effective auto-compaction threshold as a percentage of `context-limit`, as
    sent to clients: derived from `autoCompactTokensLeft` when applicable,
    otherwise `autoCompactPercentage`. nil when auto-compact is disabled."
   [config agent-name context-limit]
-  (if-let [tokens-left (auto-compact-tokens-left config agent-name context-limit)]
-    (double (* 100 (/ (- context-limit tokens-left) context-limit)))
-    (auto-compact-percentage config agent-name)))
+  (when (compaction-module-active? config)
+    (if-let [tokens-left (auto-compact-tokens-left config agent-name context-limit)]
+      (double (* 100 (/ (- context-limit tokens-left) context-limit)))
+      (auto-compact-percentage config agent-name))))
 
 (defn auto-compact? [chat-id agent-name full-model config db]
-  (when (and (not (get-in db [:chats chat-id :compacting?]))
+  (when (and (compaction-module-active? config)
+             (not (get-in db [:chats chat-id :compacting?]))
              (not (get-in db [:chats chat-id :auto-compacting?])))
     (let [{:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
           context-limit (:context limit)]

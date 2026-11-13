@@ -47,8 +47,10 @@
                         :payload {:message "The message: :role and :content."}}
    :chat/usage-updated {:kind :notify
                         :doc "A response reported its token usage."
-                        :payload {:input-tokens "" :output-tokens "" :context-limit ""
-                                  :context-used "From 0 to 1." :cost "Of this response."}}
+                        :payload {:usage "The chat's usage, as clients get it: tokens, costs and limits."
+                                  :session-tokens "Tokens the chat's context holds."
+                                  :context-limit "The model's context limit."
+                                  :context-used "From 0 to 1."}}
    :chat/input {:kind :transform
                 :doc "Text the user sent, before command and skill expansion."
                 :payload {:text "The text." :source ":user or :module."}
