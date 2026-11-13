@@ -12,6 +12,8 @@
    [eca.features.tools.util :as tools.util]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -740,16 +742,36 @@
         server-name (:name server)
         native-tools (filter #(= :native (:origin %)) all-tools)
 
-        ;; 1. Determine approval (trust promotion handled inside f.tools/approval)
+        ;; 1. The modules decide the approval: :eca/approval sets it from the config
+        ;; rules first (trust promotion included), then other modules may change it,
+        ;; change the arguments, block the call or stop the turn. Without any
+        ;; module setting it, the call asks.
         approval-opts {:trust trust :chat-id chat-id}
-        approval (f.tools/approval all-tools tool arguments db config agent-name approval-opts)
         ;; Which rule caused the decision, to help debugging approval configs. #536
         _ (logger/debug logger-tag "Tool call approval decision"
                         (assoc (f.tools/approval-decision all-tools tool arguments db config agent-name approval-opts)
                                :tool full-name
                                :agent agent-name))
-        trusted? (= :trust/allow approval)
-        effective-approval (if trusted? :allow approval)
+        event (events/emit! {:config config :db db :all-tools all-tools :trust trust
+                             :chat-id chat-id :agent agent-name}
+                            :tool/before-call
+                            {:tool (:full-name tool full-name)
+                             :server server-name
+                             :arguments arguments
+                             :approval :ask
+                             :tool-call-id tool-call-id
+                             :chat-id chat-id
+                             :agent agent-name
+                             :model full-model
+                             :variant variant})
+        module-arguments (:arguments event arguments)
+        ;; A deny from the user's config stays deny, whatever a module answers.
+        config-deny? (and (not= :deny (:approval event))
+                          (modules/active? config :eca/approval)
+                          (some #(= :deny (f.tools/approval all-tools tool % db config agent-name approval-opts))
+                                (distinct [arguments module-arguments])))
+        trusted? (= :trust-allow (get-in event [:reason :code]))
+        effective-approval (if config-deny? :deny (:approval event))
 
         ;; ask_user always blocks waiting for the user regardless of trust/auto-allow.
         ;; Surface that as :ask to preToolCall hooks so notification hooks
@@ -778,7 +800,7 @@
                                               :variant variant})
                   {:tool-name name
                    :server server-name
-                   :tool-input arguments
+                   :tool-input module-arguments
                    :approval hook-approval
                    :tool-call-id tool-call-id})
            {:on-before-action on-before-hook-action
@@ -797,9 +819,21 @@
                                  (get parsed "updatedInput")))
                              hook-results)
         final-arguments (if (not-empty updated-inputs)
-                          (reduce merge arguments updated-inputs)
-                          arguments)
-        arguments-modified? (boolean (seq updated-inputs))
+                          (reduce merge module-arguments updated-inputs)
+                          module-arguments)
+        arguments-modified? (boolean (or (seq updated-inputs) (not= arguments module-arguments)))
+
+        ;; A module's :block rejects the call like a hook rejection; its :stop ends
+        ;; the turn like a hook's continue:false.
+        module-block (shared/not-blank (:block event))
+        module-stop (when (contains? event :stop) (or (shared/not-blank (:stop event)) ""))
+        tool-call-rejected-by-hook? (or tool-call-rejected-by-hook? (some? module-block))
+        tool-call-rejection-reason (if module-block
+                                     (or tool-call-rejection-reason module-block)
+                                     tool-call-rejection-reason)
+        stop-reason (if (and module-stop (not stop-turn?)) (shared/not-blank module-stop) stop-reason)
+        stop-hook-name (if (and module-stop (not stop-turn?)) (some-> (::events/ended-by event) str) stop-hook-name)
+        stop-turn? (or stop-turn? (some? module-stop))
 
         ;; A current-turn stop is not a tool-specific rejection, but it still
         ;; blocks this prepared tool and downstream must stop the agent loop.
@@ -820,12 +854,19 @@
         ;; 5. Build the reason map. A hook current-turn stop is represented
         ;; separately from a tool-specific rejection so downstream code and the
         ;; LLM-visible history do not conflate the two intents.
+        ;; The modules' :reason explains their decision; :eca/approval's says
+        ;; trust or user config, as before modules. A module that changes the
+        ;; approval without a :reason leaves the earlier one, so check it fits.
+        event-reason-code (get-in event [:reason :code])
+        allow-reason (when-not (= :user-config-deny event-reason-code) (:reason event))
+        deny-reason (when-not (#{:trust-allow :user-config-allow} event-reason-code) (:reason event))
         reason (case final-decision
-                 :allow (if trusted?
-                          {:code :trust-allow
-                           :text "Tool call allowed by trust mode"}
-                          {:code :user-config-allow
-                           :text "Tool call allowed by user config"})
+                 :allow (or allow-reason
+                            (if trusted?
+                              {:code :trust-allow
+                               :text "Tool call allowed by trust mode"}
+                              {:code :user-config-allow
+                               :text "Tool call allowed by user config"}))
                  :deny (cond
                          ;; Turn stop: LLM-visible text must stay neutral;
                          ;; stopReason is surfaced separately to the user.
@@ -836,6 +877,9 @@
                          tool-call-rejected-by-hook?
                          {:code :hook-rejected
                           :text tool-call-rejection-reason}
+
+                         (and (not config-deny?) (= :deny (:approval event)) deny-reason)
+                         deny-reason
 
                          :else
                          {:code :user-config-deny

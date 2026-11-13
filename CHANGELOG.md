@@ -6,6 +6,7 @@
 - Move the LLM APIs and providers into modules, e.g. `eca/api-openai-chat` and `eca/deepseek`, each declaring its label and login. #699
 - Move the built-in tools into modules, e.g. `eca/filesystem` and `eca/shell`: disabling a module removes its tools. #699
 - Move the built-in commands and agents into modules; a command can also be typed by its full id, e.g. `/eca:compact`. #699
+- Decide tool approval in the `:tool/before-call` event, from `toolCall.approval` by `eca/approval`; a config deny stays deny. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

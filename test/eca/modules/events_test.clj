@@ -46,7 +46,7 @@
                       :event-handlers {:test/changed (fn [_ _] (swap! calls* conj :blocker) {:block "no"})}}
                      {:id :acme/after
                       :event-handlers {:test/changed (fn [_ _] (swap! calls* conj :after) nil)}}]
-        (is (= {:text "a" :block "no"} (events/emit! {} :test/changed {:text "a"})))
+        (is (= {:text "a" :block "no" ::events/ended-by :acme/blocker} (events/emit! {} :test/changed {:text "a"})))
         (is (= [:blocker] @calls*)))))
   (testing "entry priority overrides the module's; a vector holds several handlers"
     (let [calls* (atom [])]

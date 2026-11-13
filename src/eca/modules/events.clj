@@ -79,13 +79,14 @@
                         :accepts {:follow-up "Sent as the next user message."
                                   :stop "Ends the turn, with this reason."}}
    :tool/before-call {:kind :transform
-                      :doc "Before a tool call runs, once its approval is known."
+                      :doc (str "Before a tool call runs. :eca/approval sets :approval from the config rules first "
+                                "(priority 1000); a deny from the user's config stays deny.")
                       :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."
-                                :approval ":allow, :ask or :deny." :tool-call-id ""}
+                                :approval ":allow, :ask or :deny; :ask until a module sets it." :tool-call-id ""}
                       :accepts {:arguments "Replaces the arguments." :approval "Replaces the approval."
+                                :reason "Why, as {:code :text}: shown with the decision."
                                 :block "Rejects the call, with this reason for the model."
-                                :stop "Ends the turn, with this reason."
-                                :additional-context "Added to the call's result."}}
+                                :stop "Ends the turn, with this reason."}}
    :tool/after-call {:kind :transform
                      :doc "After a tool call ran."
                      :payload {:tool "" :server "" :arguments "" :result "The result." :error? "" :tool-call-id ""}
@@ -223,7 +224,8 @@
   "Runs the handlers of `event-id` for `event`. `ctx` carries `:config`, and
    what handlers get as their ctx (`:db*`, `:messenger`, `:chat-id`...).
    - notify and transform events return the event with the handlers' accepted
-     changes merged; the first `:block` or `:stop` ends the chain.
+     changes merged; the first `:block` or `:stop` ends the chain, and
+     `::ended-by` names the module that ended it.
    - handle events return the first non-nil answer, or nil."
   [ctx event-id event]
   (let [{:keys [definitions handlers]} (index (:config ctx))
@@ -250,8 +252,8 @@
                       :else
                       (let [changed (merge-changes event changes accepted)]
                         (if (or (and (:block changed) (not (:block event)))
-                                (and (:stop changed) (not (:stop event))))
-                          (reduced changed)
+                                (and (contains? changed :stop) (not (contains? event :stop))))
+                          (reduced (assoc changed ::ended-by (:id (:entry h))))
                           changed))))))
               event
               hs))))
