@@ -462,7 +462,8 @@
                             (into {}
                                   (map (fn [[k v]]
                                          (let [base-name (cond
-                                                           (keyword? k) (name k)
+                                                           ;; all of it: a module id keeps its namespace
+                                                           (keyword? k) (subs (str k) 1)
                                                            (string? k) k
                                                            :else (str k))
                                                kebabed (if apply-kebab-key?

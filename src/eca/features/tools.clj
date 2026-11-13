@@ -225,6 +225,16 @@
   (let [[server tool-name] (string/split full-name #"__" 2)]
     (if tool-name [server tool-name] ["eca" full-name])))
 
+(defn ^:private module-tool-result
+  "An external module tool's result as the tool pipeline wants it: a string
+   is a text result, nil an empty one, and other values are printed."
+  [result]
+  (cond
+    (and (map? result) (contains? result :contents)) result
+    (string? result) {:error false :contents [{:type :text :text result}]}
+    (nil? result) {:error false :contents [{:type :text :text ""}]}
+    :else {:error false :contents [{:type :text :text (pr-str result)}]}))
+
 (defn ^:private module-definitions
   "The active modules' tools as tool definitions, by `definition-key`, with
    `:name` and `:server`. Built-in tools are on ECA's server, `eca__<name>`,
@@ -265,7 +275,11 @@
                               ;; `(fn [args])`, without ctx
                               (and (:approval-keys-fn tool) (not (:built-in? entry)))
                               (update :approval-keys-fn
-                                      (fn [f] (fn [args] (modules/invoke-safe {} entry "tool approval keys" {} f args)))))]
+                                      (fn [f] (fn [args] (modules/invoke-safe {} entry "tool approval keys" {} f args))))
+
+                              ;; an external handler may return a string (4.7)
+                              (and (:handler tool) (not (:built-in? entry)))
+                              (update :handler (fn [handler] (fn [arguments ctx] (module-tool-result (handler arguments ctx))))))]
              (cond
                (:replaces tool) (assoc-in acc [:replacing k] definition)
 

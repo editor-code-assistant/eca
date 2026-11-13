@@ -712,6 +712,12 @@
   []
   (boolean (:session-started? @registry*)))
 
+(defn components
+  "The session's components `start!` got: `{:db* :messenger :metrics}`, or nil
+   before it ran."
+  []
+  (:components @registry*))
+
 (defn reconcile-if-started!
   "`reconcile!`, once `start!` ran."
   [components config]

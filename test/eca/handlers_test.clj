@@ -41,6 +41,17 @@
                      :workspace-folders workspace-folders}
                     (h/db))))))
 
+  (testing "a modules key in initializationOptions, keyed by module ids, works"
+    (h/reset-components!)
+    (with-redefs [db/load-db-from-cache! (constantly nil)]
+      (is (match? {:global-config-path string?}
+                  (handlers/initialize (h/components)
+                                       {:initialization-options {:pureConfig true
+                                                                 :modules {:acme/hello {:source "/tmp/hello.clj"}
+                                                                           :eca/mcp {:enabled false}}}})))
+      (is (match? {:modules {:acme/hello {:source "/tmp/hello.clj"} :eca/mcp {:enabled false}}}
+                  (config/all (h/db))))))
+
   (testing "returns the global config path the server reads"
     (h/reset-components!)
     (with-redefs [db/load-db-from-cache! (constantly nil)]

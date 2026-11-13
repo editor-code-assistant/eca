@@ -21,9 +21,11 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.api]
+   [eca.api.dev]
    [eca.api.fs]
    [eca.api.http]
    [eca.api.json]
+   [eca.api.test]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.modules :as modules]
@@ -199,14 +201,22 @@
   (sci/alter-var-root sci/out (constantly (log-writer logger/info)))
   (sci/alter-var-root sci/err (constantly (log-writer logger/warn)))
   (sci/init {:namespaces {'eca.api (sci/copy-ns eca.api (sci/create-ns 'eca.api))
+                          'eca.api.dev (sci/copy-ns eca.api.dev (sci/create-ns 'eca.api.dev))
                           'eca.api.fs (sci/copy-ns eca.api.fs (sci/create-ns 'eca.api.fs))
                           'eca.api.http (sci/copy-ns eca.api.http (sci/create-ns 'eca.api.http))
-                          'eca.api.json (sci/copy-ns eca.api.json (sci/create-ns 'eca.api.json))}
+                          'eca.api.json (sci/copy-ns eca.api.json (sci/create-ns 'eca.api.json))
+                          'eca.api.test (sci/copy-ns eca.api.test (sci/create-ns 'eca.api.test))}
              :load-fn load-fn}))
 
 (defn ^:private ctx []
   (or (:ctx @state*)
       (:ctx (swap! state* assoc :ctx (new-ctx)))))
+
+(defn sci-context
+  "The SCI context external modules run in, for a REPL on it (`:eca/repl`)."
+  []
+  (locking lock
+    (ctx)))
 
 (defn ^:private error-text
   "What went wrong, and where when SCI knows it."

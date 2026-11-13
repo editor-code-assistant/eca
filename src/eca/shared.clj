@@ -575,9 +575,12 @@
                 :free-tokens (when limit (max 0 (- limit used)))
                 :context-limit limit)))
 
-(defn map->camel-cased-map [m]
+(defn map->camel-cased-map
+  "`m` with its keyword keys camel-cased, at every level. Qualified keywords,
+   like module ids (`:acme/jira` in `modules`), stay as they are."
+  [m]
   (let [f (fn [[k v]]
-            (if (keyword? k)
+            (if (simple-keyword? k)
               [(csk/->camelCase k) v]
               [k v]))]
     (walk/postwalk (fn [x]

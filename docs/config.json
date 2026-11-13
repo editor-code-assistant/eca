@@ -416,6 +416,43 @@
         }
       }
     },
+    "modules": {
+      "type": "object",
+      "description": "Per module id, e.g. 'eca/mcp' or 'acme/jira': turn a module on or off, load an external module from a file or folder, or change its priority. See https://eca.dev/config/modules",
+      "markdownDescription": "Per module id, e.g. `eca/mcp` or `acme/jira`: turn a module on or off, load an external module from a file or folder, or change its priority. See [Modules](https://eca.dev/config/modules).",
+      "examples": [
+        {
+          "eca/mcp": {
+            "enabled": false
+          },
+          "acme/jira": {
+            "source": "~/dev/eca-jira/jira.clj",
+            "priority": 10
+          }
+        }
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Turn the module on or off. Default: on, unless the module ships off. Disabling a module also disables the modules that require it.",
+            "markdownDescription": "Turn the module on or off. Default: on, unless the module ships off. Disabling a module also disables the modules that require it."
+          },
+          "source": {
+            "type": "string",
+            "description": "File or folder of an external module: a .clj file, or a folder with a module.clj. '~' expands; a relative path resolves against the first workspace root.",
+            "markdownDescription": "File or folder of an external module: a `.clj` file, or a folder with a `module.clj`. `~` expands; a relative path resolves against the first workspace root."
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Order of the module's event handlers, higher first. Default: 0 for external modules, -100 for built-in ones.",
+            "markdownDescription": "Order of the module's event handlers, higher first. Default: `0` for external modules, `-100` for built-in ones."
+          }
+        }
+      }
+    },
     "plugins": {
       "type": "object",
       "description": "Plugin system for loading external configuration from git repos or local paths. Each key except 'install' and 'installMode' is a named plugin source with a 'source' URL or path.",

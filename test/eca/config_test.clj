@@ -353,6 +353,13 @@
            "providers" {"customProvider" {"key" "123"
                                           "models" {"gpt-5" {}}}
                         "open-router" {"models" {"openAi/o4-mini" {}}}}}))))
+  (testing "keyword keys keep their namespace: module ids in modules"
+    (is (= {:modules {:acme/hello {:source "/tmp/hello.clj"} :eca/mcp {:enabled false}}
+            :providers {"openrouter" {:models {"openai/o4-mini" {}}}}}
+           (#'config/normalize-fields
+            {:stringfy-key [[:providers] [:providers :ANY :models]]}
+            {:modules {:acme/hello {:source "/tmp/hello.clj"} :eca/mcp {:enabled false}}
+             :providers {:openrouter {:models {:openai/o4-mini {}}}}}))))
   (testing "keywordize-vals"
     (is (match?
          {:pureConfig true

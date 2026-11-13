@@ -130,7 +130,9 @@
 
 ;; --- Index of definitions and handlers, rebuilt when the active modules change
 
-(defn ^:private handler-entries [spec]
+(defn handler-entries
+  "A module's `:event-handlers` entry as a vector of `{:handler ...}` maps."
+  [spec]
   (cond
     (sequential? spec) (mapv #(if (map? %) % {:handler %}) spec)
     (map? spec) [spec]
@@ -197,10 +199,12 @@
     (instance? java.util.regex.Pattern expected) (and (string? actual) (boolean (re-find expected actual)))
     :else (= expected actual)))
 
-(defn ^:private matches? [match event]
+(defn matches?
+  "Whether `event` matches a handler's `:match`."
+  [match event]
   (every? (fn [[k expected]] (value-matches? expected (get event k))) match))
 
-(defn ^:private merge-changes
+(defn merge-changes
   "Merges a handler's changes into the event: `:additional-context` adds up,
    other keys replace. With `accepted`, other keys are ignored."
   [event changes accepted]

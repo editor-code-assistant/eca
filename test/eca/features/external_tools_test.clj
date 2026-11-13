@@ -69,6 +69,19 @@
       (with-modules [(assoc jira :prefix "tickets")]
         (is (some? (tool-named {} "tickets__issue")))))))
 
+(deftest string-results-test
+  (with-modules [{:id :acme/plain
+                  :tools {"hello" {:description "Say hello." :parameters {:type "object"}
+                                   :handler (fn [_ _] "Hello!")}
+                          "nothing" {:description "Nothing." :parameters {:type "object"}
+                                     :handler (fn [_ _] nil)}
+                          "data" {:description "Data." :parameters {:type "object"}
+                                  :handler (fn [_ _] {:a 1})}}}]
+    (testing "an external tool may return a string, as the design allows"
+      (is (= {:error false :contents [{:type :text :text "Hello!"}]} (call! {} "plain__hello" {})))
+      (is (= {:error false :contents [{:type :text :text ""}]} (call! {} "plain__nothing" {})))
+      (is (= {:error false :contents [{:type :text :text "{:a 1}"}]} (call! {} "plain__data" {}))))))
+
 (deftest approval-and-disabled-tools-test
   (with-modules [jira]
     (let [approval (fn [config]
