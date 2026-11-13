@@ -8,6 +8,7 @@
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.shared :refer [multi-str] :as shared])
   (:import
    [java.util Map]))
@@ -291,12 +292,21 @@
      "</deferred-tools>"
      ""]))
 
-(defn build-static-instructions
-  "Builds the cacheable static system-prompt prefix."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
-  (let [selmer-ctx (->base-selmer-ctx all-tools chat-id db)
-        stable-contexts (filter static-prompt-context? refined-contexts)
-        rendered-static-rules (keep (fn [{:keys [name content scope]}]
+;; System prompt sections. Each one belongs to a module (`:system-prompts`)
+;; and gets the prompt ctx: what the chat's system prompt is built from.
+
+(defn agent-prompt-section
+  "`:eca/agent-prompt`: the agent's own prompt, else `prompts.chat`."
+  [{:keys [agent config chat-id db selmer-ctx]}]
+  [(string/trimr
+    (shared/safe-selmer-render (eca-chat-prompt agent config chat-id db)
+                               selmer-ctx "chat-prompt"))
+   ""])
+
+(defn rules-section
+  "`:eca/rules`: the static rules, and the catalog of path-scoped ones."
+  [{:keys [static-rules path-scoped-rules all-tools selmer-ctx]}]
+  (let [rendered-static-rules (keep (fn [{:keys [name content scope]}]
                                       (when-let [rendered (shared/safe-selmer-render content selmer-ctx (str "rule:" name) nil)]
                                         (when-not (string/blank? rendered)
                                           {:scope (if (= :global scope) :global :project)
@@ -314,46 +324,129 @@
                                (path-scoped-rule-catalog path-scoped-rules)
                                "</path-scoped-rules>"])
         has-static-rules? (seq rendered-static-rules)]
-    (multi-str
-     (string/trimr
-      (shared/safe-selmer-render (eca-chat-prompt agent-name config chat-id db)
-                                 selmer-ctx "chat-prompt"))
+    (when (or has-static-rules? path-scoped-section)
+      ["## Rules"
+       ""
+       (format "<rules%s>" (attr-str {:description "Rules defined by user. Follow them as closely as possible."}))
+       (rule-section "global-rules"
+                     "Global user rules; project rules are more specific."
+                     global-rules)
+       (rule-section "project-rules"
+                     "Workspace rules; prefer over global rules when they conflict."
+                     project-rules)
+       path-scoped-section
+       "</rules>"
+       ""])))
+
+(defn skills-section
+  "`:eca/skills`: the skills' names and descriptions."
+  [{:keys [skills]}]
+  (when (seq skills)
+    ["## Skills"
      ""
-     (when (or has-static-rules? path-scoped-section)
-       ["## Rules"
-        ""
-        (format "<rules%s>" (attr-str {:description "Rules defined by user. Follow them as closely as possible."}))
-        (rule-section "global-rules"
-                      "Global user rules; project rules are more specific."
-                      global-rules)
-        (rule-section "project-rules"
-                      "Workspace rules; prefer over global rules when they conflict."
-                      project-rules)
-        path-scoped-section
-        "</rules>"
-        ""])
-     (when (seq skills)
-       ["## Skills"
-        ""
-        (str (format "<skills%s>" (attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
-        (reduce
-         (fn [skills-str {:keys [name description]}]
-           (str skills-str (format "<skill%s/>\n" (attr-str {:name name :description description}))))
-         ""
-         skills)
-        "</skills>"
-        ""])
-     (deferred-tools-section all-tools)
-     (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
-                                selmer-ctx "additional-system-info")
-     (workspace-roots-section db)
-     path-resolution-section
-     (let [startup-ctx (get-in db [:chats chat-id :startup-context])]
-       (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
-         [""
-          "## Context"
-          ""
-          (contexts-str stable-contexts repo-map* startup-ctx)])))))
+     (str (format "<skills%s>" (attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
+     (reduce
+      (fn [skills-str {:keys [name description]}]
+        (str skills-str (format "<skill%s/>\n" (attr-str {:name name :description description}))))
+      ""
+      skills)
+     "</skills>"
+     ""]))
+
+(defn deferred-tools-prompt-section
+  "`:eca/deferred-tools`: the tools hidden behind search_tools."
+  [{:keys [all-tools]}]
+  (deferred-tools-section all-tools))
+
+(defn additional-info-section
+  "`:eca/additional-info`: OS, shell and other session facts."
+  [{:keys [selmer-ctx]}]
+  (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
+                             selmer-ctx "additional-system-info"))
+
+(defn workspace-roots-prompt-section
+  "`:eca/workspace-roots`."
+  [{:keys [db]}]
+  (workspace-roots-section db))
+
+(defn path-resolution-prompt-section
+  "`:eca/path-resolution`."
+  [_ctx]
+  path-resolution-section)
+
+(defn context-section
+  "`:eca/context`: AGENTS.md files, attached stable contexts and the chat's
+   startup context."
+  [{:keys [refined-contexts repo-map* chat-id db]}]
+  (let [stable-contexts (filter static-prompt-context? refined-contexts)
+        startup-ctx (get-in db [:chats chat-id :startup-context])]
+    (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
+      [""
+       "## Context"
+       ""
+       (contexts-str stable-contexts repo-map* startup-ctx)])))
+
+(def ^:private built-in-static-sections
+  "The order of the built-in static sections."
+  [:eca/agent-prompt :eca/rules :eca/skills :eca/deferred-tools :eca/additional-info
+   :eca/workspace-roots :eca/path-resolution :eca/context])
+
+(defn ^:private place-sections
+  "The active modules' sections of one part (static or dynamic), in order:
+   built-in ones in `built-in-order`; the others right before or after the
+   section their `:before`/`:after` names, else at the end, in module order."
+  [config dynamic? built-in-order]
+  (let [sections (for [[entry sections] (modules/contributions config :system-prompts)
+                       section sections
+                       :when (= (boolean dynamic?) (boolean (:dynamic? section)))]
+                   {:entry entry :section section})
+        order (zipmap built-in-order (range))
+        {built-ins true others false} (group-by #(contains? order (:id (:section %))) sections)]
+    (reduce (fn [placed {:keys [entry section] :as item}]
+              (let [target (or (:before section) (:after section))
+                    idx (when target (first (keep-indexed #(when (= target (:id (:section %2))) %1) placed)))]
+                (cond
+                  (and target (nil? idx))
+                  (do (logger/warn logger-tag (format "Prompt section %s of %s: no section %s here, appending it"
+                                                      (:id section) (:id entry) target))
+                      (conj placed item))
+
+                  (:before section) (into (conj (subvec placed 0 idx) item) (subvec placed idx))
+                  (:after section) (into (conj (subvec placed 0 (inc idx)) item) (subvec placed (inc idx)))
+                  :else (conj placed item))))
+            (vec (sort-by #(order (:id (:section %))) built-ins))
+            others)))
+
+(defn ^:private section-part
+  "A section's text, or the parts `multi-str` joins: a string `:content` is a
+   Selmer template, a function gets the prompt ctx."
+  [ctx {:keys [entry section]}]
+  (let [{:keys [id content]} section
+        module-ctx (modules/module-ctx ctx entry)]
+    (cond
+      (string? content) (shared/safe-selmer-render content (:selmer-ctx ctx) (str id))
+      (not (modules/fn-like? content)) nil
+      (:built-in? entry) (content module-ctx)
+      :else (modules/invoke-safe module-ctx entry (str "prompt section " id)
+                                 {:timeout-ms (modules/timeout-for entry nil modules/default-handler-timeout-ms)}
+                                 content module-ctx))))
+
+(defn build-static-instructions
+  "Builds the cacheable static system-prompt prefix, from the active modules'
+   static `:system-prompts` sections."
+  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  (let [ctx {:refined-contexts refined-contexts
+             :static-rules static-rules
+             :path-scoped-rules path-scoped-rules
+             :skills skills
+             :repo-map* repo-map*
+             :agent agent-name
+             :config config
+             :chat-id chat-id
+             :all-tools all-tools
+             :db db
+             :selmer-ctx (->base-selmer-ctx all-tools chat-id db)}]
+    (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
 
 (defn build-dynamic-instructions
   "Per-turn dynamic system instructions (MCP resources, server instructions). Returns nil when empty."

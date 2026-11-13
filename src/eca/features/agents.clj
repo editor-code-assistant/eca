@@ -250,6 +250,9 @@
    :config-spec {:defaultAgent {:type :string}                     ; :eca/agent-code sets it to "code"
                  :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
    ;; Markdown agents (~/.config/eca/agents, .eca/agents) still merge where they did, under the config's
+   ;; the agent's own prompt, else prompts.chat; resolved when called, as prompt requires config, which requires this
+   :system-prompts [{:id :eca/agent-prompt
+                     :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/agent-prompt-section) ctx))}]
    :commands (built-in-command/commands
               [["agent" "Select agent for current chat (Ex: /agent plan)" [{:name "agent-name"}]]])})
 

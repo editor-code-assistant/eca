@@ -5,6 +5,7 @@
    disabled."
   (:require
    [eca.features.built-in-command :as built-in-command]
+   [eca.features.prompt :as f.prompt]
    [eca.modules.events :as events]))
 
 (set! *warn-on-reflection* true)
@@ -17,6 +18,10 @@
                  :disabledTools {:type :array :default []}
                  :toolCall {:outputTruncation {:type :map :default {:lines 2000 :sizeKb 50}}}}
    :defines {:events events/core-events}
+   :system-prompts [{:id :eca/additional-info :content #'f.prompt/additional-info-section}
+                    {:id :eca/workspace-roots :content #'f.prompt/workspace-roots-prompt-section}
+                    {:id :eca/path-resolution :content #'f.prompt/path-resolution-prompt-section}
+                    {:id :eca/context :content #'f.prompt/context-section}]  ; AGENTS.md, startup context
    :commands (built-in-command/commands
               [["login" "Log into a provider (Ex: /login github-copilot)" [{:name "provider-id"}]]
                ["model" "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)" [{:name "full-model"}]]

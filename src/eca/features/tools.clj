@@ -418,12 +418,16 @@
          all-tools (remove (fn [tool]
                              (= :deny (approval all-tools tool {} db config agent-name)))
                            all-tools)
-         all-tools (mark-deferred-tools all-tools
-                                        {:config config
-                                         :agent-name agent-name
-                                         :activated (tools.util/activated-deferred-tools db chat-id)
-                                         :db db
-                                         :full-model full-model})]
+         ;; deferred tools can only be loaded through search_tools, so only
+         ;; :eca/tool-search defers them
+         all-tools (if (modules/active? config :eca/tool-search)
+                     (mark-deferred-tools all-tools
+                                          {:config config
+                                           :agent-name agent-name
+                                           :activated (tools.util/activated-deferred-tools db chat-id)
+                                           :db db
+                                           :full-model full-model})
+                     all-tools)]
      ;; search_tools only earns its context slot when something is actually deferred.
      (if (some :deferrable all-tools)
        all-tools

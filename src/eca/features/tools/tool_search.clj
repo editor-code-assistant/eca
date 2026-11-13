@@ -3,6 +3,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.string :as string]
+   [eca.features.prompt :as f.prompt]
    [eca.features.tools.util :as tools.util]
    [eca.shared :refer [multi-str]]))
 
@@ -123,4 +124,5 @@
                                            :includePattern []
                                            :excludePattern []}}}
    :config-defaults {:toolCall {:approval {:allow {"eca__search_tools" {}}}}}
+   :system-prompts [{:id :eca/deferred-tools :content #'f.prompt/deferred-tools-prompt-section}]
    :tools (fn [_ctx] (tools.util/->module-tools definitions))})

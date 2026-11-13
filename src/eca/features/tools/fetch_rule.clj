@@ -143,6 +143,7 @@
    :description "Rules: global, project and path-scoped."
    :config-spec {:rules {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
+   :system-prompts [{:id :eca/rules :content #'f.prompt/rules-section}]
    ;; fetch_rule exists only when the chat has path-scoped rules
    :tools (fn [{:keys [config db chat-id agent]}]
             (tools.util/->module-tools (definitions config db chat-id agent)))

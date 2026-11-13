@@ -1,6 +1,7 @@
 (ns eca.features.tools.skill
   (:require
    [eca.features.built-in-command :as built-in-command]
+   [eca.features.prompt :as f.prompt]
    [eca.features.skills :as f.skills]
    [eca.features.tools.util :as tools.util]
    [eca.shared :refer [multi-str]]))
@@ -51,6 +52,7 @@
    :description "Skills: SKILL.md folders the model loads when it needs them."
    :config-spec {:skills {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
+   :system-prompts [{:id :eca/skills :content #'f.prompt/skills-section}]   ; names and descriptions only
    :tools (fn [_ctx] (tools.util/->module-tools definitions))
    ;; each skill is also a command, listed after the built-in ones
    :commands (built-in-command/commands
