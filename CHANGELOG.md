@@ -5,7 +5,6 @@
 - Add modular ECA: its features are now modules, which you can list, enable or disable, and extend with your own modules. #699
   - `/modules` lists them and enables or disables one for the session; `modules.<id>.enabled` does it in the config.
   - Write your own in Clojure, run with SCI: tools, commands, prompt sections and event handlers, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
-  - Modules add their config keys at the root of `config.json`, so ECA now warns about unknown root keys, at startup and in `/doctor`.
   - Optional modules, off by default: `eca/repl` (`--repl`), `eca/remote` and `eca/otel`; `remote.enabled` and `otlp` still enable these two.
   - New `create` agent and `eca-modules` skill, to configure ECA and write modules, with ECA's docs as their guide.
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
