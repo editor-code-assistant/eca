@@ -8,6 +8,7 @@
    [eca.api.dev :as dev]
    [eca.config :as config]
    [eca.features.commands :as f.commands]
+   [eca.features.prompt :as f.prompt]
    [eca.features.repl :as f.repl]
    [eca.modules :as modules]
    [eca.modules.events :as events]
@@ -164,6 +165,18 @@
           (is (events/tracing? "chat-3"))
           (.close ^Socket (:socket other))
           (is (eventually #(not (events/tracing? "chat-3")))))))))
+
+(deftest prompt-section-test
+  (testing "while the REPL runs, the model gets its address in every request"
+    (with-repl (repl-config)
+      (let [port (:port (repl-state))
+            text (f.prompt/build-dynamic-instructions [] (h/db) (repl-config))]
+        (is (string/includes? text (str "ECA's nREPL is listening on 127.0.0.1:" port ".")))
+        (is (string/includes? text (str "`brepl -p " port " '(+ 1 2)'`"))))))
+  (testing "while it's off, nothing"
+    (with-repl {}
+      (is (nil? (repl-state)))
+      (is (nil? (f.prompt/build-dynamic-instructions [] (h/db) {}))))))
 
 (deftest trace-outside-the-repl-test
   (with-repl (repl-config)

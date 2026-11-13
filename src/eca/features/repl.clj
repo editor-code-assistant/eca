@@ -248,6 +248,21 @@
                      "(debug/trace! \"<chat-id>\")    ; prints a chat's module events here")))
     "ECA's nREPL isn't running."))
 
+(defn ^:private prompt-section
+  "While the REPL runs, tells the model where it is, so it can evaluate code
+   in this ECA. Dynamic, so the model sees a REPL turned on mid-chat, or
+   restarted on another free port, on its next request."
+  [{:keys [module-id]}]
+  (when-let [{:keys [host port]} (modules/state module-id)]
+    ["## ECA's REPL"
+     ""
+     (format (str "ECA's nREPL is listening on %s:%d. Code evaluated there runs inside this ECA, with the "
+                  "eca.api, eca.api.dev and eca.api.debug namespaces (https://eca.dev/config/modules/). "
+                  "When the user asks about ECA itself, you can evaluate code there with an nREPL client "
+                  "from the shell, if one is installed, e.g. `brepl -p %d '(+ 1 2)'`.")
+             host port port)
+     ""]))
+
 (def module
   {:id :eca/repl
    :description "An nREPL on ECA's module runtime: use eca.api live, develop modules, read eca.api.debug."
@@ -258,6 +273,7 @@
                         :port {:type :number :default 0 :doc "0 picks a free port."}}}
    :start start!
    :stop stop!
+   :system-prompts [{:id :eca/repl :dynamic? true :content #'prompt-section}]
    :commands {"repl" {:description "Show the address of ECA's nREPL and how to use it."
                       :arguments []
                       :handler repl-status}}})

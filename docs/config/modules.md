@@ -243,31 +243,11 @@ Inside SCI, modules can also use `clojure.string`, `clojure.set`, `clojure.walk`
 
 ## A REPL on ECA
 
-The `eca/repl` module starts an nREPL inside ECA, to call `eca.api` live, try modules before saving them, and look at ECA's state.
+The `eca/repl` module runs an nREPL inside ECA. Turn it on with `/modules enable eca/repl`, or with `"modules": {"eca/repl": {"enabled": true}}` in your config.
 
-Turn it on for the session with `/modules enable eca/repl`, or always, with a fixed port:
+Each ECA picks a free port and tells the model, so you can ask ECA to use its own REPL, e.g. "check in your REPL why my module failed". It needs an nREPL client it can run, like [brepl](https://github.com/licht1stein/brepl).
 
-```javascript title="~/.config/eca/config.json"
-{
-  "modules": {"eca/repl": {"enabled": true}},
-  "repl": {"port": 7888}
-}
-```
-
-Connect your editor to `127.0.0.1:7888`, e.g. with CIDER's `cider-connect-clj`:
-
-```clojure
-(require '[eca.api :as eca] '[eca.api.dev :as dev] '[eca.api.debug :as debug])
-
-(dev/modules)                                   ; every module, its status and errors
-(eca/notify! (dev/ctx) "Hello from the REPL")
-(dev/install! {:id :me/try :commands {"try" {:handler (fn [_ _] "It works!")}}})
-(debug/chat-raw "<chat-id>")                    ; a chat as ECA keeps it
-```
-
-ECA can use the REPL on itself too. Give it an nREPL client it can run, like [brepl](https://github.com/licht1stein/brepl), and tell it the port, for example in a [rule](rules.md): "Evaluate Clojure in your own REPL with `brepl -p 7888`." Then it can check its own state and test modules live.
-
-Without a fixed port, ECA picks a free one, and `/repl` shows it. The REPL only listens on 127.0.0.1, since nREPL has no authentication.
+To connect your editor, `/repl` shows the port; `repl.port` sets a fixed one. It only accepts local connections.
 
 ## Limits
 

@@ -10,6 +10,7 @@
    [integration.eca :as eca]
    [integration.fixture :as fixture]
    [integration.helper :refer [match-content]]
+   [llm-mock.mocks :as llm.mocks]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]])
   (:import
@@ -110,6 +111,17 @@
             result
             (recur result)))))))
 
+(defn- await-turn-end
+  "Consumes the chat's content notifications until its turn finishes."
+  [chat-id]
+  (loop [n 0]
+    (let [{:keys [content] :as notification} (eca/client-awaits-server-notification :chat/contentReceived)]
+      (when-not (or (and (= chat-id (:chatId notification))
+                         (= "progress" (:type content))
+                         (= "finished" (:state content)))
+                    (> n 50))
+        (recur (inc n))))))
+
 (deftest repl
   (eca/start-process!)
   (eca/request! (fixture/initialize-request
@@ -148,4 +160,15 @@
 
     (testing "/repl is listed"
       (is (match? {:commands (m/embeds [{:name "repl"}])}
-                  (eca/request! (fixture/chat-query-commands-request {:query "repl"})))))))
+                  (eca/request! (fixture/chat-query-commands-request {:query "repl"})))))
+
+    (testing "the model knows the REPL's address, so it can evaluate code in ECA"
+      (llm.mocks/set-case! :simple-text-0)
+      (let [resp (eca/request! (fixture/chat-prompt-request {:model "anthropic/claude-sonnet-4-6"
+                                                             :message "Hi"}))]
+        (await-turn-end (:chatId resp))
+        (is (match? {:system (m/pred (fn [blocks]
+                                       (some #(string/includes? (str (:text %))
+                                                                (str "ECA's nREPL is listening on 127.0.0.1:" port "."))
+                                             blocks)))}
+                    (llm.mocks/get-req-body :simple-text-0)))))))
