@@ -304,6 +304,14 @@
     (str "Compaction blocked by hook '" hook-name "'.")
     "Compaction blocked by hook."))
 
+(defn compaction-blocked-by-module-message
+  "User-facing message when a module's `:chat/before-compact` handler blocks
+   a compaction without stopping the turn."
+  [module-id reason]
+  (if (shared/not-blank reason)
+    (str "Compaction blocked by module '" (module-name module-id) "': " reason)
+    (str "Compaction blocked by module '" (module-name module-id) "'.")))
+
 (defn ^:private format-hook-output
   "Format the hook execution block's text: 'Hook executed' (or raw plain-text
    stdout when the hook emitted no JSON) plus structural effect lines.
@@ -526,16 +534,115 @@
                :stop-hook-name stop-hook-name}
         (seq additional-contexts) (assoc :additional-contexts additional-contexts)))))
 
+(defn ^:private compact-event-trigger
+  "The trigger compaction events report: `:manual`, `:auto`, or the chat
+   ctx's `:compact-trigger` (`:overflow` when the request was too long for
+   the model). Shell hooks keep \"manual\" and \"auto\"."
+  [chat-ctx trigger]
+  (if (= "manual" trigger) :manual (or (:compact-trigger chat-ctx) :auto)))
+
+(defn run-pre-compact!
+  "Runs the `:chat/before-compact` event, then the preCompact shell hooks,
+   modules first (4.17). Returns `run-pre-compact-hooks!`'s result plus
+   `:instructions`, which modules may replace. A module's `:block` skips the
+   compaction and its `:stop` ends the turn too; then no hook runs, and
+   `:module` names it."
+  [chat-ctx trigger instructions]
+  (let [event (events/emit! chat-ctx :chat/before-compact
+                            (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
+                                                  :instructions (shared/not-blank instructions)}))
+        module (::events/ended-by event)
+        instructions (if (string? (:instructions event)) (:instructions event) instructions)]
+    (cond
+      (contains? event :stop)
+      {:blocked? true :stop-turn? true :reason (shared/not-blank (:stop event)) :module module
+       :instructions instructions}
+
+      (:block event)
+      {:blocked? true :stop-turn? false :reason (shared/not-blank (:block event)) :module module
+       :instructions instructions}
+
+      :else
+      (assoc (run-pre-compact-hooks! chat-ctx trigger instructions) :instructions instructions))))
+
+(defn compaction-handled?
+  "Whether something can compact the chat: `:eca/compact-as-summary` is
+   active, or a module handles `:chat/compact`."
+  [config]
+  (or (compaction-module-active? config)
+      (boolean (seq (events/handlers config :chat/compact)))))
+
+(defn compact-with-module!
+  "Emits `:chat/compact`, when a module handles it: the first module that
+   answers does the compaction, instead of `:eca/compact-as-summary`. Returns
+   its answer, `{:status :done or :failed, :resume? .., :message ..}`, plus
+   `:checkpoint?`, whether it wrote a checkpoint; nil when none answered."
+  [{:keys [db* chat-id config] :as chat-ctx} trigger instructions]
+  (when (seq (events/handlers config :chat/compact))
+    (let [before (count (get-in @db* [:chats chat-id :messages]))
+          answer (events/emit! chat-ctx :chat/compact
+                               (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
+                                                     :instructions (shared/not-blank instructions)}))]
+      (when answer
+        (let [answer (if (map? answer) answer {})]
+          (assoc answer
+                 :status (if (= :failed (:status answer)) :failed :done)
+                 :checkpoint? (boolean (some #(= "compact_marker" (:role %))
+                                             (drop before (get-in @db* [:chats chat-id :messages]))))))))))
+
+(defn ^:private last-checkpoint
+  "The chat's last checkpoint, `{:marker .. :messages [..]}`: its last
+   compact_marker and the messages after it; nil when it has none."
+  [messages]
+  (let [messages (vec messages)]
+    (when-let [idx (llm-util/find-last-msg-idx #(= "compact_marker" (:role %)) messages)]
+      {:marker (messages idx) :messages (subvec messages (inc idx))})))
+
+(defn run-after-compact!
+  "After a compaction wrote its checkpoint: runs the `:chat/after-compact`
+   event, then the postCompact shell hooks, modules first (4.17). A module's
+   context goes on the summary, before the hooks'; its `:stop` ends the turn,
+   and then no hook runs. Returns `run-post-compact-hooks!`'s result, or
+   `{:stop-turn? true :stop-reason .. :stop-module ..}`."
+  [{:keys [db* chat-id] :as chat-ctx} trigger compact-summary]
+  (let [event (events/emit! chat-ctx :chat/after-compact
+                            (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
+                                                  :checkpoint (last-checkpoint (get-in @db* [:chats chat-id :messages]))}))]
+    (when-let [context (shared/not-blank (:additional-context event))]
+      (append-post-compact-contexts! db* chat-id [{:hook-name "modules" :content context}]))
+    (if (contains? event :stop)
+      {:stop-turn? true :stop-reason (shared/not-blank (:stop event)) :stop-module (::events/ended-by event)}
+      (run-post-compact-hooks! chat-ctx trigger compact-summary))))
+
+(defn finish-module-compaction!
+  "After a module answered `:chat/compact`: shows its `:message` and, when it
+   wrote a checkpoint, runs `run-after-compact!` with the checkpoint's text
+   as the summary hooks get. Returns `{:compacted? :stop-turn? :stop-reason
+   :stop-hook-name :stop-module}`."
+  [{:keys [db* chat-id] :as chat-ctx} trigger {:keys [status message checkpoint?]}]
+  (when-let [message (or (shared/not-blank message)
+                         (when (= :failed status) "Compaction failed. The conversation was not compacted."))]
+    (send-content! chat-ctx :system {:type :text :text message}))
+  (if (and (= :done status) checkpoint?)
+    (let [summary (->> (:messages (last-checkpoint (get-in @db* [:chats chat-id :messages])))
+                       (mapcat (fn [{:keys [content]}] (if (string? content) [content] (keep :text content))))
+                       (string/join "\n"))]
+      (assoc (run-after-compact! chat-ctx trigger summary) :compacted? true))
+    {:compacted? (= :done status)}))
+
 (defn complete-compact!
-  "Apply ECA's compact side effects, then run postCompact hooks (which
-   internally append any returned additionalContext to the compact summary)."
+  "Apply ECA's compact side effects, then the `:chat/after-compact` event and
+   the postCompact hooks (which internally append any returned
+   additionalContext to the compact summary)."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (let [{:keys [compact-done? last-summary]} (get-in @db* [:chats chat-id])]
     (if (and compact-done? (string? last-summary))
       (do
         (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
         (shared/compact-side-effect! chat-ctx (= "auto" trigger))
-        (assoc (run-post-compact-hooks! chat-ctx trigger last-summary)
+        (when-let [{:keys [marker messages]} (last-checkpoint (get-in @db* [:chats chat-id :messages]))]
+          (emit-messages-added! chat-ctx (cons marker messages)))
+        (assoc (run-after-compact! chat-ctx trigger last-summary)
                :compacted? true))
       (do
         (swap! db* update-in [:chats chat-id]
@@ -545,6 +652,44 @@
                         :text "Compaction failed: the model did not submit a summary with `compact_chat`. The conversation was not compacted."})
         {:compacted? false
          :stop-after-finish? true}))))
+
+(defn ^:private checkpoint-message
+  "A message given to `write-checkpoint!` as the history keeps it, or nil
+   when it isn't one: a map with a `:role` and `:content`, a string content
+   becoming a text content."
+  [message now]
+  (when (and (map? message) (string? (:role message)) (some? (:content message)))
+    (cond-> (assoc message :created-at now)
+      (string? (:content message)) (assoc :content [{:type :text :text (:content message)}]))))
+
+(defn write-checkpoint!
+  "Appends a checkpoint to the chat's history, as a compaction does: a
+   compact_marker with `:module`, `:label` and `:data`, then `messages`. The
+   model sees only what comes after it. The chat's usage resets, the
+   contexts sent before it are sent again, and the client shows `:label`."
+  [{:keys [db* chat-id messenger] :as chat-ctx} {:keys [module label data messages]}]
+  (let [now (System/currentTimeMillis)
+        label (shared/not-blank label)
+        marker {:role "compact_marker"
+                :content (assoc-some {} :module module :label label :data data)
+                :created-at now}
+        kept (into [] (keep #(checkpoint-message % now)) messages)
+        appended (into [marker] kept)]
+    (when (not= (count kept) (count messages))
+      (logger/warn logger-tag "Ignoring checkpoint messages without a :role and :content" {:module module}))
+    (swap! db* update-in [:chats chat-id]
+           #(-> %
+                (update :messages (fnil into []) appended)
+                (dissoc :usage :validated-path-rules :last-editor-state :sent-attached-contexts)))
+    (emit-messages-added! chat-ctx appended)
+    (messenger/chat-content-received messenger {:chat-id chat-id
+                                                :role :system
+                                                :content {:type :text :text (or label "Compacted chat")}})
+    (when-let [usage (shared/usage-sumary chat-id (get-in @db* [:chats chat-id :model]) @db*)]
+      (messenger/chat-content-received messenger {:chat-id chat-id
+                                                  :role :system
+                                                  :content (merge {:type :usage} usage)}))
+    nil))
 
 (defn ^:private run-post-request-shell-hooks!
   "Run postRequest (for primary chats) and subagentPostRequest (for subagents) hooks.

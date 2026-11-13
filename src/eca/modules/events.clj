@@ -109,13 +109,16 @@
                                    :stop "Skips the compaction and ends the turn."
                                    :instructions "Replaces the instructions."}}
    :chat/compact {:kind :handle
-                  :doc "Compact the chat. The first module that answers does it."
+                  :doc (str "Compact the chat. The first module that answers does it, writing the result with "
+                            "eca.api/checkpoint!; without an answer, :eca/compact-as-summary summarizes the chat.")
                   :payload {:trigger ":manual, :auto or :overflow." :instructions "Extra instructions."}
                   :accepts {:status ":done or :failed." :resume? "Continue the interrupted turn."
-                            :message "Shown to the user."}}
+                            :message "Shown to the user."}
+                  ;; compacting usually takes an LLM call
+                  :timeout-ms 300000}
    :chat/after-compact {:kind :notify
                         :doc "After a compaction wrote a checkpoint."
-                        :payload {:trigger "" :checkpoint "The checkpoint."}
+                        :payload {:trigger "" :checkpoint "The checkpoint: its :marker and the :messages after it."}
                         :accepts {:additional-context "Added after the checkpoint."
                                   :stop "Ends the turn, with this reason."}}
    :chat/title {:kind :handle

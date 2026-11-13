@@ -153,6 +153,9 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant` and, in a s
 | `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used` | — |
 | `:tool/before-call` | transform | `:tool`, `:server`, `:arguments`, `:approval`, `:tool-call-id` | `:arguments`, `:approval`, `:reason`, `:block`, `:stop`, `:additional-context` (added to the call's output for the model) |
 | `:tool/after-call` | transform | `:tool`, `:server`, `:arguments`, `:result`, `:error?`, `:tool-call-id`, before the model, the client and postToolCall hooks see the result | `:result` (a result map, or a string), `:additional-context` (for the model only), `:stop` (after this batch of calls) |
+| `:chat/before-compact` | transform | `:trigger` (`:manual`, `:auto` or `:overflow`), `:instructions` | `:block` (skips the compaction), `:stop`, `:instructions` |
+| `:chat/compact` | handle | `:trigger`, `:instructions`; asked first, before `eca/compact-as-summary`'s summary | `{:status :done or :failed :resume? bool :message ".."}`: write the result with `checkpoint!`; `:resume?` continues an interrupted turn |
+| `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`), after a checkpoint was written | `:additional-context` (on the summary), `:stop` |
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, with `:tool`, `:hook` and `:hook-type`, or `:module`), for the shell, git and custom tools, shell hooks and `eca/shell!` | `:command`, `:cwd`, `:env` |
 | `:config/resolve` | transform | `:config`, after all config layers merge; read the config from the event, not through `eca.api` | `:config`, except its `modules` key |
 | `:models/resolve` | transform | `:models`, full model name → capabilities | `:models` |
@@ -166,7 +169,7 @@ Every function takes the `ctx` ECA passed to the module's function first.
 | Area | Functions |
 |------|-----------|
 | Module | `config`, `state`, `module-id`, `client`, `log`, `workspaces` |
-| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state`, `swap-chat-state!` (plain data, saved with the chat), `send-prompt!`, `add-context!` (for the next request) |
+| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state`, `swap-chat-state!` (plain data, saved with the chat), `send-prompt!`, `add-context!` (for the next request), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it, e.g. from a `:chat/compact` handler) |
 | User | `notify!`, `progress!` (in a tool), `ui?`, `confirm`, `select`, `input` |
 | Events | `emit!` |
 | Tools and commands | `tools`, `call-tool!`, `register-tool!`, `unregister-tool!`, `register-command!`, `unregister-command!` |

@@ -384,9 +384,13 @@
                                 :total-time-ms (:total-time-ms message-content)}}))
     "compact_marker" [{:role :system
                        :content {:type :text
-                                 :text (if (:auto? message-content)
-                                         "── Chat auto-compacted ──"
-                                         "── Chat compacted ──")}}]
+                                 :text (cond
+                                         ;; a module's checkpoint (eca.api/checkpoint!)
+                                         (shared/not-blank (:label message-content))
+                                         (str "── " (:label message-content) " ──")
+
+                                         (:auto? message-content) "── Chat auto-compacted ──"
+                                         :else "── Chat compacted ──")}}]
     "flag" [{:role :system
              :content {:type :flag
                        :text (:text message-content)
@@ -742,10 +746,12 @@
    so the resume continuation does not fire."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)
+  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name stop-module]} (lifecycle/complete-compact! chat-ctx trigger)
         current-prompt-ctx (assoc chat-ctx :prompt-id (get-in @db* [:chats chat-id :prompt-id]))]
     (when stop-turn?
-      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+      (if stop-module
+        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
     (when (or stop-turn? (not compacted?))
       (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
     {:stop-after-finish? (or stop-turn? (not compacted?))}))
@@ -794,57 +800,100 @@
    task (`user-messages`). `trigger` is \"auto\" (context threshold reached) or
    \"manual\" (steered `/compact`, with `custom-instructions`).
 
-   Runs preCompact hooks first: continue:false stops the turn (reason from
-   stopReason, hook-name for provenance); exit 2 only blocks compaction, with no
-   user-facing reason, in which case `on-blocked` decides how the turn goes on
-   and its result is returned. Otherwise the compact prompt is sent under
-   :auto-compacting?, so finishing it does not end the turn: the finish
-   side-effect applies the compaction and the after-finish continuation resumes
-   the task. Returns nil when it took over the turn."
+   Runs the `:chat/before-compact` event and the preCompact hooks first:
+   continue:false (or a module's :stop) stops the turn (reason from
+   stopReason, hook-name or module for provenance); exit 2 (or a module's
+   :block) only blocks compaction, in which case `on-blocked` decides how the
+   turn goes on and its result is returned. A module answering `:chat/compact`
+   compacts instead of the compact prompt; the turn then resumes when it says
+   `:resume?`. Otherwise the compact prompt is sent under :auto-compacting?,
+   so finishing it does not end the turn: the finish side-effect applies the
+   compaction and the after-finish continuation resumes the task.
+   `event-trigger` is the trigger compaction events report, e.g. :overflow.
+   Returns nil when it took over the turn."
   [{:keys [db* config chat-id agent] :as chat-ctx}
    all-tools
    user-messages
-   {:keys [trigger custom-instructions on-blocked]}]
-  (let [{:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx trigger custom-instructions)]
+   {:keys [trigger custom-instructions on-blocked event-trigger]}]
+  (let [compact-ctx (cond-> chat-ctx event-trigger (assoc :compact-trigger event-trigger))
+        {:keys [blocked? reason hook-name stop-turn? module instructions]}
+        (lifecycle/run-pre-compact! compact-ctx trigger custom-instructions)]
     (if blocked?
       (do
-        (logger/info logger-tag "Compaction blocked by hook" {:chat-id chat-id
-                                                              :trigger trigger
-                                                              :stop-turn? stop-turn?})
+        (logger/info logger-tag "Compaction blocked" {:chat-id chat-id
+                                                      :trigger trigger
+                                                      :stop-turn? stop-turn?
+                                                      :module module})
         (if stop-turn?
-          (do (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
+          (do (if module
+                (lifecycle/send-turn-stopped-by-module! chat-ctx module reason)
+                (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason))
               (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
               nil)
-          (do (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)})
+          (do (lifecycle/send-content! chat-ctx :system {:type :text
+                                                         :text (if module
+                                                                 (lifecycle/compaction-blocked-by-module-message module reason)
+                                                                 (lifecycle/compaction-blocked-by-hook-message hook-name))})
               (on-blocked))))
-      (let [db             @db*
-            compact-prompt (f.prompt/compact-prompt (shared/not-blank custom-instructions) all-tools agent config db)]
-        (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
-        (swap! db* update-in [:chats chat-id]
-               #(-> %
-                    (dissoc :last-summary :compact-done?)
-                    (assoc :auto-compacting? true)))
-        (prompt-messages!
-         [{:role "user" :content "Compact the chat following the template:"}
-          {:role "user" :content compact-prompt}]
-         :auto-compact
-         (assoc chat-ctx
-                :on-finished-side-effect #(compact-finished-side-effect! chat-ctx trigger)
-                :on-after-finish! #(resume-after-compact! chat-ctx user-messages)))
-        nil))))
+      (if-let [answer (lifecycle/compact-with-module! compact-ctx trigger instructions)]
+        (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name stop-module]}
+              (lifecycle/finish-module-compaction! compact-ctx trigger answer)]
+          (logger/info logger-tag "Chat compacted by a module" {:chat-id chat-id :trigger trigger
+                                                                :status (:status answer)})
+          (cond
+            stop-turn?
+            (do (if stop-module
+                  (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+                  (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+                (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
+
+            (not compacted?)
+            (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
+
+            (:resume? answer)
+            (resume-after-compact! chat-ctx user-messages)
+
+            :else
+            (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
+          nil)
+        (if-not (lifecycle/compaction-module-active? config)
+          ;; only a module could have compacted, and none did
+          (do (lifecycle/send-content! chat-ctx :system {:type :text :text "No compaction module handled this chat."})
+              (on-blocked))
+          (let [db             @db*
+                compact-prompt (f.prompt/compact-prompt (shared/not-blank instructions) all-tools agent config db)]
+            (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
+            (swap! db* update-in [:chats chat-id]
+                   #(-> %
+                        (dissoc :last-summary :compact-done?)
+                        (assoc :auto-compacting? true)))
+            (prompt-messages!
+             [{:role "user" :content "Compact the chat following the template:"}
+              {:role "user" :content compact-prompt}]
+             :auto-compact
+             (assoc chat-ctx
+                    :on-finished-side-effect #(compact-finished-side-effect! compact-ctx trigger)
+                    :on-after-finish! #(resume-after-compact! chat-ctx user-messages)))
+            nil))))))
 
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task.
    When a hook blocks compaction without stopping the turn, the original task is
    (re)sent as a new prompt, marked so auto-compaction is not retried.
-   Counts the auto-compactions of the turn, see `autoCompactMaxPerTurn`."
+   Counts the auto-compactions of the turn, see `autoCompactMaxPerTurn`.
+   A `:compact-trigger` in `chat-ctx`, e.g. :overflow, is the trigger
+   compaction events report; it's only for this compaction."
   [chat-ctx all-tools user-messages]
-  (let [{:keys [chat-id config agent auto-compactions] :as chat-ctx} (update chat-ctx :auto-compactions (fnil inc 0))]
+  (let [event-trigger (:compact-trigger chat-ctx)
+        {:keys [chat-id config agent auto-compactions] :as chat-ctx} (-> chat-ctx
+                                                                         (dissoc :compact-trigger)
+                                                                         (update :auto-compactions (fnil inc 0)))]
     (when (= (lifecycle/auto-compact-max-per-turn config agent) auto-compactions)
       (logger/warn logger-tag "Last auto-compaction allowed in this turn" {:chat-id chat-id
                                                                          :auto-compactions auto-compactions}))
     (trigger-compact! chat-ctx all-tools user-messages
                       {:trigger "auto"
+                       :event-trigger event-trigger
                        :on-blocked (fn []
                                      (prompt-messages! user-messages
                                                        :auto-compact-blocked
@@ -920,7 +969,7 @@
    {:custom-instructions string :content-id string}; otherwise leaves the steer
    message pending and returns nil."
   [chat-id db* {:keys [config] :as chat-ctx}]
-  (when-let [{:keys [args steer-msg]} (and (lifecycle/compaction-module-active? config)
+  (when-let [{:keys [args steer-msg]} (and (lifecycle/compaction-handled? config)
                                            (take-steered-command! chat-id db* config
                                                                   (fn [{:keys [type command]}]
                                                                     (and (= :eca-command type)
@@ -1771,7 +1820,7 @@
                                                            {:type :text
                                                             :text "Context window exceeded. Auto-compacting conversation..."})
                                   (prune-tool-results! db* chat-id {})
-                                  (trigger-auto-compact! chat-ctx all-tools user-messages))
+                                  (trigger-auto-compact! (assoc chat-ctx :compact-trigger :overflow) all-tools user-messages))
 
                                 ;; Provider rejected an image in the request (e.g. an MCP tool
                                 ;; returned an image below xAI's 512 total-pixels minimum).

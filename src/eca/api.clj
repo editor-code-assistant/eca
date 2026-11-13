@@ -164,6 +164,26 @@
                             (assoc-in db [:chats chat-id :modules id] state)))))]
     (get-in new-db [:chats chat-id :modules id])))
 
+(defn checkpoint!
+  "Writes a checkpoint in the chat's history, as a compaction does: from then
+   on the model sees only what comes after it, starting with `:messages`,
+   e.g. a summary as `{:role \"user\" :content \"..\"}`. The whole history
+   stays, for the user. `:label` is shown to the user, and `:data`, plain
+   data, stays in the checkpoint for the module. The chat's usage resets. A
+   no-op when the chat is gone; returns nil."
+  [ctx {:keys [messages label data]}]
+  (let [id (owner ctx)
+        chat-id (chat-id-of ctx)
+        db* (db*-of ctx)]
+    (when-not (and (plain-data? data) (plain-data? messages))
+      (throw (ex-info "A checkpoint's :messages and :data must be plain data, to be saved with the chat"
+                      {:module id})))
+    (when (get-in @db* [:chats chat-id])
+      ((requiring-resolve 'eca.features.chat.lifecycle/write-checkpoint!)
+       (assoc ctx :chat-id chat-id :db* db* :config (config ctx))
+       {:module id :label label :data data :messages messages}))
+    nil))
+
 (defn send-prompt!
   "Sends `text` to the chat as the user's next message: a new turn when the
    chat is idle, else once the running turn reaches its next step, as when the

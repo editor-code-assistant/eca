@@ -670,23 +670,44 @@
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
       "compact" (let [custom-instructions (string/join " " args)
-                      {:keys [blocked? reason hook-name stop-turn?]} (when (lifecycle/compaction-module-active? config)
-                                                                       (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions))]
+                      no-compaction {:type :chat-messages
+                                     :chats {chat-id {:messages [{:role "system"
+                                                                  :content [{:type :text
+                                                                             :text "No compaction module handled this chat."}]}]}}}
+                      send-stopped! (fn [{:keys [stop-module stop-hook-name stop-reason]}]
+                                      (if stop-module
+                                        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+                                        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
+                      {:keys [blocked? reason hook-name stop-turn? module instructions]}
+                      (when (lifecycle/compaction-handled? config)
+                        (lifecycle/run-pre-compact! chat-ctx "manual" custom-instructions))
+                      ;; a module may compact the chat instead of :eca/compact-as-summary
+                      answer (when (and (lifecycle/compaction-handled? config) (not blocked?))
+                               (lifecycle/compact-with-module! chat-ctx "manual" instructions))]
                   (cond
-                    ;; :eca/compact-as-summary owns compaction; disabled, nothing compacts
-                    (not (lifecycle/compaction-module-active? config))
-                    {:type :chat-messages
-                     :chats {chat-id {:messages [{:role "system"
-                                                  :content [{:type :text
-                                                             :text "No compaction module handled this chat."}]}]}}}
+                    ;; :eca/compact-as-summary owns compaction; disabled, only a module compacts
+                    (not (lifecycle/compaction-handled? config))
+                    no-compaction
 
                     blocked?
                     (do
                       ;; continue:false stops the turn; exit 2 blocks compaction only.
                       (if stop-turn?
-                        (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
-                        (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)}))
+                        (send-stopped! {:stop-module module :stop-hook-name hook-name :stop-reason reason})
+                        (lifecycle/send-content! chat-ctx :system {:type :text
+                                                                   :text (if module
+                                                                           (lifecycle/compaction-blocked-by-module-message module reason)
+                                                                           (lifecycle/compaction-blocked-by-hook-message hook-name))}))
                       {:type :new-chat-status :status :idle})
+
+                    answer
+                    (let [{:keys [stop-turn?] :as result} (lifecycle/finish-module-compaction! chat-ctx "manual" answer)]
+                      (when stop-turn?
+                        (send-stopped! result))
+                      {:type :new-chat-status :status :idle})
+
+                    (not (lifecycle/compaction-module-active? config))
+                    no-compaction
 
                     :else
                     (do
@@ -695,12 +716,12 @@
                                   (dissoc :last-summary :compact-done?)
                                   (assoc :compacting? true)))
                       {:type :send-prompt
-                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]}
+                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
                                                        (lifecycle/complete-compact! chat-ctx "manual")]
                                                    (when stop-turn?
-                                                     (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+                                                     (send-stopped! result))
                                                    {:stop-after-finish? (or stop-turn? (not compacted?))})
-                       :prompt (f.prompt/compact-prompt custom-instructions all-tools agent config db)})))
+                       :prompt (f.prompt/compact-prompt instructions all-tools agent config db)})))
       "login" (do
                 (messenger/chat-content-received
                  messenger
