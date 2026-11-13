@@ -18,6 +18,11 @@ When more than one skill has the same `name`, ECA keeps only the first one found
 
 When sending a prompt request to LLM, ECA will send only name and description of all available skills, LLM then can choose to load a skill via `eca__skill` tool if that matches user request.
 
+ECA also ships built-in skills:
+
+- `eca-info`: a report of the running ECA (versions, models, logins, MCP servers, skills...), to debug it.
+- `eca-modules`: how to write [modules](./modules.md), with the reference of `eca.api` and the modules loaded now. Listed while the `eca/create` module is active.
+
 Check the examples:
 
 === "Simple lint skill"

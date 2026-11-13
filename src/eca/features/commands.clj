@@ -1328,7 +1328,7 @@
 
 (def create-module
   {:id :eca/create
-   :description "Help the user set up and extend ECA: AGENTS.md and skills."
+   :description "Help the user set up and extend ECA: AGENTS.md, skills, and the eca-modules skill."
    :config-spec {:prompts {:init {:type :string :default "${classpath:prompts/init.md}"}
                            :skillCreate {:type :string :default "${classpath:prompts/skill_create.md}"}}}
    :commands (built-in-command/commands

@@ -33,6 +33,15 @@
 (defn clean [_]
   (b/delete {:path "target"}))
 
+(defn ^:private copy-guide!
+  "ECA's docs pages and config schema, shipped as eca/guide/* for its guide
+  (eca.features.guide)."
+  []
+  (b/copy-dir {:src-dirs ["docs/config"]
+               :target-dir (str class-dir "/eca/guide")})
+  (b/copy-file {:src "docs/config.json"
+                :target (str class-dir "/eca/guide/config.json")}))
+
 (defn ^:private aot-jar [opts]
   (clean opts)
   (println "Building uberjar...")
@@ -40,6 +49,7 @@
         src-dirs (into ["src" "resources"] (:extra-dirs opts))]
     (b/copy-dir {:src-dirs src-dirs
                  :target-dir class-dir})
+    (copy-guide!)
     (b/compile-clj {:basis basis
                     :src-dirs src-dirs
                     :java-opts ["-server"]

@@ -13,10 +13,12 @@
   (str (apply fs/path part parts)))
 
 (defn exists?
+  "Whether there's a file or folder at `path`."
   [path]
   (fs/exists? path))
 
 (defn directory?
+  "Whether there's a folder at `path`."
   [path]
   (fs/directory? path))
 

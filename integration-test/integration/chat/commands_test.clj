@@ -61,7 +61,8 @@
                         :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                        {:name "hooks" :arguments []}
                        {:name "modules" :arguments [{:name "action"} {:name "module-id"}]}
-                       {:name "eca-info" :arguments nil}]}
+                       {:name "eca-info" :arguments nil}
+                       {:name "eca-modules" :arguments nil}]}
            resp))))
 
   (testing "We query specific commands"
@@ -81,7 +82,9 @@
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "subagents" :arguments []}
-                       {:name "plugins" :arguments []}]}
+                       {:name "plugins" :arguments []}
+                       ;; its description has "commands"
+                       {:name "eca-modules" :arguments nil}]}
            resp))))
 
   (testing "We send a built-in command"

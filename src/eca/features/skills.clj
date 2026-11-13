@@ -114,4 +114,4 @@
            (when-not (:pureConfig config)
              (global-skills))
            (plugin-skills (:pluginSkillDirs config))
-           (skills.builtin/all))))
+           (skills.builtin/all config))))
