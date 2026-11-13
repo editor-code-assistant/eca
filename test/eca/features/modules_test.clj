@@ -133,7 +133,19 @@
   (testing "ECA's whole default config has no unknown key"
     (reset! config/initialization-config* {:pureConfig true})
     (config/clear-cache!)
-    (is (= [] (f.modules/unknown-config-keys (config/all (h/db)))))))
+    (is (= [] (f.modules/unknown-config-keys (config/all (h/db))))))
+  (testing "the client's own initializationOptions aren't flagged, e.g. eca-emacs's and IntelliJ's"
+    (reset! config/initialization-config* {:pureConfig true
+                                           :chatAgent nil
+                                           :serverPath "/opt/eca"
+                                           :serverArgs "--log-level debug"
+                                           :usageStringFormat "{session}"})
+    (config/clear-cache!)
+    (let [config (config/all (h/db))]
+      (is (contains? config :chatAgent))
+      (is (= [] (f.modules/unknown-config-keys config)))
+      (testing "while the user's own keys still are"
+        (is (= [:chatAgnt] (f.modules/unknown-config-keys (assoc config :chatAgnt "code"))))))))
 
 (deftest config-problems-test
   (with-redefs [modules/built-in-modules (constantly test-modules)]

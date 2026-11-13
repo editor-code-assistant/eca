@@ -200,10 +200,14 @@
 
 (defn unknown-config-keys
   "Root keys of `config` that neither ECA nor any module knows: typos, or keys
-   of a module that isn't loaded. Sorted."
+   of a module that isn't loaded. Sorted. The keys the client sends in
+   `initializationOptions` don't count: clients put their own settings there,
+   e.g. eca-emacs's `chatAgent` or IntelliJ's `serverPath`, which users can't
+   fix."
   [config]
-  (let [known (into config/core-root-keys (modules/known-root-keys))]
-    (vec (sort-by str (remove known (filter keyword? (keys config)))))))
+  (let [known (into config/core-root-keys (modules/known-root-keys))
+        from-client (set (keys @config/initialization-config*))]
+    (vec (sort-by str (remove #(or (known %) (from-client %)) (filter keyword? (keys config)))))))
 
 (defn unknown-config-keys-text
   "The warning about `unknown` root config keys."

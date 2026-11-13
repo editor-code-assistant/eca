@@ -72,7 +72,7 @@ Its keys are ordinary ECA config keys:
 {"jiraUrl": "https://acme.atlassian.net"}
 ```
 
-ECA's config schema accepts any root key, for modules' keys, so editors don't flag typos there. ECA does: it warns about root keys neither it nor a loaded module knows, at startup and in `/doctor`. In a module's `:map` key, entry names stay strings, as in `mcpServers`: `(get-in (eca/config ctx) [:lspServers "python"])`.
+ECA's config schema accepts any root key, for modules' keys, so editors don't flag typos there. ECA does: it warns about root keys neither it nor a loaded module knows, at startup and in `/doctor`. Keys your editor sends in `initializationOptions` aren't checked: they're the client's own settings. In a module's `:map` key, entry names stay strings, as in `mcpServers`: `(get-in (eca/config ctx) [:lspServers "python"])`.
 
 ### Where modules come from
 
