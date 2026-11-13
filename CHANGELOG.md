@@ -23,6 +23,7 @@
 - Let modules change what the model sees in every request (`:llm/before-request`), the merged config (`:config/resolve`) and the model list (`:models/resolve`). #699
 - Send modules the compaction events, let one compact the chat its own way with `eca.api/checkpoint!`, and run `/compact` with it. #699
 - Let modules ask for a compaction (`eca.api/request-compaction!`) and retry or compact after a failed LLM request (`:llm/request-failed`). #699
+- Add the `eca/repl` module, off by default (`--repl`): an nREPL on ECA's module runtime, with `eca.api.dev/ctx` and `eca.api.debug`. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

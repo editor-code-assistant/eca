@@ -21,6 +21,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.api]
+   [eca.api.debug]
    [eca.api.dev]
    [eca.api.fs]
    [eca.api.http]
@@ -201,6 +202,7 @@
   (sci/alter-var-root sci/out (constantly (log-writer logger/info)))
   (sci/alter-var-root sci/err (constantly (log-writer logger/warn)))
   (sci/init {:namespaces {'eca.api (sci/copy-ns eca.api (sci/create-ns 'eca.api))
+                          'eca.api.debug (sci/copy-ns eca.api.debug (sci/create-ns 'eca.api.debug))
                           'eca.api.dev (sci/copy-ns eca.api.dev (sci/create-ns 'eca.api.dev))
                           'eca.api.fs (sci/copy-ns eca.api.fs (sci/create-ns 'eca.api.fs))
                           'eca.api.http (sci/copy-ns eca.api.http (sci/create-ns 'eca.api.http))

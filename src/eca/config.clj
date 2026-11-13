@@ -674,17 +674,22 @@
       :else (do (logger/warn logger-tag "Ignoring the :config a :config/resolve handler set" {:value changed})
                 config))))
 
-(defn ^:private all*
-  "The `modules` key, set in any layer, decides which modules' defaults sit
+(defn merged-layers
+  "The config from every source, over the defaults of the active modules,
+   before modules change it (`:config/resolve`). Not cached: use `all`.
+   The `modules` key, set in any layer, decides which modules' defaults sit
    under the layers, so a config that changes the active modules is read a
-   second time over their defaults. Then modules may change the result
-   (`:config/resolve`)."
+   second time over their defaults."
   [db]
   (let [config (all-layers db nil)]
-    (run-resolve-event
-     (if (= (modules/defaults-signature config) (modules/defaults-signature nil))
-       config
-       (all-layers db (:modules config))))))
+    (if (= (modules/defaults-signature config) (modules/defaults-signature nil))
+      config
+      (all-layers db (:modules config)))))
+
+(defn ^:private all*
+  "The merged layers, then what modules change (`:config/resolve`)."
+  [db]
+  (run-resolve-event (merged-layers db)))
 
 (def ^:private all-memo
   (memoize/ttl (fn [workspace-folders _modules-version]

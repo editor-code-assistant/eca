@@ -8,6 +8,7 @@
    [eca.client-http :as client]
    [eca.config :as config]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.modules.loader :as loader]
    [eca.network :as network]
    [eca.read-chat :as read-chat]
@@ -62,7 +63,7 @@
 (def log-levels #{"error" "warn" "info" "debug"})
 
 (def cli-spec
-  {:order [:help :version :verbose :config-file :log-level :module]
+  {:order [:help :version :verbose :config-file :log-level :module :repl]
    :spec {:help {:alias :h
                  :desc "Print the available commands and its options"}
           :version {:desc "Print eca version"}
@@ -79,7 +80,9 @@
           :verbose {:desc "Enable verbose JSON-RPC protocol tracing"}
           :module {:ref "<PATH>"
                    :desc "Load the module at <PATH>, a file or folder, for this session; it reloads on save. Repeatable."
-                   :coerce [:string]}}})
+                   :coerce [:string]}
+          :repl {:desc "Start an nREPL on ECA's module runtime (the eca/repl module) for this session"
+                 :coerce :boolean}}})
 
 (defn ^:private parse-server-opts
   [args]
@@ -147,6 +150,8 @@
         (reset! config/custom-config-file-path* cfg-file))
       (when (seq (:module options))
         (loader/set-cli-paths! (:module options)))
+      (when (:repl options)
+        (modules/set-enabled! :eca/repl true))
       (logger/set-level! (keyword (:log-level options)))
       (let [file-config (config/read-file-configs)
             connect-timeout-s (:connectTimeoutSeconds file-config)]

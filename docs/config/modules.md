@@ -183,10 +183,42 @@ Other namespaces:
 - `eca.api.json`: `parse`, `generate`.
 - `eca.api.http`: `request`, `get`, `post`, `put`, `delete`, through ECA's HTTP client (its proxy and TLS settings).
 - `eca.api.fs`: `read-file`, `write-file!`, `exists?`, `directory?`, `list-dir`, `glob`, `create-dirs!`, `delete!`, `path`, `parent`, `file-name`, `last-modified-ms`.
-- `eca.api.dev`: `install!`, `uninstall!`, `reload!`, `modules`, for a REPL on a running ECA.
+- `eca.api.dev`: `install!`, `uninstall!`, `reload!`, `modules` and `ctx`, for a REPL on a running ECA.
+- `eca.api.debug`: `db`, `chat-raw`, `config-raw`, `trace!`, `untrace!`; read-only, and only while the [REPL](#a-repl-on-eca) runs.
 - `eca.api.test`: `mock-ctx`, `run-tool`, `run-command`, `run-event`, `recorded`, to test a module away from ECA's session.
 
 Inside SCI, modules see only these namespaces and `clojure.string`, `clojure.set`, `clojure.walk` and `clojure.edn`. There's no Java interop, `slurp` or `spit`: use `eca.api.fs` and `eca.api/shell!`.
+
+## A REPL on ECA
+
+The `eca/repl` module runs an nREPL on the SCI context modules run in, so you can call `eca.api` on the running ECA, develop a module and look inside ECA. It's off by default; turn it on for a session with `eca server --repl` or `/modules enable eca/repl`, or for good:
+
+```json
+{
+  "modules": {"eca/repl": {"enabled": true}},
+  "repl": {"port": 7888}
+}
+```
+
+ECA tells you its port when it starts, and `/repl` shows it again. It also writes it to `.nrepl-port` in the module's folder of the workspace's cache. Connect your editor's nREPL client to it, e.g. CIDER's `cider-connect-clj`:
+
+```clojure
+(require '[eca.api :as eca] '[eca.api.dev :as dev] '[eca.api.debug :as debug])
+
+(eca/notify! (dev/ctx) "Hello from the REPL")        ; a ctx on the running ECA
+(eca/chat (dev/ctx {:chat-id "<chat id>"}))           ; ...in a chat
+(dev/install! {:id :me/try :tools {...}})             ; try a module without a file
+(dev/modules)                                         ; every module, its status and errors
+(:messages (debug/chat-raw "<chat id>"))              ; a chat as ECA keeps it
+(debug/trace! "<chat id>")                            ; print the chat's module events here
+```
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `repl.host` | `127.0.0.1` | A loopback address: nREPL has no authentication, so ECA refuses others. |
+| `repl.port` | `0` | The port; `0` picks a free one. |
+
+Changing them takes effect when the module starts again. Code evaluated in the REPL can do what modules can do; changing ECA's compiled code still needs ECA's development build (`bb debug-cli`), which runs a JVM nREPL.
 
 ## Limits
 

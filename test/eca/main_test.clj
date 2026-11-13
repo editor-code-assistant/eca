@@ -56,7 +56,14 @@
           :options {:module ["a.clj" "modules/b"]}}
          (#'main/parse ["server" "--module" "a.clj" "--module" "modules/b"])))
     (testing "before it, the command would be read as one more path"
-      (is (nil? (:action (#'main/parse ["--module" "a.clj" "server"])))))))
+      (is (nil? (:action (#'main/parse ["--module" "a.clj" "server"]))))))
+  (testing "--repl, after or before the command"
+    (is (match? {:action "server" :options {:repl true}}
+                (#'main/parse ["server" "--repl"])))
+    (is (match? {:action "server" :options {:repl true}}
+                (#'main/parse ["--repl" "server"])))
+    (is (match? {:action "server" :options {:repl m/absent}}
+                (#'main/parse ["server"])))))
 
 (deftest parse-read-chat-command-position-test
   (testing "read-chat supports options after the command"

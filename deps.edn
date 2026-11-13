@@ -7,6 +7,7 @@
         org.yaml/snakeyaml {:mvn/version "2.4"} ;; used by eca.shared for YAML parsing
         borkdude/dynaload {:mvn/version "0.3.5"}
         org.babashka/sci {:mvn/version "0.15.59"} ;; runs external modules
+        babashka/babashka.nrepl {:mvn/version "0.0.8"} ;; the :eca/repl module's nREPL on the modules' SCI context
         dev.ericdallo/rewrite-json {:mvn/version "0.1.1"}
         selmer/selmer {:mvn/version "1.12.69"}
         babashka/fs {:mvn/version "0.5.33"}

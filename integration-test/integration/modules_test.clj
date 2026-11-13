@@ -1,15 +1,20 @@
 (ns integration.modules-test
-  "An external module, interpreted with SCI in the real server: loaded from
-   modules.<id>.source, its tools sent to the client, its command run."
+  "Modules in the real server: an external module, interpreted with SCI,
+   loaded from modules.<id>.source, its tools sent to the client and its
+   command run; and :eca/repl, an nREPL a client evaluates code with."
   (:require
    [babashka.fs :as fs]
+   [bencode.core :as bencode]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
    [integration.helper :refer [match-content]]
    [matcher-combinators.matchers :as m]
-   [matcher-combinators.test :refer [match?]]))
+   [matcher-combinators.test :refer [match?]])
+  (:import
+   [java.io PushbackInputStream]
+   [java.net Socket]))
 
 (eca/clean-after-test)
 
@@ -68,3 +73,64 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
         (match-content chat-id "system" {:type "text" :text (m/pred #(string/includes? % "Hello ANA from :acme/hello"))})
         (match-content chat-id "system" {:type "progress" :state "finished"})))))
+
+(defn- repl-port
+  "The port in the server's \"nREPL is listening\" message, skipping others."
+  []
+  (some (fn [_]
+          (some->> (:message (eca/client-awaits-server-notification :$/showMessage))
+                   (re-find #"nREPL is listening on 127\.0\.0\.1:(\d+)")
+                   second
+                   parse-long))
+        (range 5)))
+
+(defn- ->text [v]
+  (cond
+    (bytes? v) (String. ^bytes v "UTF-8")
+    (map? v) (update-vals v ->text)
+    (sequential? v) (mapv ->text v)
+    :else v))
+
+(defn- nrepl-eval
+  "Evaluates `code` in a new connection to the nREPL on `port`: the last
+   value and the output."
+  [port code]
+  (with-open [socket (doto (Socket. "127.0.0.1" (int port)) (.setSoTimeout 60000))]
+    (let [out (.getOutputStream socket)
+          in (PushbackInputStream. (.getInputStream socket))]
+      (bencode/write-bencode out {"op" "eval" "code" code "id" "1"})
+      (.flush out)
+      (loop [result {:value nil :out ""}]
+        (let [response (->text (bencode/read-bencode in))
+              result (cond-> result
+                       (get response "value") (assoc :value (get response "value"))
+                       (get response "out") (update :out str (get response "out"))
+                       (get response "err") (assoc :err (get response "err")))]
+          (if (some #{"done"} (get response "status"))
+            result
+            (recur result)))))))
+
+(deftest repl
+  (eca/start-process!)
+  (eca/request! (fixture/initialize-request
+                 {:initializationOptions (merge fixture/default-init-options
+                                                {:modules {"eca/repl" {:enabled true}}})
+                  :capabilities {:codeAssistant {:chat {}}}}))
+  (eca/notify! (fixture/initialized-notification))
+
+  (let [port (repl-port)]
+    (testing "it tells the user its port"
+      (is (pos-int? port)))
+
+    (testing "a client evaluates code through it, with eca.api on the live session"
+      (is (match? {:value ":active" :out "hi\n"}
+                  (nrepl-eval port (str "(require '[eca.api :as eca] '[eca.api.dev :as dev])"
+                                        "(println \"hi\")"
+                                        "(eca/notify! (dev/ctx) \"Hello from the REPL\")"
+                                        "(:status (some #(when (= :eca/repl (:id %)) %) (dev/modules)))"))))
+      (is (match? {:message "Hello from the REPL"}
+                  (eca/client-awaits-server-notification :$/showMessage))))
+
+    (testing "/repl is listed"
+      (is (match? {:commands (m/embeds [{:name "repl"}])}
+                  (eca/request! (fixture/chat-query-commands-request {:query "repl"})))))))

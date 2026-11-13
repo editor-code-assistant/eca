@@ -1,7 +1,8 @@
 (ns eca.api.dev
   "For developing modules from a REPL on a running ECA: install a module
-   from its map, reload one from its file, remove one, and see them all.
-   Changes take effect at once, for this session."
+   from its map, reload one from its file, remove one, see them all, and get
+   a ctx to call `eca.api` with. Changes take effect at once, for this
+   session."
   (:require
    [eca.config :as config]
    [eca.logger :as logger]
@@ -28,6 +29,22 @@
         ((requiring-resolve 'eca.features.tools/refresh-module-tool-servers!) db* messenger config)
         (catch Exception e
           (logger/warn "[MODULES]" "Could not send the tools to the client:" e))))))
+
+(defn ctx
+  "A ctx on the running ECA, to call `eca.api` from a REPL, e.g.
+   `(eca/notify! (ctx) \"Hi\")`. Options: `:module`, a module id, to act as
+   that module (its state, chat state and registrations); `:chat-id`, to act
+   in that chat (`eca/chat`, `eca/send-prompt!`...)."
+  ([] (ctx {}))
+  ([{:keys [module chat-id]}]
+   (let [[{:keys [db*] :as components}] (session)]
+     (when (and (some? module) (not (qualified-keyword? module)))
+       (throw (ex-info ":module must be a module id, a qualified keyword like :acme/jira" {:module module})))
+     (when (and (some? chat-id) (not (get-in @db* [:chats chat-id])))
+       (throw (ex-info (str "There's no chat " (pr-str chat-id)) {:chat-id chat-id})))
+     (cond-> (select-keys components [:db* :messenger :metrics])
+       module (assoc :module-id module)
+       chat-id (assoc :chat-id chat-id)))))
 
 (defn ^:private repl-source [id]
   (str "repl:" (symbol id)))

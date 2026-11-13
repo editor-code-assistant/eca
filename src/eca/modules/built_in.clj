@@ -8,6 +8,7 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.plugins :as f.plugins]
+   [eca.features.repl :as f.repl]
    [eca.features.tools :as f.tools]
    [eca.features.tools.agent :as tools.agent]
    [eca.features.tools.ask-user :as tools.ask-user]
@@ -93,4 +94,6 @@
    ollama/module
    openai/module
    openrouter/module
-   z-ai/module])
+   z-ai/module
+   ;; optional, off by default
+   f.repl/module])

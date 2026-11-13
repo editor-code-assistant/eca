@@ -583,6 +583,28 @@
         }
       }
     },
+    "repl": {
+      "type": "object",
+      "description": "Where the eca/repl module's nREPL listens, a REPL on ECA's module runtime. The module is off by default: turn it on with modules.eca/repl.enabled, '/modules enable eca/repl' or 'eca server --repl'. See https://eca.dev/config/modules",
+      "markdownDescription": "Where the `eca/repl` module's nREPL listens, a REPL on ECA's module runtime. The module is off by default: turn it on with `modules.eca/repl.enabled`, `/modules enable eca/repl` or `eca server --repl`. See [Modules](https://eca.dev/config/modules#a-repl-on-eca).",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "A loopback address: nREPL has no authentication, so ECA refuses others.",
+          "markdownDescription": "A loopback address: nREPL has no authentication, so ECA refuses others."
+        },
+        "port": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "The port. 0 picks a free one.",
+          "markdownDescription": "The port. `0` picks a free one."
+        }
+      }
+    },
     "network": {
       "type": "object",
       "description": "Network configuration for custom CA certificates and mTLS client certificates, read once at startup from the global config or ECA_CONFIG, plus the extraConfigs they list with absolute or ~ paths (not initializationOptions or project config). Values support dynamic string interpolation (e.g. '${env:SSL_CERT_FILE}').",

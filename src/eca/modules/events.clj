@@ -242,6 +242,35 @@
              event
              changes))
 
+;; --- Tracing, for eca.api.debug/trace!
+
+;; chat id → (fn [event-id kind event result])
+(defonce ^:private tracers* (atom {}))
+
+(defn trace!
+  "Calls `(f event-id kind event result)` after each event emitted for chat
+   `chat-id`, for debugging; a nil `f` stops tracing that chat."
+  [chat-id f]
+  (if f
+    (swap! tracers* assoc chat-id f)
+    (swap! tracers* dissoc chat-id))
+  nil)
+
+(defn untrace-all!
+  "Stops tracing every chat."
+  []
+  (reset! tracers* {})
+  nil)
+
+(defn ^:private trace-event! [ctx event-id kind event result]
+  (let [tracers @tracers*]
+    (when (seq tracers)
+      (when-let [f (get tracers (or (:chat-id event) (:chat-id ctx)))]
+        (try
+          (f event-id kind event result)
+          (catch Exception e
+            (logger/debug logger-tag "Could not trace event" event-id e)))))))
+
 (defn ^:private call-handler [ctx event-id definition {:keys [entry handler timeout-ms]} event]
   (let [module-ctx (modules/module-ctx ctx entry)]
     (modules/invoke-safe module-ctx entry (str "handler of " event-id)
@@ -266,29 +295,31 @@
                    (:accepts definition) (set (keys (:accepts definition)))
                    (= :notify (:kind definition)) #{}
                    :else nil)
-        hs (get handlers event-id)]
-    (if (= :handle (:kind definition))
-      (some (fn [h]
-              (when (matches? (:match h) event)
-                (call-handler ctx event-id definition h event)))
-            hs)
-      (reduce (fn [event h]
-                (if-not (matches? (:match h) event)
-                  event
-                  (let [changes (call-handler ctx event-id definition h event)]
-                    (cond
-                      (nil? changes) event
+        hs (get handlers event-id)
+        result (if (= :handle (:kind definition))
+                 (some (fn [h]
+                         (when (matches? (:match h) event)
+                           (call-handler ctx event-id definition h event)))
+                       hs)
+                 (reduce (fn [event h]
+                           (if-not (matches? (:match h) event)
+                             event
+                             (let [changes (call-handler ctx event-id definition h event)]
+                               (cond
+                                 (nil? changes) event
 
-                      (not (map? changes))
-                      (do (logger/warn logger-tag (format "Module %s returned a %s from a handler of %s; expected a map or nil"
-                                                          (:id (:entry h)) (type changes) event-id))
-                          event)
+                                 (not (map? changes))
+                                 (do (logger/warn logger-tag (format "Module %s returned a %s from a handler of %s; expected a map or nil"
+                                                                     (:id (:entry h)) (type changes) event-id))
+                                     event)
 
-                      :else
-                      (let [changed (merge-changes event changes accepted)]
-                        (if (or (and (:block changed) (not (:block event)))
-                                (and (contains? changed :stop) (not (contains? event :stop))))
-                          (reduced (assoc changed ::ended-by (:id (:entry h))))
-                          changed))))))
-              event
-              hs))))
+                                 :else
+                                 (let [changed (merge-changes event changes accepted)]
+                                   (if (or (and (:block changed) (not (:block event)))
+                                           (and (contains? changed :stop) (not (contains? event :stop))))
+                                     (reduced (assoc changed ::ended-by (:id (:entry h))))
+                                     changed))))))
+                         event
+                         hs))]
+    (trace-event! ctx event-id (:kind definition) event result)
+    result))
