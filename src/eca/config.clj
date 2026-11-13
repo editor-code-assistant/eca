@@ -23,6 +23,7 @@
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules :as modules]
    [eca.shared :as shared :refer [multi-str]]
    [rewrite-json.core :as rj])
   (:import
@@ -367,8 +368,21 @@
        x))
    config))
 
-(defn initial-config []
-  (parse-dynamic-string-values initial-config* (io/file ".")))
+(declare deep-merge)
+
+(defn initial-config
+  "ECA's config defaults: the ones the active modules declare (their
+   `:config-spec` defaults and `:config-defaults`, see
+   `eca.modules/default-config`) under the rest in `initial-config*`.
+   `config`'s `modules` key decides which modules are active; `db` is what
+   a module's `:config-defaults` function can read, e.g. the workspaces."
+  ([] (initial-config nil nil))
+  ([config db]
+   (let [module-defaults (modules/default-config config db)]
+     (parse-dynamic-string-values (if (seq module-defaults)
+                                    (deep-merge module-defaults initial-config*)
+                                    initial-config*)
+                                  (io/file ".")))))
 
 (defn provider-base
   "Returns the provider whose built-in behavior (login flows, request options,
@@ -845,7 +859,10 @@
                      reverse distinct reverse vec))
       merged)))
 
-(defn ^:private all* [db]
+(defn ^:private all-layers
+  "The config from every source, over the defaults of the modules active
+   under `modules-config`."
+  [db modules-config]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
         plugin-data (when-not pure-config? @plugin-components*)
@@ -857,7 +874,7 @@
         plugin-rules (:rules plugin-data)
         plugin-agents (:agents plugin-data)]
     (-> (as-> {} $
-          (merge-config $ (initial-config))
+          (merge-config $ (initial-config {:modules modules-config} db))
           (merge-config $ initialization-config)
           (merge-config $ (when-not pure-config?
                             (config-from-envvar)))
@@ -888,8 +905,18 @@
         (update :agent resolve-agent-inheritance)
         (update :providers resolve-provider-inheritance))))
 
+(defn ^:private all*
+  "The `modules` key, set in any layer, decides which modules' defaults sit
+   under the layers, so a config that changes the active modules is read a
+   second time over their defaults."
+  [db]
+  (let [config (all-layers db nil)]
+    (if (= (modules/defaults-signature config) (modules/defaults-signature nil))
+      config
+      (all-layers db (:modules config)))))
+
 (def ^:private all-memo
-  (memoize/ttl (fn [workspace-folders]
+  (memoize/ttl (fn [workspace-folders _modules-version]
                  (all* {:workspace-folders workspace-folders}))
                :ttl/threshold ttl-cache-config-ms))
 
@@ -899,9 +926,10 @@
    instead of the whole db, otherwise any unrelated db change would miss it
    and re-run every config source, including `${cmd:...}` commands.
    Writers of the other inputs `all*` reads (config files,
-   `initialization-config*`, `plugin-components*`) must call `clear-cache!`."
+   `initialization-config*`, `plugin-components*`) must call `clear-cache!`;
+   module changes bump `eca.modules/version`, part of the cache key."
   [db]
-  (all-memo (:workspace-folders db)))
+  (all-memo (:workspace-folders db) (modules/version)))
 
 (defn clear-cache!
   "Drops the cached config so the next `all` call re-reads all sources."

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add the module runtime and `/modules`, to list modules and enable, disable or reload one for the session. #699
+
 ## 0.171.1
 
 - Add `eca_version` to every hook's stdin payload, so hooks and plugins can adapt to the running ECA version. #697

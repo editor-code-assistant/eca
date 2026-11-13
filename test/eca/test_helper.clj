@@ -9,6 +9,7 @@
    [eca.db :as db]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (def ^:private isolated-cache-dir
@@ -128,6 +129,7 @@
 (defn reset-components! []
   (reset! config/initialization-config* {})
   (reset! config/plugin-components* nil)
+  (modules/reset-registry!)
   (config/clear-cache!)
   (reset! components* (make-components))
   ;; Set default workspace folder for tests

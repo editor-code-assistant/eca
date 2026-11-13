@@ -18,6 +18,9 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
+   [eca.modules :as modules]
+   ;; loaded here so the native image has it: eca.modules resolves it lazily
+   [eca.modules.built-in]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -147,6 +150,9 @@
       (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
              (fn [prev-config new-config]
                (f.tools/reconcile-servers! prev-config new-config db* messenger metrics)))
+      (swap! db* assoc-in [:config-updated-fns :modules-reconcile]
+             (fn [_prev-config new-config]
+               (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics} new-config)))
       (swap! db* assoc-in [:config-updated-fns :tool-refresh]
              (fn [prev-config new-config]
                (when (and prev-config
@@ -194,6 +200,10 @@
                            (ex-message notification-error))))))
       (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
       (let [config (config/all @db*)]
+        (try
+          (modules/start! {:db* db* :messenger messenger :metrics metrics} config)
+          (catch Exception e
+            (logger/error "[MODULES]" "Could not start modules:" e)))
         ;; Trigger sessionStart before delivering plugins-resolved so it
         ;; completes before any chatStart hook can fire (chatStart waits
         ;; on await-plugins-resolved!).
@@ -242,6 +252,10 @@
     ;; 3. Then shutdown
     (f.background-tasks/cleanup-all!)
     (swap! db* assoc :stopping true)
+    (try
+      (modules/stop-all! {:db* db* :config config :metrics metrics})
+      (catch Exception e
+        (logger/error "[MODULES]" "Could not stop modules:" e)))
     (f.mcp/shutdown! db*)
     nil))
 

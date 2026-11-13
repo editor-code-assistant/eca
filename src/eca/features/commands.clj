@@ -14,6 +14,7 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.features.login :as f.login]
+   [eca.features.modules :as f.modules]
    [eca.features.plugins :as f.plugins]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
@@ -327,7 +328,11 @@
                       {:name "hooks"
                        :type :native
                        :description "List active hooks grouped by type."
-                       :arguments []}]
+                       :arguments []}
+                      {:name "modules"
+                       :type :native
+                       :description "List modules; enable, disable or reload one (Ex: /modules disable eca/mcp)."
+                       :arguments [{:name "action"} {:name "module-id"}]}]
         custom-cmds (map (fn [custom]
                            {:name (:name custom)
                             :type :custom-prompt
@@ -544,7 +549,11 @@
                                 (str "\n    " (:suggestion file-info)))))
                        ""
                        existing-files))
-                 "Credential files: None found"))))
+                 "Credential files: None found")
+               ""
+               (str "Active modules: " (f.modules/active-ids-text config))
+               (when-let [problems (seq (f.modules/config-problems config))]
+                 (str "Config problems:\n" (string/join "\n" (map #(str "  " %) problems)))))))
 
 (defn ^:private rules-msg [config roots agent full-model all-tools]
   (let [{static :static path-scoped :path-scoped} (f.rules/all-rules config roots agent full-model)
@@ -1270,6 +1279,9 @@
       "hooks" (let [msg (hooks-msg config)]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
+      "modules" (let [msg (f.modules/handle! args chat-ctx)]
+                  {:type :chat-messages
+                   :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
 
       ;; else check if a custom command or skill
       (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
