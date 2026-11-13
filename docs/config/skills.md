@@ -21,7 +21,7 @@ When sending a prompt request to LLM, ECA will send only name and description of
 ECA also ships built-in skills:
 
 - `eca-info`: a report of the running ECA (versions, models, logins, MCP servers, skills...), to debug it.
-- `eca-modules`: how to write [modules](./modules.md), with the reference of `eca.api` and the modules loaded now. Listed while the `eca/create` module is active.
+- `eca-manage`: how to change ECA itself, from its config to [modules](./modules.md): which way to choose, where ECA's docs are, and this ECA's version and modules. Listed while the `eca/create` module is active.
 
 Check the examples:
 

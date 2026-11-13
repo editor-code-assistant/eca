@@ -6,9 +6,9 @@
   Each entry exposes :name, :description and :handler-fn instead of :body."
   (:require
    [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.features.guide :as guide]
    [eca.llm-util :as llm-util]
    [eca.modules :as modules]
    [eca.secrets :as secrets]
@@ -213,18 +213,20 @@
     (string/join ", " (map #(str "`" (symbol (:id %)) "`") entries))
     "(none)"))
 
-(defn ^:private modules-now-section
-  "The modules of this ECA: built-in ones by id, external ones with their
-   source and what went wrong."
+(defn ^:private this-eca-section
+  "The running ECA: its version, as the docs follow ECA's latest code, and
+   its modules: built-in ones by id, external ones with their source and
+   what went wrong."
   [config]
   (let [{built-in true external false} (group-by (comp boolean :built-in?) (modules/statuses config))
         active? #(= :active (:status %))]
     (multi-str
-     "# Modules in this ECA"
+     "## This ECA"
      ""
-     (str "- Built-in, active: " (module-ids (filter active? built-in)))
-     (str "- Built-in, not active: " (module-ids (remove active? built-in)))
-     (str "- External:" (when-not (seq external) " (none)"))
+     (str "- Version: " (config/eca-version) ". The docs follow ECA's latest code, which may be newer than this.")
+     (str "- Built-in modules, active: " (module-ids (filter active? built-in)))
+     (str "- Built-in modules, not active: " (module-ids (remove active? built-in)))
+     (str "- External modules:" (when-not (seq external) " (none)"))
      (for [{:keys [id status reason source errors]} external]
        ;; a module that failed to load may have no id
        (str "  - `" (if id (symbol id) (fs/file-name source)) "` (" (name status) ", from `" source "`)"
@@ -233,14 +235,11 @@
             (when-let [{:keys [what message]} (last errors)]
               (str " Last error, in " what ": " message)))))))
 
-(defn ^:private eca-modules-body [{:keys [config]}]
+(defn ^:private eca-manage-body [{:keys [config]}]
   (multi-str
-   (or (:text (guide/topic "modules"))
-       "The modules guide isn't in this ECA build: see https://eca.dev/config/modules")
+   (string/trimr (slurp (io/resource "prompts/eca_manage_skill.md")))
    ""
-   (modules-now-section config)
-   ""
-   (guide/api-reference)))
+   (this-eca-section config)))
 
 (def ^:private eca-info-skill
   {:name "eca-info"
@@ -250,15 +249,14 @@
                      "credential files.")
    :handler-fn eca-info-body})
 
-(def ^:private eca-modules-skill
-  {:name "eca-modules"
-   :description (str "Write and debug ECA modules: Clojure files ECA loads live to add tools, commands, "
-                     "prompt sections and event handlers. The modules guide, the eca.api reference and "
-                     "the modules loaded now.")
-   :handler-fn eca-modules-body})
+(def ^:private eca-manage-skill
+  {:name "eca-manage"
+   :description (str "Change ECA itself: its config, models, tool approval, agents, skills, rules, commands, "
+                     "hooks, MCP servers, plugins or modules, following ECA's docs.")
+   :handler-fn eca-manage-body})
 
 (defn all
-  "Returns the list of built-in skills under `config`: `eca-modules` only
+  "Returns the list of built-in skills under `config`: `eca-manage` only
    while the `:eca/create` module is active.
 
   Each skill has :name, :description and :handler-fn (a function of
@@ -266,4 +264,4 @@
   Built-in skills compute their body lazily; they have no :body or :dir."
   [config]
   (cond-> [eca-info-skill]
-    (modules/active? config :eca/create) (conj eca-modules-skill)))
+    (modules/active? config :eca/create) (conj eca-manage-skill)))

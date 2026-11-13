@@ -62,7 +62,7 @@
                        {:name "hooks" :arguments []}
                        {:name "modules" :arguments [{:name "action"} {:name "module-id"}]}
                        {:name "eca-info" :arguments nil}
-                       {:name "eca-modules" :arguments nil}]}
+                       {:name "eca-manage" :arguments nil}]}
            resp))))
 
   (testing "We query specific commands"
@@ -83,8 +83,8 @@
                        {:name "config" :arguments []}
                        {:name "subagents" :arguments []}
                        {:name "plugins" :arguments []}
-                       ;; its description has "commands"
-                       {:name "eca-modules" :arguments nil}]}
+                       ;; its description has "config"
+                       {:name "eca-manage" :arguments nil}]}
            resp))))
 
   (testing "We send a built-in command"

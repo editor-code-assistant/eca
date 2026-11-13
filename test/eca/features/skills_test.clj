@@ -273,26 +273,37 @@
         (finally
           (fs/delete-tree plugin-dir))))))
 
-(deftest eca-modules-skill-test
+(deftest eca-manage-skill-test
   (testing "it's listed while eca/create is active"
-    (is (match? (m/embeds [{:name "eca-modules" :handler-fn fn?}])
+    (is (match? (m/embeds [{:name "eca-manage" :handler-fn fn?}])
                 (f.skills/all {:pureConfig true} [])))
-    (is (not-any? #(= "eca-modules" (:name %))
+    (is (not-any? #(= "eca-manage" (:name %))
                   (f.skills/all {:pureConfig true :modules {:eca/create {:enabled false}}} []))))
-  (testing "its body is the modules guide, the modules loaded now and the eca.api reference"
+  (testing "its body points to ECA's docs, and tells this ECA's version and modules"
     (modules/add-external! "/tmp/mods/hello.clj" {:id :acme/hello} {:kind :global :rank 3})
     (modules/add-external! "/tmp/mods/broken.clj" nil {:kind :global :rank 3 :error "Boom (broken.clj:3:1)"})
     (try
       (let [config {:pureConfig true}
-            skill (->> (f.skills/all config []) (filter #(= "eca-modules" (:name %))) first)
+            skill (->> (f.skills/all config []) (filter #(= "eca-manage" (:name %))) first)
             body ((:handler-fn skill) {:db {} :config config :skills [skill]})]
-        (is (string/starts-with? body "# Modules\n"))
-        (is (string/includes? body "# Modules in this ECA"))
-        (is (re-find #"- Built-in, active: .*`eca/create`" body))
-        (is (re-find #"- Built-in, not active: .*`eca/repl`" body))
+        (is (string/starts-with? body "# Changing ECA\n"))
+        (is (string/includes? body "https://eca.dev/config.json"))
+        (is (string/includes? body (str "- Version: " (config/eca-version) ".")))
+        (is (re-find #"- Built-in modules, active: .*`eca/create`" body))
+        (is (re-find #"- Built-in modules, not active: .*`eca/repl`" body))
         (is (string/includes? body "  - `acme/hello` (active, from `/tmp/mods/hello.clj`)"))
         (is (string/includes? body "  - `broken.clj` (failed, from `/tmp/mods/broken.clj`): Failed to load: Boom (broken.clj:3:1)"))
-        (is (string/includes? body "# The eca.api namespaces")))
+        (is (< (count body) 5000))
+        (testing "it names every page of docs/config, and only those"
+          (let [linked (map second (re-seq #"https://eca\.dev/config/([a-z-]+)/" body))
+                also (some->> (re-find #"Also (.+), at `https://eca\.dev/config/<page>/`" body)
+                              second
+                              (re-seq #"`([a-z-]+)`")
+                              (map second))
+                pages (map #(string/replace (fs/file-name %) #"\.md$" "") (fs/glob "docs/config" "*.md"))]
+            (is (seq linked))
+            (is (= (set pages) (set (concat linked also))))
+            (is (apply distinct? (concat linked also))))))
       (finally
         (modules/reset-registry!)))))
 
