@@ -274,6 +274,22 @@
         (is (match? {:error false :contents [{:type :text :text "Issue ECA-1"}]} (call! "ECA-1")))
         (is (match? {:error true :contents [{:type :text :text "No such issue"}]} (call! "bad")))))))
 
+(deftest chat-state-test
+  (with-dirs [global _workspace]
+    (write! global "modules/counter.clj"
+            "(ns acme.chat-counter (:require [eca.api :as eca]))
+             (def module
+               {:id :acme/counter
+                :commands {\"count\" {:handler (fn [ctx _]
+                                                (let [{:keys [n]} (eca/swap-chat-state! ctx update :n (fnil inc 0))]
+                                                  (str \"Count \" n \" in \" (:id (eca/chat ctx)))))}}})")
+    (sync! {})
+    (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1"})
+    (testing "a module keeps state per chat, through eca.api"
+      (is (= "Count 1 in chat-1" (command-text (f.commands/handle-command! "count" [] (chat-ctx {})))))
+      (is (= "Count 2 in chat-1" (command-text (f.commands/handle-command! "count" [] (chat-ctx {})))))
+      (is (= {:n 2} (get-in (h/db) [:chats "chat-1" :modules :acme/counter]))))))
+
 (deftest output-goes-to-the-log-test
   (with-dirs [global _workspace]
     (write! global "modules/noisy.clj"

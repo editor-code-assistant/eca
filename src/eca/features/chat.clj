@@ -1085,6 +1085,16 @@
           (try (thunk)
                (finally (swap! db* update-in [:managed-chats chat-id :workers] dec)))))))
 
+(defn ^:private take-module-contexts!
+  "The contexts modules added for the chat's next request (with
+   `eca.api/add-context!`), removed from the chat: `[{:module :content}]`."
+  [db* chat-id]
+  (let [[old-db _] (swap-vals! db* (fn [db]
+                                     (cond-> db
+                                       (get-in db [:chats chat-id :module-contexts])
+                                       (update-in [:chats chat-id] dissoc :module-contexts))))]
+    (get-in old-db [:chats chat-id :module-contexts])))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -1102,7 +1112,12 @@
                               (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
                           (cond
                             (or stop-turn? blocked?) (do (finish-blocked-or-stopped-pre-request! chat-ctx pre-request-state) nil)
-                            :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
+                            :else (let [;; contexts modules added with eca.api/add-context! join the hooks' ones
+                                        additional-contexts (into (vec additional-contexts)
+                                                                  (map (fn [{:keys [module content]}]
+                                                                         {:hook-name module :content content}))
+                                                                  (take-module-contexts! db* chat-id))
+                                        last-user-idx (llm-util/find-last-user-msg-idx user-messages)
                                           ;; preRequest additionalContext should ideally attach to the last user message,
                                           ;; but some prompt sources may not contain a user role (e.g. prompt templates).
                                         context-idx   (or last-user-idx
@@ -2458,7 +2473,8 @@
                                               :messages (f.commands/drop-dangling-tool-calls
                                                          (vec (:messages source-chat)))}
                                              (select-keys source-chat [:trust :remembered-approvals
-                                                                       :prompt-cache :startup-context])))
+                                                                       :prompt-cache :startup-context
+                                                                       :modules])))
                              ;; Mirror prompt's default-trust seeding for brand-new
                              ;; chats: explicit trust param wins, then the source
                              ;; chat's trust, then chat.defaultTrust.
@@ -2917,15 +2933,17 @@
             now (System/currentTimeMillis)
             new-title (f.commands/fork-title (:title chat))
             kept-messages (subvec messages 0 (inc target-idx))
-            new-chat {:id new-id
-                      :title new-title
-                      :status :idle
-                      :created-at now
-                      :updated-at now
-                      :model (:model chat)
-                      :last-api (:last-api chat)
-                      :messages kept-messages
-                      :prompt-finished? true}
+            new-chat (assoc-some {:id new-id
+                                  :title new-title
+                                  :status :idle
+                                  :created-at now
+                                  :updated-at now
+                                  :model (:model chat)
+                                  :last-api (:last-api chat)
+                                  :messages kept-messages
+                                  :prompt-finished? true}
+                                 ;; the modules' chat state goes with the chat
+                                 :modules (:modules chat))
             page (history/server-created-page @db* kept-messages)
             meta (when page (history/page-meta page kept-messages))]
         (swap! db* assoc-in [:chats new-id] new-chat)

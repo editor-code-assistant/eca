@@ -3,6 +3,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.api :as eca]
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
@@ -1800,6 +1801,22 @@
             (is (string/includes? (request-text user-msgs* 4) "A-v2")))
           (is (= 1 (count (distinct @instructions*)))
               "the system prompt stays the same across all turns"))))))
+
+(deftest module-context-with-next-request-test
+  (testing "eca.api/add-context! adds context to the chat's next user request, once"
+    (h/reset-components!)
+    (let [user-msgs* (atom [])
+          instructions* (atom [])
+          mocks (capturing-llm-mocks user-msgs* instructions*)
+          {:keys [chat-id]} (prompt! {:message "one"} mocks)]
+      (eca/add-context! {:module-id :acme/notes :chat-id chat-id :db* (h/db*)} "Remember the notes.")
+      (h/reset-messenger!)
+      (prompt! {:message "two" :chat-id chat-id} mocks)
+      (is (= "two\n<additionalContext>\nRemember the notes.\n</additionalContext>" (request-text user-msgs* 1)))
+      (is (nil? (get-in (h/db) [:chats chat-id :module-contexts])))
+      (h/reset-messenger!)
+      (prompt! {:message "three" :chat-id chat-id} mocks)
+      (is (= "three" (request-text user-msgs* 2))))))
 
 (deftest attached-context-expanded-from-prompt-sent-once-test
   (testing "a context-area file also expanded from the prompt text with @path is sent once (#683)"

@@ -463,9 +463,11 @@
         (throw e)))))
 
 (defn module-ctx
-  "The ctx a module's function gets: the caller's ctx plus the module."
+  "The ctx a module's function gets: the caller's ctx plus the module, and the
+   session's components (`:db*`, `:messenger`, `:metrics`) when the caller
+   didn't pass them, so `eca.api` works wherever a module runs."
   [ctx entry]
-  (assoc ctx :module-id (:id entry)))
+  (assoc (merge (:components @registry*) ctx) :module-id (:id entry)))
 
 (declare fail!)
 
@@ -639,10 +641,13 @@
             (recur (inc attempts))))))))
 
 (defn start!
-  "Starts the session's modules. Until then, `reconcile-if-started!` does
-   nothing, so config changes can't start modules early."
+  "Starts the session's modules, and keeps its components for `module-ctx`.
+   Until then, `reconcile-if-started!` does nothing, so config changes can't
+   start modules early."
   [components config]
-  (swap! registry* assoc :session-started? true)
+  (swap! registry* assoc
+         :session-started? true
+         :components (select-keys components [:db* :messenger :metrics]))
   (reconcile! components config))
 
 (defn started?
@@ -745,7 +750,9 @@
     (reduce (fn [acc entry]
               (let [d (:config-defaults (:module entry))
                     d (if (fn-like? d)
-                        (let [ctx (module-ctx {:db db} entry)]
+                        ;; only the db: with the components, (eca/config ctx) would
+                        ;; resolve the config being computed
+                        (let [ctx {:db db :module-id (:id entry)}]
                           (invoke-safe ctx entry "config-defaults"
                                        {:timeout-ms (timeout-for entry nil default-handler-timeout-ms)} d ctx))
                         d)]

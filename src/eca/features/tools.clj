@@ -543,18 +543,25 @@
                            (if-let [native-tool-handler (and (= :native (:origin tool-meta))
                                                              (get-in (native-definitions chat-id agent-name db config)
                                                                      [(definition-key server-name tool-name) :handler]))]
-                             (native-tool-handler arguments {:db db
-                                                             :db* db*
-                                                             :config config
-                                                             :messenger messenger
-                                                             :agent agent-name
-                                                             :metrics metrics
-                                                             :chat-id chat-id
-                                                             :all-tools all-tools
-                                                             :tool-call-id tool-call-id
-                                                             :call-state-fn call-state-fn
-                                                             :state-transition-fn state-transition-fn
-                                                             :trust trust})
+                             (let [{:keys [call! stop!]} (when on-progress
+                                                           (throttle on-progress progress-report-interval-ms))]
+                               ;; :on-progress is for modules' tools (eca.api/progress!)
+                               (try
+                                 (native-tool-handler arguments (assoc-some {:db db
+                                                                             :db* db*
+                                                                             :config config
+                                                                             :messenger messenger
+                                                                             :agent agent-name
+                                                                             :metrics metrics
+                                                                             :chat-id chat-id
+                                                                             :all-tools all-tools
+                                                                             :tool-call-id tool-call-id
+                                                                             :call-state-fn call-state-fn
+                                                                             :state-transition-fn state-transition-fn
+                                                                             :trust trust}
+                                                                            :on-progress call!))
+                                 (finally
+                                   (when stop! (stop!)))))
                              (let [{:keys [call! stop!]} (when on-progress
                                                            (throttle on-progress progress-report-interval-ms))]
                                ;; Stopping before returning keeps a late progress report

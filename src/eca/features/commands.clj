@@ -91,7 +91,8 @@
                          :last-api (:last-api chat)
                          :messages (drop-dangling-tool-calls (vec (:messages chat)))
                          :prompt-finished? true}
-                        (select-keys chat extra-copied-keys))
+                        ;; the modules' chat state goes with the chat
+                        (select-keys chat (conj (vec extra-copied-keys) :modules)))
         messages (:messages new-chat)
         page (history/server-created-page @db* messages)]
     (swap! db* assoc-in [:chats new-id] new-chat)

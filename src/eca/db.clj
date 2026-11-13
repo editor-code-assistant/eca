@@ -101,6 +101,11 @@
                         :parent-chat-id :string
                         :startup-context :string
                         :prompt-cache ::any-map
+                        ;; each module's state in the chat (eca.api/swap-chat-state!),
+                        ;; plain data saved with the chat and copied by forks
+                        :modules {:<module-id> ::any}
+                        ;; added by modules for the next request (eca.api/add-context!)
+                        :module-contexts [{:module :string :content :string}]
                         ;; Context-area files/repoMap already delivered in the
                         ;; user message history: context key -> content sha-256. #683
                         :sent-attached-contexts {"<context-key>" :string}
