@@ -3,6 +3,7 @@
   (:require
    [clojure.string :as str]
    [eca.config :as config]
+   [eca.features.built-in-command :as built-in-command]
    [eca.features.tools.util :as tools.util]
    [eca.llm-providers.errors :as llm-providers.errors]
    [eca.logger :as logger]
@@ -601,4 +602,6 @@
    :config-defaults {:toolCall {:approval {:allow {"eca__spawn_agent" {}}}}}
    ;; its description lists the subagents the chat's agent can spawn
    :tools (fn [{:keys [config db agent]}]
-            (tools.util/->module-tools (definitions config db agent)))})
+            (tools.util/->module-tools (definitions config db agent)))
+   :commands (built-in-command/commands
+              [["subagents" "List available subagents and their configuration." []]])})

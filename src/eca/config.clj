@@ -47,77 +47,9 @@
 (defn get-property [property] (System/getProperty property))
 (defn user-home [] (cache/user-home))
 
-(def ^:private dangerous-commands-regexes
-  [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
-   ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
-   ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
-   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
-   ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
-   ".*npm\\s+install.*",                                                                 ;; npm install
-   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
-   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*"])
-
 (def ^:private initial-config*
-  {:defaultAgent "code"
-   :agent {"code" {:mode "primary"
-                   :prompts {:chat "${classpath:prompts/code_agent.md}"}
-                   :disabledTools ["preview_file_change"]}
-           "plan" {:mode "primary"
-                   :prompts {:chat "${classpath:prompts/plan_agent.md}"}
-                   :disabledTools ["edit_file" "write_file" "move_file" "git"]
-                   :toolCall {:approval {:byDefault "ask"
-                                         :allow {"eca__shell_command"
-                                                 {:argsMatchers {"command" ["pwd"
-                                                                            "git\\s+diff(\\s+.*)?"
-                                                                            "git\\s+log(\\s+.*)?"
-                                                                            "git\\s+show(\\s+.*)?"
-                                                                            "find(\\s+.*)?"
-                                                                            "ls(\\s+.*)?"]}}
-                                                 "eca__compact_chat" {}
-                                                 "eca__preview_file_change" {}
-                                                 "eca__read_file" {}
-                                                 "eca__directory_tree" {}
-                                                 "eca__grep" {}
-                                                 "eca__editor_diagnostics" {}
-                                                 "eca__skill" {}
-                                                 "eca__search_tools" {}
-                                                 "eca__task" {}
-                                                 "eca__fetch_rule" {}
-                                                 "eca__spawn_agent" {}}
-                                         :deny {"eca__shell_command"
-                                                {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
-           "explorer" {:mode "subagent"
-                       :description "${classpath:prompts/explorer_agent_description.md}"
-                       :systemPrompt "${classpath:prompts/explorer_agent.md}"
-                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change" "git"]
-                       :toolCall {:approval {:byDefault "ask"
-                                             :allow {"eca__shell_command"
-                                                     {:argsMatchers {"command" ["pwd"
-                                                                                "git\\s+diff(\\s+.*)?"
-                                                                                "git\\s+log(\\s+.*)?"
-                                                                                "git\\s+show(\\s+.*)?"
-                                                                                "find(\\s+.*)?"
-                                                                                "ls(\\s+.*)?"]}}
-                                                     "eca__compact_chat" {}
-                                                     "eca__read_file" {}
-                                                     "eca__directory_tree" {}
-                                                     "eca__grep" {}
-                                                     "eca__editor_diagnostics" {}
-                                                     "eca__skill" {}
-                                                     "eca__search_tools" {}
-                                                     "eca__task" {}
-                                                     "eca__fetch_rule" {}}
-                                             :deny {"eca__shell_command"
-                                                    {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
-           "general" {:mode "subagent"
-                      :description "${classpath:prompts/general_agent_description.md}"
-                      :systemPrompt "${classpath:prompts/code_agent.md}"
-                      :disabledTools ["preview_file_change"]}}
-   :defaultModel nil
-   :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
-             :chatTitle "${classpath:prompts/title.md}"
-             :init "${classpath:prompts/init.md}"
-             :skillCreate "${classpath:prompts/skill_create.md}"
+  {:defaultModel nil
+   :prompts {:chatTitle "${classpath:prompts/title.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:title true
@@ -126,8 +58,6 @@
    :chatInline {}
    :chatRetentionDays 30
    :rewrite {:fullFileMaxLines 2000}
-   :hooks {}
-   :commands []
    :extraConfigs []
    :mcpTimeoutSeconds 60
    :mcpKeepAliveSeconds 30
@@ -152,13 +82,9 @@
                               ""
                               "Toggle **trust mode** to auto-accept all tool calls"
                               "")
-   :index {:ignoreFiles [{:type :gitignore}]
-           :repoMap {:maxTotalEntries 800
-                     :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :includeParentAgentsFiles false
-   :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
    :remote {:enabled false}
    :env "prod"})
 
@@ -700,7 +626,8 @@
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         ;; Plugin agents merge at same level as markdown agents
         (as-> config
-              (let [md-agent-configs (when-not pure-config?
+              (let [md-agent-configs (when (and (not pure-config?)
+                                                (modules/active? {:modules modules-config} :eca/agents))
                                        (agents/all-md-agents (:workspace-folders db)))]
                 (if (or (seq md-agent-configs) (seq plugin-agents))
                   (update config :agent (fn [existing]

@@ -4,6 +4,7 @@
    [clojure.core.memoize :as memoize]
    [clojure.java.shell :as shell]
    [clojure.string :as string]
+   [eca.features.built-in-command :as built-in-command]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -157,3 +158,14 @@
     (println (repo-map user/*db*
                        {:index {:repoMap {:maxTotalEntries 800 :maxEntriesPerDir 50}}}
                        {:as-string? true}))))
+
+(def module
+  {:id :eca/repo-map
+   :description "A map of the repository, for the repoMap context."
+   :config-spec {:index {:type :map
+                         :default {:ignoreFiles [{:type :gitignore}]
+                                   :repoMap {:maxTotalEntries 800
+                                             :maxEntriesPerDir 50}}}}
+   ;; the repoMap context itself waits for module contexts
+   :commands (built-in-command/commands
+              [["repo-map-show" "Actual repoMap of current session." []]])})

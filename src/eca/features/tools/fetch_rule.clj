@@ -1,6 +1,7 @@
 (ns eca.features.tools.fetch-rule
   (:require
    [clojure.string :as string]
+   [eca.features.built-in-command :as built-in-command]
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
    [eca.features.tools.path-rules :as f.tools.path-rules]
@@ -144,4 +145,6 @@
    :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
    ;; fetch_rule exists only when the chat has path-scoped rules
    :tools (fn [{:keys [config db chat-id agent]}]
-            (tools.util/->module-tools (definitions config db chat-id agent)))})
+            (tools.util/->module-tools (definitions config db chat-id agent)))
+   :commands (built-in-command/commands
+              [["rules" "List available rules and their filtering metadata (agent, model, paths)." []]])})

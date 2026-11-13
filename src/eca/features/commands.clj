@@ -7,6 +7,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.built-in-command :as built-in-command]
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.history :as history]
@@ -28,6 +29,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules :as modules]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -190,161 +192,73 @@
             (global-file-commands))
           (local-file-commands roots)))
 
+(def ^:private built-in-command-order
+  "The order in which clients list the built-in commands."
+  ["init" "login" "model" "agent" "skills" "skill-create" "costs" "quota" "context" "approvals"
+   "forget-approvals" "compact" "fork" "btw" "resume" "chats" "delete-chat" "export" "import" "remote"
+   "config" "doctor" "debug-chat" "repo-map-show" "rules" "prompt-show" "sync-system-prompt" "subagents"
+   "plugins" "plugin-install" "plugin-update" "plugin-uninstall" "hooks" "modules"])
+
+(defn ^:private module-commands
+  "The active modules' commands, in the order clients list them: the built-in
+   ones in `built-in-command-order`, then the others in module start order.
+   Each is `{:name :full-id :entry :command}`. `:name` is the command name, or
+   its full id `<prefix>:<name>` when several modules have that name."
+  [config]
+  (let [order (zipmap built-in-command-order (range))
+        commands (for [[entry module-commands] (modules/contributions config :commands)
+                       [command-name command] module-commands]
+                   {:name command-name
+                    :full-id (str (modules/prefix entry) ":" command-name)
+                    :entry entry
+                    :command command})
+        name-counts (frequencies (map :name commands))]
+    (->> commands
+         (map #(cond-> % (> (name-counts (:name %)) 1) (assoc :name (:full-id %))))
+         (sort-by #(get order (:name %) Integer/MAX_VALUE)))))
+
+(defn ^:private find-module-command
+  "The module command typed as `command-name`: its name or its full id."
+  [command-name config]
+  (some #(when (or (= command-name (:name %)) (= command-name (:full-id %))) %)
+        (module-commands config)))
+
+(defn find-command
+  "The command `command-name` names, as `all-commands` lists it, also when
+   typed by its full id (e.g. `eca:compact`); nil when no module has it."
+  [command-name config]
+  (when-let [{:keys [name entry command]} (find-module-command command-name config)]
+    {:name name
+     :type (if (:built-in? entry) :native :module)
+     :description (:description command)
+     :arguments (or (:arguments command) [])}))
+
 (defn all-commands [db config]
   (let [mcp-prompts (->> (f.mcp/all-prompts db)
                          (mapv #(-> %
                                     (assoc :name (str (:server %) ":" (:name %))
                                            :type :mcpPrompt)
                                     (dissoc :server))))
-        eca-commands [{:name "init"
-                       :type :native
-                       :description "Create/update the AGENTS.md file teaching LLM about the project"
-                       :arguments []}
-                      {:name "login"
-                       :type :native
-                       :description "Log into a provider (Ex: /login github-copilot)"
-                       :arguments [{:name "provider-id"}]}
-                      {:name "model"
-                       :type :native
-                       :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
-                       :arguments [{:name "full-model"}]}
-                      {:name "agent"
-                       :type :native
-                       :description "Select agent for current chat (Ex: /agent plan)"
-                       :arguments [{:name "agent-name"}]}
-                      {:name "skills"
-                       :type :native
-                       :description "List available skills"
-                       :arguments []}
-                      {:name "skill-create"
-                       :type :native
-                       :description "Create a skill considering a user request"
-                       :arguments [{:name "name" :description "The skill name" :required true}
-                                   {:name "prompt" :description "What to consider as this skill content" :required true}]}
-                      {:name "costs"
-                       :type :native
-                       :description "Total costs of the current chat session."
-                       :arguments []}
-                      {:name "quota"
-                       :type :native
-                       :description "Subscription quota usage and reset times (Claude Pro/Max, ChatGPT, GitHub Copilot)."
-                       :arguments []}
-                      {:name "context"
-                       :type :native
-                       :description "Context window usage breakdown for the current chat."
-                       :arguments []}
-                      {:name "approvals"
-                       :type :native
-                       :description "List tool call approvals remembered in the current chat via approve & remember."
-                       :arguments []}
-                      {:name "forget-approvals"
-                       :type :native
-                       :description "Forget tool call approvals remembered in the current chat, so those calls ask for approval again."
-                       :arguments []}
-                      {:name "compact"
-                       :type :native
-                       :description "Summarize the chat so far cleaning previous chat history to reduce context."
-                       :arguments [{:name "additional-input"}]}
-                      {:name "fork"
-                       :type :native
-                       :description "Fork current chat into a new chat with the same history and settings."
-                       :arguments []}
-                      {:name "btw"
-                       :type :native
-                       :description "Ask a side question in a forked chat, keeping this chat history clean (Ex: /btw how does X work?)"
-                       :arguments [{:name "prompt" :required true}]}
-                      {:name "resume"
-                       :type :native
-                       :description "Resume the specified chat-id. Blank to list chats or 'latest'."
-                       :arguments [{:name "chat-id"}]}
-                      {:name "chats"
-                       :type :native
-                       :description "List chats from all workspaces to find where a chat lives (Ex: /chats, /chats <title-filter>)"
-                       :arguments [{:name "title-filter"}]}
-                      {:name "delete-chat"
-                       :type :native
-                       :description "Permanently delete the current chat or a chat-id from the /resume list, asking confirmation. (Ex: /delete-chat, /delete-chat 2)"
-                       :arguments [{:name "chat-id"}]}
-                      {:name "export"
-                       :type :native
-                       :description "Export the current chat to a file or directory to transfer/import it elsewhere. Ex: /export /tmp/chat.edn or /export ."
-                       :arguments [{:name "filepath"}]}
-                      {:name "import"
-                       :type :native
-                       :description "Import a chat from a file as a new resumable chat. Ex: /import /tmp/chat.edn"
-                       :arguments [{:name "filepath"}]}
-                      {:name "remote"
-                       :type :native
-                       :description "Show remote server connection details."
-                       :arguments []}
-                      {:name "config"
-                       :type :native
-                       :description "Show ECA config for troubleshooting."
-                       :arguments []}
-                      {:name "doctor"
-                       :type :native
-                       :description "Check ECA details for troubleshooting."
-                       :arguments []}
-                      {:name "debug-chat"
-                       :type :native
-                       :description "Dump the current chat (obfuscated) to a file for debugging. Ex: /debug-chat /tmp/out.edn"
-                       :arguments [{:name "filepath"}]}
-                      {:name "repo-map-show"
-                       :type :native
-                       :description "Actual repoMap of current session."
-                       :arguments []}
-                      {:name "rules"
-                       :type :native
-                       :description "List available rules and their filtering metadata (agent, model, paths)."
-                       :arguments []}
-                      {:name "prompt-show"
-                       :type :native
-                       :description "Prompt sent to LLM as system instructions."
-                       :arguments [{:name "optional-prompt"}]}
-                      {:name "sync-system-prompt"
-                       :type :native
-                       :description "Re-sync the system prompt (AGENTS.md, rules, skills) on the next message, invalidating the chat prompt cache."
-                       :arguments []}
-                      {:name "subagents"
-                       :type :native
-                       :description "List available subagents and their configuration."
-                       :arguments []}
-                      {:name "plugins"
-                       :type :native
-                       :description "List available plugins from configured marketplaces."
-                       :arguments []}
-                      {:name "plugin-install"
-                       :type :native
-                       :description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
-                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
-                      {:name "plugin-update"
-                       :type :native
-                       :description "Update a marketplace's pinned version for the next restart (all its plugins)."
-                       :arguments [{:name "marketplace" :description "Configured marketplace source name" :required true}]}
-                      {:name "plugin-uninstall"
-                       :type :native
-                       :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin@marketplace)"
-                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
-                      {:name "hooks"
-                       :type :native
-                       :description "List active hooks grouped by type."
-                       :arguments []}
-                      {:name "modules"
-                       :type :native
-                       :description "List modules; enable, disable or reload one (Ex: /modules disable eca/mcp)."
-                       :arguments [{:name "action"} {:name "module-id"}]}]
-        custom-cmds (map (fn [custom]
-                           {:name (:name custom)
-                            :type :custom-prompt
-                            :description (or (:description custom) (:path custom))
-                            :arguments (:arguments custom)})
-                         (custom-commands config (:workspace-folders db)))
-        skills-cmds (->> (f.skills/all config (:workspace-folders db))
-                         (mapv (fn [skill]
-                                 {:name (:name skill)
-                                  :type :skill
-                                  :description (:description skill)
-                                  :arguments (:arguments skill)})))]
+        eca-commands (map (fn [{:keys [name entry command]}]
+                            {:name name
+                             :type (if (:built-in? entry) :native :module)
+                             :description (:description command)
+                             :arguments (or (:arguments command) [])})
+                          (module-commands config))
+        custom-cmds (when (modules/active? config :eca/custom-commands)
+                      (map (fn [custom]
+                             {:name (:name custom)
+                              :type :custom-prompt
+                              :description (or (:description custom) (:path custom))
+                              :arguments (:arguments custom)})
+                           (custom-commands config (:workspace-folders db))))
+        skills-cmds (when (modules/active? config :eca/skills)
+                      (->> (f.skills/all config (:workspace-folders db))
+                           (mapv (fn [skill]
+                                   {:name (:name skill)
+                                    :type :skill
+                                    :description (:description skill)
+                                    :arguments (:arguments skill)}))))]
     (concat mcp-prompts
             eca-commands
             skills-cmds
@@ -716,10 +630,11 @@
      ""
      "_Tool schemas are sent separately and are not included in this text dump._")))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
-  (let [db @db*
-        custom-cmds (custom-commands config (:workspace-folders db))
-        skills (f.skills/all config (:workspace-folders db))]
+(defn run-built-in!
+  "Runs the built-in command `command`, which a built-in module declares (see
+   `eca.features.built-in-command`). The typed arguments are in `:argv`."
+  [command {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx} {args :argv}]
+  (let [db @db*]
     (case command
       "init" {:type :send-prompt
               :on-finished-side-effect (fn []
@@ -1283,23 +1198,86 @@
                   {:type :chat-messages
                    :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
 
-      ;; else check if a custom command or skill
-      (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
+      (throw (ex-info (str "Unknown built-in command: " command) {:command command})))))
+
+(defn ^:private custom-or-skill-command
+  "A custom command or a skill typed as a command."
+  [command args {:keys [db* config]}]
+  (let [db @db*
+        custom-cmds (when (modules/active? config :eca/custom-commands)
+                      (custom-commands config (:workspace-folders db)))
+        skills (when (modules/active? config :eca/skills)
+                 (f.skills/all config (:workspace-folders db)))]
+    (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
+      {:type :send-prompt
+       :prompt (add-file-context custom-command-prompt args db)}
+      (if-let [skill (first (filter #(= command (:name %)) skills))]
         {:type :send-prompt
-         :prompt (add-file-context custom-command-prompt args db)}
-        (if-let [skill (first (filter #(= command (:name %)) skills))]
-          {:type :send-prompt
-           :prompt (cond
-                     ;; Built-in skills compute their body lazily via the
-                     ;; `eca__skill` tool; the slash form just nudges the LLM
-                     ;; to load it.
-                     (:handler-fn skill)
-                     (str "Load skill: " (:name skill))
+         :prompt (cond
+                   ;; Built-in skills compute their body lazily via the
+                   ;; `eca__skill` tool; the slash form just nudges the LLM
+                   ;; to load it.
+                   (:handler-fn skill)
+                   (str "Load skill: " (:name skill))
 
-                     (seq args)
-                     (add-file-context (substitute-args (:body skill) args) args db)
+                   (seq args)
+                   (add-file-context (substitute-args (:body skill) args) args db)
 
-                     :else
-                     (str "Load skill: " (:name skill)))}
-          {:type :text
-           :text (str "Unknown command: " command)})))))
+                   :else
+                   (str "Load skill: " (:name skill)))}
+        {:type :text
+         :text (str "Unknown command: " command)}))))
+
+(defn ^:private command-args
+  "A module command's `args`: its declared arguments by name, `:raw`, the text
+   after the command, and `:argv`, the typed arguments."
+  [{:keys [arguments]} argv message]
+  (merge (zipmap (map (comp keyword :name) arguments) argv)
+         {:argv (vec argv)
+          :raw (or (some-> message (string/replace-first #"^\s*/\S+\s*" "") string/trim)
+                   (string/join " " argv))}))
+
+(defn ^:private command-result
+  "A module command's result as chat.clj handles it. A string is shown as a
+   system message, `{:prompt ..}` sent as the user's message and nil does
+   nothing more; built-in commands may return typed results."
+  [result entry chat-id]
+  (cond
+    (string? result) {:type :chat-messages
+                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text result}]}]}}}
+    (and (:built-in? entry) (map? result) (:type result)) result
+    (and (map? result) (contains? result :prompt)) {:type :send-prompt :prompt (:prompt result)}
+    :else {:type :new-chat-status :status :idle}))
+
+(defn handle-command!
+  "Runs the command typed as `/command args`: a module's command, else a
+   custom command or a skill."
+  [command args {:keys [chat-id config message] :as chat-ctx}]
+  (if-let [{:keys [entry] module-command :command} (find-module-command command config)]
+    (let [ctx (modules/module-ctx chat-ctx entry)
+          args (command-args module-command args message)
+          handler (:handler module-command)]
+      (command-result (if (:built-in? entry)
+                        (handler ctx args)
+                        (modules/invoke ctx entry (str "command " command) {} handler ctx args))
+                      entry
+                      chat-id))
+    (custom-or-skill-command command args chat-ctx)))
+
+(def create-module
+  {:id :eca/create
+   :description "Help the user set up and extend ECA: AGENTS.md and skills."
+   :config-spec {:prompts {:init {:type :string :default "${classpath:prompts/init.md}"}
+                           :skillCreate {:type :string :default "${classpath:prompts/skill_create.md}"}}}
+   :commands (built-in-command/commands
+              [["init" "Create/update the AGENTS.md file teaching LLM about the project" []]
+               ["skill-create" "Create a skill considering a user request"
+                [{:name "name" :description "The skill name" :required true}
+                 {:name "prompt" :description "What to consider as this skill content" :required true}]]])})
+
+(def custom-commands-module
+  {:id :eca/custom-commands
+   :description "Commands from Markdown files and the commands config."
+   ;; read on every listing (~/.config/eca/commands, .eca/commands and config paths), so new
+   ;; files show up at once; they are listed and run after the modules' commands
+   :config-spec {:commands {:type :array :default []}}})

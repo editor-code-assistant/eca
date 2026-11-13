@@ -3,7 +3,11 @@
    namespace of its feature."
   (:require
    [eca.features.agents :as f.agents]
+   [eca.features.commands :as f.commands]
    [eca.features.core :as f.core]
+   [eca.features.hooks :as f.hooks]
+   [eca.features.index :as f.index]
+   [eca.features.plugins :as f.plugins]
    [eca.features.tools :as f.tools]
    [eca.features.tools.agent :as tools.agent]
    [eca.features.tools.ask-user :as tools.ask-user]
@@ -47,15 +51,25 @@
    ;; agents
    f.agents/module
    tools.agent/module
+   f.agents/code-module
+   f.agents/plan-module
+   f.agents/explorer-module
+   f.agents/general-module
    ;; skills, rules, tool search
    tools.skill/module
    tools.fetch-rule/module
    tools.tool-search/module
    ;; user extensions
    tools.custom/module
+   f.commands/custom-commands-module
+   f.hooks/module
+   f.plugins/module
    ;; chat behavior
    f.tools/approval-module
    tools.chat/module
+   f.commands/create-module
+   ;; editor features
+   f.index/module
    ;; APIs
    anthropic/api-module
    bedrock/api-module

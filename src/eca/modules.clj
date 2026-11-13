@@ -682,11 +682,12 @@
 (defn ^:private merge-order
   "Active modules in the order their `:config-defaults` merge, later wins: a
    module after the modules it requires, directly or not; otherwise lower
-   priority first; equal priorities, the lower id wins."
+   priority first, then id. So among equal priorities the higher id wins, and
+   entries of shared maps keep id order, e.g. agents code, plan, explorer."
   [active]
   (let [compare-fn (fn [a b]
                      (let [c (compare (:priority a) (:priority b))]
-                       (if (zero? c) (compare (:id b) (:id a)) c)))]
+                       (if (zero? c) (compare (:id a) (:id b)) c)))]
     (loop [pending (vec active) placed-ids #{} ordered []]
       (if-let [next-entry (pick-next pending placed-ids compare-fn)]
         (recur (filterv #(not= (:id %) (:id next-entry)) pending)
@@ -696,9 +697,9 @@
 
 (defn default-config
   "The config defaults the active modules under `config` declare, lowest
-   first: their `:config-spec` defaults, then their `:config-defaults`
-   merged by `merge-order`. `db` is what a `:config-defaults` function can
-   read (e.g. the workspaces)."
+   first: their `:config-spec` defaults, then their `:config-defaults` merged
+   in `merge-order`. `db` is what a `:config-defaults` function can read
+   (e.g. the workspaces)."
   [config db]
   (let [{:keys [active]} (resolution config)
         spec-defaults (reduce (fn [acc entry]

@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.db :as db]
+   [eca.features.built-in-command :as built-in-command]
    ;; the built-in tools' modules and multimethods (details, cleanup)
    [eca.features.tools.agent]
    [eca.features.tools.ask-user]
@@ -272,13 +273,6 @@
                       :fullModel        (get-in db [:chats chat-id :model])
                       :variant          (get-in db [:chats chat-id :variant])}))]))
    (module-definitions {:chat-id chat-id :agent agent-name :db db :config config})))
-
-(def approval-module
-  {:id :eca/approval
-   :description "Tool approval from the toolCall.approval rules."
-   ;; the tool modules add their allow entries
-   :config-spec {:toolCall {:approval {:type :map
-                                       :default {:byDefault "ask" :allow {} :ask {} :deny {}}}}}})
 
 (defn native-tools
   ([db config]
@@ -723,3 +717,15 @@
                                                 :name server-name
                                                 :status "disabled"
                                                 :tools []}))))
+
+(def approval-module
+  {:id :eca/approval
+   :description "Tool approval from the toolCall.approval rules."
+   ;; the tool modules add their allow entries
+   :config-spec {:toolCall {:approval {:type :map
+                                       :default {:byDefault "ask" :allow {} :ask {} :deny {}}}}}
+   :commands (built-in-command/commands
+              [["approvals" "List tool call approvals remembered in the current chat via approve & remember." []]
+               ["forget-approvals" (str "Forget tool call approvals remembered in the current chat, so those calls "
+                                        "ask for approval again.")
+                []]])})

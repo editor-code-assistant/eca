@@ -16,6 +16,7 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.features.agents :as agents]
+   [eca.features.built-in-command :as built-in-command]
    [eca.features.plugins.git :as git]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
@@ -575,3 +576,18 @@
          :message (str "Plugin `" input "` is not installed.")}))
     (catch Exception e
       {:status :error :message (ex-message e)})))
+
+(def module
+  {:id :eca/plugins
+   :description "Plugin marketplaces: install, update and remove bundles."
+   ;; bundles still merge into the config where they did, over the user's files
+   :config-spec {:plugins {:type :map
+                           :default {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}}}
+   :commands (built-in-command/commands
+              [["plugins" "List available plugins from configured marketplaces." []]
+               ["plugin-install" "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
+                [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]]
+               ["plugin-update" "Update a marketplace's pinned version for the next restart (all its plugins)."
+                [{:name "marketplace" :description "Configured marketplace source name" :required true}]]
+               ["plugin-uninstall" "Uninstall a plugin (e.g. /plugin-uninstall my-plugin@marketplace)"
+                [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]]])})

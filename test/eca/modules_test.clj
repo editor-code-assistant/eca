@@ -128,13 +128,18 @@
     (with-built-ins [{:id :acme/a :config-spec {:acme {:url {:type :string :default "http://a"}
                                                        :token {:type :string}}}}]
       (is (= {:acme {:url "http://a"}} (modules/default-config {} nil)))))
-  (testing ":config-defaults: a module wins over what it requires, then higher priority, then lower id"
+  (testing ":config-defaults: a module wins over what it requires, then higher priority, then higher id"
     (with-built-ins [{:id :acme/base :priority 50 :config-defaults {:defaultAgent "base" :x "base" :y "base"}}
                      {:id :acme/child :requires #{:acme/base} :config-defaults {:defaultAgent "child"}}
                      {:id :acme/high :priority 10 :config-defaults {:x "high" :z "high"}}
                      {:id :acme/zed :priority 10 :config-defaults {:z "zed"}}]
-      (is (= {:defaultAgent "child" :x "base" :y "base" :z "high"}
+      (is (= {:defaultAgent "child" :x "base" :y "base" :z "zed"}
              (modules/default-config {} nil)))))
+  (testing "entries of a shared map keep module id order"
+    (with-built-ins [{:id :acme/b :config-defaults {:agent {"b" {}}}}
+                     {:id :acme/a :config-defaults {:agent {"a" {}}}}
+                     {:id :acme/c :config-defaults {:agent {"c" {}}}}]
+      (is (= ["a" "b" "c"] (keys (:agent (modules/default-config {} nil)))))))
   (testing "a :config-defaults function gets the db"
     (with-built-ins [{:id :acme/fn :config-defaults (fn [{:keys [db]}]
                                                       {:roots (count (:workspace-folders db))})}]
@@ -150,7 +155,8 @@
                     :config-defaults {:agent {"acme" {:mode "primary"}}}}]
     (testing "the active modules' defaults are in the config"
       (is (match? {:acmeUrl "http://a"
-                   :agent {"acme" {:mode "primary"} "code" map?}}
+                   :agent {"acme" {:mode "primary"}}
+                   :chatRetentionDays 30}         ; and the defaults still in initial-config*
                   (config/all (h/db)))))
     (testing "the user's config wins"
       (reset! config/initialization-config* {:pureConfig true :acmeUrl "http://mine"})

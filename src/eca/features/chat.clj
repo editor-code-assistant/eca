@@ -665,7 +665,9 @@
         [command-name & args] (when possible-command
                                 (let [toks (tokenize-args possible-command)] (if (seq toks) toks [""])))
         args (vec args)
-        matched (get cmds-by-name command-name)]
+        matched (or (get cmds-by-name command-name)
+                    ;; a module command typed by its full id, e.g. /eca:compact
+                    (when command-name (f.commands/find-command command-name config)))]
     (cond
       (= :mcpPrompt (:type matched))
       (let [[server prompt] (string/split command-name #":" 2)]
@@ -676,7 +678,7 @@
 
       matched
       {:type :eca-command
-       :command command-name
+       :command (:name matched)
        :command-type (:type matched)
        :args args}
 

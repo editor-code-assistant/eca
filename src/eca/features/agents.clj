@@ -6,6 +6,7 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
+   [eca.features.built-in-command :as built-in-command]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -246,4 +247,94 @@
 (def module
   {:id :eca/agents
    :description "Agents from config and Markdown files, and choosing one for each chat."
-   :config-spec {:defaultAgent {:type :string}}})
+   :config-spec {:defaultAgent {:type :string}                     ; :eca/agent-code sets it to "code"
+                 :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
+   ;; Markdown agents (~/.config/eca/agents, .eca/agents) still merge where they did, under the config's
+   :commands (built-in-command/commands
+              [["agent" "Select agent for current chat (Ex: /agent plan)" [{:name "agent-name"}]]])})
+
+(def ^:private dangerous-commands-regexes
+  [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
+   ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
+   ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
+   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
+   ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
+   ".*npm\\s+install.*",                                                                 ;; npm install
+   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*"])
+
+(def ^:private read-only-shell-commands
+  ["pwd"
+   "git\\s+diff(\\s+.*)?"
+   "git\\s+log(\\s+.*)?"
+   "git\\s+show(\\s+.*)?"
+   "find(\\s+.*)?"
+   "ls(\\s+.*)?"])
+
+;; One module per agent ECA ships: each only adds its entry to the agent config,
+;; so the user's config, or another module, can change it.
+
+(def code-module
+  {:id :eca/agent-code
+   :description "The code agent, for coding tasks. The default agent."
+   :requires #{:eca/agents}
+   :config-defaults {:defaultAgent "code"
+                     :agent {"code" {:mode "primary"
+                                     :prompts {:chat "${classpath:prompts/code_agent.md}"}
+                                     :disabledTools ["preview_file_change"]}}}})
+
+(def plan-module
+  {:id :eca/agent-plan
+   :description "The plan agent: plans changes without making them."
+   :requires #{:eca/agents}
+   :config-defaults {:agent {"plan" {:mode "primary"
+                                     :prompts {:chat "${classpath:prompts/plan_agent.md}"}
+                                     :disabledTools ["edit_file" "write_file" "move_file" "git"]
+                                     :toolCall {:approval {:byDefault "ask"
+                                                           :allow {"eca__shell_command"
+                                                                   {:argsMatchers {"command" read-only-shell-commands}}
+                                                                   "eca__compact_chat" {}
+                                                                   "eca__preview_file_change" {}
+                                                                   "eca__read_file" {}
+                                                                   "eca__directory_tree" {}
+                                                                   "eca__grep" {}
+                                                                   "eca__editor_diagnostics" {}
+                                                                   "eca__skill" {}
+                                                                   "eca__search_tools" {}
+                                                                   "eca__task" {}
+                                                                   "eca__fetch_rule" {}
+                                                                   "eca__spawn_agent" {}}
+                                                           :deny {"eca__shell_command"
+                                                                  {:argsMatchers {"command" dangerous-commands-regexes}}}}}}}}})
+
+(def explorer-module
+  {:id :eca/subagent-explorer
+   :description "The explorer subagent: finds and reads code without changing it."
+   :requires #{:eca/subagents}
+   :config-defaults {:agent {"explorer" {:mode "subagent"
+                                         :description "${classpath:prompts/explorer_agent_description.md}"
+                                         :systemPrompt "${classpath:prompts/explorer_agent.md}"
+                                         :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change" "git"]
+                                         :toolCall {:approval {:byDefault "ask"
+                                                               :allow {"eca__shell_command"
+                                                                       {:argsMatchers {"command" read-only-shell-commands}}
+                                                                       "eca__compact_chat" {}
+                                                                       "eca__read_file" {}
+                                                                       "eca__directory_tree" {}
+                                                                       "eca__grep" {}
+                                                                       "eca__editor_diagnostics" {}
+                                                                       "eca__skill" {}
+                                                                       "eca__search_tools" {}
+                                                                       "eca__task" {}
+                                                                       "eca__fetch_rule" {}}
+                                                               :deny {"eca__shell_command"
+                                                                      {:argsMatchers {"command" dangerous-commands-regexes}}}}}}}}})
+
+(def general-module
+  {:id :eca/subagent-general
+   :description "The general subagent: research and multi-step tasks."
+   :requires #{:eca/subagents}
+   :config-defaults {:agent {"general" {:mode "subagent"
+                                        :description "${classpath:prompts/general_agent_description.md}"
+                                        :systemPrompt "${classpath:prompts/code_agent.md}"
+                                        :disabledTools ["preview_file_change"]}}}})

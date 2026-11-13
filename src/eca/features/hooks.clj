@@ -5,6 +5,7 @@
    [cheshire.core :as json]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.built-in-command :as built-in-command]
    [eca.features.tools.shell :as f.tools.shell]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -327,3 +328,10 @@
                   (reduced nil))))
             nil
             matched-actions)))
+
+(def module
+  {:id :eca/hooks
+   :description "The user's shell hooks."
+   :config-spec {:hooks {:type :map :default {}}}
+   :commands (built-in-command/commands
+              [["hooks" "List active hooks grouped by type." []]])})
