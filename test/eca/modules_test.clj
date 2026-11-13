@@ -1,5 +1,6 @@
 (ns eca.modules-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.core :as f.core]
@@ -35,7 +36,17 @@
     (is (apply distinct? (map :id built-in/modules)))
     (is (every? #(= "eca" (namespace (:id %))) built-in/modules)))
   (testing ":eca/core is active by default"
-    (is (modules/active? {} :eca/core))))
+    (is (modules/active? {} :eca/core)))
+  (testing "the modules docs list every built-in module once, linked to the file that defines it"
+    (let [links (re-seq #"\[`(eca/[a-z0-9-]+)`\]\(https://github\.com/editor-code-assistant/eca/blob/master/([^)\s]+)\)"
+                        (slurp "docs/config/modules.md"))
+          ids (map second links)]
+      (is (= (set (map #(str (symbol (:id %))) built-in/modules)) (set ids)))
+      (is (apply distinct? ids))
+      (doseq [[_ id path] links]
+        (is (and (.exists (java.io.File. ^String path))
+                 (string/includes? (slurp path) (str ":id :" id)))
+            (str id " links to " path))))))
 
 (deftest problems-test
   (testing "a minimal module is valid"

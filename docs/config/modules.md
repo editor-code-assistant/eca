@@ -12,6 +12,69 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
 
     Ask ECA to write a module for you: its built-in `eca-manage` skill tells it how.
 
+??? info "All built-in modules"
+
+    Each module links to its code.
+
+    | Module | What it does |
+    |--------|--------------|
+    | **Core** | |
+    | [`eca/core`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/core.clj) | Chats, config, models and the module runtime. It can't be turned off. |
+    | **Tools** | |
+    | [`eca/filesystem`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/filesystem.clj) | Read, write, edit, move and search files. |
+    | [`eca/shell`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/shell.clj) | Run shell commands and background jobs. |
+    | [`eca/git`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/git.clj) | Run git commands. |
+    | [`eca/editor`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/editor.clj) | Diagnostics, definitions and references from the editor. |
+    | [`eca/ask-user`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/ask_user.clj) | Let the model ask you a question. |
+    | [`eca/task`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/task.clj) | A task list the model keeps for each chat. |
+    | **Agents** | |
+    | [`eca/agents`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/agents.clj) | Agents from config and Markdown files, and choosing one for each chat. |
+    | [`eca/subagents`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/agent.clj) | Let an agent hand a task to a subagent and get its answer. |
+    | [`eca/agent-code`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/agents.clj) | The code agent, for coding tasks. The default agent. |
+    | [`eca/agent-plan`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/agents.clj) | The plan agent: plans changes without making them. |
+    | [`eca/subagent-explorer`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/agents.clj) | The explorer subagent: finds and reads code without changing it. |
+    | [`eca/subagent-general`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/agents.clj) | The general subagent: research and multi-step tasks. |
+    | **Skills, rules and MCP** | |
+    | [`eca/skills`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/skill.clj) | Skills: `SKILL.md` folders the model loads when it needs them. |
+    | [`eca/rules`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/fetch_rule.clj) | Rules: global, project and path-scoped. |
+    | [`eca/mcp`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/mcp.clj) | MCP servers: their tools, prompts, resources and instructions. |
+    | [`eca/tool-search`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/tool_search.clj) | Hides MCP tools behind `search_tools` when there are too many. |
+    | **Your extensions** | |
+    | [`eca/custom-tools`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/custom.clj) | Tools from the `customTools` config: shell command templates. |
+    | [`eca/custom-commands`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/commands.clj) | Commands from Markdown files and the `commands` config. |
+    | [`eca/hooks`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/hooks.clj) | Your shell hooks. |
+    | [`eca/plugins`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/plugins.clj) | Plugin marketplaces: install, update and remove bundles. |
+    | **Chat** | |
+    | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools.clj) | Tool approval from the `toolCall.approval` rules. |
+    | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/chat.clj) | When the context fills up, the chat model summarizes the chat. |
+    | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/index.clj) | A map of the repository, for the `repoMap` context. |
+    | [`eca/create`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/commands.clj) | `/init`, `/skill-create` and the `eca-manage` skill. |
+    | **LLM APIs** | |
+    | [`eca/api-anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/anthropic.clj) | The Anthropic Messages API. |
+    | [`eca/api-openai-responses`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/openai.clj) | The OpenAI Responses API. |
+    | [`eca/api-openai-chat`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/openai_chat.clj) | The OpenAI Chat Completions API, which OpenAI-compatible providers speak. |
+    | [`eca/api-ollama`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/ollama.clj) | The Ollama chat API. |
+    | [`eca/api-bedrock`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/bedrock.clj) | The AWS Bedrock Converse API. |
+    | **Providers** | |
+    | [`eca/anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/anthropic.clj) | Claude models from Anthropic: a Max subscription, a Console key or a pasted key. |
+    | [`eca/azure`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/azure.clj) | Azure OpenAI, at your resource URL. |
+    | [`eca/bedrock`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/bedrock.clj) | Models on AWS Bedrock, with a bearer token. |
+    | [`eca/copilot`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/copilot.clj) | GitHub Copilot models, with your account's model list and quota. |
+    | [`eca/deepseek`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/deepseek.clj) | DeepSeek models. |
+    | [`eca/google`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/google.clj) | Gemini models, through Google's OpenAI-compatible API. |
+    | [`eca/litellm`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/litellm.clj) | A LiteLLM proxy, at your URL. |
+    | [`eca/lmstudio`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/lmstudio.clj) | Local models through LM Studio. |
+    | [`eca/mistral`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/mistral.clj) | Mistral models. |
+    | [`eca/moonshot`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/moonshot.clj) | Moonshot's Kimi models. |
+    | [`eca/ollama`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/ollama.clj) | Local models through Ollama. |
+    | [`eca/openai`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/openai.clj) | GPT models from OpenAI: a ChatGPT subscription or a pasted key. |
+    | [`eca/openrouter`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/openrouter.clj) | Models from many vendors, through OpenRouter. |
+    | [`eca/z-ai`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/llm_providers/z_ai.clj) | Z.ai's GLM models, through its Anthropic-compatible API. |
+    | **Off by default** | |
+    | [`eca/remote`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/remote.clj) | The [remote](remote.md) server, for web clients like web.eca.dev. `remote.enabled` turns it on. |
+    | [`eca/otel`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/otel.clj) | Exports ECA's [metrics](metrics.md) with OpenTelemetry. An `otlp` config turns it on. |
+    | [`eca/repl`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/repl.clj) | An nREPL inside ECA. See [A REPL on ECA](#a-repl-on-eca). |
+
 ## Managing modules
 
 `/modules` lists all modules, whether they're active and what they add.
