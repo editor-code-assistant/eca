@@ -448,21 +448,37 @@
              :selmer-ctx (->base-selmer-ctx all-tools chat-id db)}]
     (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
 
-(defn build-dynamic-instructions
-  "Per-turn dynamic system instructions (MCP resources, server instructions). Returns nil when empty."
-  [refined-contexts db]
+(defn mcp-resources-section
+  "`:eca/mcp-resources`: the MCP resources attached to the chat."
+  [{:keys [refined-contexts]}]
   (let [volatile-contexts (filter #(and (volatile-context-types (:type %))
                                         (not (editor-state-context-types (:type %))))
-                                  refined-contexts)
-        result (multi-str
-                (when (seq volatile-contexts)
-                  ["## MCP Resources"
-                   ""
-                   (contexts-str volatile-contexts nil nil
-                                 {:description "Resources from connected MCP servers."})
-                   ""])
-                (mcp-instructions-section db))]
-    (when-not (string/blank? result) result)))
+                                  refined-contexts)]
+    (when (seq volatile-contexts)
+      ["## MCP Resources"
+       ""
+       (contexts-str volatile-contexts nil nil
+                     {:description "Resources from connected MCP servers."})
+       ""])))
+
+(defn mcp-instructions-prompt-section
+  "`:eca/mcp-instructions`: the running MCP servers' instructions."
+  [{:keys [db]}]
+  (mcp-instructions-section db))
+
+(def ^:private built-in-dynamic-sections
+  "The order of the built-in dynamic sections."
+  [:eca/mcp-resources :eca/mcp-instructions])
+
+(defn build-dynamic-instructions
+  "Per-turn dynamic system instructions, from the active modules' `:dynamic?`
+   sections (MCP resources, server instructions). Returns nil when empty."
+  ([refined-contexts db]
+   (build-dynamic-instructions refined-contexts db nil))
+  ([refined-contexts db config]
+   (let [ctx {:refined-contexts refined-contexts :db db :config config :selmer-ctx {}}
+         result (apply multi-str (map #(section-part ctx %) (place-sections config true built-in-dynamic-sections)))]
+     (when-not (string/blank? result) result))))
 
 (defn build-editor-state-context
   "Renders editor-state contexts (e.g. cursor) for the user message. Returns nil when none."
@@ -511,7 +527,7 @@
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
   {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills repo-map*
                                       agent-name config chat-id all-tools db)
-   :dynamic (build-dynamic-instructions refined-contexts db)})
+   :dynamic (build-dynamic-instructions refined-contexts db config)})
 
 (defn instructions->str
   "Flattens {:static :dynamic} into a single string for non-Anthropic providers."

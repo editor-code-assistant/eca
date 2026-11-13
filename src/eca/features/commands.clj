@@ -234,7 +234,7 @@
      :arguments (or (:arguments command) [])}))
 
 (defn all-commands [db config]
-  (let [mcp-prompts (->> (f.mcp/all-prompts db)
+  (let [mcp-prompts (->> (when (modules/active? config :eca/mcp) (f.mcp/all-prompts db))
                          (mapv #(-> %
                                     (assoc :name (str (:server %) ":" (:name %))
                                            :type :mcpPrompt)

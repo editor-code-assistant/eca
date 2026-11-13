@@ -59,11 +59,8 @@
    :chatRetentionDays 30
    :rewrite {:fullFileMaxLines 2000}
    :extraConfigs []
-   :mcpTimeoutSeconds 60
-   :mcpKeepAliveSeconds 30
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
-   :mcpServers {}
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
                               "Type `/` to see all commands"

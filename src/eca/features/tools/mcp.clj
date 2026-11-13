@@ -1301,3 +1301,17 @@
           (.interrupt t))))
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))
+
+(def module
+  {:id :eca/mcp
+   :description "MCP servers: their tools, prompts, resources and instructions."
+   ;; servers start after the session starts and follow config changes, as before;
+   ;; while the module is inactive no server runs and their tools and prompts are hidden
+   :config-spec {:mcpServers {:type :map :default {}}
+                 :mcpTimeoutSeconds {:type :number :default 60}
+                 :mcpKeepAliveSeconds {:type :number :default 30}}
+   ;; resolved when called: the prompt namespace requires this one
+   :system-prompts [{:id :eca/mcp-resources :dynamic? true
+                     :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/mcp-resources-section) ctx))}
+                    {:id :eca/mcp-instructions :dynamic? true
+                     :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/mcp-instructions-prompt-section) ctx))}]})

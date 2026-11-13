@@ -398,7 +398,8 @@
          full-model (or full-model (get-in db [:chats chat-id :model]))
          all-tools (->> (concat
                          (mapv #(assoc % :origin :native) (native-tools chat-id agent-name db config))
-                         (mapv #(assoc % :origin :mcp) (f.mcp/all-tools db)))
+                         (mapv #(assoc % :origin :mcp) (when (modules/active? config :eca/mcp)
+                                                         (f.mcp/all-tools db))))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                         (mapv #(override-description % config agent-name))
@@ -567,11 +568,20 @@
                                                           (remove #(= "compact_chat" (:name %)))
                                                           (mapv tool-status-fn)
                                                           (mapv #(select-keys % [:name :description :parameters :disabled])))})
-    (f.mcp/initialize-servers-async!
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
-     db*
-     config
-     metrics)))
+    (when (modules/active? config :eca/mcp)
+      (f.mcp/initialize-servers-async!
+       {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
+       db*
+       config
+       metrics))))
+
+(defn ^:private mcp-view
+  "The config as MCP sees it: no servers while `:eca/mcp` is inactive, so
+   disabling it stops them and enabling it starts them again."
+  [config]
+  (if (and (map? config) (not (modules/active? config :eca/mcp)))
+    (assoc config :mcpServers {})
+    config))
 
 (defn reconcile-servers!
   "Diff MCP servers between prev-config and new-config and apply add/remove/restart
@@ -581,7 +591,7 @@
   (let [default-agent (get new-config :defaultAgent)
         tool-status-fn (make-tool-status-fn new-config default-agent)]
     (f.mcp/reconcile-servers!
-     prev-config new-config db* metrics
+     (mcp-view prev-config) (mcp-view new-config) db* metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
       :on-server-removed (partial notify-server-removed metrics messenger)})))
 

@@ -2155,7 +2155,7 @@
                                         (changed-system-prompt-categories prompt-cache static-signature agent full-model))})
                                (swap! db* assoc-in [:chats chat-id :prompt-cache :stale-signature] static-signature))
                              {:static (:static prompt-cache)
-                              :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)})
+                              :dynamic (f.prompt/build-dynamic-instructions refined-contexts db config)})
                            (let [result (f.prompt/build-chat-instructions
                                          refined-contexts static-rules path-scoped-rules skills repo-map*
                                          agent config chat-id all-tools db)]

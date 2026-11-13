@@ -10,6 +10,7 @@
 - Compact only while the `eca/compact-as-summary` module is active, and send modules a `:chat/usage-updated` event. #699
 - Run shell hooks only while the `eca/hooks` module is active, and send modules session, chat end and status events. #699
 - Build the system prompt from the modules' sections, in the same order; disabling a module drops its section. #699
+- Move MCP into the `eca/mcp` module: disabling it stops the servers and hides their tools, prompts and instructions. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

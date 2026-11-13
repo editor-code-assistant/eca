@@ -17,6 +17,7 @@
    [eca.features.tools.fetch-rule :as tools.fetch-rule]
    [eca.features.tools.filesystem :as tools.filesystem]
    [eca.features.tools.git :as tools.git]
+   [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.shell :as tools.shell]
    [eca.features.tools.skill :as tools.skill]
    [eca.features.tools.task :as tools.task]
@@ -59,6 +60,8 @@
    tools.skill/module
    tools.fetch-rule/module
    tools.tool-search/module
+   ;; MCP
+   f.mcp/module
    ;; user extensions
    tools.custom/module
    f.commands/custom-commands-module
