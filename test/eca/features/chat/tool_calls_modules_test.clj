@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.hooks :as f.hooks]
+   [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.test-helper :as h]
@@ -39,6 +40,15 @@
   (testing "without :eca/approval, calls ask"
     (is (match? {:decision :ask}
                 (decide (assoc (config-by-default "allow") :modules {:eca/approval {:enabled false}})))))
+  (testing "the config rules decide twice per call, as before modules: for the log and the deny check, and in :eca/approval"
+    (let [calls* (atom 0)
+          approval-decision f.tools/approval-decision]
+      (with-redefs [f.tools/approval-decision (fn [& args] (swap! calls* inc) (apply approval-decision args))]
+        (is (match? {:decision :deny} (decide (config-by-default "deny"))))
+        (is (= 2 @calls*))
+        (reset! calls* 0)
+        (is (match? {:decision :allow} (decide (config-by-default "allow"))))
+        (is (= 2 @calls*)))))
   (testing "a call that asks logs no warning: :eca/approval sets no :reason then"
     (let [warnings* (atom [])]
       (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))]
@@ -80,6 +90,16 @@
     (with-module (before-call 500 (fn [_ctx {:keys [arguments]}] {:arguments (assoc arguments "path" "/tmp/y")}))
       #(is (match? {:decision :allow :arguments {"path" "/tmp/y"} :arguments-modified? true}
                    (decide (config-by-default "allow"))))))
+  (testing "the config rules still deny the arguments a module changes them to"
+    (let [config {:toolCall {:approval {:byDefault "allow"
+                                        :deny {"eca__test_tool" {:argsMatchers {"path" ["/etc/.*"]}}}}}}]
+      (with-module (before-call 500 (fn [_ctx {:keys [arguments]}] {:arguments (assoc arguments "path" "/etc/passwd")}))
+        #(is (match? {:decision :deny :reason {:code :user-config-deny}} (decide config))))))
+  (testing "a module running before :eca/approval and changing the arguments gets them decided again"
+    (let [config {:toolCall {:approval {:byDefault "allow"
+                                        :deny {"eca__test_tool" {:argsMatchers {"path" ["/etc/.*"]}}}}}}]
+      (with-module (before-call 2000 (fn [_ctx {:keys [arguments]}] {:arguments (assoc arguments "path" "/etc/passwd")}))
+        #(is (match? {:decision :deny :reason {:code :user-config-deny}} (decide config))))))
   (testing "changes of the wrong type are ignored instead of breaking the call"
     (with-module (before-call 500 (constantly {:approval "allow"}))
       #(is (match? {:decision :ask} (decide (config-by-default "allow")))

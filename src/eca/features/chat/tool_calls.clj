@@ -835,11 +835,13 @@
         ;; change the arguments, block the call or stop the turn. Without any
         ;; module setting it, the call asks.
         approval-opts {:trust trust :chat-id chat-id}
+        ;; The config rules' decision for these arguments: the debug log and the config
+        ;; deny check below share it, as before modules (:eca/approval's handler decides
+        ;; once more)
+        config-decision (f.tools/approval-decision all-tools tool arguments db config agent-name approval-opts)
         ;; Which rule caused the decision, to help debugging approval configs. #536
         _ (logger/debug logger-tag "Tool call approval decision"
-                        (assoc (f.tools/approval-decision all-tools tool arguments db config agent-name approval-opts)
-                               :tool full-name
-                               :agent agent-name))
+                        (assoc config-decision :tool full-name :agent agent-name))
         event (events/emit! {:config config :db db :all-tools all-tools :trust trust
                              :chat-id chat-id :agent agent-name}
                             :tool/before-call
@@ -855,11 +857,14 @@
         event (valid-before-call-event event arguments)
         module-arguments (:arguments event arguments)
         module-ended? (or (boolean (:block event)) (contains? event :stop))
-        ;; A deny from the user's config stays deny, whatever a module answers.
+        ;; A deny from the user's config stays deny, whatever a module answers, also
+        ;; for the arguments a module changed them to.
         config-deny? (and (not= :deny (:approval event))
                           (modules/active? config :eca/approval)
-                          (some #(= :deny (f.tools/approval all-tools tool % db config agent-name approval-opts))
-                                (distinct [arguments module-arguments])))
+                          (or (= :deny (:decision config-decision))
+                              (and (not= arguments module-arguments)
+                                   (= :deny (f.tools/approval all-tools tool module-arguments db config agent-name
+                                                              approval-opts)))))
         trusted? (= :trust-allow (get-in event [:reason :code]))
         effective-approval (if config-deny? :deny (:approval event))
 
