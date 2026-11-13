@@ -593,3 +593,12 @@
                    :subagent-message-range (or subagent-message-range [0 0]))
       ;; The subagent ran, so report the model it really used.
       subagent-final-step (shared/assoc-some :model (:model child) :variant (:variant child)))))
+
+(def module
+  {:id :eca/subagents
+   :description "Let an agent hand a task to a subagent and get its answer."
+   :requires #{:eca/agents}
+   :config-defaults {:toolCall {:approval {:allow {"eca__spawn_agent" {}}}}}
+   ;; its description lists the subagents the chat's agent can spawn
+   :tools (fn [{:keys [config db agent]}]
+            (tools.util/->module-tools (definitions config db agent)))})

@@ -116,7 +116,6 @@
    :defaultModel nil
    :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
              :chatTitle "${classpath:prompts/title.md}"
-             :compact "${classpath:prompts/compact.md}"
              :init "${classpath:prompts/init.md}"
              :skillCreate "${classpath:prompts/skill_create.md}"
              :completion "${classpath:prompts/inline_completion.md}"
@@ -128,36 +127,10 @@
    :chatRetentionDays 30
    :rewrite {:fullFileMaxLines 2000}
    :hooks {}
-   :rules []
    :commands []
-   :skills []
    :extraConfigs []
-   :disabledTools []
-   :mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext nil
-                   :includePattern []
-                   :excludePattern []}
-   :toolCall {:approval {:byDefault "ask"
-                         :allow {"eca__compact_chat" {}
-                                 "eca__preview_file_change" {}
-                                 "eca__read_file" {}
-                                 "eca__directory_tree" {}
-                                 "eca__grep" {}
-                                 "eca__editor_diagnostics" {}
-                                 "eca__skill" {}
-                                 "eca__search_tools" {}
-                                 "eca__task" {}
-                                 "eca__ask_user" {}
-                                 "eca__fetch_rule" {}
-                                 "eca__spawn_agent" {}}
-                         :ask {}
-                         :deny {}}
-              :readFile {:maxLines 2000}
-              :shellCommand {:summaryMaxLength 35}
-              :editorNav {:enabled true}
-              :outputTruncation {:lines 2000 :sizeKb 50}}
    :mcpTimeoutSeconds 60
    :mcpKeepAliveSeconds 30
-   :lspTimeoutSeconds 30
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
    :mcpServers {}
@@ -184,8 +157,6 @@
                      :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
-   :autoCompactPercentage 75
-   :autoCompactMaxPerTurn 3
    :includeParentAgentsFiles false
    :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
    :remote {:enabled false}

@@ -287,3 +287,11 @@
                   (if-let [sym (some-> (get args "symbol") not-empty)]
                     (format "LSP references: %s" sym)
                     "LSP references"))}})
+
+(def module
+  {:id :eca/editor
+   :description "Diagnostics, definitions and references from the editor."
+   :config-spec {:toolCall {:editorNav {:enabled {:type :boolean :default true}}}
+                 :lspTimeoutSeconds {:type :number :default 30}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__editor_diagnostics" {}}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

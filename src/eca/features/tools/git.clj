@@ -137,3 +137,8 @@
     :process (p/destroy-tree resource)
     (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
                                                         :resource-kwd resource-kwd})))
+
+(def module
+  {:id :eca/git
+   :description "Run git commands."
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

@@ -5,25 +5,27 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.db :as db]
-   [eca.features.tools.agent :as f.tools.agent]
-   [eca.features.tools.background :as f.tools.background]
-   [eca.features.tools.chat :as f.tools.chat]
-   [eca.features.tools.custom :as f.tools.custom]
-   [eca.features.tools.editor :as f.tools.editor]
-   [eca.features.tools.fetch-rule :as f.tools.fetch-rule]
-   [eca.features.tools.filesystem :as f.tools.filesystem]
-   [eca.features.tools.git :as f.tools.git]
+   ;; the built-in tools' modules and multimethods (details, cleanup)
+   [eca.features.tools.agent]
+   [eca.features.tools.ask-user]
+   [eca.features.tools.background]
+   [eca.features.tools.chat]
+   [eca.features.tools.custom]
+   [eca.features.tools.editor]
+   [eca.features.tools.fetch-rule]
+   [eca.features.tools.filesystem]
+   [eca.features.tools.git]
    [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.mcp.clojure-mcp]
-   [eca.features.tools.shell :as f.tools.shell]
-   [eca.features.tools.skill :as f.tools.skill]
-   [eca.features.tools.task :as f.tools.task]
+   [eca.features.tools.shell]
+   [eca.features.tools.skill]
+   [eca.features.tools.task]
    [eca.features.tools.tool-search :as f.tools.tool-search]
-   [eca.features.tools.ask-user :as f.tools.ask-user]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.modules :as modules]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
    [java.util Map]
@@ -210,27 +212,52 @@
        x))
    m))
 
-(defn ^:private static-native-definitions
-  "Native tool definitions that don't depend on chat/db/config."
-  []
-  (merge {}
-         f.tools.filesystem/definitions
-         f.tools.shell/definitions
-         f.tools.git/definitions
-         f.tools.editor/definitions
-         f.tools.chat/definitions
-         f.tools.skill/definitions
-         f.tools.task/definitions
-         f.tools.background/definitions
-         f.tools.tool-search/definitions
-         f.tools.ask-user/definitions))
+(defn ^:private module-definitions
+  "The active modules' `:tools` as tool definitions, by name. A module's
+   `:tools` is a map, or (built-ins) a function of `ctx`: `:config`, `:db`,
+   `:chat-id` and `:agent`. Tools with `:replaces` take over the tool of that
+   name; otherwise the first module keeps a name."
+  [{:keys [config] :as ctx}]
+  (let [{:keys [tools replacing]}
+        (reduce
+         (fn [acc [entry module-tools]]
+           (let [with-module #(modules/module-ctx % entry)
+                 wrap (if (:built-in? entry)
+                        (fn [_what f module-ctx & args] (apply f module-ctx args))
+                        (fn [what f module-ctx & args] (apply modules/invoke module-ctx entry what {} f module-ctx args)))
+                 module-tools (if (modules/fn-like? module-tools)
+                                (modules/invoke-safe (with-module ctx) entry "tools"
+                                                     {:timeout-ms (modules/timeout-for entry nil modules/default-handler-timeout-ms)}
+                                                     module-tools (with-module ctx))
+                                module-tools)]
+             (reduce-kv
+              (fn [acc tool-name tool]
+                (let [definition (cond-> (dissoc (tools.util/module-tool->definition tool with-module wrap) :replaces)
+                                   (modules/fn-like? (:description tool))
+                                   (update :description #(wrap "tool description" % (with-module ctx))))]
+                  (cond
+                    (:replaces tool) (assoc-in acc [:replacing tool-name] definition)
+
+                    (contains? (:tools acc) tool-name)
+                    (do (logger/warn logger-tag (format "Module %s has a tool named %s, like another module; ignoring it"
+                                                        (:id entry) tool-name))
+                        acc)
+
+                    :else (assoc-in acc [:tools tool-name] definition))))
+              acc
+              module-tools)))
+         {:tools {} :replacing {}}
+         (modules/contributions config :tools))]
+    (merge tools replacing)))
 
 (defn tool-approval-keys
   "Returns {:keys #{...} :complete? bool} when the native tool `tool-name`
    defines granular approval keys for these arguments, else nil."
-  [tool-name arguments]
-  (when-let [approval-keys-fn (get-in (static-native-definitions) [tool-name :approval-keys-fn])]
-    (approval-keys-fn arguments)))
+  ([tool-name arguments]
+   (tool-approval-keys tool-name arguments {} {}))
+  ([tool-name arguments db config]
+   (when-let [approval-keys-fn (get-in (module-definitions {:db db :config config}) [tool-name :approval-keys-fn])]
+     (approval-keys-fn arguments))))
 
 (defn ^:private native-definitions
   [chat-id agent-name db config]
@@ -244,10 +271,14 @@
                       :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])
                       :fullModel        (get-in db [:chats chat-id :model])
                       :variant          (get-in db [:chats chat-id :variant])}))]))
-   (merge (static-native-definitions)
-          (f.tools.agent/definitions config db agent-name)
-          (f.tools.custom/definitions config)
-          (f.tools.fetch-rule/definitions config db chat-id agent-name))))
+   (module-definitions {:chat-id chat-id :agent agent-name :db db :config config})))
+
+(def approval-module
+  {:id :eca/approval
+   :description "Tool approval from the toolCall.approval rules."
+   ;; the tool modules add their allow entries
+   :config-spec {:toolCall {:approval {:type :map
+                                       :default {:byDefault "ask" :allow {} :ask {} :deny {}}}}}})
 
 (defn native-tools
   ([db config]

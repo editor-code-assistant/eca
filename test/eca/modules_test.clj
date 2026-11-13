@@ -10,10 +10,14 @@
 
 (h/reset-components-before-test)
 
+(def ^:private core
+  "`:eca/core` without its config keys, so tests see only their modules' ones."
+  (dissoc f.core/module :config-spec))
+
 (defmacro ^:private with-built-ins
   "Runs body with `modules` as the built-in modules, next to :eca/core."
   [modules & body]
-  `(with-redefs [modules/built-in-modules (constantly (into [f.core/module] ~modules))]
+  `(with-redefs [modules/built-in-modules (constantly (into [core] ~modules))]
      ~@body))
 
 (defn- active-ids [config]

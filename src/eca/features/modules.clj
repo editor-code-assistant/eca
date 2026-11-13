@@ -28,14 +28,22 @@
 (defn ^:private code-list [xs]
   (string/join ", " (map #(str "`" % "`") xs)))
 
-(defn ^:private contributions [{:keys [module] :as entry}]
+(defn ^:private tool-names
+  "The names of a module's tools; for `:tools` functions, the ones they give
+   outside of a chat."
+  [{:keys [module] :as entry} ctx]
+  (let [tools (:tools module)]
+    (sort (keys (if (modules/fn-like? tools)
+                  (try (tools (modules/module-ctx ctx entry)) (catch Exception _ nil))
+                  tools)))))
+
+(defn ^:private contributions [{:keys [module] :as entry} ctx]
   (let [prefix (modules/prefix entry)
-        {:keys [tools commands system-prompts providers apis event-handlers defines config-spec rpc]} module]
+        {:keys [commands system-prompts providers apis event-handlers defines config-spec rpc]} module
+        tools (tool-names entry ctx)]
     (remove nil?
-            [(when (and (map? tools) (seq tools))
-               (str "tools " (code-list (map #(str prefix "__" %) (sort (keys tools))))))
-             (when (and (some? tools) (not (map? tools)))
-               "tools computed per chat")
+            [(when (seq tools)
+               (str "tools " (code-list (map #(str prefix "__" %) tools))))
              (when (seq commands)
                (str "commands " (code-list (map #(str "/" %) (sort (keys commands))))))
              (when (seq system-prompts)
@@ -55,7 +63,8 @@
 
 (defn ^:private module-text [{:keys [id module status reason source built-in? priority running?
                                      warnings failures errors]
-                              :as entry}]
+                              :as entry}
+                             ctx]
   (let [{:keys [description version]} module]
     (multi-str
      (str (status-icon status "•") " `" id "`"
@@ -68,7 +77,7 @@
      (when (and reason (not= :active status))
        (str "  " (name status) ": " reason))
      (when (= :active status)
-       (for [line (contributions entry)]
+       (for [line (contributions entry ctx)]
          (str "  " line)))
      (for [warning warnings]
        (str "  warning: " warning))
@@ -77,14 +86,14 @@
 
 (defn modules-text
   "The `/modules` listing."
-  [config]
+  [config db]
   (let [{:keys [active] :as by-status} (group-by #(if (= :active (:status %)) :active :other)
                                                  (modules/statuses config))]
     (multi-str
      (format "## Modules (%d active)" (count active))
      ""
      (for [entry (concat active (:other by-status))]
-       (module-text entry))
+       (module-text entry {:config config :db db}))
      ""
      "`/modules enable <id>`, `/modules disable <id>` and `/modules reload <id>` take effect now, for this session."
      "To keep a choice, set `modules.<id>.enabled` in your config.")))
@@ -106,7 +115,7 @@
         id (parse-id id-str)]
     (cond
       (nil? action)
-      (modules-text config)
+      (modules-text config @db*)
 
       (not (#{"enable" "disable" "reload"} action))
       (str "Unknown action `" action "`. Use `/modules`, `/modules enable <id>`, `/modules disable <id>`"

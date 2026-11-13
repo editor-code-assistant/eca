@@ -6,6 +6,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.background-tasks :as bg]
+   [eca.features.tools.background :as tools.background]
    [eca.features.tools.shell-parser :as shell-parser]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -304,3 +305,9 @@
     :process (p/destroy-tree resource)
     (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
                                                         :resource-kwd resource-kwd})))
+
+(def module
+  {:id :eca/shell
+   :description "Run shell commands and background jobs."
+   :config-spec {:toolCall {:shellCommand {:summaryMaxLength {:type :number :default 35}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools (merge definitions tools.background/definitions)))})

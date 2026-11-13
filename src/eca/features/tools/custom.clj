@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.cache :as cache]
    [eca.features.tools.shell :as f.tools.shell]
+   [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -72,3 +73,14 @@
   (->> (get config :customTools {})
        (map custom-tool->tool-def)
        (apply merge)))
+
+(def module
+  {:id :eca/custom-tools
+   :description "Tools from the customTools config: shell command templates."
+   :config-spec {:customTools {:type :map}}
+   ;; read from the config on every listing, so config changes apply at once; a
+   ;; custom tool named like a built-in one replaces it, as before modules
+   :tools (fn [{:keys [config]}]
+            (into {}
+                  (map (fn [[tool-name tool]] [tool-name (assoc tool :replaces (str "eca__" tool-name))]))
+                  (tools.util/->module-tools (definitions config))))})

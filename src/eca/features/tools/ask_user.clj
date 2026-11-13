@@ -119,3 +119,9 @@
                         (str prefix (subs q 0 (- available 3)) "...")
                         (str prefix q)))
                     "Preparing question"))}})
+
+(def module
+  {:id :eca/ask-user
+   :description "Let the model ask the user a question."
+   :config-defaults {:toolCall {:approval {:allow {"eca__ask_user" {}}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

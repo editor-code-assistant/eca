@@ -27,3 +27,13 @@
                  :required ["summary"]}
     :handler #'compact-chat
     :summary-fn (constantly "Compacting...")}})
+
+(def module
+  {:id :eca/compact-as-summary
+   :description "When the context fills up, the chat model summarizes the chat."
+   :config-spec {:autoCompactPercentage {:type :number :default 75}
+                 :autoCompactMaxPerTurn {:type :number :default 3}
+                 :autoCompactTokensLeft {:type :number}
+                 :prompts {:compact {:type :string :default "${classpath:prompts/compact.md}"}}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__compact_chat" {}}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

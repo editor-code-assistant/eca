@@ -126,6 +126,41 @@
                 (path-outside-workspace? db p)))
             path-keys))))
 
+(defn ->module-tools
+  "Tool definitions as module tools. Definitions call `(handler arguments
+   ctx)`, `(require-approval-fn arguments ctx)` and `(summary-fn ctx-with-args)`;
+   module tools get `ctx` first: `(fn [ctx args])` for all three."
+  [definitions]
+  (update-vals definitions
+               (fn [tool]
+                 (cond-> tool
+                   (:handler tool)
+                   (update :handler (fn [handler] (fn [ctx args] (handler args ctx))))
+
+                   (:require-approval-fn tool)
+                   (update :require-approval-fn (fn [f] (fn [ctx args] (f args ctx))))
+
+                   (:summary-fn tool)
+                   (update :summary-fn (fn [f] (fn [ctx args] (f (assoc ctx :args args)))))))))
+
+(defn module-tool->definition
+  "A module tool as a definition of the tool pipeline (see `->module-tools`).
+   `with-module` adds the module to the ctx its functions get; `wrap` guards a
+   call into it."
+  [tool with-module wrap]
+  (cond-> tool
+    (:handler tool)
+    (update :handler (fn [handler] (fn [arguments ctx] (wrap "tool handler" handler (with-module ctx) arguments))))
+
+    (:require-approval-fn tool)
+    (update :require-approval-fn (fn [f] (fn [arguments ctx] (wrap "tool approval check" f (with-module ctx) arguments))))
+
+    (:summary-fn tool)
+    (update :summary-fn (fn [f] (fn [ctx] (wrap "tool summary" f (with-module ctx) (:args ctx)))))
+
+    (:enabled-fn tool)
+    (update :enabled-fn (fn [f] (fn [ctx] (wrap "tool enabled check" f (with-module ctx)))))))
+
 (defn command-available? [command & args]
   (try
     (zero? (:exit (apply shell/sh (concat [command] args))))

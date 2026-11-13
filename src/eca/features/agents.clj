@@ -242,3 +242,8 @@
   (into {}
         (concat (global-md-agents)
                 (local-md-agents roots))))
+
+(def module
+  {:id :eca/agents
+   :description "Agents from config and Markdown files, and choosing one for each chat."
+   :config-spec {:defaultAgent {:type :string}}})

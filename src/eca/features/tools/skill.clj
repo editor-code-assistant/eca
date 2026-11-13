@@ -44,3 +44,10 @@
                   (if-let [name (get args "name")]
                     (format "Loading skill '%s'" name)
                     "Loading skill"))}})
+
+(def module
+  {:id :eca/skills
+   :description "Skills: SKILL.md folders the model loads when it needs them."
+   :config-spec {:skills {:type :array :default []}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

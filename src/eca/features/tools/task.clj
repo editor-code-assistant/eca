@@ -530,3 +530,9 @@
                                               :required ["subject" "description"]}}}
                  :required ["op"]}
     :handler execute-task}})
+
+(def module
+  {:id :eca/task
+   :description "A task list the model keeps for each chat."
+   :config-defaults {:toolCall {:approval {:allow {"eca__task" {}}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

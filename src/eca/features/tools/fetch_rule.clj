@@ -136,3 +136,12 @@
                     (if-let [rule-id (get args "id")]
                       (format "Fetching rule '%s'" rule-id)
                       "Fetching rule"))}}))
+
+(def module
+  {:id :eca/rules
+   :description "Rules: global, project and path-scoped."
+   :config-spec {:rules {:type :array :default []}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
+   ;; fetch_rule exists only when the chat has path-scoped rules
+   :tools (fn [{:keys [config db chat-id agent]}]
+            (tools.util/->module-tools (definitions config db chat-id agent)))})

@@ -715,3 +715,14 @@
          :linesAdded added
          :linesRemoved removed
          :diff diff}))))
+
+(def module
+  {:id :eca/filesystem
+   :description "Read, write, edit, move and search files."
+   :config-spec {:toolCall {:readFile {:maxLines {:type :number :default 2000}}}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__preview_file_change" {}
+                                                   "eca__read_file" {}
+                                                   "eca__directory_tree" {}
+                                                   "eca__grep" {}}}}}
+   ;; a function, so `definitions` is read when the tools are listed
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

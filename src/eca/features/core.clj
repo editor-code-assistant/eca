@@ -12,5 +12,7 @@
   {:id :eca/core
    :description "Chats, config, models and the module runtime."
    :config-spec {:modules {:type :map
-                           :doc "Per module id: enabled, source and priority."}}
+                           :doc "Per module id: enabled, source and priority."}
+                 :disabledTools {:type :array :default []}
+                 :toolCall {:outputTruncation {:type :map :default {:lines 2000 :sizeKb 50}}}}
    :defines {:events events/core-events}})

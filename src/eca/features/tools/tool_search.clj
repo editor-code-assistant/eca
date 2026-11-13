@@ -114,3 +114,13 @@
                   (if-let [query (not-empty (str (get args "query" "")))]
                     (format "Searching tools for '%s'" query)
                     "Listing deferred tools"))}})
+
+(def module
+  {:id :eca/tool-search
+   :description "Hide MCP tools behind search_tools when there are too many."
+   :config-spec {:mcpToolSearch {:type :map
+                                 :default {:deferAllWhenTotalTokensExceedPercentOfContext nil
+                                           :includePattern []
+                                           :excludePattern []}}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__search_tools" {}}}}}
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})
