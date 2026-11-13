@@ -1,5 +1,5 @@
 (ns eca.features.guide
-  "ECA's guide, for the `eca-modules` skill and the create agent: ECA's own
+  "ECA's guide, for the `eca-modules` skill: ECA's own
    docs pages (`docs/config/*.md`) and config schema (`docs/config.json`),
    shipped with ECA as `eca/guide/*` resources (see build.clj), and a
    reference of the `eca.api` namespaces built from their code. Running from

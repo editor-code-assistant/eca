@@ -167,7 +167,7 @@
 
 (deftest trace-outside-the-repl-test
   (with-repl (repl-config)
-    (testing "trace! needs the nREPL, e.g. not a module or the create agent's eval"
+    (testing "trace! needs the nREPL, e.g. not a module's code"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"works only in the nREPL of the eca/repl module"
                             (debug/trace! "chat-1"))))))
 

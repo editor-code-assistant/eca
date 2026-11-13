@@ -5,7 +5,6 @@
    [eca.features.agents :as f.agents]
    [eca.features.commands :as f.commands]
    [eca.features.core :as f.core]
-   [eca.features.create :as f.create]
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.otel :as f.otel]
@@ -60,7 +59,6 @@
    f.agents/plan-module
    f.agents/explorer-module
    f.agents/general-module
-   f.create/module
    ;; skills, rules, tool search
    tools.skill/module
    tools.fetch-rule/module

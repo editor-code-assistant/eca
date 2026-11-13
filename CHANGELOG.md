@@ -6,7 +6,7 @@
   - `/modules` lists them and enables or disables one for the session; `modules.<id>.enabled` does it in the config.
   - Write your own in Clojure, run with SCI: tools, commands, prompt sections and event handlers, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
   - Optional modules, off by default: `eca/repl` (`--repl`), `eca/remote` and `eca/otel`; `remote.enabled` and `otlp` still enable these two.
-  - New `create` agent and `eca-modules` skill, to configure ECA and write modules, with ECA's docs as their guide.
+  - New `eca-modules` skill, to write modules, with ECA's docs as its guide.
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
