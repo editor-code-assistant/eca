@@ -154,14 +154,11 @@ interface InitializeParams {
     };
     
     /**
-     * User provided initialization options.
+     * User provided initialization options: ECA config, merged with the other
+     * config sources (see https://eca.dev/config/introduction). Clients may
+     * also send settings of their own here, which ECA ignores.
      */
-    initializationOptions?: {
-        /*
-         * The chat agent.
-         */
-         chatAgent?: ChatAgent;
-    };
+    initializationOptions?: object;
     
     /**
      * The capabilities provided by the client (editor or tool)
