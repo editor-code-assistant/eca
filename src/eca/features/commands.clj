@@ -1107,7 +1107,8 @@
                      private? (:remote-private-host? db)
                      text (cond
                             (not connect-url)
-                            "Remote server is not enabled. Set `remote.enabled: true` in your ECA config to start it."
+                            (str "Remote server is not enabled. Set `remote.enabled: true` in your ECA config to start it, "
+                                 "or turn on its module for this session: `/modules enable eca/remote`.")
 
                             private?
                             (multi-str "## 🌐 Remote Server"

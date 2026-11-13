@@ -12,6 +12,7 @@
    [eca.features.plugins :as f.plugins]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
+   [eca.features.remote :as f.remote]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.features.tools.mcp :as f.mcp]
@@ -163,7 +164,7 @@
     (notify-module-load-errors! messenger changes)
     changes))
 
-(defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
+(defn initialized [{:keys [db* messenger config metrics] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
           (fn [config]
@@ -211,9 +212,10 @@
         (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
             (sync-models-and-notify! config)
             (send-progress! db* messenger {:type "finish" :taskId "models" :title "Syncing models"}))))
-    (when (get-in config [:remote :enabled])
+    ;; here, as before modules: the module's :start, which runs later, finds it running
+    (when (modules/active? config :eca/remote)
       (send-progress! db* messenger {:type "start" :taskId "remote-server" :title "Starting remote server"})
-      (start-remote-server! components)
+      (f.remote/start-server! components)
       (send-progress! db* messenger {:type "finish" :taskId "remote-server" :title "Starting remote server"}))
     (future
       (Thread/sleep 1000) ;; wait chat window is open in some editors.

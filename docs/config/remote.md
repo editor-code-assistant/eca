@@ -7,6 +7,8 @@ description: "Configure ECA Remote: control your ECA session from a web browser.
 ECA Remote lets you control, approve, and observe your ECA session from a web browser.
 When enabled, ECA starts an embedded HTTPS server that the web frontend at [web.eca.dev](https://web.eca.dev) connects to in real-time.
 
+Remote is the `eca/remote` [module](./modules.md), off by default: `remote.enabled: true` turns it on. `/modules enable eca/remote` also starts the server for the session, and `/modules disable eca/remote` stops it.
+
 ![](../images/features/remote.png)
 
 ## Connection Methods

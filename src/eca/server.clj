@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.remote :as f.remote]
    [eca.handlers :as handlers]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -53,12 +54,12 @@
         args (cons (format-jsonrpc-trace (first args)) (rest args))]
     (apply log-fn args)))
 
-(def ^:private remote-server* (atom nil))
-
 (defn ^:private exit [server]
   (metrics/task
     :eca/exit
-    (let [remote-stop-f (when-let [rs @remote-server*]
+    ;; the eca/remote module stops its server at shutdown; this one still runs
+    ;; only when ECA exits without a shutdown request
+    (let [remote-stop-f (when-let [rs (f.remote/running)]
                           (future (remote.server/stop! rs)))]
       (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
       (some-> remote-stop-f deref))
@@ -351,21 +352,12 @@
         ;; HTTP server can be started later (e.g. when local project config
         ;; enables it after initialize). Broadcasting to an empty set is a no-op.
         sse-connections* (atom #{})
+        ;; the eca/remote module's server (eca.features.remote) takes them from it
         messenger (remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
-        start-remote-server!
-        (fn [components]
-          (when-let [rs (remote.server/start! components sse-connections*)]
-            (reset! remote-server* rs)
-            (swap! db* assoc
-                   :remote-connect-url (:connect-url rs)
-                   :remote-host (:host rs)
-                   :remote-token (:token rs)
-                   :remote-private-host? (:private-host? rs))))
         components {:db* db*
                     :messenger messenger
                     :metrics metrics
-                    :server server
-                    :start-remote-server! start-remote-server!}]
+                    :server server}]
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
     (monitor-server-logs (:log-ch server))

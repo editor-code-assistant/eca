@@ -519,8 +519,8 @@
       "properties": {
         "enabled": {
           "type": "boolean",
-          "description": "Enables the remote HTTP server.",
-          "markdownDescription": "Enables the remote HTTP server."
+          "description": "Enables the remote HTTP server, turning on the eca/remote module.",
+          "markdownDescription": "Enables the remote HTTP server, turning on the `eca/remote` module."
         },
         "host": {
           "type": "string",

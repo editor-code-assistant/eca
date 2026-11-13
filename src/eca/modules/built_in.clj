@@ -9,6 +9,7 @@
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.plugins :as f.plugins]
+   [eca.features.remote :as f.remote]
    [eca.features.repl :as f.repl]
    [eca.features.tools :as f.tools]
    [eca.features.tools.agent :as tools.agent]
@@ -98,4 +99,5 @@
    openrouter/module
    z-ai/module
    ;; optional, off by default
+   f.remote/module
    f.repl/module])

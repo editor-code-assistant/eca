@@ -605,6 +605,19 @@
                      reverse distinct reverse vec))
       merged)))
 
+(def ^:private optional-modules-turned-on-by
+  "The optional modules a feature's own config turns on, as that config turned
+   the feature on before modules. An explicit `modules.<id>.enabled` wins."
+  {:eca/remote (fn [config] (get-in config [:remote :enabled]))})
+
+(defn ^:private enable-optional-modules [config]
+  (reduce-kv (fn [config id on?]
+               (if (and (on? config) (not (boolean? (get-in config [:modules id :enabled]))))
+                 (assoc-in config [:modules id :enabled] true)
+                 config))
+             config
+             optional-modules-turned-on-by))
+
 (declare all-layers*)
 
 (defn ^:private all-layers
@@ -646,6 +659,7 @@
          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
         migrate-legacy-config
+        enable-optional-modules
         ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
         ;; Plugin agents merge at same level as markdown agents
         (as-> config

@@ -216,89 +216,89 @@
             (recur (inc port) (inc attempts)))))))
 
 (defn start!
-  "Starts the remote HTTP server if enabled in config.
+  "Starts the remote HTTP server with the `remote` config; the `:eca/remote`
+   module decides when (`eca.features.remote`).
    sse-connections* is the shared SSE connections atom (also used by BroadcastMessenger).
    Returns a map with :server :sse-connections* :heartbeat-stop-ch :token :host
-   or nil if not enabled or port is in use."
+   or nil if the port is in use."
   [components sse-connections*]
   (let [db @(:db* components)
         config (config/all db)
-        remote-config (:remote config)]
-    (when (:enabled remote-config)
-      (let [token (or (:password remote-config) (auth/generate-token))
-            bind-host (:bindHost remote-config)
-            host-base (or (:host remote-config)
-                          ;; Default the display host to the explicit bind host
-                          ;; (e.g. a Tailscale IP) unless it's the wildcard.
-                          (when (and bind-host (not= bind-host "0.0.0.0"))
-                            bind-host)
-                          (detect-host))
-            lan-ip (detect-lan-ip)
-            user-port (:port remote-config)
-            ssl-context (tls/ssl-context remote-config)
-            ;; Use atom so the handler sees host:port after Jetty resolves the actual port
-            host+port* (atom host-base)
-            handler (routes/create-handler components
-                                           {:token token
-                                            :host* host+port*
-                                            :sse-connections* sse-connections*})]
-        (try
-          (if-let [[^Server jetty-server actual-port bind-host]
-                   (if user-port
-                     ;; User-specified port: single attempt, try all bind hosts
-                     (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip ssl-context bind-host)]
-                       [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bh]
-                       (do (logger/warn logger-tag "Port" user-port "is already in use."
-                                        "Remote server will not start.")
-                           nil))
-                     ;; Default: try sequential ports starting from default-port
-                     (or (start-with-retry handler default-port lan-ip ssl-context bind-host)
-                         (do (logger/warn logger-tag
-                                          (str "Could not bind to ports " default-port "-"
-                                               (+ default-port (dec max-port-attempts))
-                                               ". Remote server will not start."))
-                             nil)))]
-            (let [private? (private-ip? host-base)
-                  display-host (if (and ssl-context private?)
-                                 (ip->sslip-hostname host-base)
-                                 host-base)
-                  host-with-port (str display-host ":" actual-port)
-                  _ (reset! host+port* host-with-port)
-                  heartbeat-ch (sse/start-heartbeat! sse-connections*)
-                  localhost-only? (and (= bind-host "127.0.0.1") (not lan-ip))
-                  protocol (if ssl-context "https" (if private? "http" "https"))
-                  connect-url (str "https://web.eca.dev?host="
-                                   host-with-port
-                                   "&pass=" token
-                                   "&protocol=" protocol)]
-              ;; Declare the askQuestion capability now that the remote
-              ;; server is up, so the `ask_user` tool is enabled for the
-              ;; LLM. BroadcastMessenger.ask-question routes the question
-              ;; over SSE when at least one client is connected, and falls
-              ;; back to the inner JSON-RPC messenger otherwise.
-              (swap! (:db* components) assoc-in
-                     [:client-capabilities :code-assistant :chat-capabilities :ask-question]
-                     true)
-              (when (and localhost-only? private? (not= host-base "127.0.0.1"))
-                (logger/warn logger-tag
-                             (str "⚠️  Bound to 127.0.0.1:" actual-port " (localhost only) because another service "
-                                  "(e.g. Tailscale) holds port " actual-port " on the external interface. "
-                                  "Direct LAN connections to " host-base " will not work. "
-                                  "Use a different port, stop the conflicting service, or connect via Tailscale.")))
-              (logger/info logger-tag (str "🌐 Remote server started on port " actual-port
-                                           (when ssl-context " (HTTPS)")
-                                           " — use /remote for connection details"))
-              {:server jetty-server
-               :sse-connections* sse-connections*
-               :heartbeat-stop-ch heartbeat-ch
-               :token token
-               :host host-with-port
-               :private-host? private?
-               :connect-url connect-url})
-            nil)
-          (catch Exception e
-            (logger/warn logger-tag "Failed to start remote server:" (.getMessage e))
-            nil))))))
+        remote-config (:remote config)
+        token (or (:password remote-config) (auth/generate-token))
+        bind-host (:bindHost remote-config)
+        host-base (or (:host remote-config)
+                      ;; Default the display host to the explicit bind host
+                      ;; (e.g. a Tailscale IP) unless it's the wildcard.
+                      (when (and bind-host (not= bind-host "0.0.0.0"))
+                        bind-host)
+                      (detect-host))
+        lan-ip (detect-lan-ip)
+        user-port (:port remote-config)
+        ssl-context (tls/ssl-context remote-config)
+        ;; Use atom so the handler sees host:port after Jetty resolves the actual port
+        host+port* (atom host-base)
+        handler (routes/create-handler components
+                                       {:token token
+                                        :host* host+port*
+                                        :sse-connections* sse-connections*})]
+    (try
+      (if-let [[^Server jetty-server actual-port bind-host]
+               (if user-port
+                 ;; User-specified port: single attempt, try all bind hosts
+                 (if-let [[server bh] (try-start-jetty-any-host handler user-port lan-ip ssl-context bind-host)]
+                   [server (.getLocalPort ^NetworkConnector (first (.getConnectors ^Server server))) bh]
+                   (do (logger/warn logger-tag "Port" user-port "is already in use."
+                                    "Remote server will not start.")
+                       nil))
+                 ;; Default: try sequential ports starting from default-port
+                 (or (start-with-retry handler default-port lan-ip ssl-context bind-host)
+                     (do (logger/warn logger-tag
+                                      (str "Could not bind to ports " default-port "-"
+                                           (+ default-port (dec max-port-attempts))
+                                           ". Remote server will not start."))
+                         nil)))]
+        (let [private? (private-ip? host-base)
+              display-host (if (and ssl-context private?)
+                             (ip->sslip-hostname host-base)
+                             host-base)
+              host-with-port (str display-host ":" actual-port)
+              _ (reset! host+port* host-with-port)
+              heartbeat-ch (sse/start-heartbeat! sse-connections*)
+              localhost-only? (and (= bind-host "127.0.0.1") (not lan-ip))
+              protocol (if ssl-context "https" (if private? "http" "https"))
+              connect-url (str "https://web.eca.dev?host="
+                               host-with-port
+                               "&pass=" token
+                               "&protocol=" protocol)]
+          ;; Declare the askQuestion capability now that the remote
+          ;; server is up, so the `ask_user` tool is enabled for the
+          ;; LLM. BroadcastMessenger.ask-question routes the question
+          ;; over SSE when at least one client is connected, and falls
+          ;; back to the inner JSON-RPC messenger otherwise.
+          (swap! (:db* components) assoc-in
+                 [:client-capabilities :code-assistant :chat-capabilities :ask-question]
+                 true)
+          (when (and localhost-only? private? (not= host-base "127.0.0.1"))
+            (logger/warn logger-tag
+                         (str "⚠️  Bound to 127.0.0.1:" actual-port " (localhost only) because another service "
+                              "(e.g. Tailscale) holds port " actual-port " on the external interface. "
+                              "Direct LAN connections to " host-base " will not work. "
+                              "Use a different port, stop the conflicting service, or connect via Tailscale.")))
+          (logger/info logger-tag (str "🌐 Remote server started on port " actual-port
+                                       (when ssl-context " (HTTPS)")
+                                       " — use /remote for connection details"))
+          {:server jetty-server
+           :sse-connections* sse-connections*
+           :heartbeat-stop-ch heartbeat-ch
+           :token token
+           :host host-with-port
+           :private-host? private?
+           :connect-url connect-url})
+        nil)
+      (catch Exception e
+        (logger/warn logger-tag "Failed to start remote server:" (.getMessage e))
+        nil))))
 
 (defn stop!
   "Stops the remote HTTP server, broadcasting disconnecting event first."
