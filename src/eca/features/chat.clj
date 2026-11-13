@@ -521,9 +521,10 @@
   (some-> raw-error str string/trim not-empty))
 
 (defn ^:private finish-blocked-or-stopped-pre-request!
-  [chat-ctx {:keys [blocked? stop-turn? stop-reason stop-hook-name blocked-reasons blocked-hook-name]}]
+  [chat-ctx {:keys [blocked? stop-turn? stop-reason stop-hook-name stop-module blocked-reasons blocked-hook-name]}]
   (when (or stop-turn? blocked?)
     (cond
+      stop-module (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
       stop-turn? (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
       blocked?   (if (seq blocked-reasons)
                    (doseq [reason blocked-reasons]
@@ -646,6 +647,31 @@
           ;; for the generic trigger-if-matches! path.
           (filter #({"preRequest" "prePrompt"} (:type (val %))))
           (sort-by key)))))
+
+(defn ^:private run-pre-request!
+  "Runs the `:chat/before-request` event, then the preRequest shell hooks,
+   modules first, as their handlers run before `:eca/hooks`' (4.17). A module
+   may rewrite the prompt (when `modify-allowed?`), which the hooks then see,
+   add context before theirs, or block or stop the request, and then no hook
+   runs. Returns the hooks' state (`run-pre-request-hooks!`), with
+   `:stop-module` when a module stopped the turn."
+  [chat-ctx original-text modify-allowed?]
+  (let [event (events/emit! chat-ctx :chat/before-request
+                            (lifecycle/chat-event chat-ctx {:prompt original-text}))
+        module (::events/ended-by event)]
+    (cond
+      (:block event)
+      {:blocked? true
+       :blocked-reasons [(lifecycle/request-blocked-by-module-message module (:block event))]}
+
+      (contains? event :stop)
+      {:stop-turn? true :stop-reason (:stop event) :stop-module module}
+
+      :else
+      (let [prompt (if (and modify-allowed? (string? (:prompt event))) (:prompt event) original-text)
+            context (shared/not-blank (:additional-context event))]
+        (cond-> (run-pre-request-hooks! (assoc chat-ctx :message prompt))
+          context (update :additional-contexts #(into [{:hook-name "modules" :content context}] %)))))))
 
 (declare prompt prompt-messages! delete-chat)
 
@@ -1110,7 +1136,7 @@
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
         user-messages (if run-hooks?
                         (let [{:keys [final-prompt additional-contexts stop-turn? blocked?] :as pre-request-state}
-                              (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
+                              (run-pre-request! chat-ctx original-text modify-allowed?)]
                           (cond
                             (or stop-turn? blocked?) (do (finish-blocked-or-stopped-pre-request! chat-ctx pre-request-state) nil)
                             :else (let [;; contexts modules added with eca.api/add-context! join the hooks' ones
@@ -1160,7 +1186,7 @@
       (when (and run-hooks? (:user-content-id chat-ctx))
         ;; Kept until the LLM responds, so a turn that is stopped, fails or is
         ;; superseded before that doesn't lose what the user typed.
-        (lifecycle/record-unsent-user-messages! db* chat-id)
+        (lifecycle/record-unsent-user-messages! db* chat-id chat-ctx)
         (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
                (assoc-some {:content-id (:user-content-id chat-ctx)
                             :messages user-messages}
@@ -1214,6 +1240,7 @@
                                              (assoc with-ts :content (assoc content :api current-api))
                                              with-ts)]
                                 (swap! db* update-in [:chats chat-id :messages] (fnil conj []) tagged)
+                                (lifecycle/emit-messages-added! chat-ctx [tagged])
                                 ;; Persist after meaningful history mutations so a
                                 ;; long-running chat is recoverable mid-loop even if
                                 ;; ECA dies (crash, kill, host reboot) before the
@@ -1298,17 +1325,30 @@
                   ;; needed to title the prompt. #683
                   (without-contents user-messages (:attached-contents chat-ctx)))]
             (future* config
-              (when-let [{:keys [output-text]} (llm-api/sync-prompt!
-                                                {:provider provider
-                                                 :model model
-                                                 :model-capabilities
-                                                 (assoc model-capabilities :reason? false :tools false :web-search false)
-                                                 :instructions (f.prompt/chat-title-prompt agent config)
-                                                 :past-messages nil
-                                                 :user-messages title-user-messages
-                                                 :config config
-                                                 :provider-auth provider-auth
-                                                 :subagent? true})]
+              (when-let [output-text
+                         (or
+                          ;; a module may give the title (:chat/title); else the chat model writes it
+                          (some-> (events/emit! chat-ctx :chat/title
+                                                (lifecycle/chat-event
+                                                 chat-ctx
+                                                 {:messages (-> (->> (get-in db [:chats chat-id :messages] [])
+                                                                     shared/messages-after-last-compact-marker
+                                                                     (filterv #(contains? #{"user" "assistant"} (:role %))))
+                                                                (into user-messages))
+                                                  :retitle? retitle?}))
+                                  :title
+                                  shared/not-blank)
+                          (:output-text (llm-api/sync-prompt!
+                                         {:provider provider
+                                          :model model
+                                          :model-capabilities
+                                          (assoc model-capabilities :reason? false :tools false :web-search false)
+                                          :instructions (f.prompt/chat-title-prompt agent config)
+                                          :past-messages nil
+                                          :user-messages title-user-messages
+                                          :config config
+                                          :provider-auth provider-auth
+                                          :subagent? true})))]
                 ;; A title set meanwhile (chat/update, e.g. a client renaming
                 ;; the chat while this request ran) wins over the generated one.
                 (when (and output-text
@@ -2032,17 +2072,16 @@
                                                  :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))))
 
-(defn ^:private run-start-hooks!
+(defn ^:private run-start-shell-hooks!
   "Runs chatStart (or subagentStart for subagent chats) hooks for this chat's
-   first prompt. Collects additionalContext from successful hooks into
-   :startup-context so build-chat-instructions and /prompt-show pick it up, and
-   returns {:stop-turn? boolean :stop-reason string-or-nil} when a hook returns
-   {\"continue\":false} on exit 0. db-before-hooks is the stable snapshot used
-   for hook reads; db* is mutated only for hook side effects."
-  [{:keys [db* chat-id agent messenger variant] :as _chat-ctx} db-before-hooks resumed? full-model]
-  (config/await-plugins-resolved!)
-  (let [config (config/all db-before-hooks)
-        hook-results* (atom [])
+   first prompt. Collects additionalContext from successful hooks, after
+   `module-context`, into :startup-context so build-chat-instructions and
+   /prompt-show pick it up, and returns {:stop-turn? boolean :stop-reason
+   string-or-nil} when a hook returns {\"continue\":false} on exit 0.
+   db-before-hooks is the stable snapshot used for hook reads; db* is mutated
+   only for hook side effects."
+  [{:keys [db* chat-id agent messenger variant]} db-before-hooks resumed? full-model config module-context]
+  (let [hook-results* (atom [])
         subagent? (some? (get-in db-before-hooks [:chats chat-id :subagent]))
         hook-ctx (cond-> {:messenger messenger :chat-id chat-id}
                    subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id)))
@@ -2061,10 +2100,11 @@
                                                      (swap! hook-results* conj result))}
                                  db-before-hooks
                                  config)
-    (when-let [additional-contexts (seq (keep (fn [{:keys [parsed exit]}]
-                                                (when (zero? exit)
-                                                  (shared/not-blank (get parsed "additionalContext"))))
-                                              @hook-results*))]
+    (when-let [additional-contexts (seq (concat (some-> module-context vector)
+                                                (keep (fn [{:keys [parsed exit]}]
+                                                        (when (zero? exit)
+                                                          (shared/not-blank (get parsed "additionalContext"))))
+                                                      @hook-results*)))]
       (swap! db* assoc-in [:chats chat-id :startup-context]
              (string/join "\n\n" additional-contexts)))
     ;; Note: :chat-start-fired is set by prompt* (via swap-vals!) before this
@@ -2076,6 +2116,22 @@
                                  :stop-hook-name name}))
                             @hook-results*)]
       (or stop-result {:stop-turn? false}))))
+
+(defn ^:private run-start-hooks!
+  "Runs the `:chat/started` event, then the chatStart shell hooks
+   (`run-start-shell-hooks!`), modules first, as their handlers run before
+   `:eca/hooks`' (4.17). A module's `:additional-context` joins the chat's
+   startup context before the hooks' ones; its `:stop` ends the turn without
+   running them, with `:stop-module` in the result."
+  [chat-ctx db-before-hooks resumed? full-model]
+  (config/await-plugins-resolved!)
+  (let [config (config/all db-before-hooks)
+        event (events/emit! (assoc chat-ctx :config config) :chat/started
+                            (lifecycle/chat-event (assoc chat-ctx :full-model full-model) {:resumed? (boolean resumed?)}))]
+    (if (contains? event :stop)
+      {:stop-turn? true :stop-reason (:stop event) :stop-module (::events/ended-by event)}
+      (run-start-shell-hooks! chat-ctx db-before-hooks resumed? full-model config
+                              (shared/not-blank (:additional-context event))))))
 
 (defn ^:private mark-editor-open!
   "Records that the editor has this chat open this run, so the remote endpoint
@@ -2108,9 +2164,11 @@
                             (run-start-hooks! base-chat-ctx db-before-hooks resumed? full-model))]
     (if (:stop-turn? start-hook-result)
       (do
-        (lifecycle/send-turn-stopped-by-hook! base-chat-ctx
-                                              (:stop-hook-name start-hook-result)
-                                              (:stop-reason start-hook-result))
+        (if-let [module (:stop-module start-hook-result)]
+          (lifecycle/send-turn-stopped-by-module! base-chat-ctx module (:stop-reason start-hook-result))
+          (lifecycle/send-turn-stopped-by-hook! base-chat-ctx
+                                                (:stop-hook-name start-hook-result)
+                                                (:stop-reason start-hook-result)))
         (lifecycle/finish-chat-prompt-stopped! :idle base-chat-ctx)
         {:chat-id chat-id
          :model full-model
@@ -2263,6 +2321,28 @@
          :model full-model
          :status :prompting}))))
 
+(defn ^:private prompt-input*
+  "Runs the `:chat/input` event on the text before commands, skills or the
+   model see it. A module may change the text, or handle it: then the model
+   isn't called, and a string answer is shown in the chat. `:source` is
+   `:module` for `eca.api/send-prompt!`, else `:user`."
+  [{:keys [source] :as params} {:keys [chat-id db* message] :as base-chat-ctx}]
+  (let [event (events/emit! base-chat-ctx :chat/input
+                            (lifecycle/chat-event base-chat-ctx {:text message :source (or source :user)}))
+        handled (:handled event)
+        text (:text event)]
+    (if handled
+      (do
+        (when (string? handled)
+          (lifecycle/send-content! base-chat-ctx :system {:type :text :text handled}))
+        (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :follow-up-active?)
+        (lifecycle/finish-chat-prompt! :idle (assoc base-chat-ctx :skip-post-request-hooks? true))
+        {:chat-id chat-id
+         :model (get-in @db* [:chats chat-id :model])
+         :status :prompting})
+      (prompt* params (cond-> base-chat-ctx
+                        (and (string? text) (not (string/blank? text))) (assoc :message text))))))
+
 (def ^:private max-client-chat-id-length 256)
 
 (defn ^:private server-managed-subagent-chat-id?
@@ -2409,7 +2489,7 @@
                                           :name "task"
                                           :details cleared-details}))
               (try
-                (prompt* params base-chat-ctx)
+                (prompt-input* params base-chat-ctx)
                 (catch Exception e
                   (logger/error e)
                   (lifecycle/send-content! base-chat-ctx :system {:type :text

@@ -117,7 +117,7 @@
     (let [prompted (promise)]
       (with-redefs [f.chat/prompt (fn [params & _] (deliver prompted params))]
         (is (nil? (eca/send-prompt! (chat-ctx) "Continue.")))
-        (is (= {:chat-id "chat-1" :message "Continue." :agent "plan" :variant "low"}
+        (is (= {:chat-id "chat-1" :message "Continue." :agent "plan" :variant "low" :source :module}
                (deref prompted 5000 :timeout))))))
   (testing "a running chat gets it at its next step, like a message typed while it works"
     (add-chat! {:status :running})

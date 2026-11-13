@@ -135,12 +135,18 @@ An event handler is `(fn [ctx event])`, a vector of them, or `{:handler f :match
 - **transform**: handlers may change the event, or stop the action with `{:block "reason"}` or `{:stop "reason"}`. `:additional-context` adds up across handlers.
 - **handle**: the first handler that returns non-nil gives the answer.
 
-The events ECA sends today:
+Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant` and, in a subagent's chat, `:parent-chat-id`. Modules' handlers run before your shell hooks: when a module blocks or stops, the hooks don't run. The events ECA sends today:
 
 | Event | Kind | Keys | Accepted changes |
 |-------|------|------|------------------|
 | `:session/started` | notify | `:workspaces` | — |
 | `:session/ended` | notify | — | — |
+| `:chat/input` | transform | `:text`, `:source` (`:user` or `:module`), before commands and skills | `:text`, `:handled` (a reply, or `true`: the model isn't called) |
+| `:chat/started` | notify | `:resumed?`, on a chat's first prompt | `:additional-context` (in the chat's startup context), `:stop` |
+| `:chat/before-request` | transform | `:prompt`, once per user message | `:prompt`, `:additional-context`, `:block`, `:stop` |
+| `:chat/after-request` | notify | `:response` | `:follow-up` (sent as the next user message), `:stop` |
+| `:chat/message-added` | notify | `:message` (`:role`, `:content`) | — |
+| `:chat/title` | handle | `:messages`, `:retitle?` | `{:title ".."}` instead of the model's |
 | `:chat/ended` | notify | `:chat-id`, `:agent`, `:model` | — |
 | `:chat/status-changed` | notify | `:status`, `:pending-approval-ids`, `:running-tool-ids`... | — |
 | `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used` | — |

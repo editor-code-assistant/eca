@@ -180,7 +180,7 @@
        {:chat-id chat-id :message text} db* messenger config metrics)
       (shared/future* config
         ((requiring-resolve 'eca.features.chat/prompt)
-         {:chat-id chat-id :message text :agent (:agent chat) :variant (:variant chat)}
+         {:chat-id chat-id :message text :agent (:agent chat) :variant (:variant chat) :source :module}
          db* messenger config metrics)))
     nil))
 

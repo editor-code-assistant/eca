@@ -165,6 +165,48 @@
           (flush-reason-group! chat-ctx))
         (send-content-raw! chat-ctx role content))))
 
+(defn chat-event
+  "A core chat event: `m` with the chat's `:chat-id`, `:agent`, `:model`,
+   `:variant` and, for a subagent, `:parent-chat-id`."
+  [{:keys [chat-id agent full-model variant parent-chat-id db*]} m]
+  (let [chat (some-> db* deref (get-in [:chats chat-id]))]
+    (assoc-some m
+                :chat-id chat-id
+                :agent (or agent (:agent chat))
+                :model (or full-model (:model chat))
+                :variant (or variant (:variant chat))
+                :parent-chat-id (or parent-chat-id (:parent-chat-id chat)))))
+
+(defn emit-messages-added!
+  "Tells modules about `messages` added to the chat's history
+   (`:chat/message-added`)."
+  [chat-ctx messages]
+  (doseq [message messages]
+    (events/emit! chat-ctx :chat/message-added (chat-event chat-ctx {:message message}))))
+
+(defn ^:private module-name [module-id]
+  (if module-id (str (symbol module-id)) "?"))
+
+(defn turn-stopped-by-module-message
+  "User-facing message when a module's event handler stops the turn."
+  [module-id stop-reason]
+  (if (shared/not-blank stop-reason)
+    (str "Turn stopped by module '" (module-name module-id) "': " stop-reason)
+    (str "Turn stopped by module '" (module-name module-id) "'.")))
+
+(defn send-turn-stopped-by-module!
+  [chat-ctx module-id reason]
+  (send-content! chat-ctx :system
+                 {:type :text
+                  :text (turn-stopped-by-module-message module-id reason)}))
+
+(defn request-blocked-by-module-message
+  "User-facing message when a module's event handler blocks the request."
+  [module-id reason]
+  (if (shared/not-blank reason)
+    (str "Request blocked by module '" (module-name module-id) "': " reason)
+    (str "Request blocked by module '" (module-name module-id) "'.")))
+
 (defn hook-system-text
   "User-facing standalone message attributed to a hook by name.
    Ends with a blank line so the message renders as its own paragraph and never
@@ -445,7 +487,7 @@
         {:compacted? false
          :stop-after-finish? true}))))
 
-(defn ^:private run-post-request-hooks!
+(defn ^:private run-post-request-shell-hooks!
   "Run postRequest (for primary chats) and subagentPostRequest (for subagents) hooks.
    Returns {:follow-up-text string-or-nil :stop-turn? boolean
             :stop-reason string-or-nil :stop-hook-name string-or-nil}.
@@ -455,7 +497,7 @@
    exit 2 makes stderr LLM-visible payload. This is because these hooks run
    after the prompt finished, so exit 2 cannot 'block' the request; instead it
    contributes a continuation instruction."
-  [{:keys [db* config chat-id response] :as chat-ctx}]
+  [chat-ctx db* config chat-id response]
   (let [db @db*
         results* (atom [])
         subagent? (some? (get-in db [:chats chat-id :subagent]))
@@ -497,6 +539,23 @@
      :stop-turn? (boolean stop-result)
      :stop-reason (:stop-reason stop-result)
      :stop-hook-name (:stop-hook-name stop-result)}))
+
+(defn ^:private run-post-request-hooks!
+  "Runs the `:chat/after-request` event, then the postRequest shell hooks
+   (`run-post-request-shell-hooks!`), modules first, as their handlers run
+   before `:eca/hooks`' (4.17). A module's `:follow-up` comes before the
+   hooks' ones; its `:stop` ends the turn without running them. Returns the
+   hooks' result, with `:stop-module` when a module stopped the turn."
+  [{:keys [db* config chat-id response] :as chat-ctx}]
+  (let [event (events/emit! chat-ctx :chat/after-request (chat-event chat-ctx {:response response}))]
+    (if (contains? event :stop)
+      {:follow-up-text nil
+       :stop-turn? true
+       :stop-reason (:stop event)
+       :stop-module (::events/ended-by event)}
+      (let [result (run-post-request-shell-hooks! chat-ctx db* config chat-id response)
+            follow-ups (remove nil? [(shared/not-blank (:follow-up event)) (:follow-up-text result)])]
+        (assoc result :follow-up-text (some->> (seq follow-ups) (string/join "\n\n")))))))
 
 (defn ^:private chat-status-payload
   "Build the aggregate chatStatusChanged hook payload from a db snapshot."
@@ -593,13 +652,12 @@
   (when-not (get-in @db* [:chats chat-id :created-at])
     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
 
-(defn record-unsent-user-messages!
-  "User messages only reach the chat history once the LLM starts responding.
-   Adds the ones of a turn that ended (stopped, failed or superseded) before
-   that, so the next prompt and a resumed chat still have them."
+(defn ^:private record-unsent-user-messages*
+  "Moves the turn's unsent user messages to the history; returns the db
+   before and after."
   [db* chat-id]
   (when (get-in @db* [:chats chat-id :unsent-user-messages])
-    (swap! db* update-in [:chats chat-id]
+    (swap-vals! db* update-in [:chats chat-id]
            (fn [{:keys [unsent-user-messages messages] :as chat}]
              (let [{:keys [content-id sent-attached-contexts] user-messages :messages} unsent-user-messages
                    record? (and (seq user-messages)
@@ -613,6 +671,21 @@
                  ;; The attached contexts in these messages reach the history too. #683
                  (and record? sent-attached-contexts)
                  (assoc :sent-attached-contexts sent-attached-contexts)))))))
+
+(defn record-unsent-user-messages!
+  "User messages only reach the chat history once the LLM starts responding.
+   Adds the ones of a turn that ended (stopped, failed or superseded) before
+   that, so the next prompt and a resumed chat still have them. With
+   `chat-ctx`, modules hear of them (`:chat/message-added`)."
+  ([db* chat-id] (record-unsent-user-messages! db* chat-id nil))
+  ([db* chat-id chat-ctx]
+   (let [[old-db new-db] (record-unsent-user-messages* db* chat-id)
+         added (when new-db
+                 (drop (count (get-in old-db [:chats chat-id :messages]))
+                       (get-in new-db [:chats chat-id :messages])))]
+     (when (and chat-ctx (seq added))
+       (emit-messages-added! chat-ctx added))
+     nil)))
 
 (defn ^:private dispatch-finish-callbacks!
   "Dispatch finish-flow callbacks. `on-finished-side-effect` always runs first
@@ -648,20 +721,22 @@
     (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
       (flush-reason-group! chat-ctx)
       (let [auto-compacting? (get-in @db* [:chats chat-id :auto-compacting?])
-            {:keys [follow-up-text stop-turn? stop-reason stop-hook-name]}
+            {:keys [follow-up-text stop-turn? stop-reason stop-hook-name stop-module]}
             (when (and (not auto-compacting?) (not skip-post-request-hooks?))
               (run-post-request-hooks! chat-ctx))
             stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
           (swap! db* update-in [:chats chat-id] dissoc :steer-message)
-          (record-unsent-user-messages! db* chat-id)
+          (record-unsent-user-messages! db* chat-id chat-ctx)
           (apply-status-transition! chat-ctx status))
         ;; A postRequest hook that returned continue:false stops the turn and
         ;; cancels followUp; surface the reason to the user (prefixed with the
         ;; hook name), consistent with the other turn-stopping hooks.
         (when stop-turn?
-          (send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+          (if stop-module
+            (send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+            (send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
         (dispatch-finish-callbacks! chat-ctx {:follow-up-text follow-up-text
                                               :stop-turn? stop-turn?
                                               :stopping? stopping?})
