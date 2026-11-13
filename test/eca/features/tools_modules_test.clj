@@ -54,6 +54,13 @@
                                           (h/messenger) (h/metrics) identity identity {})))
           (is (= [[:eca/test-tools "chat-1" {"text" "hi"}]] @calls*)))))))
 
+(deftest built-in-tools-error-test
+  (testing "a built-in :tools function that throws fails the tool list, as before modules"
+    (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with)
+                                                            {:id :eca/test-broken-tools
+                                                             :tools (fn [_ctx] (throw (ex-info "Bad agent config" {})))}))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Bad agent config" (tool-names {}))))))
+
 (deftest custom-tools-replace-built-in-test
   (testing "a custom tool named like a built-in one replaces it, as before modules"
     (let [config {:customTools {"read_file" {:description "My own read_file."

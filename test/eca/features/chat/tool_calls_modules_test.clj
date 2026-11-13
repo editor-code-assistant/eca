@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.hooks :as f.hooks]
+   [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -37,7 +38,12 @@
     (is (match? {:decision :deny :reason {:code :user-config-deny}} (decide (config-by-default "deny")))))
   (testing "without :eca/approval, calls ask"
     (is (match? {:decision :ask}
-                (decide (assoc (config-by-default "allow") :modules {:eca/approval {:enabled false}}))))))
+                (decide (assoc (config-by-default "allow") :modules {:eca/approval {:enabled false}})))))
+  (testing "a call that asks logs no warning: :eca/approval sets no :reason then"
+    (let [warnings* (atom [])]
+      (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))]
+        (is (match? {:decision :ask} (decide (config-by-default "ask")))))
+      (is (= [] @warnings*)))))
 
 (deftest module-approval-test
   (testing "a module running after :eca/approval sees its decision and may change it"

@@ -256,6 +256,20 @@
     (swap! tracers* dissoc chat-id))
   nil)
 
+(defn untrace!
+  "Stops tracing chat `chat-id` if `f` still traces it."
+  [chat-id f]
+  (swap! tracers* (fn [tracers]
+                    (if (identical? f (get tracers chat-id))
+                      (dissoc tracers chat-id)
+                      tracers)))
+  nil)
+
+(defn tracing?
+  "Whether chat `chat-id` is traced."
+  [chat-id]
+  (contains? @tracers* chat-id))
+
 (defn untrace-all!
   "Stops tracing every chat."
   []

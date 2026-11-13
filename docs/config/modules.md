@@ -10,7 +10,7 @@ description: "ECA modules: list, enable and disable ECA's features, and write yo
 
 ECA's features are modules: the tools, the agents, MCP, the providers, shell hooks... You can list them, turn them off, and add your own: Clojure code that ECA runs with [SCI](https://github.com/babashka/sci), like clj-kondo hooks and clojure-lsp custom linters.
 
-The `create` agent can write a module with you: it reads this guide and the `eca.api` reference, checks that the module loads (`create__modules`), and tests it in the running ECA (`create__eval`, which asks before each run). From any agent, the built-in `eca-modules` skill gives the model the same guide.
+The `create` agent can write a module with you: it reads this guide and the `eca.api` reference, checks that the module loads (`create__modules`), and tests it in the running ECA (`create__eval`). `create__eval` asks before each run, even when your config allows every tool; approving it for the session, or trusting the chat, skips asking, as for any tool. From any agent, the built-in `eca-modules` skill gives the model the same guide.
 
 ## Listing and turning modules off
 
@@ -185,8 +185,8 @@ Other namespaces:
 - `eca.api.json`: `parse`, `generate`.
 - `eca.api.http`: `request`, `get`, `post`, `put`, `delete`, through ECA's HTTP client (its proxy and TLS settings).
 - `eca.api.fs`: `read-file`, `write-file!`, `exists?`, `directory?`, `list-dir`, `glob`, `create-dirs!`, `delete!`, `path`, `parent`, `file-name`, `last-modified-ms`.
-- `eca.api.dev`: `install!`, `uninstall!`, `reload!`, `modules` and `ctx`, for a REPL on a running ECA.
-- `eca.api.debug`: `db`, `chat-raw`, `config-raw`, `trace!`, `untrace!`; read-only, and only while the [REPL](#a-repl-on-eca) runs.
+- `eca.api.dev`: `install!`, `uninstall!`, `reload!`, `modules` and `ctx`, for a REPL on a running ECA; `sci-ctx`, for built-in modules.
+- `eca.api.debug`: `db`, `chat-raw`, `config-raw`, `trace!`, `untrace!`; read-only, and only while the [REPL](#a-repl-on-eca) runs. `trace!` works only in the REPL itself.
 - `eca.api.test`: `mock-ctx`, `run-tool`, `run-command`, `run-event`, `recorded`, to test a module away from ECA's session.
 
 Inside SCI, modules see only these namespaces and `clojure.string`, `clojure.set`, `clojure.walk` and `clojure.edn`. There's no Java interop, `slurp` or `spit`: use `eca.api.fs` and `eca.api/shell!`.

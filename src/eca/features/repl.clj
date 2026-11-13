@@ -9,6 +9,7 @@
    [babashka.nrepl.impl.server :as nrepl.server]
    [babashka.nrepl.server.middleware :as nrepl.middleware]
    [clojure.string :as string]
+   [eca.api.debug :as debug]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
@@ -17,8 +18,9 @@
    [eca.modules.loader :as loader]
    [sci.core :as sci])
   (:import
-   [java.io BufferedOutputStream Closeable PushbackInputStream]
-   [java.net InetAddress ServerSocket Socket]))
+   [java.io BufferedOutputStream Closeable PrintWriter PushbackInputStream Writer]
+   [java.net InetAddress ServerSocket Socket]
+   [java.util.concurrent LinkedBlockingQueue]))
 
 (set! *warn-on-reflection* true)
 
@@ -36,23 +38,84 @@
     (.setDaemon true)
     (.start)))
 
+(def ^:private default-print-length
+  "Values print at most this many items of a collection, so an infinite one,
+   like `(range)`, doesn't take ECA down; `(set! *print-length* n)` changes
+   it for the next evaluations."
+  1000)
+
+(def ^:private default-print-level 20)
+
+(def ^:private trace-queue-size 1000)
+
+(defn ^:private untrace-client! [traced*]
+  (doseq [[chat-id tracer] @traced*]
+    (events/untrace! chat-id tracer))
+  (reset! traced* {}))
+
+(defn ^:private start-trace-sender!
+  "A thread sending a client the trace lines `eca.api.debug/trace!` queues,
+   so a chat never waits on the client's socket: `{:send! :stop!}`. `send!`
+   drops lines when the client can't keep up. When the client goes away,
+   its traces stop."
+  [traced*]
+  (let [queue (LinkedBlockingQueue. (int trace-queue-size))
+        thread (start-thread! "eca-repl-trace"
+                              (fn []
+                                (try
+                                  (loop []
+                                    (let [[^Writer writer ^String line] (.take queue)]
+                                      (.write writer line)
+                                      (.flush writer)
+                                      ;; a PrintWriter swallows the socket's errors
+                                      (if (and (instance? PrintWriter writer) (.checkError ^PrintWriter writer))
+                                        (untrace-client! traced*)
+                                        (recur))))
+                                  (catch InterruptedException _ nil)
+                                  (catch Exception e
+                                    (logger/debug logger-tag "Stopped sending trace lines:" e)
+                                    (untrace-client! traced*)))))]
+    {:send! (fn [writer line] (.offer queue [writer line]))
+     :stop! (fn [] (.interrupt ^Thread thread))}))
+
 (defn ^:private serve-client!
   "Answers a client's nREPL messages until it disconnects, as babashka.nrepl's
-   own server does, in a new `user` namespace."
+   own server does, in a new `user` namespace. Its replies and the trace
+   lines for it are sent one at a time."
   [sci-ctx ^Socket socket]
   (let [in (PushbackInputStream. (.getInputStream socket))
         out (BufferedOutputStream. (.getOutputStream socket))
         opts {:quiet true :xform nrepl.middleware/default-xform}
-        rf ((:xform opts) nrepl.server/send-reduce)]
-    ;; eval sets *1, *2, *3 and *e
-    (binding [*1 nil *2 nil *3 nil *e nil]
-      (sci/with-bindings {sci/ns (sci/create-ns 'user nil)
-                          sci/print-length @sci/print-length
-                          sci/*1 nil
-                          sci/*2 nil
-                          sci/*3 nil
-                          sci/*e nil}
-        (nrepl.server/session-loop rf in out {:opts opts :id "pre-init" :ctx sci-ctx})))))
+        lock (Object.)
+        send (fn [os response]
+               (locking lock
+                 (nrepl.server/send-reduce os response)))
+        rf ((:xform opts) send)
+        ;; babashka.nrepl prints values with Clojure's printer: give it the
+        ;; REPL's print limits, with defaults
+        rf (fn
+             ([result] (rf result))
+             ([result input]
+              (binding [*print-length* (or @sci/print-length default-print-length)
+                        *print-level* (or @sci/print-level default-print-level)]
+                (rf result input))))
+        traced* (atom {})
+        {:keys [send! stop!]} (start-trace-sender! traced*)]
+    (try
+      ;; eval sets *1, *2, *3 and *e
+      (binding [*1 nil *2 nil *3 nil *e nil]
+        (with-bindings {#'debug/*repl-connection* {:send! send! :traced traced*}}
+          (sci/with-bindings {sci/ns (sci/create-ns 'user nil)
+                              sci/print-length @sci/print-length
+                              sci/print-level @sci/print-level
+                              sci/*1 nil
+                              sci/*2 nil
+                              sci/*3 nil
+                              sci/*e nil}
+            (nrepl.server/session-loop rf in out {:opts opts :id "pre-init" :ctx sci-ctx}))))
+      (finally
+        (stop!)
+        (untrace-client! traced*)))))
 
 (defn ^:private accept-loop!
   "Serves each client that connects, on its own thread, until the server
@@ -66,16 +129,20 @@
                             (logger/warn logger-tag "nREPL server stopped accepting clients:" e))
                           nil))]
       (swap! clients* conj socket)
-      (start-thread! "eca-repl-client"
-                     (bound-fn []
-                       (try
-                         (serve-client! sci-ctx socket)
-                         (catch Exception e
-                           (when-not (.isClosed ^Socket socket)
-                             (logger/debug logger-tag "nREPL client disconnected:" e)))
-                         (finally
-                           (swap! clients* disj socket)
-                           (close-quietly! socket)))))
+      (if (.isClosed server-socket)
+        ;; stopped while this client connected: stop-server! may not have seen it
+        (do (swap! clients* disj socket)
+            (close-quietly! socket))
+        (start-thread! "eca-repl-client"
+                       (bound-fn []
+                         (try
+                           (serve-client! sci-ctx socket)
+                           (catch Exception e
+                             (when-not (.isClosed ^Socket socket)
+                               (logger/debug logger-tag "nREPL client disconnected:" e)))
+                           (finally
+                             (swap! clients* disj socket)
+                             (close-quietly! socket))))))
       (recur))))
 
 (defn start-server!

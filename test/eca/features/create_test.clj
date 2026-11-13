@@ -150,7 +150,10 @@
   (is (match? {:error "Timed out after 1 seconds"}
               (f.create/eval-code "(deref (promise))" 1000))))
 
-(deftest eval-value-cut-test
+(deftest eval-cut-test
   (testing "long values are cut"
     (is (string/ends-with? (:value (f.create/eval-code "(apply str (repeat 30000 \"x\"))" 10000))
-                           "… (cut)"))))
+                           "… (cut)")))
+  (testing "output too: ECA keeps only its start"
+    (let [{:keys [out]} (f.create/eval-code "(dotimes [_ 30000] (print \"x\")) :done" 10000)]
+      (is (= (str (apply str (repeat 20000 "x")) "… (cut)") out)))))

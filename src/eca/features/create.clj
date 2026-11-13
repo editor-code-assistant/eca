@@ -16,7 +16,7 @@
    [eca.shared :refer [multi-str]]
    [sci.core :as sci])
   (:import
-   [java.io StringWriter]
+   [java.io Writer]
    [java.util.concurrent ExecutionException]))
 
 (set! *warn-on-reflection* true)
@@ -116,6 +116,38 @@
     (str (subs s 0 max-chars) "… (cut)")
     s))
 
+(defn ^:private bounded-writer
+  "A Writer that keeps the first `limit` chars written to it and drops the
+   rest, so code that prints without end can't fill ECA's memory, even after
+   its eval timed out. Its `toString` is what it kept."
+  ^Writer [limit]
+  (let [buf (StringBuilder.)
+        cut?* (volatile! false)
+        append! (fn [^String s]
+                  (locking buf
+                    (let [room (- (long limit) (.length buf))]
+                      (if (<= (count s) room)
+                        (.append buf s)
+                        (do (when (pos? room)
+                              (.append buf (subs s 0 room)))
+                            (vreset! cut?* true))))))]
+    (proxy [Writer] []
+      (write
+        ([x]
+         (append! (cond
+                    (string? x) x
+                    (integer? x) (str (char (int x)))
+                    :else (String. ^chars x))))
+        ([x off len]
+         (append! (if (string? x)
+                    (subs x (int off) (+ (int off) (int len)))
+                    (String. ^chars x (int off) (int len))))))
+      (flush [])
+      (close [])
+      (toString []
+        (locking buf
+          (str buf (when @cut?* "… (cut)")))))))
+
 (defn ^:private error-location [e]
   (let [{:keys [line column]} (ex-data e)]
     (when line
@@ -127,8 +159,8 @@
    `{:error :out :err}` when it throws or takes longer than `timeout-ms`."
   [code timeout-ms]
   (let [sci-ctx (loader/sci-context)
-        out (StringWriter.)
-        err (StringWriter.)
+        out (bounded-writer max-chars)
+        err (bounded-writer max-chars)
         job (future
               (sci/binding [sci/out out
                             sci/err err]
@@ -138,7 +170,7 @@
                             *print-level* 10]
                     (pr-str value)))))
         output (fn [result]
-                 (assoc result :out (cut (str out)) :err (cut (str err))))]
+                 (assoc result :out (str out) :err (str err)))]
     (try
       (let [value (deref job timeout-ms ::timeout)]
         (if (= ::timeout value)
@@ -147,7 +179,11 @@
           (output {:value (cut value)})))
       (catch ExecutionException e
         (let [cause (or (.getCause e) e)]
-          (output {:error (str (or (ex-message cause) (str cause)) (error-location cause))}))))))
+          (output {:error (str (or (ex-message cause) (str cause)) (error-location cause))})))
+      (catch InterruptedException e
+        ;; the chat stopped
+        (future-cancel job)
+        (throw e)))))
 
 (defn ^:private eval-tool [_ctx {:strs [code]}]
   (if (string/blank? code)
@@ -202,7 +238,7 @@
                          "get the last value and what it printed. Use it to test a module with eca.api.test (mock-ctx,"
                          "run-tool, run-command, run-event), and to install, reload, remove or inspect modules with"
                          "eca.api.dev (install!, reload!, uninstall!, modules); changes last for this session. The code"
-                         "runs inside ECA, with its permissions: the user approves each call. No Java interop."
+                         "runs inside ECA, with its permissions, so ECA asks the user before each call. No Java interop."
                          (format "Times out after %d seconds." (quot eval-timeout-ms 1000)))
            :parameters {:type "object"
                         :properties {"code" {:type "string"
@@ -212,7 +248,8 @@
                         :required ["code"]}
            :handler #'eval-tool
            :enabled-fn #'create-chat?
-           ;; asks even when the user's config allows the tool: it runs code inside ECA
+           ;; asks even when the user's config allows the tool, as it runs code inside ECA; approving
+           ;; it for the session, or a trusted chat, still skips asking, as for any tool
            :require-approval-fn (constantly true)
            :summary-fn (constantly "Evaluating Clojure in ECA")}})
 

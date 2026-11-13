@@ -126,22 +126,59 @@
           (is (= -1 (.read ^InputStream (:in conn))))
           (is (thrown? java.net.ConnectException (connect! port))))))))
 
+(defn- message-added! [config chat-id text]
+  (events/emit! {:config config :chat-id chat-id} :chat/message-added
+                {:chat-id chat-id :agent "code" :message {:role "user" :content text}}))
+
+(defn- trace-line [chat-id text]
+  (str "[trace " chat-id "] :chat/message-added {:message {:role \"user\", :content \"" text "\"}}\n"))
+
+(defn- eventually [pred]
+  (loop [tries 0]
+    (or (pred)
+        (when (< tries 100)
+          (Thread/sleep 50)
+          (recur (inc tries))))))
+
 (deftest trace-test
   (with-repl (repl-config)
     (let [conn (connect! (:port (repl-state)))
           config (repl-config)]
-      (eval! conn "(require '[eca.api.debug :as debug]) (debug/trace! \"chat-1\")")
+      (is (= {:value "nil" :out "" :err ""}
+             (eval! conn "(require '[eca.api.debug :as debug]) (debug/trace! \"chat-1\")")))
       (testing "the chat's events print to the REPL that traces it"
-        (events/emit! {:config config :chat-id "chat-1"} :chat/message-added
-                      {:chat-id "chat-1" :agent "code" :message {:role "user" :content "hi"}})
-        (is (= "[trace chat-1] :chat/message-added {:message {:role \"user\", :content \"hi\"}}\n"
-               (get (read-response conn) "out"))))
-      (testing "other chats' events don't"
-        (events/emit! {:config config :chat-id "chat-2"} :chat/message-added {:chat-id "chat-2" :message {}})
-        (eval! conn "(debug/untrace! \"chat-1\")")
-        (events/emit! {:config config :chat-id "chat-1"} :chat/message-added {:chat-id "chat-1" :message {}})
-        (is (= {:value "1"} (select-keys (eval! conn "1") [:value]))
-            "the next message is the eval's, not a trace line")))))
+        (message-added! config "chat-1" "hi")
+        (is (= (trace-line "chat-1" "hi") (get (read-response conn) "out"))))
+      (testing "other chats' events don't: the next line is chat-1's again"
+        (message-added! config "chat-2" "not traced")
+        (message-added! config "chat-1" "again")
+        (is (= (trace-line "chat-1" "again") (get (read-response conn) "out"))))
+      (testing "untrace! stops it"
+        (is (= {:value "nil" :out "" :err ""} (eval! conn "(debug/untrace! \"chat-1\")")))
+        (is (not (events/tracing? "chat-1")))
+        (message-added! config "chat-1" "untraced")
+        (is (= {:value "1" :out "" :err ""} (eval! conn "1"))))
+      (testing "a REPL that goes away stops its traces"
+        (let [other (connect! (:port (repl-state)))]
+          (eval! other "(require '[eca.api.debug :as debug]) (debug/trace! \"chat-3\")")
+          (is (events/tracing? "chat-3"))
+          (.close ^Socket (:socket other))
+          (is (eventually #(not (events/tracing? "chat-3")))))))))
+
+(deftest trace-outside-the-repl-test
+  (with-repl (repl-config)
+    (testing "trace! needs the nREPL, e.g. not a module or the create agent's eval"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"works only in the nREPL of the eca/repl module"
+                            (debug/trace! "chat-1"))))))
+
+(deftest print-limits-test
+  (with-repl (repl-config)
+    (let [conn (connect! (:port (repl-state)))]
+      (testing "an infinite value prints its first items"
+        (is (string/ends-with? (:value (eval! conn "(range)")) " 998 999 ...)")))
+      (testing "the REPL's *print-length* changes it, from the next evaluation"
+        (eval! conn "(set! *print-length* 3)")
+        (is (= "(0 1 2 ...)" (:value (eval! conn "(range)"))))))))
 
 (deftest trace-line-test
   (let [trace-line #'debug/trace-line]
@@ -163,7 +200,8 @@
 (deftest debug-api-test
   (testing "it works only while :eca/repl runs"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"only while the eca/repl module runs" (debug/db)))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"only while the eca/repl module runs" (debug/trace! "c"))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"only while the eca/repl module runs"
+                          (debug/trace! "c"))))
   (with-repl (repl-config)
     (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1"})
     (is (= {:id "chat-1"} (debug/chat-raw "chat-1")))

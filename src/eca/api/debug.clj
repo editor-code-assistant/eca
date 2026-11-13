@@ -68,22 +68,27 @@
       (str (subs line 0 max-trace-line-length) "…")
       line)))
 
+(def ^:private ^:dynamic *repl-connection*
+  "The nREPL client evaluating code, which `:eca/repl` binds for each one:
+   `{:send! (fn [writer line]) :traced (atom {chat-id tracer})}`. `send!`
+   queues a line for the client's own thread, so a chat never waits on its
+   socket."
+  nil)
+
 (defn trace!
   "Prints each module event of chat `chat-id`, and what its handlers changed,
-   to the output of the REPL that called this, until `untrace!`. Events
-   nobody handles may not be sent, e.g. `:llm/before-request`."
+   to this REPL, until `untrace!` or the REPL disconnects. Only in the nREPL
+   of `:eca/repl`. Events nobody handles may not be sent, e.g.
+   `:llm/before-request`; lines are dropped when the REPL can't keep up."
   [chat-id]
   (db*)
-  (let [^Writer out @sci/out]
-    (events/trace! chat-id
-                   (fn [event-id kind event result]
-                     (try
-                       (locking out
-                         (.write out (str (trace-line chat-id event-id kind event result) "\n"))
-                         (.flush out))
-                       (catch Exception _
-                         ;; the REPL went away
-                         (events/trace! chat-id nil)))))
+  (let [{:keys [send! traced]} (or *repl-connection*
+                                   (throw (ex-info "trace! works only in the nREPL of the eca/repl module" {})))
+        ^Writer out @sci/out
+        tracer (fn [event-id kind event result]
+                 (send! out (str (trace-line chat-id event-id kind event result) "\n")))]
+    (events/trace! chat-id tracer)
+    (swap! traced assoc chat-id tracer)
     nil))
 
 (defn untrace!

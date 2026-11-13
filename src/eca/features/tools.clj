@@ -247,12 +247,20 @@
   [{:keys [config] :as ctx}]
   (let [entry-tools (fn [[entry module-tools]]
                       (let [module-ctx (modules/module-ctx ctx entry)
-                            module-tools (if (modules/fn-like? module-tools)
+                            module-tools (cond
+                                           (not (modules/fn-like? module-tools))
+                                           module-tools
+
+                                           ;; a built-in's error fails, as before modules, instead of
+                                           ;; quietly dropping its tools
+                                           (:built-in? entry)
+                                           (module-tools module-ctx)
+
+                                           :else
                                            (modules/invoke-safe module-ctx entry "tools"
                                                                 {:timeout-ms (modules/timeout-for
                                                                               entry nil modules/default-handler-timeout-ms)}
-                                                                module-tools module-ctx)
-                                           module-tools)]
+                                                                module-tools module-ctx))]
                         (for [[tool-name tool] module-tools]
                           [entry tool-name tool])))
         {:keys [tools replacing]}
@@ -858,13 +866,15 @@
    with the `:reason` for it."
   [{:keys [all-tools db config agent trust chat-id]} {:keys [tool arguments]}]
   (let [decision (approval all-tools (resolve-tool tool all-tools) arguments db config agent
-                           {:trust trust :chat-id chat-id})]
-    {:approval (if (= :trust/allow decision) :allow decision)
-     :reason (case decision
-               :trust/allow {:code :trust-allow :text "Tool call allowed by trust mode"}
-               :allow {:code :user-config-allow :text "Tool call allowed by user config"}
-               :deny {:code :user-config-deny :text "Tool call rejected by user config"}
-               nil)}))
+                           {:trust trust :chat-id chat-id})
+        reason (case decision
+                 :trust/allow {:code :trust-allow :text "Tool call allowed by trust mode"}
+                 :allow {:code :user-config-allow :text "Tool call allowed by user config"}
+                 :deny {:code :user-config-deny :text "Tool call rejected by user config"}
+                 nil)]
+    ;; no :reason key for :ask: a nil one reads as a handler's value of the wrong type
+    (cond-> {:approval (if (= :trust/allow decision) :allow decision)}
+      reason (assoc :reason reason))))
 
 (def approval-module
   {:id :eca/approval
