@@ -135,6 +135,20 @@
   ;; Set default workspace folder for tests
   (swap! (db*) assoc :workspace-folders [{:uri (shared/filename->uri (System/getProperty "user.dir"))}]))
 
+(defn built-in-modules-with
+  "The built-in modules with these ids, the modules they require, and
+   :eca/core: a module set for `(with-redefs [modules/built-in-modules
+   (constantly ..)])`."
+  [& ids]
+  (let [all @(requiring-resolve 'eca.modules.built-in/modules)
+        by-id (into {} (map (juxt :id identity)) all)
+        wanted (loop [wanted #{:eca/core} pending (vec ids)]
+                 (if-let [id (first pending)]
+                   (recur (conj wanted id)
+                          (into (subvec pending 1) (remove wanted (:requires (by-id id)))))
+                   wanted))]
+    (filterv #(contains? wanted (:id %)) all)))
+
 (defn reset-components-before-test []
   (use-fixtures :each (fn [f] (reset-components!) (f))))
 (defn reset-messenger! [] (swap! components* assoc :messenger (:messenger (make-components))))

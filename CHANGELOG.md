@@ -3,6 +3,9 @@
 ## Unreleased
 
 - Add the module runtime and `/modules`, to list modules and enable, disable or reload one for the session. #699
+- Move the LLM APIs and providers into modules, e.g. `eca/api-openai-chat` and `eca/deepseek`, each declaring its label and login. #699
+- Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
+- Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 
 ## 0.171.1
 

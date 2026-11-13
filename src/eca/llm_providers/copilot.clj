@@ -394,3 +394,19 @@
         token-data (oauth-renew-token provider-settings access-token)]
     (swap! db* update-in [:auth provider] merge token-data)
     (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+
+(def module
+  {:id :eca/copilot
+   :description "GitHub Copilot models, with the account's own model list and quota."
+   ;; picks the Responses or the Chat Completions API by model
+   :requires #{:eca/api-openai-responses :eca/api-openai-chat}
+   :providers {"github-copilot" {:label "GitHub Copilot"
+                                 ;; the flow is the login-step and start-login! methods above
+                                 :login {:methods [{:key "device" :label "GitHub device flow"}]}}}
+   :config-defaults {:providers {"github-copilot" {:api "openai-chat"
+                                                   :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
+                                                   :key nil ;; not supported, requires login auth
+                                                   :requiresAuth? true
+                                                   ;; models come from the account's /models catalog after login;
+                                                   ;; a static entry here would bypass its plan filtering.
+                                                   :models {}}}}})

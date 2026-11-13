@@ -8,6 +8,7 @@
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
+   [eca.llm-providers.variants :as variants]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -1038,3 +1039,27 @@
                                                  :account-id new-account-id
                                                  :expires-at expires-at})
     (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+
+(def api-module
+  {:id :eca/api-openai-responses
+   :description "The OpenAI Responses API."
+   :apis {"openai-responses" {:handler (fn [_ctx request callbacks] (create-response! request callbacks))}}
+   :config-defaults {:variantsByModel (merge variants/openai-responses variants/any-api)}})
+
+(def module
+  {:id :eca/openai
+   :description "GPT models from OpenAI: a ChatGPT subscription or a pasted key."
+   :requires #{:eca/api-openai-responses}
+   :providers {"openai" {:label "OpenAI"
+                         ;; the flows are the login-step and start-login! methods above
+                         :login {:methods [{:key "pro" :label "Pro (subscription via OAuth)"}
+                                           {:key "manual" :label "Manual (paste API key)"}]}}}
+   :config-defaults {:providers {"openai" {:api "openai-responses"
+                                           :url "${env:OPENAI_API_URL:https://api.openai.com}"
+                                           :key "${env:OPENAI_API_KEY}"
+                                           :requiresAuth? true
+                                           :models {"gpt-4.1" {}
+                                                    "gpt-5" {}
+                                                    "gpt-5-mini" {}
+                                                    "gpt-5.2" {}
+                                                    "gpt-5.3-codex" {}}}}}})

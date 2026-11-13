@@ -8,6 +8,7 @@
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
+   [eca.llm-providers.variants :as variants]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -967,3 +968,34 @@
                                                  :api-key access-token
                                                  :expires-at expires-at})
     (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+
+(def api-module
+  {:id :eca/api-anthropic
+   :description "The Anthropic Messages API."
+   :apis {"anthropic" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :config-defaults {:variantsByModel (merge variants/anthropic-messages variants/any-api)}})
+
+(def module
+  {:id :eca/anthropic
+   :description "Claude models from Anthropic: a Max subscription, a Console key or a pasted key."
+   :requires #{:eca/api-anthropic}
+   :providers {"anthropic" {:label "Anthropic"
+                            ;; the flows are the login-step and start-login! methods above
+                            :login {:methods [{:key "max" :label "Max (subscription via OAuth)"}
+                                              {:key "console" :label "Console (API key via OAuth)"}
+                                              {:key "manual" :label "Manual (paste API key)"}]}}}
+   :config-defaults {:providers {"anthropic" {:api "anthropic"
+                                              :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
+                                              :key "${env:ANTHROPIC_API_KEY}"
+                                              :requiresAuth? true
+                                              :models {"claude-sonnet-4-6" {}
+                                                       "claude-sonnet-5" {}
+                                                       "claude-opus-4-6" {}
+                                                       "claude-opus-4-7" {}
+                                                       "claude-opus-4-8" {}
+                                                       "claude-opus-5" {}
+                                                       "claude-opus-5-5" {}
+                                                       "claude-fable-5" {}
+                                                       "claude-fable-5-1" {}
+                                                       "claude-mythos-5" {}
+                                                       "claude-mythos-5-1" {}}}}}})

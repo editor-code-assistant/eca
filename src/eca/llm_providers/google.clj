@@ -1,21 +1,16 @@
-(ns eca.llm-providers.google
-  (:require
-   [clojure.string :as string]
-   [eca.config :as config]
-   [eca.features.login :as f.login]))
+(ns eca.llm-providers.google)
 
 (set! *warn-on-reflection* true)
 
-(defmethod f.login/login-step ["google" :login/start] [{:keys [db* chat-id provider send-msg!]}]
-  (swap! db* assoc-in [:chats chat-id :login-provider] provider)
-  (swap! db* assoc-in [:auth provider] {:step :login/waiting-api-key})
-  (send-msg! "Paste your google API Key"))
-
-(defmethod f.login/login-step ["google" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
-  (if (not (string/blank? input))
-    (do
-      (config/update-global-config! {:providers {provider {:key input}}})
-      (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
-      (send-msg! (format "API key saved to %s" (.getCanonicalPath (config/global-config-file))))
-      (f.login/login-done! ctx))
-    (send-msg! "Invalid API key, it should not be blank")))
+(def module
+  {:id :eca/google
+   :description "Gemini models, through Google's OpenAI-compatible API."
+   :requires #{:eca/api-openai-chat}
+   ;; the entry is a default, so login only saves the key
+   :providers {"google" {:label "Google"
+                         :login {:ask [:api-key]}}}
+   :config-defaults {:providers {"google" {:api "openai-chat"
+                                           :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
+                                           :key "${env:GOOGLE_API_KEY}"
+                                           :requiresAuth? true
+                                           :models {"gemini-2.5-pro" {}}}}}})

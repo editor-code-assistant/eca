@@ -390,6 +390,15 @@
         :when (some? v)]
     [entry v]))
 
+(defn find-contribution
+  "The first active module that contributes `contribution-id` under `k`, e.g.
+   `:apis` \"anthropic\": `[entry value]`, or nil."
+  [config k contribution-id]
+  (some (fn [entry]
+          (when-let [v (get-in (:module entry) [k contribution-id])]
+            [entry v]))
+        (active config)))
+
 (defn prefix
   "The prefix of a module's tools and commands: `:prefix`, else `eca` for
    built-ins and the name part of the id for external modules."

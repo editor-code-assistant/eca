@@ -43,7 +43,7 @@
     (send-msg! "Login cancelled")
     (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle})))
 
-(declare ^:private with-ask-support)
+(declare ^:private with-ask-support ^:private run-login-step! login-done!)
 
 (defn ^:private ask-and-continue!
   "Asks a question via the client's `chat/askQuestion` UI in background and
@@ -67,10 +67,10 @@
             (cancel-login! ctx)
             (let [provider (get-in @db* [:chats chat-id :login-provider])
                   step (get-in @db* [:auth provider :step] :login/start)]
-              (login-step (with-ask-support (assoc ctx
-                                                   :provider provider
-                                                   :step step
-                                                   :input answer)))))))
+              (run-login-step! (with-ask-support (assoc ctx
+                                                        :provider provider
+                                                        :step step
+                                                        :input answer)))))))
       (catch Exception e
         (logger/error logger-tag "Error handling login answer:" (ex-message e))
         ((:send-msg! ctx) (str "Login error: " (ex-message e)))))))
@@ -85,14 +85,71 @@
     ctx))
 
 (defn ^:private login-providers
-  "Providers `/login` can handle: the ones with login state, plus configured
-   providers inheriting from one of them."
+  "Providers `/login` can handle: the ones a module declares a login for, plus
+   configured providers, or providers with login state, that inherit from one
+   of them."
   [db config]
-  (let [auth-providers (set (keys (:auth db)))]
-    (->> (keys (:providers config))
-         (filter #(contains? auth-providers (config/provider-base % config)))
-         (into auth-providers)
+  (let [loginable (f.providers/login-provider-ids config)]
+    (->> (concat (keys (:auth db)) (keys (:providers config)))
+         (filter #(contains? loginable (config/provider-base % config)))
+         (into loginable)
          sort)))
+
+;; Providers that log in by asking for fields, `:login {:ask [..]}`
+
+(defn ^:private ask-step [field]
+  (keyword "login" (str "waiting-" (name field))))
+
+(defn ^:private ask-prompt [[field label]]
+  (case field
+    :api-key (str "Paste your " label)
+    :models (if (= "Model names (comma-separated)" label)
+              "Inform one or more models (separated by `,`):"
+              (str "Inform the " label ":"))
+    (str "Inform the " label ":")))
+
+(defn ^:private saved-text [fields]
+  (let [names (map {:api-key "API key" :url "url" :models "models"} (map first fields))
+        text (if (next names)
+               (str (string/join ", " (butlast names)) " and " (last names))
+               (first names))]
+    (str (string/upper-case (subs text 0 1)) (subs text 1))))
+
+(defn ^:private ask-login-step!
+  "One step of an `:ask` login: ask for each field in turn, then save the
+   declaration's config keys and the answers to the global config."
+  [{:keys [db* chat-id provider step input send-msg!] :as ctx} declaration]
+  (let [fields (f.providers/ask-fields (get-in declaration [:login :ask]))
+        next-field (fn [field] (second (drop-while #(not= field %) fields)))]
+    (if (= :login/start step)
+      (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
+          (swap! db* assoc-in [:auth provider] {:step (ask-step (ffirst fields))})
+          (send-msg! (ask-prompt (first fields))))
+      (if-let [[field-name :as field] (some #(when (= step (ask-step (first %))) %) fields)]
+        (let [value (some-> input string/trim)]
+          (if (string/blank? value)
+            (send-msg! (format "Invalid %s, it should not be blank" (case field-name :api-key "API key" (name field-name))))
+            (let [answers (-> (get-in @db* [:auth provider])
+                              (dissoc :step)
+                              (assoc field-name value))]
+              (if-let [field (next-field field)]
+                (do (swap! db* assoc-in [:auth provider] (assoc answers :step (ask-step (first field))))
+                    (send-msg! (ask-prompt field)))
+                (do (config/update-global-config!
+                     {:providers {provider (f.providers/login-config declaration answers)}})
+                    (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
+                    (send-msg! (format "%s saved to %s" (saved-text fields)
+                                       (.getCanonicalPath (config/global-config-file))))
+                    (login-done! ctx))))))
+        (send-msg! "Error: Unknown login step")))))
+
+(defn ^:private run-login-step!
+  "Runs the current login step: the provider's `:ask` flow when it declares
+   one, otherwise its `login-step` methods."
+  [{:keys [provider config] :as ctx}]
+  (if-let [declaration (when provider (f.providers/ask-declaration provider config))]
+    (ask-login-step! ctx declaration)
+    (login-step ctx)))
 
 ;; No provider selected
 (defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
@@ -103,7 +160,7 @@
           (swap! db* assoc-in [:auth provider] {:step :login/start})
           (when-let [warning (f.providers/key-auth-override-warning provider config)]
             (send-msg! warning))
-          (login-step (assoc ctx :provider provider)))
+          (run-login-step! (assoc ctx :provider provider)))
       (if ask!
         (ask! {:question "Select the provider to login (other providers can be configured manually in your ECA config):"
                :options (mapv (fn [p] {:label p}) providers)})
@@ -157,7 +214,7 @@
         {:chat-id chat-id
          :status :idle})
       (do
-        (login-step ctx)
+        (run-login-step! ctx)
         {:chat-id chat-id
          :status :login}))))
 

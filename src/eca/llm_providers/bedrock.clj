@@ -11,6 +11,7 @@
    [cheshire.core :as json]
    [clojure.string :as string]
    [eca.client-http :as client]
+   [eca.llm-providers.variants :as variants]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.shared :as shared :refer [assoc-some join-api-url]]
@@ -529,3 +530,19 @@
                            :on-stream (when stream?
                                         (fn [event data content-block*]
                                           (handle-stream event data content-block* stream-ctx)))}))))
+
+(def api-module
+  {:id :eca/api-bedrock
+   :description "The AWS Bedrock Converse API."
+   :apis {"bedrock" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :config-defaults {:variantsByModel (merge variants/anthropic-messages variants/any-api)}})
+
+(def module
+  {:id :eca/bedrock
+   :description "Models on AWS Bedrock, with a bearer token."
+   :requires #{:eca/api-bedrock}
+   :providers {"bedrock" {:label "AWS Bedrock"
+                          :api "bedrock"
+                          :login {:ask [[:api-key "API Key (AWS_BEARER_TOKEN_BEDROCK)"]
+                                        [:url "Runtime URL (e.g. https://bedrock-runtime.us-east-1.amazonaws.com)"]
+                                        [:models "Model/inference-profile ids (comma-separated)"]]}}}})

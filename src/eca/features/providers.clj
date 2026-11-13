@@ -6,81 +6,96 @@
    [eca.features.quota :as f.quota]
    [eca.messenger :as messenger]
    [eca.models :as models]
+   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
-;; --- Provider metadata ---
+;; --- Provider declarations, from the modules' :providers ---
 
-(def ^:private provider-labels
-  {"anthropic" "Anthropic"
-   "openai" "OpenAI"
-   "github-copilot" "GitHub Copilot"
-   "google" "Google"
-   "azure" "Azure"
-   "bedrock" "AWS Bedrock"
-   "deepseek" "DeepSeek"
-   "litellm" "LiteLLM"
-   "lmstudio" "LM Studio"
-   "mistral" "Mistral"
-   "moonshot" "Moonshot"
-   "openrouter" "OpenRouter"
-   "z-ai" "Z-AI"
-   "ollama" "Ollama"})
+(def ^:private declaration-keys
+  "Keys of a provider declaration that aren't provider config."
+  #{:label :login})
 
-(def ^:private login-methods
-  {"anthropic"      [{:key "max"     :label "Max (subscription via OAuth)"}
-                     {:key "console" :label "Console (API key via OAuth)"}
-                     {:key "manual"  :label "Manual (paste API key)"}]
-   "openai"         [{:key "pro"    :label "Pro (subscription via OAuth)"}
-                     {:key "manual" :label "Manual (paste API key)"}]
-   "github-copilot" [{:key "device" :label "GitHub device flow"}]
-   "google"         [{:key "api-key" :label "Enter API key"}]
-   "azure"          [{:key "api-key" :label "Enter API key, URL & models"}]
-   "bedrock"        [{:key "api-key" :label "Enter API key, URL & models"}]
-   "deepseek"       [{:key "api-key" :label "Enter API key & models"}]
-   "litellm"        [{:key "api-key" :label "Enter API key, URL & models"}]
-   "lmstudio"       [{:key "api-key" :label "Enter models"}]
-   "mistral"        [{:key "api-key" :label "Enter API key & models"}]
-   "moonshot"       [{:key "api-key" :label "Enter API key & models"}]
-   "openrouter"     [{:key "api-key" :label "Enter API key & models"}]
-   "z-ai"           [{:key "api-key" :label "Enter API key & models"}]})
+(defn declarations
+  "Provider id → declaration (`:label`, `:login` and the config keys a login
+   saves), from the active modules' `:providers`. The first module wins."
+  [config]
+  (reduce (fn [acc [_entry providers]]
+            (reduce-kv (fn [acc id declaration]
+                         (if (contains? acc id) acc (assoc acc id declaration)))
+                       acc
+                       providers))
+          {}
+          (modules/contributions config :providers)))
 
-(def ^:private provider-login-fields
-  {"google"     [{:key "api-key" :label "API Key" :type "secret"}]
-   "deepseek"   [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "litellm"    [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "url"     :label "API URL (e.g. https://litellm.my-company.com)" :type "text"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "lmstudio"   [{:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "mistral"    [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "moonshot"   [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "openrouter" [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "z-ai"       [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "azure"      [{:key "api-key" :label "API Key" :type "secret"}
-                 {:key "url"     :label "API URL" :type "text"}
-                 {:key "models"  :label "Model names (comma-separated)" :type "text"}]
-   "bedrock"    [{:key "api-key" :label "API Key (AWS_BEARER_TOKEN_BEDROCK)" :type "secret"}
-                 {:key "url"     :label "Runtime URL (e.g. https://bedrock-runtime.us-east-1.amazonaws.com)" :type "text"}
-                 {:key "models"  :label "Model/inference-profile ids (comma-separated)" :type "text"}]})
+(defn ^:private base-declaration
+  "The declaration of `provider-name`, or of the provider it inherits from."
+  [provider-name config]
+  (let [declarations (declarations config)]
+    (or (get declarations provider-name)
+        (get declarations (config/provider-base provider-name config)))))
 
-(def ^:private provider-configs
-  {"deepseek"   {:api "openai-chat" :url "https://api.deepseek.com"}
-   "litellm"    {:api "openai-responses"}
-   "lmstudio"   {:api "openai-chat" :url "http://localhost:1234"
-                 :completionUrlRelativePath "/v1/chat/completions"
-                 :httpClient {:version "http-1.1"}}
-   "mistral"    {:api "openai-chat" :url "https://api.mistral.ai/v1"}
-   "moonshot"   {:api "openai-chat" :url "https://api.kimi.com/coding/v1"}
-   "openrouter" {:api "openai-chat" :url "https://openrouter.ai/api/v1"}
-   "z-ai"       {:api "anthropic" :url "https://api.z.ai/api/anthropic"}
-   "azure"      {:api "openai-chat"}
-   "bedrock"    {:api "bedrock"}})
+(defn login-provider-ids
+  "The providers a module declares a login for."
+  [config]
+  (into #{} (keep (fn [[id declaration]] (when (:login declaration) id))) (declarations config)))
+
+(def ^:private ask-field-defaults
+  {:api-key {:key "api-key" :label "API Key" :type "secret"}
+   :url {:key "url" :label "API URL" :type "text"}
+   :models {:key "models" :label "Model names (comma-separated)" :type "text"}})
+
+(defn ask-fields
+  "The fields of a `:login {:ask [..]}` declaration, as `[field label]` pairs.
+   A field is `:api-key`, `:url` or `:models`, or `[field label]`."
+  [ask]
+  (mapv (fn [field]
+          (if (vector? field)
+            [(first field) (second field)]
+            [field (get-in ask-field-defaults [field :label])]))
+        ask))
+
+(defn ^:private ask-method-label [ask]
+  (let [names (map {:api-key "API key" :url "URL" :models "models"} (map first (ask-fields ask)))]
+    (str "Enter " (if (next names)
+                    (str (string/join ", " (butlast names)) " & " (last names))
+                    (first names)))))
+
+(defn ^:private login-methods [provider-name config]
+  (let [{:keys [ask methods]} (:login (base-declaration provider-name config))]
+    (cond
+      methods methods
+      ask [{:key "api-key" :label (ask-method-label ask)}])))
+
+(defn ^:private login-fields [provider-name config]
+  (when-let [ask (get-in (base-declaration provider-name config) [:login :ask])]
+    (mapv (fn [[field label]] (assoc (ask-field-defaults field) :label label))
+          (ask-fields ask))))
+
+(defn ask-declaration
+  "The declaration of `provider-name`, or of the provider it inherits from,
+   when it logs in by asking for fields: `:login {:ask [..]}`."
+  [provider-name config]
+  (let [declaration (base-declaration provider-name config)]
+    (when (get-in declaration [:login :ask])
+      declaration)))
+
+(defn parse-models
+  "Comma-separated model names → a provider `:models` map."
+  [s]
+  (into {}
+        (comp (map string/trim) (remove string/blank?) (map (fn [model] [model {}])))
+        (string/split (or s "") #",")))
+
+(defn login-config
+  "The provider config an `:ask` login saves: the declaration's config keys
+   plus the answers."
+  [declaration {:keys [api-key url models]}]
+  (shared/assoc-some (apply dissoc declaration declaration-keys)
+                     :key api-key
+                     :url (some-> url string/trim not-empty)
+                     :models (not-empty (parse-models models))))
 
 ;; --- Auth resolution ---
 
@@ -197,9 +212,9 @@
       :configured configured?
       :auth auth-info
       :models models}
-     :label (get provider-labels provider-name)
+     :label (:label (get (declarations config) provider-name))
      :settings (config-settings provider-config provider-settings-exclude-keys)
-     :login (when-let [methods (get login-methods (config/provider-base provider-name config))]
+     :login (when-let [methods (login-methods provider-name config)]
               {:methods methods})
      ;; Only subscription logins (OAuth) have a quota, see eca.features.quota.
      :quota (when (= "oauth" (:type auth-info))
@@ -272,9 +287,13 @@
   "Returns all known providers with their current status."
   [db* config]
   (let [db @db*
-        auth-providers (set (keys (:auth db)))
+        loginable (login-provider-ids config)
+        ;; providers with login state: logged in, or of a provider that logs in
+        auth-providers (filter #(or (seq (get-in db [:auth %]))
+                                    (contains? loginable (config/provider-base % config)))
+                               (keys (:auth db)))
         config-providers (set (keys (:providers config)))
-        all-provider-names (sort (into config-providers auth-providers))]
+        all-provider-names (sort (-> config-providers (into loginable) (into auth-providers)))]
     {:providers (mapv #(build-provider-status % db config) all-provider-names)}))
 
 (defn provider-login
@@ -282,8 +301,7 @@
    Two-round-trip: first call without method returns choose-method,
    second call with method returns an action descriptor."
   [provider-name method db* config messenger metrics]
-  (let [base-provider (config/provider-base provider-name config)
-        methods (get login-methods base-provider)]
+  (let [methods (login-methods provider-name config)]
     (when-not methods
       (throw (ex-info "Unknown provider" {:error-response {:message (str "Unknown provider: " provider-name)}})))
     (cond
@@ -298,7 +316,7 @@
 
       ;; Manual / API key methods -> return input fields
       (or (= method "manual") (= method "api-key"))
-      (let [fields (or (get provider-login-fields base-provider)
+      (let [fields (or (login-fields provider-name config)
                        [{:key "api-key" :label "API Key" :type "secret"}])]
         {:action "input" :fields fields})
 
@@ -313,21 +331,14 @@
     ;; OAuth code exchange (e.g., Anthropic after browser auth)
     (complete-oauth-code! provider-name data db* config messenger metrics)
     ;; API key input
-    (let [base-provider (config/provider-base provider-name config)
-          api-key (get data :api-key)
-          models-str (get data :models)
-          url (get data :url)
-          provider-cfg (get provider-configs base-provider)
-          models-map (when (not-empty models-str)
-                       (into {} (map (fn [m] [(string/trim m) {}])
-                                     (string/split models-str #","))))]
-      (if (get provider-login-fields base-provider)
-        ;; Providers that save to config (google, deepseek, openrouter, z-ai, azure)
-        (let [config-update (shared/assoc-some
-                             (merge {:key api-key} provider-cfg)
-                             :url (or url (:url provider-cfg))
-                             :models models-map)]
-          (config/update-global-config! {:providers {provider-name config-update}})
+    (let [api-key (get data :api-key)]
+      (if-let [declaration (ask-declaration provider-name config)]
+        ;; Providers that log in by asking for fields save them to config
+        (do
+          (config/update-global-config!
+           {:providers {provider-name (login-config declaration {:api-key api-key
+                                                                 :url (get data :url)
+                                                                 :models (get data :models)})}})
           (swap! db* assoc-in [:auth provider-name] {:step :login/done :type :auth/token}))
         ;; Manual key for OAuth providers (anthropic, openai)
         (swap! db* assoc-in [:auth provider-name] {:step :login/done

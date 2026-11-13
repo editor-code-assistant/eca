@@ -4,9 +4,10 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.prompt :as f.prompt]
-   [eca.llm-providers.anthropic :as llm-providers.anthropic]
+   ;; the providers' multimethods (login, quota, errors) and modules
+   [eca.llm-providers.anthropic]
    [eca.llm-providers.azure]
-   [eca.llm-providers.bedrock :as llm-providers.bedrock]
+   [eca.llm-providers.bedrock]
    [eca.llm-providers.copilot]
    [eca.llm-providers.deepseek]
    [eca.llm-providers.errors :as llm-providers.errors]
@@ -15,14 +16,15 @@
    [eca.llm-providers.lmstudio]
    [eca.llm-providers.mistral]
    [eca.llm-providers.moonshot]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
-   [eca.llm-providers.openai :as llm-providers.openai]
-   [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
+   [eca.llm-providers.ollama]
+   [eca.llm-providers.openai]
+   [eca.llm-providers.openai-chat]
    [eca.llm-providers.openrouter]
    [eca.llm-providers.z-ai]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -181,39 +183,40 @@
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
-(defn ^:private api->handler [api]
-  (case (some-> api keyword)
-    :openai-responses {:api     :openai-responses
-                       :handler llm-providers.openai/create-response!}
-    :anthropic {:api     :anthropic
-                :handler llm-providers.anthropic/chat!}
-    :openai-chat {:api     :openai-chat
-                  :handler llm-providers.openai-chat/chat-completion!}
-    :ollama {:api     :ollama
-             :handler llm-providers.ollama/chat!}
-    :bedrock {:api     :bedrock
-              :handler llm-providers.bedrock/chat!}
-    nil))
+(defn ^:private api->handler
+  "The handler of an API, e.g. `openai-chat`, from the active modules' `:apis`,
+   as `{:api :openai-chat :handler (fn [request callbacks])}`; nil when no
+   active module has it."
+  [api config]
+  (when-let [api-name (some-> api name)]
+    (when-let [[entry {:keys [handler]}] (modules/find-contribution config :apis api-name)]
+      {:api (keyword api-name)
+       :handler (fn [request callbacks]
+                  (let [ctx (modules/module-ctx {:config config} entry)]
+                    (if (:built-in? entry)
+                      (handler ctx request callbacks)
+                      (modules/invoke ctx entry (str "API " api-name) {} handler ctx request callbacks))))})))
 
 (defn provider->api-handler
   ([provider model config]
    (provider->api-handler provider model nil config))
   ([provider model model-capabilities config]
-   (or (api->handler (:api model-capabilities))
+   (or (api->handler (:api model-capabilities) config)
        (let [base-provider (config/provider-base provider config)]
          (cond
-           (= "openai" base-provider) (api->handler :openai-responses)
-           (= "anthropic" base-provider) (api->handler :anthropic)
+           (= "openai" base-provider) (api->handler :openai-responses config)
+           (= "anthropic" base-provider) (api->handler :anthropic config)
            (= "github-copilot" base-provider) (api->handler (if (copilot-responses-api-model? model)
                                                               :openai-responses
-                                                              :openai-chat))
-           (= "google" base-provider) (api->handler :openai-chat)
-           (= "ollama" base-provider) (api->handler :ollama)
+                                                              :openai-chat)
+                                                            config)
+           (= "google" base-provider) (api->handler :openai-chat config)
+           (= "ollama" base-provider) (api->handler :ollama config)
            :else (case (get-in config [:providers provider :api])
-                   ("openai-responses" "openai") (api->handler :openai-responses)
-                   "anthropic" (api->handler :anthropic)
-                   "openai-chat" (api->handler :openai-chat)
-                   "bedrock" (api->handler :bedrock)
+                   ("openai-responses" "openai") (api->handler :openai-responses config)
+                   "anthropic" (api->handler :anthropic config)
+                   "openai-chat" (api->handler :openai-chat config)
+                   "bedrock" (api->handler :bedrock config)
                    nil))))))
 
 (def ^:private reasoning-keys-by-api

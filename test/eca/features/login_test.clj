@@ -10,83 +10,86 @@
    [eca.features.login :as login]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
    [eca.llm-providers.copilot :as llm-providers.copilot]
+   [eca.modules :as modules]
    [eca.test-helper :as h]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
 (deftest test-login-step
-  (let [msg-log (atom [])
-        send-msg! (fn [msg] (swap! msg-log conj msg))
+  ;; the providers /login offers come from the active provider modules
+  (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/google :eca/copilot))]
+    (let [msg-log (atom [])
+          send-msg! (fn [msg] (swap! msg-log conj msg))
 
-        db* (atom {:auth {"google" {}
-                          "github-copilot" {}}
-                   :chats {1 {}}})]
+          db* (atom {:auth {"google" {}
+                            "github-copilot" {}}
+                     :chats {1 {}}})]
 
-    (testing "user just typed /login for the first time"
-      (login/login-step {:provider nil
-                         :step :login/start
-                         :chat-id 0
-                         :input ""
-                         :db* db*
-                         :send-msg! send-msg!})
+      (testing "user just typed /login for the first time"
+        (login/login-step {:provider nil
+                           :step :login/start
+                           :chat-id 0
+                           :input ""
+                           :db* db*
+                           :send-msg! send-msg!})
 
-      (testing "should ask to choose a provider"
-        (is (= "Inform the provider:\n\n- github-copilot\n- google\n\n\nFor other providers, configure manually in your ECA config."
-               (last @msg-log)))))
+        (testing "should ask to choose a provider"
+          (is (= "Inform the provider:\n\n- github-copilot\n- google\n\n\nFor other providers, configure manually in your ECA config."
+                 (last @msg-log)))))
 
-    (testing "user is confused"
-      (login/login-step {:provider nil
-                         :step :login/start
-                         :chat-id 0
-                         :input "/login github"
-                         :db* db*
-                         :send-msg! send-msg!})
+      (testing "user is confused"
+        (login/login-step {:provider nil
+                           :step :login/start
+                           :chat-id 0
+                           :input "/login github"
+                           :db* db*
+                           :send-msg! send-msg!})
 
-      (testing "should ask to choose a provider and provide instructions"
-        (is (= "Inform the provider:\n\n- github-copilot\n- google\n\n\nFor other providers, configure manually in your ECA config."
-               (last @msg-log)))
-
-        (testing "state didn't change"
-          (is (= {:auth {"github-copilot" {}
-                         "google" {}}
-                  :chats {1 {}}}
-                 @db*)))))
-
-    (testing "valid input is provided"
-      (let [poll-args* (atom nil)]
-        (with-redefs-fn {#'http/post (constantly {:body {:user_code "1234"
-                                                         :decide_code "5678"
-                                                         :verification_uri "https://mock.github.com/login/device"}})
-                         #'llm-providers.copilot/poll-device-authorization! (fn [& args]
-                                                                              (reset! poll-args* args)
-                                                                              nil)}
-          #(login/login-step {:provider nil
-                              :step :login/start
-                              :chat-id 0
-                              :input "github-copilot"
-                              :db* db*
-                              :send-msg! send-msg!}))
-
-        (testing "should proceed to the next step with clickable link and start background polling"
-          (is (= (str "First, make sure you have Copilot enabled in your GitHub account: [https://github.com/settings/copilot/features](https://github.com/settings/copilot/features)\n"
-                      "\n"
-                      "Then, open your browser at [https://mock.github.com/login/device](https://mock.github.com/login/device) and authenticate using the code:\n"
-                      "\n"
-                      "`1234`\n"
-                      "\n"
-                      "ECA will complete the login automatically after you authorize, type 'cancel' anytime to abort.")
+        (testing "should ask to choose a provider and provide instructions"
+          (is (= "Inform the provider:\n\n- github-copilot\n- google\n\n\nFor other providers, configure manually in your ECA config."
                  (last @msg-log)))
-          (is (some? @poll-args*)
-              "background device authorization polling should be started")
 
-          (testing "state is update to reflect in-progress login"
-            (is (match? {:auth {"github-copilot" {;; skipping :device-code attr
-                                                  :step :login/waiting-user-confirmation}
-                                "google" {}}
-                         :chats {0 {:login-provider "github-copilot"}
-                                 1 {}}}
+          (testing "state didn't change"
+            (is (= {:auth {"github-copilot" {}
+                           "google" {}}
+                    :chats {1 {}}}
+                   @db*)))))
 
-                        @db*))))))))
+      (testing "valid input is provided"
+        (let [poll-args* (atom nil)]
+          (with-redefs-fn {#'http/post (constantly {:body {:user_code "1234"
+                                                           :decide_code "5678"
+                                                           :verification_uri "https://mock.github.com/login/device"}})
+                           #'llm-providers.copilot/poll-device-authorization! (fn [& args]
+                                                                                (reset! poll-args* args)
+                                                                                nil)}
+            #(login/login-step {:provider nil
+                                :step :login/start
+                                :chat-id 0
+                                :input "github-copilot"
+                                :db* db*
+                                :send-msg! send-msg!}))
+
+          (testing "should proceed to the next step with clickable link and start background polling"
+            (is (= (str "First, make sure you have Copilot enabled in your GitHub account: [https://github.com/settings/copilot/features](https://github.com/settings/copilot/features)\n"
+                        "\n"
+                        "Then, open your browser at [https://mock.github.com/login/device](https://mock.github.com/login/device) and authenticate using the code:\n"
+                        "\n"
+                        "`1234`\n"
+                        "\n"
+                        "ECA will complete the login automatically after you authorize, type 'cancel' anytime to abort.")
+                   (last @msg-log)))
+            (is (some? @poll-args*)
+                "background device authorization polling should be started")
+
+            (testing "state is update to reflect in-progress login"
+              (is (match? {:auth {"github-copilot" {;; skipping :device-code attr
+                                                    :step :login/waiting-user-confirmation}
+                                  "google" {}}
+                           :chats {0 {:login-provider "github-copilot"}
+                                   1 {}}}
+
+                          @db*)))))))))
 
 (deftest login-step-warns-about-configured-key-test
   (testing "selecting a provider during /login warns when a configured key overrides login auth"
@@ -177,11 +180,13 @@
                      :auth {"anthropic" {}
                             "github-copilot" {}}
                      :chats {"c1" {:status :login}}})]
-      (login/handle-step {:message "" :chat-id "c1"}
-                         db*
-                         (stub-messenger contents* asked* answers*)
-                         {:env "test"}
-                         nil)
+      ;; the providers /login offers come from the active provider modules
+      (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/anthropic :eca/copilot))]
+        (login/handle-step {:message "" :chat-id "c1"}
+                           db*
+                           (stub-messenger contents* asked* answers*)
+                           {:env "test"}
+                           nil))
       (is (= ["Select the provider to login (other providers can be configured manually in your ECA config):"
               "Select the Anthropic login method:"]
              (mapv :question @asked*)))
@@ -352,3 +357,97 @@
            :config {:providers {"anthropic" {:key "local-proxy-key"}}}}))
       (is (zero? @renew-calls*))
       (is (zero? @renewing-calls*)))))
+
+(defn- ask-login!
+  "Runs a whole `/login` in chat, one message per input, capturing the saved
+   config and the messages sent."
+  [inputs]
+  (let [msg-log (atom [])
+        saved* (atom [])
+        done* (atom 0)
+        db* (atom {:auth {} :chats {0 {}}})]
+    (with-redefs [config/update-global-config! #(swap! saved* conj %)
+                  config/get-env (constantly nil) ; no "<PROVIDER>_API_KEY" warnings
+                  login/login-done! (fn [& _] (swap! done* inc))]
+      (doseq [input inputs]
+        (login/handle-step {:message input :chat-id 0}
+                           db*
+                           (h/stub-messenger {:chat-content-received #(swap! msg-log conj %)})
+                           {:env "test"}
+                           nil)))
+    {:texts (->> @msg-log
+                 (filter #(= :text (get-in % [:content :type])))
+                 (mapv #(get-in % [:content :text])))
+     :saved @saved*
+     :done @done*
+     :db @db*}))
+
+(deftest ask-login-test
+  (testing "a provider declaring :login {:ask [:api-key :models]} asks for each, then saves its entry"
+    (let [{:keys [texts saved done db]} (ask-login! ["deepseek" "sk-secret" "deepseek-chat, deepseek-reasoner"])]
+      (is (= ["deepseek\n"
+              "Paste your API Key"
+              "*****\n"
+              "Inform one or more models (separated by `,`):"
+              "deepseek-chat, deepseek-reasoner\n"
+              (str "API key and models saved to " (.getCanonicalPath (config/global-config-file)))]
+             texts))
+      (is (= [{:providers {"deepseek" {:api "openai-chat"
+                                       :url "https://api.deepseek.com"
+                                       :key "sk-secret"
+                                       :models {"deepseek-chat" {} "deepseek-reasoner" {}}}}}]
+             saved))
+      (is (= 1 done))
+      (is (= {:step :login/done :type :auth/token} (get-in db [:auth "deepseek"])))))
+  (testing "a URL field: Azure saves the URL it asked for"
+    (let [{:keys [texts saved]} (ask-login! ["azure" "key" "https://acme.openai.azure.com" "gpt-5"])]
+      (is (= "Inform the API URL (e.g. https://your-resource-name.openai.azure.com):" (nth texts 3)))
+      (is (= [{:providers {"azure" {:api "openai-responses"
+                                    :completionUrlRelativePath "/openai/responses?api-version=2025-04-01-preview"
+                                    :key "key"
+                                    :url "https://acme.openai.azure.com"
+                                    :models {"gpt-5" {}}}}}]
+             saved))
+      (is (string/starts-with? (last texts) "API key, url and models saved to "))))
+  (testing "a provider whose entry is a default saves only the answers"
+    (let [{:keys [texts saved]} (ask-login! ["google" "AIza-key"])]
+      (is (= [{:providers {"google" {:key "AIza-key"}}}] saved))
+      (is (string/starts-with? (last texts) "API key saved to "))))
+  (testing "a blank answer is asked again"
+    (let [{:keys [texts saved db]} (ask-login! ["google" " "])]
+      (is (= "Invalid API key, it should not be blank" (last texts)))
+      (is (= [] saved))
+      (is (= :login/waiting-api-key (get-in db [:auth "google" :step])))))
+  (testing "no key for local providers"
+    (let [{:keys [texts saved]} (ask-login! ["lmstudio" "qwen3"])]
+      (is (= "Inform one or more models (separated by `,`):" (nth texts 1)))
+      (is (= [{:providers {"lmstudio" {:api "openai-chat"
+                                       :url "http://localhost:1234"
+                                       :completionUrlRelativePath "/v1/chat/completions"
+                                       :httpClient {:version "http-1.1"}
+                                       :models {"qwen3" {}}}}}]
+             saved))
+      (is (string/starts-with? (last texts) "Models saved to "))))
+  (testing "Bedrock, with its own field labels, can log in from chat too"
+    (let [{:keys [texts saved]} (ask-login! ["bedrock" "token" "https://bedrock-runtime.us-east-1.amazonaws.com"
+                                             "anthropic.claude-sonnet-4-6"])]
+      (is (= "Paste your API Key (AWS_BEARER_TOKEN_BEDROCK)" (nth texts 1)))
+      (is (= [{:providers {"bedrock" {:api "bedrock"
+                                      :key "token"
+                                      :url "https://bedrock-runtime.us-east-1.amazonaws.com"
+                                      :models {"anthropic.claude-sonnet-4-6" {}}}}}]
+             saved)))))
+
+(deftest login-providers-from-modules-test
+  (testing "/login offers the providers the active modules declare a login for"
+    (let [{:keys [texts]} (ask-login! [""])]
+      (is (= (str "Inform the provider:\n\n"
+                  "- anthropic\n- azure\n- bedrock\n- deepseek\n- github-copilot\n- google\n- litellm\n"
+                  "- lmstudio\n- mistral\n- moonshot\n- openai\n- openrouter\n- z-ai\n\n\n"
+                  "For other providers, configure manually in your ECA config.")
+             (last texts)))))
+  (testing "a disabled provider module isn't offered"
+    (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/anthropic :eca/deepseek))]
+      (let [{:keys [texts]} (ask-login! [""])]
+        (is (= "Inform the provider:\n\n- anthropic\n- deepseek\n\n\nFor other providers, configure manually in your ECA config."
+               (last texts)))))))

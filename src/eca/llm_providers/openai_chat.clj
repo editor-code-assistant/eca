@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.client-http :as client]
+   [eca.llm-providers.variants :as variants]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -837,3 +838,9 @@
       :on-usage-updated on-usage-updated
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls*)))})))
+
+(def api-module
+  {:id :eca/api-openai-chat
+   :description "The OpenAI Chat Completions API, which OpenAI-compatible providers speak."
+   :apis {"openai-chat" {:handler (fn [_ctx request callbacks] (chat-completion! request callbacks))}}
+   :config-defaults {:variantsByModel (merge variants/openai-chat variants/any-api)}})

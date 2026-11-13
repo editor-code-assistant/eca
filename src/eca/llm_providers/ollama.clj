@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.client-http :as client]
+   [eca.llm-providers.variants :as variants]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -258,3 +259,16 @@
       :stream-idle-timeout-seconds stream-idle-timeout-seconds
       :on-error on-error
       :on-stream on-stream-fn})))
+
+(def api-module
+  {:id :eca/api-ollama
+   :description "The Ollama chat API."
+   :apis {"ollama" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :config-defaults {:variantsByModel variants/any-api}})
+
+(def module
+  {:id :eca/ollama
+   :description "Local models through Ollama: the models pulled locally."
+   :requires #{:eca/api-ollama}
+   :providers {"ollama" {:label "Ollama"}}
+   :config-defaults {:providers {"ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}}})
