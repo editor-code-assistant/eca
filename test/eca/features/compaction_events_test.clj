@@ -189,6 +189,16 @@
     (is (match? [[:chat/before-compact {:trigger :overflow}] [:chat/compact {:trigger :overflow}]] @events*))
     (is (match? {:role "compact_marker" :content {:module :acme/compact}}
                 (nth (get-in (h/db) [:chats chat-id :messages]) 2))))
+  (testing "without :resume?, the turn goes on too, as after the built-in compaction; :resume? false ends it"
+    (doseq [[answer resumes?] [[{:status :done} true] [{:status :done :resume? false} false]]]
+      (setup-chat!)
+      (with-module! {:chat/compact (fn [ctx event] (summarize ctx event) answer)})
+      (let [resumed* (atom false)
+            finished* (atom false)]
+        (with-redefs-fn {#'f.chat/resume-after-compact! (fn [& _] (reset! resumed* true) nil)
+                         #'lifecycle/finish-chat-prompt! (fn [& _] (reset! finished* true) nil)}
+          #(#'f.chat/trigger-auto-compact! (ctx) [] []))
+        (is (= [resumes? (not resumes?)] [@resumed* @finished*]) (pr-str answer)))))
   (testing "a failed compaction stops the turn"
     (setup-chat!)
     (with-module! {:chat/compact (constantly {:status :failed :message "The summarizer is down."})})

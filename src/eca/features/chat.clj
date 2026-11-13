@@ -805,8 +805,8 @@
    stopReason, hook-name or module for provenance); exit 2 (or a module's
    :block) only blocks compaction, in which case `on-blocked` decides how the
    turn goes on and its result is returned. A module answering `:chat/compact`
-   compacts instead of the compact prompt; the turn then resumes when it says
-   `:resume?`. Otherwise the compact prompt is sent under :auto-compacting?,
+   compacts instead of the compact prompt; the turn then resumes, unless it
+   says `:resume? false`. Otherwise the compact prompt is sent under :auto-compacting?,
    so finishing it does not end the turn: the finish side-effect applies the
    compaction and the after-finish continuation resumes the task.
    `event-trigger` is the trigger compaction events report, e.g. :overflow.
@@ -850,7 +850,9 @@
             (not compacted?)
             (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
 
-            (:resume? answer)
+            ;; as after the built-in compaction, the interrupted task goes on
+            ;; unless the module says not to
+            (get answer :resume? true)
             (resume-after-compact! chat-ctx user-messages)
 
             :else
@@ -1885,12 +1887,17 @@
                                 (logger/info logger-tag "Ignoring error for finished or superseded prompt"
                                              {:chat-id chat-id :message message})
 
-                                ;; A module asked to compact, then go on with the task.
-                                (:compact module-answer)
+                                ;; A module asked to compact, then go on with the task. As on the
+                                ;; built-in overflow path, an overflow first prunes old tool outputs,
+                                ;; and only a chat with history can compact (#491).
+                                (and (:compact module-answer)
+                                     (or (not= :context-overflow error-type) compactable?))
                                 (let [opts (:compact module-answer)
                                       chat-ctx (assoc chat-ctx :module-recovery-attempted? true)]
                                   (logger/info logger-tag "Compacting after a failed request, as a module asked"
                                                {:chat-id chat-id :error-type error-type})
+                                  (when (= :context-overflow error-type)
+                                    (prune-tool-results! db* chat-id {}))
                                   (trigger-requested-compact! chat-ctx all-tools user-messages
                                                               {:trigger (or (when (map? opts) (:trigger opts))
                                                                             (when (= :context-overflow error-type) :overflow))

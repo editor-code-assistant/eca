@@ -89,7 +89,8 @@
                       :doc (str "Before a tool call runs. :eca/approval sets :approval from the config rules first "
                                 "(priority 1000); a deny from the user's config stays deny.")
                       :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."
-                                :approval ":allow, :ask or :deny; :ask until a module sets it." :tool-call-id ""}
+                                :approval ":allow, :ask or :deny; :ask until a module sets it."
+                                :tool-call-id "The tool call's id."}
                       :accepts {:arguments "Replaces the arguments." :approval "Replaces the approval."
                                 :reason "Why, as {:code :text}: shown with the decision."
                                 :block "Rejects the call, with this reason for the model."
@@ -100,7 +101,7 @@
                                "see its result.")
                      :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."
                                :result "The result: {:error :contents}." :error? "Whether it failed."
-                               :tool-call-id ""}
+                               :tool-call-id "The tool call's id."}
                      :accepts {:result "Replaces the result: a result map, or a string for a text result."
                                :additional-context "Added to the result for the model only."
                                :stop "Ends the turn after this batch of tool calls, with this reason."}}
@@ -114,18 +115,20 @@
                   :doc (str "Compact the chat. The first module that answers does it, writing the result with "
                             "eca.api/checkpoint!; without an answer, :eca/compact-as-summary summarizes the chat.")
                   :payload {:trigger ":manual, :auto or :overflow." :instructions "Extra instructions."}
-                  :accepts {:status ":done or :failed." :resume? "Continue the interrupted turn."
+                  :accepts {:status ":done or :failed." :resume? "Whether the interrupted turn goes on; true by default."
                             :message "Shown to the user."}
                   ;; compacting usually takes an LLM call
                   :timeout-ms 300000}
    :chat/after-compact {:kind :notify
                         :doc "After a compaction wrote a checkpoint."
-                        :payload {:trigger "" :checkpoint "The checkpoint: its :marker and the :messages after it."}
+                        :payload {:trigger ":manual, :auto or :overflow."
+                                  :checkpoint "The checkpoint: its :marker and the :messages after it."}
                         :accepts {:additional-context "Added after the checkpoint."
                                   :stop "Ends the turn, with this reason."}}
    :chat/title {:kind :handle
                 :doc "Give a chat its title."
-                :payload {:messages "The chat's first messages."}
+                :payload {:messages "The chat's user and assistant messages since the last checkpoint."
+                          :retitle? "Whether the chat is titled again, at its third prompt, with more context."}
                 :accepts {:title "The title."}}
    :shell/before-exec {:kind :transform
                        :doc (str "Before every shell command ECA runs: the shell and git tools, custom tools, "
@@ -225,11 +228,13 @@
 
 (defn merge-changes
   "Merges a handler's changes into the event: `:additional-context` adds up
-   (strings only), other keys replace. With `accepted`, other keys are ignored."
+   (strings only), other keys replace; a nil or false `:stop` or `:block` is
+   no change. With `accepted`, other keys are ignored."
   [event changes accepted]
   (reduce-kv (fn [event k v]
                (cond
                  (and accepted (not (contains? accepted k))) event
+                 (and (#{:stop :block} k) (not v)) event
                  (= :additional-context k) (if (or (not (string? v)) (string/blank? v))
                                              event
                                              (update event k #(if (string/blank? %) v (str % "\n" v))))
@@ -255,7 +260,12 @@
   [ctx event-id event]
   (let [{:keys [definitions handlers]} (index (:config ctx))
         definition (get definitions event-id)
-        accepted (some-> (:accepts definition) keys set)
+        ;; a notify event without :accepts takes no change; an event nobody
+        ;; defines, or a transform without :accepts, takes any
+        accepted (cond
+                   (:accepts definition) (set (keys (:accepts definition)))
+                   (= :notify (:kind definition)) #{}
+                   :else nil)
         hs (get handlers event-id)]
     (if (= :handle (:kind definition))
       (some (fn [h]

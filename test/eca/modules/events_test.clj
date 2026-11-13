@@ -11,6 +11,7 @@
 
 (def ^:private test-events
   {:test/notified {:kind :notify :accepts {:additional-context "" :stop ""}}
+   :test/plain {:kind :notify}
    :test/changed {:kind :transform :accepts {:text "" :block "" :stop "" :additional-context ""}}
    :test/answered {:kind :handle}})
 
@@ -65,7 +66,25 @@
 
 (deftest notify-test
   (with-modules [{:id :acme/a :event-handlers {:test/notified (fn [_ _] {:additional-context "x" :text "ignored"})}}]
-    (is (= {:n 1 :additional-context "x"} (events/emit! {} :test/notified {:n 1})))))
+    (is (= {:n 1 :additional-context "x"} (events/emit! {} :test/notified {:n 1}))))
+  (testing "a notify event that accepts nothing can't be changed or stopped by a handler"
+    (let [seen* (atom [])]
+      (with-modules [{:id :acme/a :priority 10
+                      :event-handlers {:test/plain (fn [_ e] (swap! seen* conj [:a (:n e)]) {:n 2 :stop "no" :block "no"})}}
+                     {:id :acme/b
+                      :event-handlers {:test/plain (fn [_ e] (swap! seen* conj [:b (:n e)]) nil)}}]
+        (is (= {:n 1} (events/emit! {} :test/plain {:n 1})))
+        (is (= [[:a 1] [:b 1]] @seen*) "every handler is notified, with the event as it was")))))
+
+(deftest falsy-stop-and-block-test
+  (testing "a nil or false :stop or :block is no change: the chain goes on"
+    (let [calls* (atom [])]
+      (with-modules [{:id :acme/first :priority 10
+                      :event-handlers {:test/changed (fn [_ _] (swap! calls* conj :first) {:stop nil :block false :text "b"})}}
+                     {:id :acme/second
+                      :event-handlers {:test/changed (fn [_ _] (swap! calls* conj :second) nil)}}]
+        (is (= {:text "b"} (events/emit! {} :test/changed {:text "a"})))
+        (is (= [:first :second] @calls*))))))
 
 (deftest handle-test
   (testing "the first non-nil answer wins; the rest aren't asked"

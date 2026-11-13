@@ -777,6 +777,30 @@
       (contains? hook-approval-rank hook-approval)
       (update :approval-override stronger-hook-approval hook-approval))))
 
+(defn ^:private valid-before-call-event
+  "`event`, as the `:tool/before-call` handlers left it, with their changes of
+   the wrong type undone, so they can't break the call: `:approval` must be
+   :allow, :ask or :deny (else the call asks), `:arguments` a map, and
+   `:reason` a map with a keyword `:code`."
+  [event arguments]
+  (let [invalid (cond-> []
+                  (not (#{:allow :ask :deny} (:approval event)))
+                  (conj :approval)
+
+                  (not (or (map? (:arguments event)) (identical? arguments (:arguments event))))
+                  (conj :arguments)
+
+                  (and (contains? event :reason)
+                       (not (and (map? (:reason event)) (keyword? (get-in event [:reason :code])))))
+                  (conj :reason))]
+    (when (seq invalid)
+      (logger/warn logger-tag "Ignoring values of the wrong type :tool/before-call handlers set"
+                   (select-keys event invalid)))
+    (cond-> event
+      (some #{:approval} invalid) (assoc :approval :ask)
+      (some #{:arguments} invalid) (assoc :arguments arguments)
+      (some #{:reason} invalid) (dissoc :reason))))
+
 (defn ^:private decide-tool-call-action
   "Decides what action to take for a tool call, running hooks and collecting their results.
 
@@ -828,6 +852,7 @@
                              :agent agent-name
                              :model full-model
                              :variant variant})
+        event (valid-before-call-event event arguments)
         module-arguments (:arguments event arguments)
         module-ended? (or (boolean (:block event)) (contains? event :stop))
         ;; A deny from the user's config stays deny, whatever a module answers.

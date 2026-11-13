@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
    [eca.config :as config]
+   [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
@@ -171,4 +172,36 @@
                  [:chat/compact {:trigger :overflow :instructions "Keep it short."}]]
                 @events*))
     (is (match? {:role "compact_marker" :content {:module :acme/compact}}
-                (some #(when (= "compact_marker" (:role %)) %) (get-in (h/db) [:chats chat-id :messages]))))))
+                (some #(when (= "compact_marker" (:role %)) %) (get-in (h/db) [:chats chat-id :messages])))))
+  (testing "on a context overflow, as on the built-in path, old tool outputs are pruned first"
+    (setup-chat!)
+    (with-module! {:llm/request-failed (constantly {:compact {}})
+                   :chat/compact summarize})
+    (let [pruned* (atom 0)
+          calls* (atom 0)]
+      (with-redefs-fn {#'f.chat/prune-tool-results! (fn [& _] (swap! pruned* inc) 0)}
+        #(prompt! "hi" (fn [{:keys [on-error] :as opts}]
+                         (if (= 1 (swap! calls* inc))
+                           (on-error {:error/type :context-overflow :message "token limit exceeded"})
+                           (answer! opts)))))
+      (is (= 1 @pruned*))
+      (is (= 2 @calls*))))
+  (testing "and a chat with no history isn't compacted (#491): the error shows"
+    (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :messages []})
+    (h/reset-messenger!)
+    (with-module! {:llm/request-failed (constantly {:compact {}})
+                   :chat/compact summarize})
+    (let [calls* (atom 0)]
+      (prompt! "hi" (fn [{:keys [on-error]}]
+                      (swap! calls* inc)
+                      (on-error {:error/type :context-overflow :message "token limit exceeded"})))
+      (is (= 1 @calls*))
+      (is (match? [[:llm/request-failed {:error {:type :context-overflow}}]] @events*) "nothing compacted")
+      (is (some #(re-find #"Context window exceeded" %) (system-texts))))))
+
+(deftest compaction-requests-are-not-saved-test
+  (testing "a pending request is for the running session only"
+    (is (= {:id chat-id :messages []}
+           (#'db/normalize-chat-for-write chat-id {:messages []
+                                                   :compaction-request {:module :acme/compact :trigger :auto}
+                                                   :compaction-blocked-prompt-id (random-uuid)})))))

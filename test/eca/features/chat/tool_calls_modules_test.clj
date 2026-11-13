@@ -74,6 +74,18 @@
     (with-module (before-call 500 (fn [_ctx {:keys [arguments]}] {:arguments (assoc arguments "path" "/tmp/y")}))
       #(is (match? {:decision :allow :arguments {"path" "/tmp/y"} :arguments-modified? true}
                    (decide (config-by-default "allow"))))))
+  (testing "changes of the wrong type are ignored instead of breaking the call"
+    (with-module (before-call 500 (constantly {:approval "allow"}))
+      #(is (match? {:decision :ask} (decide (config-by-default "allow")))
+           "an approval that isn't :allow, :ask or :deny asks"))
+    (with-module (before-call 500 (constantly {:arguments "rm -rf /"}))
+      #(is (match? {:decision :allow :arguments {"path" "/tmp/x"} :arguments-modified? false}
+                   (decide (config-by-default "allow")))))
+    (with-module (before-call 500 (constantly {:approval :deny :reason "no"}))
+      #(is (match? {:decision :deny :reason {:code :user-config-deny}} (decide (config-by-default "allow"))))))
+  (testing "a nil stop doesn't stop the turn"
+    (with-module (before-call 500 (constantly {:stop nil}))
+      #(is (match? {:decision :allow :stop-turn? false} (decide (config-by-default "allow"))))))
   (testing "changed arguments can't escape a config deny"
     (let [config {:toolCall {:approval {:byDefault "allow"
                                         :deny {"eca__test_tool" {:argsMatchers {"path" ["/tmp/x"]}}}}}}]
