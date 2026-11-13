@@ -85,6 +85,14 @@
    :remote {:enabled false}
    :env "prod"})
 
+(def core-root-keys
+  "Root config keys ECA reads that no module declares (yet): the ones above,
+   which keep their defaults here, and keys without a default, legacy keys and
+   keys ECA sets itself. Modules' keys come from their `:config-spec`."
+  (into (set (keys initial-config*))
+        #{:$schema :agent :behavior :defaultBehavior :network :otlp :providers :variantsByModel
+          :pureConfig :pluginSkillDirs :compactPrompt :compactPromptFile}))
+
 (defn ^:private parse-dynamic-string-values
   "walk through config parsing dynamic string contents if value is a string."
   [config cwd]
@@ -570,12 +578,21 @@
     (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
         (update :chat dissoc :defaultBehavior))))
 
+(def ^:private ^:dynamic *module-string-key-paths*
+  "Paths of external modules' `:map` keys (`eca.modules/external-map-paths`),
+   bound while the layers merge: their entries keep string names, like
+   `mcpServers`'."
+  [])
+
 (defn ^:private merge-config
   "Deep-merges a normalized config layer into config. The plugins install
    lists combine across layers: a layer's entries append unless its own
    installMode is \"replace\"."
   [config layer]
-  (let [layer (normalize-fields normalization-rules layer)
+  (let [layer (normalize-fields (cond-> normalization-rules
+                                  (seq *module-string-key-paths*)
+                                  (update :stringfy-key into *module-string-key-paths*))
+                                layer)
         plugins (:plugins layer)
         {:strs [install installMode]} plugins
         merged (deep-merge config layer)]
@@ -587,9 +604,16 @@
                      reverse distinct reverse vec))
       merged)))
 
+(declare all-layers*)
+
 (defn ^:private all-layers
   "The config from every source, over the defaults of the modules active
    under `modules-config`."
+  [db modules-config]
+  (binding [*module-string-key-paths* (modules/external-map-paths {:modules modules-config})]
+    (all-layers* db modules-config)))
+
+(defn ^:private all-layers*
   [db modules-config]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)

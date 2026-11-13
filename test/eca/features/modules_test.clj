@@ -99,6 +99,42 @@
       (finally
         (fs/delete-tree dir)))))
 
+(def ^:private lsp-module
+  {:id :acme/lsp
+   :config-spec {:lspServers {:type :map :default {:clojure {:command ["clojure-lsp"]}}}
+                 :lspUrl {:type :string}}})
+
+(deftest external-map-keys-test
+  (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/hooks))]
+    (modules/add-external! "/tmp/lsp.clj" lsp-module)
+    (reset! config/initialization-config* {:pureConfig true
+                                           :lspServers {:python {:command ["pyright"]}}
+                                           :hooks {:myHook {:type "preToolCall"}}})
+    (config/clear-cache!)
+    (let [config (config/all (h/db))]
+      (testing "an external module's :map key keeps string entry names, its default's and the user's"
+        (is (= {"clojure" {:command ["clojure-lsp"]} "python" {:command ["pyright"]}}
+               (:lspServers config))))
+      (testing "built-in keys keep today's keys"
+        (is (= {:myHook {:type "preToolCall"}} (:hooks config)))))))
+
+(deftest unknown-config-keys-test
+  (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/hooks))]
+    (testing "ECA's own keys and the modules' are known; others aren't"
+      (is (= [:fooBar :lspUrl] (f.modules/unknown-config-keys {:fooBar 1 :lspUrl "x" :hooks {} :pureConfig true
+                                                               :providers {} :defaultModel "a/b" :env "test"}))))
+    (testing "a loaded module's keys become known, even while it's off"
+      (modules/add-external! "/tmp/lsp.clj" lsp-module)
+      (modules/set-enabled! :acme/lsp false)
+      (is (= [:fooBar] (f.modules/unknown-config-keys {:fooBar 1 :lspUrl "x"}))))
+    (testing "the message names them"
+      (is (= "Unknown config keys: `fooBar`, `lspUrl`. Check them for typos; a module's keys are known once the module is loaded."
+             (f.modules/unknown-config-keys-text [:fooBar :lspUrl])))))
+  (testing "ECA's whole default config has no unknown key"
+    (reset! config/initialization-config* {:pureConfig true})
+    (config/clear-cache!)
+    (is (= [] (f.modules/unknown-config-keys (config/all (h/db)))))))
+
 (deftest config-problems-test
   (with-redefs [modules/built-in-modules (constantly test-modules)]
     (is (= [] (f.modules/config-problems {:sampleUrl "http://x"})))

@@ -59,6 +59,22 @@
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true}}))))))
 
+(deftest warn-unknown-config-keys-test
+  (let [warn! #(#'handlers/warn-unknown-config-keys! (h/db*) (h/messenger) %)
+        messages #(map :message (:show-message (h/messages)))]
+    (testing "unknown root keys are shown once"
+      (warn! {:fooBar 1 :toolCall {}})
+      (warn! {:fooBar 1 :toolCall {}})
+      (is (= ["Unknown config keys: `fooBar`. Check them for typos; a module's keys are known once the module is loaded."]
+             (messages))))
+    (testing "again when a new one appears"
+      (warn! {:fooBar 1 :bazQux 2})
+      (is (= 2 (count (messages))))
+      (is (re-find #"`bazQux`, `fooBar`" (last (messages)))))
+    (testing "not when they go away"
+      (warn! {})
+      (is (= 2 (count (messages)))))))
+
 (deftest providers-sync-hash-test
   (let [sync-hash #(#'handlers/providers-sync-hash {:providers %})
         providers {"gateway" {:api "anthropic" :url "https://gw" :key "token-1"}

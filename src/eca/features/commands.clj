@@ -493,6 +493,8 @@
                  "Credential files: None found")
                ""
                (str "Active modules: " (f.modules/active-ids-text config))
+               (when-let [unknown (seq (f.modules/unknown-config-keys config))]
+                 (f.modules/unknown-config-keys-text unknown))
                (when-let [problems (seq (f.modules/config-problems config))]
                  (str "Config problems:\n" (string/join "\n" (map #(str "  " %) problems)))))))
 

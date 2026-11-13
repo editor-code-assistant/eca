@@ -7,6 +7,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.completion :as f.completion]
    [eca.features.hooks :as f.hooks]
+   [eca.features.modules :as f.modules]
    [eca.features.login :as f.login]
    [eca.features.plugins :as f.plugins]
    [eca.features.providers :as f.providers]
@@ -138,6 +139,22 @@
                                         :message (format "ECA module %s failed to load: %s" path error)})
       (catch Exception _))))
 
+(defn ^:private warn-unknown-config-keys!
+  "Tells the user about root config keys neither ECA nor a module knows, when
+   one appears that wasn't there before: config.json's schema accepts any root
+   key, for modules' keys, so ECA flags typos itself."
+  [db* messenger config]
+  (try
+    (let [unknown (f.modules/unknown-config-keys config)
+          previous (set (:unknown-config-keys @db*))]
+      (when (seq (remove previous unknown))
+        (let [text (f.modules/unknown-config-keys-text unknown)]
+          (logger/warn "[CONFIG]" text)
+          (messenger/showMessage messenger {:type :warning :message text})))
+      (swap! db* assoc :unknown-config-keys unknown))
+    (catch Exception e
+      (logger/warn "[CONFIG]" "Could not check the config keys:" e))))
+
 (defn ^:private sync-external-modules!
   "Loads, reloads or drops the external modules to match their sources.
    Returns what changed."
@@ -178,7 +195,9 @@
                      config (if (seq changes) (config/all @db*) new-config)]
                  (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics} config)
                  (when (seq changes)
-                   (f.tools/refresh-module-tool-servers! db* messenger config)))))
+                   (f.tools/refresh-module-tool-servers! db* messenger config))
+                 (when (modules/started?)
+                   (warn-unknown-config-keys! db* messenger config)))))
       (swap! db* assoc-in [:config-updated-fns :tool-refresh]
              (fn [prev-config new-config]
                (when (and prev-config
@@ -244,8 +263,10 @@
                                         (let [config (config/all @db*)]
                                           (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
                                                                          config)
-                                          (f.tools/refresh-module-tool-servers! db* messenger config))
+                                          (f.tools/refresh-module-tool-servers! db* messenger config)
+                                          (warn-unknown-config-keys! db* messenger config))
                                         (notify-chat-config-state! db* messenger))}))
+        (warn-unknown-config-keys! db* messenger config)
         ;; Trigger sessionStart before delivering plugins-resolved so it
         ;; completes before any chatStart hook can fire (chatStart waits
         ;; on await-plugins-resolved!).

@@ -17,6 +17,7 @@
 - Give modules background jobs, data folders, shell commands, metered LLM calls shown in `/costs`, and JSON, HTTP and file helpers. #699
 - Add `eca.api.dev` and `eca.api.test`, to develop modules from a REPL and test them, and a modules guide. #699
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
+- Accept modules' keys at the root of `config.json`'s schema; ECA warns about unknown root keys at startup and in `/doctor` instead. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 

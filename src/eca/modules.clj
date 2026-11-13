@@ -836,6 +836,31 @@
   [config]
   (:declared (resolution config)))
 
+(defn external-map-paths
+  "The paths of the `:map` keys active external modules declare and no
+   built-in module does, e.g. `[:lspServers]`: their entries keep string
+   names, as in ECA's own `mcpServers`."
+  [config]
+  (let [built-in-paths (into #{} (mapcat (comp keys config-spec/leaves :config-spec)) (built-in-modules))]
+    (->> (active config)
+         (remove :built-in?)
+         (mapcat (fn [{:keys [module]}]
+                   (for [[path spec] (config-spec/leaves (:config-spec module))
+                         :when (and (= :map (:type spec)) (not (contains? built-in-paths path)))]
+                     path)))
+         distinct
+         vec)))
+
+(defn known-root-keys
+  "The root config keys some module declares: built-in ones, and external ones
+   loaded, active or not."
+  []
+  (into #{}
+        (comp (mapcat (comp keys config-spec/leaves :config-spec))
+              (map first))
+        (concat (built-in-modules)
+                (keep :module (vals (external-modules))))))
+
 (defn statuses
   "Every module with its status, reason, warnings, failures and errors."
   [config]

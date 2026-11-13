@@ -2,10 +2,10 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://eca.dev/config.json",
   "title": "ECA Configuration",
-  "description": "Configuration schema for ECA (Editor Code Assistant). See https://eca.dev/config/introduction for full documentation.",
-  "markdownDescription": "Configuration schema for ECA (Editor Code Assistant). See https://eca.dev/config/introduction for full documentation.",
+  "description": "Configuration schema for ECA (Editor Code Assistant). See https://eca.dev/config/introduction for full documentation. Other root keys may belong to modules; ECA warns about unknown ones at startup and in /doctor.",
+  "markdownDescription": "Configuration schema for ECA (Editor Code Assistant). See https://eca.dev/config/introduction for full documentation. Other root keys may belong to [modules](https://eca.dev/config/modules); ECA warns about unknown ones at startup and in `/doctor`.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "allowComments": true,
   "properties": {
     "$schema": {

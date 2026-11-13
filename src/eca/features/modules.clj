@@ -194,6 +194,19 @@
     (sequential? value) "an array"
     :else (str "a " (type value))))
 
+(defn unknown-config-keys
+  "Root keys of `config` that neither ECA nor any module knows: typos, or keys
+   of a module that isn't loaded. Sorted."
+  [config]
+  (let [known (into config/core-root-keys (modules/known-root-keys))]
+    (vec (sort-by str (remove known (filter keyword? (keys config)))))))
+
+(defn unknown-config-keys-text
+  "The warning about `unknown` root config keys."
+  [unknown]
+  (str "Unknown config keys: " (code-list (map config-spec/path-str (map vector unknown)))
+       ". Check them for typos; a module's keys are known once the module is loaded."))
+
 (defn config-problems
   "Configured values that don't fit the type a module declares for them.
    Values aren't shown: they may be secrets."
