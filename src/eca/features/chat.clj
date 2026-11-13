@@ -1375,6 +1375,8 @@
                 :past-messages (messages-to-send @db* chat-id full-model)
                 :config  config
                 :tools all-tools
+                ;; modules may change what the model sees, in every request (:llm/before-request)
+                :on-before-request (partial lifecycle/before-llm-request chat-ctx)
                 :provider-auth provider-auth
                 ;; Renew before each prompt! invocation so long-running chats
                 ;; (spawn_agent, retries) always get a fresh token.

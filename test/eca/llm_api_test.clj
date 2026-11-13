@@ -1304,6 +1304,69 @@
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
 
+(deftest on-before-request-test
+  (testing "it gets the first request and each tool-loop request, and its changes are sent"
+    (let [seen* (atom [])
+          prompts* (atom [])
+          loop-results* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-tools-called] :as args}]
+                                          (swap! prompts* conj (select-keys args [:past-messages :user-messages
+                                                                                  :instructions :tools]))
+                                          (swap! loop-results* conj (on-tools-called [{:id "call-1"}])))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:past-messages [{:role "user" :content "earlier"}]
+           :tools [{:name "a"}]
+           :on-tools-called (fn [_] {:new-messages [{:role "user" :content "earlier"} {:role "tool_call_output"}]
+                                     :tools [{:name "a"} {:name "b" :deferred true}]
+                                     :fresh-api-key "k2"})
+           :on-before-request (fn [request]
+                                (swap! seen* conj request)
+                                (-> request
+                                    (update :past-messages #(conj (vec %) {:role "user" :content "note"}))
+                                    (update :tools #(conj (vec %) {:name "added"}))
+                                    (assoc :instructions "changed")))})))
+      (is (= [{:past-messages [{:role "user" :content "earlier"}]
+               :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+               :instructions "test"
+               :tools [{:name "a"}]}
+              {:past-messages [{:role "user" :content "earlier"} {:role "tool_call_output"}]
+               :user-messages []
+               :instructions "changed"
+               :tools [{:name "a"} {:name "b" :deferred true}]}]
+             @seen*))
+      (is (= [{:past-messages [{:role "user" :content "earlier"} {:role "user" :content "note"}]
+               :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+               :instructions "changed"
+               :tools [{:name "a"} {:name "added"}]}]
+             @prompts*))
+      (is (= [{:new-messages [{:role "user" :content "earlier"} {:role "tool_call_output"} {:role "user" :content "note"}]
+               :tools [{:name "a"} {:name "added"}]
+               :fresh-api-key "k2"}]
+             @loop-results*)
+          "deferred tools are still left out of the request")))
+  (testing "a retry resends the request without asking again"
+    (let [seen* (atom 0)
+          prompts* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [past-messages]}]
+                                          (swap! prompts* conj past-messages)
+                                          (if (= 1 (count @prompts*))
+                                            {:error {:status 429
+                                                     :body "Rate limit exceeded"
+                                                     :message "LLM response status: 429"}}
+                                            {:output-text "ok" :usage {:input-tokens 1 :output-tokens 1}}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error identity
+           :on-message-received identity
+           :on-before-request (fn [request]
+                                (swap! seen* inc)
+                                (update request :past-messages conj {:role "user" :content "note"}))})))
+      (is (= 1 @seen*))
+      (is (= [[{:role "user" :content "note"}] [{:role "user" :content "note"}]] @prompts*)))))
+
 (deftest message-output-tps-test
   (testing "usage gets TPS from output tokens and measured time"
     (let [usage* (atom nil)

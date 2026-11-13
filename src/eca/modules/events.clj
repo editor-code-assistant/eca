@@ -64,12 +64,15 @@
                                    :block "Skips the request, with this reason."
                                    :stop "Ends the turn, with this reason."}}
    :llm/before-request {:kind :transform
-                        :doc "Before every LLM call, the tool loop included. Decides what the model sees."
-                        :payload {:request "The request to send." :history "The chat's whole history."
+                        :doc "Before every LLM call of a chat, the tool loop included. Decides what the model sees."
+                        :payload {:request (str "The request to send: :model, :instructions, :past-messages, "
+                                                ":user-messages (new, not in the history yet) and :tools.")
+                                  :history "The chat's whole history."
                                   :since-checkpoint "Messages after the last checkpoint, the current turn included."
                                   :turn "The current user message and the tool calls after it."
-                                  :budget "Tokens the context has room for."}
-                        :accepts {:request "Replaces the request; the history doesn't change."}}
+                                  :budget "Tokens left in the context window, from the last response's usage."}
+                        :accepts {:request (str "Replaces the request's messages, :instructions (not in the tool "
+                                                "loop) or :tools; the history doesn't change. :model can't change yet.")}}
    :llm/request-failed {:kind :handle
                         :doc "An LLM request failed."
                         :payload {:request "The request." :error "The error, classified: e.g. {:type :context-overflow}."}
@@ -130,9 +133,10 @@
                        :accepts {:command "Replaces the command line." :cwd "Replaces the folder."
                                  :env "Replaces the extra environment variables."}}
    :config/resolve {:kind :transform
-                    :doc "After all config layers merge."
+                    :doc (str "After all config layers merge, each time the config is read again (it's cached). "
+                              "Read the config from the event, not through eca.api.")
                     :payload {:config "The config."}
-                    :accepts {:config "Replaces the config."}}
+                    :accepts {:config "Replaces the config, except its modules key."}}
    :models/resolve {:kind :transform
                     :doc "After the model list is built."
                     :payload {:models "Full model name → capabilities."}

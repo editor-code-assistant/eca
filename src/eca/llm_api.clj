@@ -548,12 +548,29 @@
     (assoc-in config [:providers provider :key] fresh-key)
     config))
 
+(defn ^:private tool-loop-request
+  "`result`, what `on-tools-called` returned for the next request of a tool
+   loop, after `on-before-request`: its messages and tools may change. The
+   provider keeps the first request's instructions."
+  [{:keys [new-messages tools] :as result} on-before-request instructions]
+  (let [request (on-before-request {:past-messages new-messages
+                                    :user-messages []
+                                    :instructions instructions
+                                    :tools tools})]
+    (assoc result
+           :new-messages (into (vec (:past-messages request)) (:user-messages request))
+           :tools (:tools request))))
+
 (defn sync-or-async-prompt!
+  "Sends a chat's request to its LLM and runs the tool loop.
+   `on-before-request`, optional, gets every request of the turn, the first
+   one and each tool-loop one, as `{:past-messages :user-messages
+   :instructions :tools}` and returns it, changed or not; retries resend it."
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized on-response-headers
            past-messages tools provider-auth refresh-provider-auth-fn refresh-config-fn variant cancelled?
-           on-retry subagent? prompt-cache-key]
+           on-retry subagent? prompt-cache-key on-before-request]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -565,7 +582,13 @@
          on-server-image-generation identity
          on-history-sanitized identity
          cancelled? (constantly false)}}]
-  (let [first-response-received* (atom false)
+  (let [{:keys [past-messages user-messages instructions tools]}
+        (cond-> {:past-messages past-messages
+                 :user-messages user-messages
+                 :instructions instructions
+                 :tools tools}
+          on-before-request on-before-request)
+        first-response-received* (atom false)
         ;; First generation event of the current model response. Consumed by
         ;; the next usage update, so tool-call loops start a new measurement.
         generation-start-ms* (atom nil)
@@ -596,6 +619,9 @@
                                   (reset! generation-start-ms* nil)
                                   (let [result (on-tools-called tool-calls)]
                                     (cond-> result
+                                      (and (map? result) on-before-request)
+                                      (tool-loop-request on-before-request instructions)
+
                                       (map? result) (update :tools tools-for-request))))
         on-message-received-wrapper (fn [& [message :as args]]
                                       (when (#{:text :url :refusal} (:type message))

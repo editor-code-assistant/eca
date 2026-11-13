@@ -24,6 +24,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [multi-str]]
    [rewrite-json.core :as rj])
   (:import
@@ -658,15 +659,32 @@
         (update :agent resolve-agent-inheritance)
         (update :providers resolve-provider-inheritance))))
 
+(defn ^:private run-resolve-event
+  "Runs the `:config/resolve` event on the merged `config`: modules may change
+   it, e.g. to enforce rules users can't override. The `modules` key stays as
+   the layers set it, as it decides which modules are active."
+  [config]
+  (let [event (events/emit! {:config config} :config/resolve {:config config})
+        changed (:config event)]
+    (cond
+      (identical? config changed) config
+      (map? changed) (if (contains? config :modules)
+                       (assoc changed :modules (:modules config))
+                       (dissoc changed :modules))
+      :else (do (logger/warn logger-tag "Ignoring the :config a :config/resolve handler set" {:value changed})
+                config))))
+
 (defn ^:private all*
   "The `modules` key, set in any layer, decides which modules' defaults sit
    under the layers, so a config that changes the active modules is read a
-   second time over their defaults."
+   second time over their defaults. Then modules may change the result
+   (`:config/resolve`)."
   [db]
   (let [config (all-layers db nil)]
-    (if (= (modules/defaults-signature config) (modules/defaults-signature nil))
-      config
-      (all-layers db (:modules config)))))
+    (run-resolve-event
+     (if (= (modules/defaults-signature config) (modules/defaults-signature nil))
+       config
+       (all-layers db (:modules config))))))
 
 (def ^:private all-memo
   (memoize/ttl (fn [workspace-folders _modules-version]

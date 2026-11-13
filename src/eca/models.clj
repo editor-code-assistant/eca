@@ -10,6 +10,7 @@
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.modules.events :as events]
    [eca.shared :refer [assoc-some] :as shared]
    [hato.client :as http])
   (:import
@@ -894,6 +895,18 @@
         (and alias-model (contains? models alias-model)) alias-model
         (contains? models model-id) model-id))))
 
+(defn ^:private run-resolve-event
+  "Runs the `:models/resolve` event on the model list, full model name →
+   capabilities: modules may change it, e.g. to add virtual models."
+  [config db* models]
+  (let [event (events/emit! {:config config :db* db*} :models/resolve {:models models})
+        changed (:models event)]
+    (cond
+      (identical? models changed) models
+      (map? changed) changed
+      :else (do (logger/warn logger-tag "Ignoring the :models a :models/resolve handler set" {:value changed})
+                models))))
+
 (defn sync-models! [db* config on-models-updated]
   (let [models-dev-data (models-dev)
         known-models (all models-dev-data)
@@ -923,7 +936,7 @@
                       ollama-models)
         authenticated-models (into {}
                                    (filter #(auth-valid? (first %) db config) all-supported-models))
-        all-models (merge authenticated-models local-models)]
+        all-models (run-resolve-event config db* (merge authenticated-models local-models))]
     (swap! db* assoc :models all-models)
     (on-models-updated all-models)))
 

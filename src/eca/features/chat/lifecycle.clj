@@ -4,6 +4,7 @@
    [eca.db :as db]
    [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
@@ -183,6 +184,64 @@
   [chat-ctx messages]
   (doseq [message messages]
     (events/emit! chat-ctx :chat/message-added (chat-event chat-ctx {:message message}))))
+
+(def ^:private request-changes
+  "The keys of a request `:llm/before-request` handlers may change, and what
+   their values must be."
+  [[:past-messages sequential?]
+   [:user-messages sequential?]
+   [:instructions #(or (string? %) (map? %))]
+   [:tools sequential?]])
+
+(defn before-llm-request
+  "Runs the `:llm/before-request` event for the chat's next LLM request and
+   returns `request` with the modules' changes. `request` holds what the
+   model will see: `:past-messages`, `:user-messages` (new user messages,
+   not in the history yet), `:instructions` and `:tools`. The history
+   doesn't change. Without handlers, `request` is returned as is."
+  [{:keys [db* chat-id full-model config] :as chat-ctx} {:keys [user-messages] :as request}]
+  (if-not (seq (events/handlers config :llm/before-request))
+    request
+    (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+      (let [db @db*
+            history (get-in db [:chats chat-id :messages] [])
+            since-checkpoint (into (shared/messages-after-last-compact-marker history) user-messages)
+            {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
+            context-limit (:context limit)
+            sent (assoc request :model full-model)
+            event (events/emit! chat-ctx :llm/before-request
+                                (chat-event chat-ctx
+                                            (assoc-some {:request sent
+                                                         :history history
+                                                         :since-checkpoint since-checkpoint
+                                                         :turn (subvec since-checkpoint
+                                                                       (or (llm-util/find-last-user-msg-idx since-checkpoint) 0))}
+                                                        :budget (when (and (number? session-tokens) (number? context-limit))
+                                                                  (max 0 (- context-limit session-tokens))))))
+            changed (:request event)]
+        (cond
+          (identical? sent changed)
+          request
+
+          (not (map? changed))
+          (do (logger/warn logger-tag "Ignoring the :request a :llm/before-request handler set" {:value changed})
+              request)
+
+          :else
+          (do
+            (when (not= full-model (:model changed))
+              (logger/warn logger-tag "Ignoring the :model a :llm/before-request handler set: not supported yet"
+                           {:model (:model changed)}))
+            (reduce (fn [request [k valid?]]
+                      (let [v (get changed k)]
+                        (cond
+                          (identical? v (get request k)) request
+                          (valid? v) (assoc request k v)
+                          :else (do (logger/warn logger-tag (format "Ignoring the %s a :llm/before-request handler set" k)
+                                                 {:value v})
+                                    request))))
+                    request
+                    request-changes)))))))
 
 (defn ^:private module-name [module-id]
   (if module-id (str (symbol module-id)) "?"))
