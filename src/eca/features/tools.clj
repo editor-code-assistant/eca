@@ -213,73 +213,107 @@
        x))
    m))
 
+(defn ^:private definition-key
+  "The key of a tool among the definitions: its name on ECA's own server, as
+   before external modules, else its full name."
+  [server tool-name]
+  (if (= "eca" server) tool-name (str server "__" tool-name)))
+
+(defn ^:private split-full-name
+  "`[server name]` of a full tool name; a bare name is one of ECA's tools."
+  [full-name]
+  (let [[server tool-name] (string/split full-name #"__" 2)]
+    (if tool-name [server tool-name] ["eca" full-name])))
+
 (defn ^:private module-definitions
-  "The active modules' `:tools` as tool definitions, by name. A module's
+  "The active modules' tools as tool definitions, by `definition-key`, with
+   `:name` and `:server`. Built-in tools are on ECA's server, `eca__<name>`,
+   and an external module's on its prefix's, `<prefix>__<name>`. A tool with
+   `:replaces` takes over that full name, so approval rules and hooks still
+   match it; otherwise the first module keeps a full name. A module's
    `:tools` is a map, or (built-ins) a function of `ctx`: `:config`, `:db`,
-   `:chat-id` and `:agent`. Tools with `:replaces` take over the tool of that
-   name; otherwise the first module keeps a name."
+   `:chat-id` and `:agent`. The tools modules register while they run come
+   after."
   [{:keys [config] :as ctx}]
-  (let [{:keys [tools replacing]}
+  (let [entry-tools (fn [[entry module-tools]]
+                      (let [module-ctx (modules/module-ctx ctx entry)
+                            module-tools (if (modules/fn-like? module-tools)
+                                           (modules/invoke-safe module-ctx entry "tools"
+                                                                {:timeout-ms (modules/timeout-for
+                                                                              entry nil modules/default-handler-timeout-ms)}
+                                                                module-tools module-ctx)
+                                           module-tools)]
+                        (for [[tool-name tool] module-tools]
+                          [entry tool-name tool])))
+        {:keys [tools replacing]}
         (reduce
-         (fn [acc [entry module-tools]]
+         (fn [acc [entry tool-name tool]]
            (let [with-module #(modules/module-ctx % entry)
                  wrap (if (:built-in? entry)
                         (fn [_what f module-ctx & args] (apply f module-ctx args))
                         (fn [what f module-ctx & args] (apply modules/invoke module-ctx entry what {} f module-ctx args)))
-                 module-tools (if (modules/fn-like? module-tools)
-                                (modules/invoke-safe (with-module ctx) entry "tools"
-                                                     {:timeout-ms (modules/timeout-for entry nil modules/default-handler-timeout-ms)}
-                                                     module-tools (with-module ctx))
-                                module-tools)]
-             (reduce-kv
-              (fn [acc tool-name tool]
-                (let [definition (cond-> (dissoc (tools.util/module-tool->definition tool with-module wrap) :replaces)
-                                   (modules/fn-like? (:description tool))
-                                   (update :description #(wrap "tool description" % (with-module ctx))))]
-                  (cond
-                    (:replaces tool) (assoc-in acc [:replacing tool-name] definition)
+                 [server-name tool-name] (if-let [replaced (:replaces tool)]
+                                           (split-full-name replaced)
+                                           [(modules/prefix entry) tool-name])
+                 k (definition-key server-name tool-name)
+                 definition (cond-> (-> (tools.util/module-tool->definition tool with-module wrap)
+                                        (dissoc :replaces)
+                                        (assoc :name tool-name :server {:name server-name}))
+                              (modules/fn-like? (:description tool))
+                              (update :description #(wrap "tool description" % (with-module ctx)))
 
-                    (contains? (:tools acc) tool-name)
-                    (do (logger/warn logger-tag (format "Module %s has a tool named %s, like another module; ignoring it"
-                                                        (:id entry) tool-name))
-                        acc)
+                              ;; `(fn [args])`, without ctx
+                              (and (:approval-keys-fn tool) (not (:built-in? entry)))
+                              (update :approval-keys-fn
+                                      (fn [f] (fn [args] (modules/invoke-safe {} entry "tool approval keys" {} f args)))))]
+             (cond
+               (:replaces tool) (assoc-in acc [:replacing k] definition)
 
-                    :else (assoc-in acc [:tools tool-name] definition))))
-              acc
-              module-tools)))
+               (contains? (:tools acc) k)
+               (do (logger/warn logger-tag (format "Module %s has a tool %s__%s, like another module; ignoring it"
+                                                   (:id entry) server-name tool-name))
+                   acc)
+
+               :else (assoc-in acc [:tools k] definition))))
          {:tools {} :replacing {}}
-         (modules/contributions config :tools))]
+         (concat (mapcat entry-tools (modules/contributions config :tools))
+                 (modules/registrations config :tools)))]
     (merge tools replacing)))
 
 (defn tool-approval-keys
   "Returns {:keys #{...} :complete? bool} when the native tool `tool-name`
-   defines granular approval keys for these arguments, else nil."
+   (a full name, or the bare name of one of ECA's tools) defines granular
+   approval keys for these arguments, else nil."
   ([tool-name arguments]
    (tool-approval-keys tool-name arguments {} {}))
   ([tool-name arguments db config]
-   (when-let [approval-keys-fn (get-in (module-definitions {:db db :config config}) [tool-name :approval-keys-fn])]
-     (approval-keys-fn arguments))))
+   (let [[server-name bare-name] (split-full-name tool-name)]
+     (when-let [approval-keys-fn (get-in (module-definitions {:db db :config config})
+                                         [(definition-key server-name bare-name) :approval-keys-fn])]
+       (approval-keys-fn arguments)))))
 
 (defn ^:private native-definitions
   [chat-id agent-name db config]
   (into
    {}
-   (map (fn [[name tool]]
-          [name (-> tool
-                    (assoc :name name)
-                    (replace-string-values-with-vars
-                     {:workspaceRoots   (tools.util/workspace-roots-strs db)
-                      :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])
-                      :fullModel        (get-in db [:chats chat-id :model])
-                      :variant          (get-in db [:chats chat-id :variant])}))]))
+   (map (fn [[k tool]]
+          [k (replace-string-values-with-vars
+              tool
+              {:workspaceRoots   (tools.util/workspace-roots-strs db)
+               :readFileMaxLines (get-in config [:toolCall :readFile :maxLines])
+               :fullModel        (get-in db [:chats chat-id :model])
+               :variant          (get-in db [:chats chat-id :variant])})]))
    (module-definitions {:chat-id chat-id :agent agent-name :db db :config config})))
 
 (defn native-tools
+  "The modules' tools: ECA's own and the external modules' ones."
   ([db config]
    (native-tools nil nil db config))
   ([chat-id agent-name db config]
-   (mapv #(assoc % :server {:name "eca"})
-         (vals (native-definitions chat-id agent-name db config)))))
+   (vec (vals (native-definitions chat-id agent-name db config)))))
+
+(defn ^:private eca-server-tool? [tool]
+  (= "eca" (get-in tool [:server :name])))
 
 (defn ^:private filter-subagent-tools
   "Filter tools for subagent execution.
@@ -396,10 +430,16 @@
    (let [disabled-tools (get-disabled-tools config agent-name)
          subagent (get-in db [:chats chat-id :subagent])
          full-model (or full-model (get-in db [:chats chat-id :model]))
+         full-name-of #(str (-> % :server :name) "__" (:name %))
+         native (mapv #(assoc % :origin :native) (native-tools chat-id agent-name db config))
+         native-names (set (map full-name-of native))
          all-tools (->> (concat
-                         (mapv #(assoc % :origin :native) (native-tools chat-id agent-name db config))
-                         (mapv #(assoc % :origin :mcp) (when (modules/active? config :eca/mcp)
-                                                         (f.mcp/all-tools db))))
+                         native
+                         ;; a module tool may replace an MCP tool, taking its full name
+                         (into [] (comp (remove #(contains? native-names (full-name-of %)))
+                                        (map #(assoc % :origin :mcp)))
+                               (when (modules/active? config :eca/mcp)
+                                 (f.mcp/all-tools db))))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                         (mapv #(override-description % config agent-name))
@@ -500,8 +540,9 @@
                                                                   :arguments arguments
                                                                   :all-tools (mapv :full-name all-tools)})))
       (let [result (-> (or args-error
-                           (if-let [native-tool-handler (and (= "eca" server-name)
-                                                             (get-in (native-definitions chat-id agent-name db config) [tool-name :handler]))]
+                           (if-let [native-tool-handler (and (= :native (:origin tool-meta))
+                                                             (get-in (native-definitions chat-id agent-name db config)
+                                                                     [(definition-key server-name tool-name) :handler]))]
                              (native-tool-handler arguments {:db db
                                                              :db* db*
                                                              :config config
@@ -558,6 +599,44 @@
                                           :status "removed"} metrics)
   (messenger/tool-server-removed messenger params))
 
+(defn ^:private module-servers
+  "The tool servers of the external modules' tools: one per prefix, with the
+   id of the first module using it. Tools that replace another server's tool
+   stay on that server."
+  [tools config]
+  (let [module-by-prefix (reduce (fn [acc entry]
+                                   (if (or (:built-in? entry) (contains? acc (modules/prefix entry)))
+                                     acc
+                                     (assoc acc (modules/prefix entry) (:id entry))))
+                                 {}
+                                 (modules/active config))]
+    (->> tools
+         (filter #(contains? module-by-prefix (get-in % [:server :name])))
+         (group-by #(get-in % [:server :name]))
+         (sort-by key)
+         (map (fn [[server-name server-tools]]
+                {:type :module
+                 :name server-name
+                 :module (str (symbol (get module-by-prefix server-name)))
+                 :status "running"
+                 :tools server-tools})))))
+
+(defn ^:private notify-module-servers!
+  "Sends the external modules' tool servers, and removes the ones gone since
+   the last time."
+  [db* messenger config tool-status-fn]
+  (let [servers (module-servers (native-tools @db* config) config)
+        server-names (set (map :name servers))]
+    (doseq [server servers]
+      (messenger/tool-server-updated messenger
+                                     (update server :tools
+                                             (fn [tools]
+                                               (mapv #(select-keys (tool-status-fn %) [:name :description :parameters :disabled])
+                                                     tools)))))
+    (doseq [gone (sort (remove server-names (:module-tool-servers @db*)))]
+      (messenger/tool-server-removed messenger {:name gone}))
+    (swap! db* assoc :module-tool-servers server-names)))
+
 (defn init-servers! [db* messenger config metrics]
   (let [default-agent (get config :defaultAgent)
         tool-status-fn (make-tool-status-fn config default-agent)]
@@ -565,9 +644,11 @@
                                               :name "ECA"
                                               :status "running"
                                               :tools (->> (native-tools @db* config)
+                                                          (filter eca-server-tool?)
                                                           (remove #(= "compact_chat" (:name %)))
                                                           (mapv tool-status-fn)
                                                           (mapv #(select-keys % [:name :description :parameters :disabled])))})
+    (notify-module-servers! db* messenger config tool-status-fn)
     (when (modules/active? config :eca/mcp)
       (f.mcp/initialize-servers-async!
        {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
@@ -711,14 +792,16 @@
   (tools.util/tool-call-destroy-resource! full-name resource-kwd resource))
 
 (defn refresh-tool-servers!
-  "Updates all tool servers (native and MCP) with new agent status."
+  "Updates all tool servers (native, modules' and MCP) with new agent status."
   [tool-status-fn db* messenger config]
   (messenger/tool-server-updated messenger {:type :native
                                             :name "ECA"
                                             :status "running"
                                             :tools (->> (native-tools @db* config)
+                                                        (filter eca-server-tool?)
                                                         (mapv tool-status-fn)
                                                         (mapv #(select-keys % [:name :description :parameters :disabled])))})
+  (notify-module-servers! db* messenger config tool-status-fn)
   (doseq [[server-name {:keys [tools status]}] (:mcp-clients @db*)]
     (messenger/tool-server-updated messenger {:type :mcp
                                               :name server-name
@@ -731,6 +814,22 @@
                                                 :name server-name
                                                 :status "disabled"
                                                 :tools []}))))
+
+(defn refresh-module-tool-servers!
+  "After modules change (loaded, reloaded, enabled, disabled, or a module
+   registered or removed a tool): sends ECA's tool server and the external
+   modules' ones again, as at startup."
+  [db* messenger config]
+  (let [tool-status-fn (make-tool-status-fn config (get config :defaultAgent))]
+    (messenger/tool-server-updated messenger {:type :native
+                                              :name "ECA"
+                                              :status "running"
+                                              :tools (->> (native-tools @db* config)
+                                                          (filter eca-server-tool?)
+                                                          (remove #(= "compact_chat" (:name %)))
+                                                          (mapv tool-status-fn)
+                                                          (mapv #(select-keys % [:name :description :parameters :disabled])))})
+    (notify-module-servers! db* messenger config tool-status-fn)))
 
 (defn ^:private approval-from-config
   "`:tool/before-call` handler of `:eca/approval`: the approval of the call by

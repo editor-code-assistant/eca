@@ -201,17 +201,32 @@
 
 (defn ^:private module-commands
   "The active modules' commands, in the order clients list them: the built-in
-   ones in `built-in-command-order`, then the others in module start order.
-   Each is `{:name :full-id :entry :command}`. `:name` is the command name, or
-   its full id `<prefix>:<name>` when several modules have that name."
+   ones in `built-in-command-order`, then the others in module start order,
+   the ones modules register while they run last. Each is
+   `{:name :full-id :entry :command}`. `:name` is the command name, or its
+   full id `<prefix>:<name>` when several modules have that name; the first
+   module keeps a full id."
   [config]
   (let [order (zipmap built-in-command-order (range))
-        commands (for [[entry module-commands] (modules/contributions config :commands)
-                       [command-name command] module-commands]
-                   {:name command-name
-                    :full-id (str (modules/prefix entry) ":" command-name)
-                    :entry entry
-                    :command command})
+        commands (->> (concat (for [[entry module-commands] (modules/contributions config :commands)
+                                    [command-name command] module-commands]
+                                [entry command-name command])
+                              (modules/registrations config :commands))
+                      (map (fn [[entry command-name command]]
+                             {:name command-name
+                              :full-id (str (modules/prefix entry) ":" command-name)
+                              :entry entry
+                              :command command}))
+                      (reduce (fn [{:keys [seen] :as acc} {:keys [full-id entry] :as command}]
+                                (if (contains? seen full-id)
+                                  (do (logger/warn "[commands]" (format "Module %s has a command %s, like another module; ignoring it"
+                                                                      (:id entry) full-id))
+                                      acc)
+                                  (-> acc
+                                      (update :seen conj full-id)
+                                      (update :commands conj command))))
+                              {:seen #{} :commands []})
+                      :commands)
         name-counts (frequencies (map :name commands))]
     (->> commands
          (map #(cond-> % (> (name-counts (:name %)) 1) (assoc :name (:full-id %))))

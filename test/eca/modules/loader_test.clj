@@ -6,6 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.commands :as f.commands]
+   [eca.features.tools :as f.tools]
    [eca.modules :as modules]
    [eca.modules.events :as events]
    [eca.modules.loader :as loader]
@@ -245,6 +246,33 @@
         (is (modules/running? :acme/stateful))
         (is (= "Hey from 1 workspace"
                (command-text (f.commands/handle-command! "greet" [] (chat-ctx config)))))))))
+
+(deftest tool-test
+  (with-dirs [global _workspace]
+    (write! global "modules/jira.clj"
+            "(ns acme.jira (:require [eca.api :as eca]))
+             (def module
+               {:id :acme/jira
+                :tools {\"issue\" {:description \"Fetch an issue.\"
+                                  :parameters {:type \"object\"
+                                               :properties {\"key\" {:type \"string\"}}
+                                               :required [\"key\"]}
+                                  :summary-fn (fn [_ctx {:strs [key]}] (str \"Fetching \" key))
+                                  :handler (fn [_ctx {:strs [key]}]
+                                             (if (= \"bad\" key)
+                                               (eca/error \"No such issue\")
+                                               (eca/text (str \"Issue \" key))))}}})")
+    (sync! {})
+    (let [all-tools (f.tools/all-tools "chat-1" "code" (h/db) {})
+          call! #(f.tools/call-tool! "jira__issue" {"key" %} "chat-1" "call-1" "code" (h/db*) {}
+                                     (h/messenger) (h/metrics) identity identity {})]
+      (testing "a tool from a module file is on the module's server"
+        (is (match? {:full-name "jira__issue" :server {:name "jira"}}
+                    (some #(when (= "jira__issue" (:full-name %)) %) all-tools)))
+        (is (= "Fetching ECA-1" (f.tools/tool-call-summary all-tools "jira__issue" {"key" "ECA-1"} {} (h/db)))))
+      (testing "calls run its SCI handler"
+        (is (match? {:error false :contents [{:type :text :text "Issue ECA-1"}]} (call! "ECA-1")))
+        (is (match? {:error true :contents [{:type :text :text "No such issue"}]} (call! "bad")))))))
 
 (deftest output-goes-to-the-log-test
   (with-dirs [global _workspace]

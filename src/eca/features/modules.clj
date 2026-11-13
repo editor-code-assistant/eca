@@ -5,6 +5,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.tools :as f.tools]
    [eca.modules :as modules]
    [eca.modules.config-spec :as config-spec]
    [eca.modules.loader :as loader]
@@ -30,24 +31,36 @@
 (defn ^:private code-list [xs]
   (string/join ", " (map #(str "`" % "`") xs)))
 
-(defn ^:private tool-names
-  "The names of a module's tools; for `:tools` functions, the ones they give
-   outside of a chat."
-  [{:keys [module] :as entry} ctx]
-  (let [tools (:tools module)]
-    (sort (keys (if (modules/fn-like? tools)
-                  (try (tools (modules/module-ctx ctx entry)) (catch Exception _ nil))
-                  tools)))))
+(defn ^:private registered
+  "The names of what module `entry` registered while it runs, of `kind`."
+  [config kind entry]
+  (for [[registering reg-name _] (modules/registrations config kind)
+        :when (= (:id entry) (:id registering))]
+    reg-name))
 
-(defn ^:private contributions [{:keys [module] :as entry} ctx]
+(defn ^:private tool-names
+  "The full names of a module's tools: `<prefix>__<name>`, or the name a tool
+   `:replaces`. For `:tools` functions, the ones they give outside of a chat."
+  [{:keys [module] :as entry} {:keys [config] :as ctx}]
   (let [prefix (modules/prefix entry)
-        {:keys [commands system-prompts providers apis event-handlers defines config-spec rpc]} module
-        tools (tool-names entry ctx)]
+        tools (:tools module)
+        tools (if (modules/fn-like? tools)
+                (try (tools (modules/module-ctx ctx entry)) (catch Exception _ nil))
+                tools)]
+    (sort (concat (for [[tool-name tool] tools]
+                    (or (:replaces tool) (str prefix "__" tool-name)))
+                  (for [tool-name (registered config :tools entry)]
+                    (str prefix "__" tool-name))))))
+
+(defn ^:private contributions [{:keys [module] :as entry} {:keys [config] :as ctx}]
+  (let [{:keys [system-prompts providers apis event-handlers defines config-spec rpc]} module
+        tools (tool-names entry ctx)
+        commands (sort (distinct (concat (keys (:commands module)) (registered config :commands entry))))]
     (remove nil?
             [(when (seq tools)
-               (str "tools " (code-list (map #(str prefix "__" %) tools))))
+               (str "tools " (code-list tools)))
              (when (seq commands)
-               (str "commands " (code-list (map #(str "/" %) (sort (keys commands))))))
+               (str "commands " (code-list (map #(str "/" %) commands))))
              (when (seq system-prompts)
                (str "prompt sections " (code-list (map :id system-prompts))))
              (when (seq providers)
@@ -143,6 +156,9 @@
                        (modules/restart! components (fresh-config) id)))
         (let [config (fresh-config)
               _ (modules/reconcile-if-started! components config)
+              ;; the module may add, replace or remove tools
+              _ (when messenger
+                  (f.tools/refresh-module-tool-servers! db* messenger config))
               after (:active-ids (modules/resolution config))
               status (some #(when (= id (:id %)) %) (modules/statuses config))]
           (multi-str

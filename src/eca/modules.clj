@@ -127,7 +127,9 @@
                            (map #(format "%s %s: %s" k (pr-str n) %) (entry-problems entry))))
                        m))))
 
-(defn ^:private tool-problems [tool]
+(defn tool-problems
+  "What's wrong with a tool entry, as strings."
+  [tool]
   (if-not (map? tool)
     ["must be a map"]
     (cond-> []
@@ -135,7 +137,9 @@
       (not (or (string? (:description tool)) (fn-like? (:description tool)))) (conj ":description must be a string or a function")
       (not (map? (:parameters tool))) (conj ":parameters must be a JSON Schema map"))))
 
-(defn ^:private command-problems [command]
+(defn command-problems
+  "What's wrong with a command entry, as strings."
+  [command]
   (if-not (map? command)
     ["must be a map"]
     (cond-> []
@@ -203,8 +207,17 @@
                   (when (and (some? default-enabled?) (not (boolean? default-enabled?))) [":default-enabled? must be a boolean"])
                   (when (and (some? start) (not (fn-like? start))) [":start must be a function"])
                   (when (and (some? stop) (not (fn-like? stop))) [":stop must be a function"])
-                  (when (and (some? prefix) (not (and (string? prefix) (re-matches #"[A-Za-z0-9_-]+" prefix))))
-                    [":prefix must be a string of letters, digits, _ or -"])
+                  (cond
+                    (and (some? prefix) (not (and (string? prefix) (re-matches #"[A-Za-z0-9_-]+" prefix))))
+                    [":prefix must be a string of letters, digits, _ or -"]
+
+                    (and (not built-in?) (= "eca" prefix))
+                    [":prefix eca is reserved for built-in modules; a tool takes over a built-in one with :replaces"]
+
+                    (and (not built-in?) (nil? prefix) (qualified-kw? id) (= "eca" (name id)))
+                    [":prefix defaults to the name in :id, and eca is reserved for built-in modules: set another :prefix"]
+
+                    :else [])
                   (when (and (some? (:description module)) (not (string? (:description module)))) [":description must be a string"])
                   (when (and (some? (:version module)) (not (string? (:version module)))) [":version must be a string"])
                   (if (and built-in? (fn-like? tools))

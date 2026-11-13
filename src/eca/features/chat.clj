@@ -2527,7 +2527,7 @@
             ;; Granular keys only exist for native tools, an MCP tool named
             ;; like one (e.g. `git`) is remembered as a whole tool.
             (if-let [{keys' :keys} (when (= :native origin)
-                                     (f.tools/tool-approval-keys tool-call-name arguments @db* config))]
+                                     (f.tools/tool-approval-keys (or full-name tool-call-name) arguments @db* config))]
               ;; Granular remember (e.g. shell commands): remember only the
               ;; derived keys instead of whitelisting the whole tool. #153
               (when (seq keys')

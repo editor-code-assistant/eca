@@ -174,9 +174,11 @@
              (fn [_prev-config new-config]
                ;; modules.<id>.source may have changed
                (let [changes (when (modules/started?)
-                               (sync-external-modules! db* messenger new-config))]
-                 (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
-                                                (if (seq changes) (config/all @db*) new-config)))))
+                               (sync-external-modules! db* messenger new-config))
+                     config (if (seq changes) (config/all @db*) new-config)]
+                 (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics} config)
+                 (when (seq changes)
+                   (f.tools/refresh-module-tool-servers! db* messenger config)))))
       (swap! db* assoc-in [:config-updated-fns :tool-refresh]
              (fn [prev-config new-config]
                (when (and prev-config
@@ -239,8 +241,10 @@
                           :db-fn #(deref db*)
                           :on-changes (fn [changes]
                                         (notify-module-load-errors! messenger changes)
-                                        (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
-                                                                       (config/all @db*))
+                                        (let [config (config/all @db*)]
+                                          (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
+                                                                         config)
+                                          (f.tools/refresh-module-tool-servers! db* messenger config))
                                         (notify-chat-config-state! db* messenger))}))
         ;; Trigger sessionStart before delivering plugins-resolved so it
         ;; completes before any chatStart hook can fire (chatStart waits

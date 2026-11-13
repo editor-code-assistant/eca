@@ -12,6 +12,7 @@
 - Build the system prompt from the modules' sections, in the same order; disabling a module drops its section. #699
 - Move MCP into the `eca/mcp` module: disabling it stops the servers and hides their tools, prompts and instructions. #699
 - Load external modules, interpreted with SCI, from `~/.config/eca/modules/`, `.eca/modules/`, plugins, `modules.<id>.source` and `--module`; they reload on save. #699
+- Name external module tools `<prefix>__<name>`, sent to clients as `tool/serverUpdated` of type `module`; modules can add tools and commands while they run. #699
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 
