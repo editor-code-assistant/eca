@@ -339,8 +339,8 @@
     },
     "otlp": {
       "type": "object",
-      "description": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings.",
-      "markdownDescription": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings.",
+      "description": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings. Setting it turns on the eca/otel module.",
+      "markdownDescription": "OpenTelemetry OTLP collector configuration. Keys follow otlp auto-configure settings. Setting it turns on the `eca/otel` module.",
       "additionalProperties": {
         "type": "string"
       }

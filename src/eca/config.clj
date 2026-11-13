@@ -608,7 +608,8 @@
 (def ^:private optional-modules-turned-on-by
   "The optional modules a feature's own config turns on, as that config turned
    the feature on before modules. An explicit `modules.<id>.enabled` wins."
-  {:eca/remote (fn [config] (get-in config [:remote :enabled]))})
+  {:eca/remote (fn [config] (get-in config [:remote :enabled]))
+   :eca/otel (fn [config] (:otlp config))})
 
 (defn ^:private enable-optional-modules [config]
   (reduce-kv (fn [config id on?]

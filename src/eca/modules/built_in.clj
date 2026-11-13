@@ -8,6 +8,7 @@
    [eca.features.create :as f.create]
    [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
+   [eca.features.otel :as f.otel]
    [eca.features.plugins :as f.plugins]
    [eca.features.remote :as f.remote]
    [eca.features.repl :as f.repl]
@@ -100,4 +101,5 @@
    z-ai/module
    ;; optional, off by default
    f.remote/module
+   f.otel/module
    f.repl/module])

@@ -4,13 +4,14 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.otel :as f.otel]
    [eca.features.remote :as f.remote]
    [eca.handlers :as handlers]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.modules :as modules]
    [eca.nrepl :as nrepl]
-   [eca.opentelemetry :as opentelemetry]
    [eca.remote.messenger :as remote.messenger]
    [eca.remote.server :as remote.server]
    [eca.shared :as shared :refer [assoc-some]]
@@ -339,10 +340,16 @@
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-request server "chat/askQuestion" params))))
 
-(defn ^:private ->Metrics [db*]
-  (if-let [otlp-config (:otlp (config/all @db*))]
-    (opentelemetry/->OtelMetrics otlp-config)
-    (metrics/->NoopMetrics)))
+(defn ^:private ->Metrics
+  "The session's metrics: switchable, so the eca/otel module can turn the
+   export on and off; exporting from the start when the module is on, as
+   before modules."
+  [db*]
+  (let [config (config/all @db*)
+        metrics (metrics/->switchable (metrics/->NoopMetrics))]
+    (when (and (:otlp config) (modules/active? config :eca/otel))
+      (f.otel/install! metrics (:otlp config)))
+    metrics))
 
 (defn start-server! [server]
   (let [db* (atom (assoc db/initial-db :started-at (System/currentTimeMillis)))
