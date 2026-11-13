@@ -59,12 +59,13 @@
    - :shell-path  Custom shell executable path (optional, overrides platform default)
    - :shell-args  Custom shell args placed before the script/file arg (optional)
    - :chat-id     Chat id exported as ECA_CHAT_ID env var (optional)
+   - :env         Extra env vars, name → value (optional, e.g. from modules)
 
    The spawned process env always includes ECA_AGENT=1 so external tooling
    can detect ECA-spawned commands.
 
    Returns: babashka.process process object (deref-able)"
-  [{:keys [cwd script file input out-mode shell-path shell-args chat-id]
+  [{:keys [cwd script file input out-mode shell-path shell-args chat-id env]
     :or {out-mode :string}}]
   {:pre [(some? cwd)
          (or (some? script) (some? file))
@@ -89,10 +90,12 @@
                         :out out-mode
                         :err out-mode
                         :continue true
-                        :extra-env (shared/assoc-some
-                                    {"ECA_EXECUTABLE" @shared/eca-executable*
-                                     "ECA_AGENT" "1"}
-                                    "ECA_CHAT_ID" chat-id)}
+                        :extra-env (merge
+                                    (into {} (map (fn [[k v]] [(name k) (str v)])) env)
+                                    (shared/assoc-some
+                                     {"ECA_EXECUTABLE" @shared/eca-executable*
+                                      "ECA_AGENT" "1"}
+                                     "ECA_CHAT_ID" chat-id))}
                  input (assoc :in input)))))
 
 (def ^:private initial-output-wait-ms 2000)

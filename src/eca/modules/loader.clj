@@ -21,6 +21,9 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [eca.api]
+   [eca.api.fs]
+   [eca.api.http]
+   [eca.api.json]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.modules :as modules]
@@ -195,7 +198,10 @@
 (defn ^:private new-ctx []
   (sci/alter-var-root sci/out (constantly (log-writer logger/info)))
   (sci/alter-var-root sci/err (constantly (log-writer logger/warn)))
-  (sci/init {:namespaces {'eca.api (sci/copy-ns eca.api (sci/create-ns 'eca.api))}
+  (sci/init {:namespaces {'eca.api (sci/copy-ns eca.api (sci/create-ns 'eca.api))
+                          'eca.api.fs (sci/copy-ns eca.api.fs (sci/create-ns 'eca.api.fs))
+                          'eca.api.http (sci/copy-ns eca.api.http (sci/create-ns 'eca.api.http))
+                          'eca.api.json (sci/copy-ns eca.api.json (sci/create-ns 'eca.api.json))}
              :load-fn load-fn}))
 
 (defn ^:private ctx []

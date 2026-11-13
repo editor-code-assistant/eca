@@ -31,6 +31,7 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
+   [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
    [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
@@ -2724,7 +2725,12 @@
                        (update :deleted-chat-ids (fnil conj #{}) chat-id))))
       (messenger/chat-deleted messenger {:chat-id chat-id})
       ;; Delete the chat's cache file and drop it from the chats index
-      (db/delete-chat-from-cache! @db* chat-id metrics))))
+      (db/delete-chat-from-cache! @db* chat-id metrics)
+      ;; and the modules' files for it (eca.api/data-dir)
+      (try
+        (modules.data/delete-chat-dirs! @db* chat-id)
+        (catch Exception e
+          (logger/warn logger-tag "Could not delete the modules' files of the chat:" (ex-message e)))))))
 
 (defn clear-chat
   "Clear specific aspects of a chat. Currently supports clearing :messages."

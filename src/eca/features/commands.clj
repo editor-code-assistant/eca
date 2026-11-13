@@ -372,6 +372,17 @@
    "preRequest" "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
    "preCompact" "postCompact"])
 
+(defn module-usage-lines
+  "`/costs` lines for the LLM calls modules made (`eca.api/complete!`), by
+   module, or nil when there were none."
+  [module-usage]
+  (when (seq module-usage)
+    (cons "\nModules' own LLM calls, not in the totals above:"
+          (for [[id {:keys [calls input-tokens output-tokens cost]}] (sort-by (comp str key) module-usage)]
+            (str "- `" (symbol id) "`: " calls (if (= 1 calls) " call, " " calls, ")
+                 input-tokens " input tokens, " output-tokens " output tokens"
+                 (when cost (str ", $" (shared/format-cost cost))))))))
+
 (defn ^:private hooks-msg [config]
   (let [hooks-map (:hooks config)
         hooks-by-type (->> hooks-map
@@ -993,7 +1004,8 @@
                                     (str "Total output tokens: " total-output-tokens)
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)
                                          (when subscription?
-                                           " (API pricing estimate, subscription logins are not billed per token, see /quota)")))]
+                                           " (API pricing estimate, subscription logins are not billed per token, see /quota)"))
+                                    (module-usage-lines (get-in db [:chats chat-id :module-usage])))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "quota" (let [providers (f.quota/subscription-providers db config)]

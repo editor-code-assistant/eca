@@ -9,7 +9,7 @@
    [eca.modules :as modules]
    [eca.modules.config-spec :as config-spec]
    [eca.modules.loader :as loader]
-   [eca.shared :refer [multi-str]]))
+   [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -76,6 +76,13 @@
              (when-let [paths (seq (keys (config-spec/leaves config-spec)))]
                (str "config " (code-list (sort (map config-spec/path-str paths)))))])))
 
+(defn ^:private llm-usage-text
+  "The module's LLM calls this session (`eca.api/complete!`), or nil."
+  [{:keys [db]} id]
+  (when-let [{:keys [calls cost]} (get-in db [:module-usage id])]
+    (str calls (if (= 1 calls) " LLM call" " LLM calls")
+         (when cost (str " ($" (shared/format-cost cost) ")")))))
+
 (defn ^:private module-text [{:keys [id module status reason source built-in? priority running?
                                      warnings failures errors]
                               :as entry}
@@ -89,6 +96,7 @@
      (str "  " (string/join " · " (remove nil? [(if built-in? "built-in" (str "from `" source "`"))
                                                 (when priority (str "priority " priority))
                                                 (when running? "running")
+                                                (llm-usage-text ctx id)
                                                 (when (pos? (or failures 0)) (str failures " failures in a row"))])))
      (when (and reason (not= :active status))
        (str "  " (name status) ": " reason))

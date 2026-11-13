@@ -8,6 +8,7 @@
    [eca.digest :as digest]
    [eca.logger :as logger]
    [eca.metrics :as metrics]
+   [eca.modules.data :as modules.data]
    [eca.shared :as shared])
   (:import
    [java.io OutputStream RandomAccessFile]
@@ -932,7 +933,12 @@
         (let [db @db*
               workspaces (db-workspaces db)]
           (doseq [chat-id removed-ids]
-            (delete-chat-file! workspaces chat-id))
+            (delete-chat-file! workspaces chat-id)
+            ;; and the modules' files for it (eca.api/data-dir)
+            (try
+              (modules.data/delete-chat-dirs! db chat-id)
+              (catch Exception e
+                (logger/warn logger-tag "Could not delete the modules' files of chat" chat-id (ex-message e)))))
           (update-chats-index! db metrics))))))
 
 (def ^:private workspaces-hash-length 8)

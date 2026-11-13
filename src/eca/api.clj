@@ -8,11 +8,14 @@
    function runs. Within one module API version (`:api` 1) this namespace
    only grows."
   (:require
+   [babashka.fs :as fs]
+   [babashka.process :as process]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
+   [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
    [eca.shared :as shared]))
 
@@ -361,6 +364,156 @@
   [ctx command-name]
   (modules/unregister! (owner ctx) :commands command-name)
   nil)
+
+;; --- LLM
+
+(defn models
+  "The models ECA can use: full name → capabilities, e.g.
+   `{\"anthropic/claude-sonnet-4-6\" {:tools true :limit {:context 200000} ...}}`."
+  [ctx]
+  (:models (db ctx)))
+
+(defn ^:private text-blocks [content]
+  (if (string? content) [{:type :text :text content}] content))
+
+(defn ^:private record-usage!
+  "Adds an LLM call's usage to the module's totals: the session's, and the
+   chat's when it ran in one, which `/costs` shows."
+  [db* id chat-id {:keys [input-tokens output-tokens input-cache-creation-tokens input-cache-read-tokens]}
+   model-capabilities]
+  (let [cost (shared/tokens->raw-cost (or input-tokens 0) input-cache-creation-tokens input-cache-read-tokens
+                                      (or output-tokens 0) model-capabilities)
+        add (fn [totals]
+              (cond-> (-> totals
+                          (update :calls (fnil inc 0))
+                          (update :input-tokens (fnil + 0) (or input-tokens 0))
+                          (update :output-tokens (fnil + 0) (or output-tokens 0))
+                          (update :input-cache-creation-tokens (fnil + 0) (or input-cache-creation-tokens 0))
+                          (update :input-cache-read-tokens (fnil + 0) (or input-cache-read-tokens 0)))
+                cost (update :cost (fnil + 0) (double cost))))]
+    (swap! db* (fn [db]
+                 (cond-> (update-in db [:module-usage id] add)
+                   (and chat-id (get-in db [:chats chat-id]))
+                   (update-in [:chats chat-id :module-usage id] add))))))
+
+(defn complete!
+  "One call to an LLM, with any model ECA can use, and waits for it: returns
+   `{:text :usage}`, or throws when the call fails. `opts`:
+   - `:model`: a full model name, e.g. \"anthropic/claude-haiku-4-5\"; the
+     chat's model by default, else `defaultModel`.
+   - `:instructions`: the system prompt.
+   - `:messages`: the conversation, e.g. `(messages ctx)`, or
+     `[{:role \"user\" :content \"..\"}]`.
+   - `:prompt`: text sent as the last user message; needed when `:messages`
+     doesn't end with the user's.
+   - `:max-output-tokens`.
+   No tools or reasoning. The call is metered: its tokens and cost count for
+   the module, in `/costs` and `/modules`. It can take a while: from an event
+   handler, prefer `background!`, or a longer `:timeout-ms`."
+  [ctx {:keys [model instructions messages prompt max-output-tokens]}]
+  (let [id (owner ctx)
+        db* (db*-of ctx)
+        db @db*
+        config (config ctx)
+        chat-id (:chat-id ctx)
+        full-model (or model (get-in db [:chats chat-id :model]) (:defaultModel config))
+        model-capabilities (or (get-in db [:models full-model])
+                               (throw (ex-info (str "Unknown model " (pr-str full-model)) {:model full-model})))
+        [provider model-name] (shared/full-model->provider+model full-model)
+        messages (cond-> (mapv #(update % :content text-blocks) messages)
+                   prompt (conj {:role "user" :content (text-blocks prompt)}))
+        _ (when-not (= "user" (:role (peek messages)))
+            (throw (ex-info "complete! needs the user's message last: end :messages with one, or give :prompt" {})))
+        _ (try
+            ((requiring-resolve 'eca.features.login/maybe-renew-auth-token!)
+             {:provider provider
+              :on-error (fn [msg] (logger/warn "[MODULES]" "Could not renew the auth of" provider msg))}
+             {:db* db* :messenger (:messenger ctx) :config config :metrics (:metrics ctx)})
+            (catch Exception e
+              (logger/warn "[MODULES]" "Could not renew the auth of" provider (ex-message e))))
+        result ((requiring-resolve 'eca.llm-api/sync-prompt!)
+                {:provider provider
+                 :model model-name
+                 :model-capabilities (cond-> (assoc model-capabilities :tools false :web-search false :reason? false)
+                                       max-output-tokens (assoc :max-output-tokens max-output-tokens))
+                 :instructions instructions
+                 :past-messages (pop messages)
+                 :user-messages [(peek messages)]
+                 :config config
+                 :provider-auth (get-in @db* [:auth provider])
+                 :subagent? true})]
+    (when-let [error (:error result)]
+      (throw (ex-info (str "The LLM call failed: " (or (:message error) (some-> (:exception error) ex-message) error))
+                      {:model full-model})))
+    (when-let [usage (:usage result)]
+      (record-usage! db* id chat-id usage model-capabilities))
+    {:text (:output-text result)
+     :usage (:usage result)}))
+
+;; --- Runtime
+
+(defn background!
+  "Runs `(f)` in the background, on the module's own threads, and returns at
+   once: a future (deref it to wait for the result). With
+   `{:pool :name :size n}`, in a pool of `n` threads (4 by default) with that
+   name. A pool's jobs queue when its threads are busy. Jobs are interrupted
+   when the module stops; an exception in one is logged and counts as a
+   failure of the module."
+  ([ctx f] (background! ctx {} f))
+  ([ctx opts f]
+   (modules/background! ctx (owner ctx) opts f)))
+
+(defn data-dir
+  "A folder for the module's files, made if needed, in the workspace's cache:
+   one per module, or with `{:chat? true}` one for the chat, which is removed
+   with the chat. Returns its absolute path."
+  ([ctx] (data-dir ctx nil))
+  ([ctx {:keys [chat?]}]
+   (let [id (owner ctx)
+         dir (if chat?
+               (modules.data/chat-dir (db ctx) id (chat-id-of ctx))
+               (modules.data/module-dir (db ctx) id))]
+     (str (fs/create-dirs dir)))))
+
+(defn shell!
+  "Runs `command`, a string, in a shell (bash; PowerShell on Windows) and
+   waits for it: `{:exit :out :err}`. `opts`:
+   - `:cwd`: the folder to run in; the first workspace by default.
+   - `:env`: extra environment variables, name → value.
+   - `:input`: text for the command's stdin.
+   - `:timeout-ms`: 60000 by default. After it the process is killed, and the
+     result has `:timeout? true` and a nil `:exit`.
+   The `:shell/before-exec` event runs first, so modules can change the
+   command, its folder and its variables, e.g. to run it elsewhere."
+  ([ctx command] (shell! ctx command nil))
+  ([ctx command {:keys [cwd env input timeout-ms] :or {timeout-ms 60000}}]
+   (let [config (config ctx)
+         event (events/emit! (assoc ctx :config config) :shell/before-exec
+                             {:command command
+                              :cwd (or cwd (first (workspaces ctx)) (System/getProperty "user.home"))
+                              :env env
+                              :timeout-ms timeout-ms
+                              :background? false})
+         shell-config (get-in config [:toolCall :shellCommand])
+         proc ((requiring-resolve 'eca.features.tools.shell/start-shell-process!)
+               (cond-> {:cwd (:cwd event)
+                        :script (str (:command event))
+                        :env (:env event)
+                        :chat-id (:chat-id ctx)}
+                 input (assoc :input input)
+                 (:path shell-config) (assoc :shell-path (:path shell-config))
+                 (:args shell-config) (assoc :shell-args (:args shell-config))))
+         result (try
+                  (deref proc timeout-ms ::timeout)
+                  (catch InterruptedException e
+                    (process/destroy-tree proc)
+                    (throw e)))]
+     (if (= ::timeout result)
+       (do (process/destroy-tree proc)
+           {:exit nil :out "" :err (str "Timed out after " timeout-ms " ms") :timeout? true})
+       {:exit (:exit result) :out (str (:out result)) :err (str (:err result))}))))
+
+;; --- Results
 
 (defn text
   "A tool result holding the text `s`."

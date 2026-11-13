@@ -290,6 +290,25 @@
       (is (= "Count 2 in chat-1" (command-text (f.commands/handle-command! "count" [] (chat-ctx {})))))
       (is (= {:n 2} (get-in (h/db) [:chats "chat-1" :modules :acme/counter]))))))
 
+(deftest libraries-test
+  (with-dirs [global _workspace]
+    (write! global "modules/notes.clj"
+            "(ns acme.notes
+               (:require [eca.api :as eca]
+                         [eca.api.fs :as fs]
+                         [eca.api.json :as json]))
+             (def module
+               {:id :acme/notes
+                :commands {\"note\" {:handler (fn [ctx {:keys [raw]}]
+                                               (let [file (fs/path (eca/data-dir ctx) \"notes.json\")
+                                                     notes (if (fs/exists? file) (json/parse (fs/read-file file)) [])]
+                                                 (fs/write-file! file (json/generate (conj notes raw)))
+                                                 (str (count (json/parse (fs/read-file file))) \" notes\")))}}})")
+    (sync! {})
+    (testing "a module uses eca.api.fs and eca.api.json, in its data folder"
+      (is (= "1 notes" (command-text (f.commands/handle-command! "note" ["a"] (chat-ctx {}))))))
+    (is (= "2 notes" (command-text (f.commands/handle-command! "note" ["b"] (chat-ctx {})))))))
+
 (deftest output-goes-to-the-log-test
   (with-dirs [global _workspace]
     (write! global "modules/noisy.clj"

@@ -74,9 +74,12 @@
 
 (defn reset-registry!
   "Back to a fresh runtime: no external modules, overrides, state or
-   failures. For tests."
+   failures, and the background pools stopped. For tests."
   []
-  (swap! registry* (fn [{:keys [version]}] {:version (inc version)})))
+  (let [[old] (swap-vals! registry* (fn [{:keys [version]}] {:version (inc version)}))]
+    (doseq [[_ pools] (:pools old)
+            [_ ^ExecutorService executor] pools]
+      (.shutdownNow executor))))
 
 (defn built-in-modules
   "The compiled modules, resolved lazily: `eca.modules.built-in` requires the
@@ -527,6 +530,55 @@
   [entry explicit default-ms]
   (or explicit (when-not (:built-in? entry) default-ms)))
 
+;; --- Background jobs (eca.api/background!)
+
+(def default-pool-size
+  "Threads of a module's background pool when it doesn't say."
+  4)
+
+(def ^:private pools-lock (Object.))
+
+(defn ^:private pool-thread-factory ^ThreadFactory [id pool-name]
+  (let [n (atom 0)]
+    (reify ThreadFactory
+      (newThread [_ runnable]
+        (doto (Thread. ^Runnable runnable (format "eca-module-%s-%s-%d" (symbol id) (name pool-name) (swap! n inc)))
+          (.setDaemon true))))))
+
+(defn ^:private pool! ^ExecutorService [id pool-name size]
+  (locking pools-lock
+    (or (get-in @registry* [:pools id pool-name])
+        (let [executor (Executors/newFixedThreadPool (int size) (pool-thread-factory id pool-name))]
+          (swap! registry* assoc-in [:pools id pool-name] executor)
+          executor))))
+
+(defn ^:private shutdown-pools!
+  "Stops the background pools of module `id`, interrupting their jobs."
+  [id]
+  (let [pools (locking pools-lock
+                (let [pools (get-in @registry* [:pools id])]
+                  (swap! registry* update :pools dissoc id)
+                  pools))]
+    (doseq [[_ ^ExecutorService executor] pools]
+      (.shutdownNow executor))))
+
+(defn background!
+  "Runs `(f)` on a thread of module `id`'s background pool `:pool` (`:default`
+   when not given), guarded like any call into the module. A pool gets
+   `:size` threads (`default-pool-size`) when first used; its jobs queue
+   when they're all busy. The pools stop, interrupting their jobs, when the
+   module stops. Returns the job's java Future."
+  [ctx id {:keys [pool size] :or {pool :default size default-pool-size}} f]
+  (let [entry (or (get-in @registry* [:running id :entry])
+                  (when (map? (:config ctx)) (active-entry (:config ctx) id))
+                  (throw (ex-info (str "Module " id " isn't active") {:module id})))
+        executor (pool! id pool size)
+        context (logger/capture-context)
+        job (fn []
+              (logger/with-context context
+                (invoke-safe ctx entry (str "background job in pool " (name pool)) {} f)))]
+    (.submit executor ^Callable job)))
+
 ;; --- Registrations made at runtime (register-tool!, register-command!)
 
 (defn register!
@@ -581,6 +633,7 @@
     (when stop
       (let [ctx (module-ctx components entry)]
         (invoke-safe ctx entry "stop" {:timeout-ms (timeout-for entry nil default-start-timeout-ms)} stop ctx)))
+    (shutdown-pools! id)
     (swap! registry* (fn [registry]
                        (-> registry
                            (update :running dissoc id)
@@ -631,6 +684,10 @@
         (doseq [r stale]
           (stop-module! components r))
         (swap! registry* update :registrations select-keys active-ids)
+        ;; modules without :start never run, so they don't stop: drop their pools here
+        (doseq [id (keys (:pools @registry*))
+                :when (not (contains? active-ids id))]
+          (shutdown-pools! id))
         (let [started-ok? (every? (fn [entry]
                                     (or (running? (:id entry))
                                         (nil? (:start (:module entry)))
@@ -667,7 +724,9 @@
   (locking lifecycle-lock
     (swap! registry* assoc :session-started? false)
     (doseq [r (reverse (running))]
-      (stop-module! components r))))
+      (stop-module! components r))
+    (doseq [id (keys (:pools @registry*))]
+      (shutdown-pools! id))))
 
 (defn fail!
   "Marks module `id` as failed for the session: it becomes inactive, with
