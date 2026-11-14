@@ -614,6 +614,29 @@
   
   
     <li class="md-nav__item">
+      <a href="../config/modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Modules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../config/models/" class="md-nav__link">
         
   
@@ -1449,11 +1472,7 @@
 </tr>
 <tr>
 <td><code>src/eca/llm_api.clj</code></td>
-<td>Public façade used by features to call an LLM.</td>
-</tr>
-<tr>
-<td><code>src/eca/llm_providers/</code></td>
-<td>Vendor adapters (<code>anthropic.clj</code>, <code>openai.clj</code>, <code>openai_chat.clj</code>, <code>google.clj</code>, <code>copilot.clj</code>, <code>bedrock.clj</code>, <code>azure.clj</code>, <code>ollama.clj</code>, <code>openrouter.clj</code>, ...).</td>
+<td>Public façade used by features to call an LLM, through the provider modules' APIs.</td>
 </tr>
 <tr>
 <td><code>src/eca/llm_util.clj</code></td>
@@ -1461,31 +1480,15 @@
 </tr>
 <tr>
 <td><code>src/eca/features/</code></td>
-<td><strong>High-level capabilities exposed to the editor</strong></td>
+<td><strong>Core capabilities exposed to the editor</strong></td>
 </tr>
 <tr>
 <td>├─ <code>chat.clj</code> + <code>chat/</code></td>
 <td>Streaming chat orchestration &amp; tool-call pipeline (lifecycle, history, tool calls).</td>
 </tr>
 <tr>
-<td>├─ <code>agents.clj</code></td>
-<td>Agents and subagents (definitions, spawning).</td>
-</tr>
-<tr>
 <td>├─ <code>commands.clj</code></td>
-<td>Chat commands (<code>/init</code>, <code>/login</code>, <code>/context</code>, custom commands, ...).</td>
-</tr>
-<tr>
-<td>├─ <code>hooks.clj</code></td>
-<td>User-configured hooks triggered on server events.</td>
-</tr>
-<tr>
-<td>├─ <code>skills.clj</code> + <code>skills/</code></td>
-<td>Skills discovery and loading.</td>
-</tr>
-<tr>
-<td>├─ <code>rules.clj</code></td>
-<td>User-defined global/project/path-scoped rules.</td>
+<td>Core chat commands (<code>/login</code>, <code>/compact</code>, <code>/context</code>, ...) and running commands.</td>
 </tr>
 <tr>
 <td>├─ <code>context.clj</code></td>
@@ -1513,39 +1516,55 @@
 </tr>
 <tr>
 <td>├─ <code>index.clj</code></td>
-<td>Workspace indexing helpers (repo map).</td>
+<td>Workspace files, as <code>index.ignoreFiles</code> allows.</td>
 </tr>
 <tr>
-<td>├─ <code>tools.clj</code></td>
-<td>Registry of tool servers and built-in tool descriptors, approval logic.</td>
+<td>├─ <code>modules.clj</code></td>
+<td>The <code>/modules</code> command.</td>
 </tr>
 <tr>
-<td>└─ <code>tools/</code></td>
-<td>Implementation of built-in tools:</td>
+<td>└─ <code>tools.clj</code> + <code>tools/</code></td>
+<td>Tool pipeline: tool servers, calls, approval rules; <code>tools/util.clj</code> helpers.</td>
 </tr>
 <tr>
-<td>──├─ <code>filesystem.clj</code></td>
-<td>read/write/edit/grep helpers</td>
+<td><code>src/eca/modules/</code></td>
+<td><strong>Modules</strong>: the runtime (<code>modules.clj</code>, <code>events.clj</code>, <code>loader.clj</code>, ...) and the built-in modules, one namespace each, listed in <code>built_in.clj</code>, which <code>eca.main</code> hands to the runtime</td>
 </tr>
 <tr>
-<td>──├─ <code>shell.clj</code></td>
-<td>runs user-approved shell commands, background jobs</td>
+<td>├─ <code>tools/</code></td>
+<td>Built-in tools: <code>filesystem.clj</code>, <code>shell.clj</code>, <code>git.clj</code>, <code>editor.clj</code>, <code>task.clj</code>, ...</td>
 </tr>
 <tr>
-<td>──├─ <code>mcp.clj</code></td>
-<td>MCP (Model Context Protocol) servers integration</td>
+<td>├─ <code>providers/</code></td>
+<td>LLM providers, each with its API when it has its own (<code>anthropic.clj</code>, <code>openai.clj</code>, <code>openai_chat.clj</code>, ...).</td>
 </tr>
 <tr>
-<td>──├─ ...</td>
-<td>other built-in tools: <code>git.clj</code>, <code>task.clj</code>, <code>agent.clj</code>, <code>ask_user.clj</code>, <code>skill.clj</code>, ...</td>
+<td>├─ <code>agents.clj</code> + <code>agents/</code></td>
+<td>Agents from config and Markdown files, and the agents ECA ships; <code>subagents.clj</code> + <code>subagents/</code> likewise.</td>
 </tr>
 <tr>
-<td>──└─ <code>util.clj</code></td>
-<td>misc helpers shared by tools.</td>
+<td>├─ <code>mcp.clj</code></td>
+<td>MCP (Model Context Protocol) servers integration.</td>
 </tr>
 <tr>
-<td><code>src/eca/remote/</code></td>
+<td>├─ <code>hooks.clj</code></td>
+<td>User-configured hooks triggered on server events.</td>
+</tr>
+<tr>
+<td>├─ <code>skills.clj</code>, <code>rules.clj</code></td>
+<td>Skills and rules: discovery, loading, their tools and prompt sections.</td>
+</tr>
+<tr>
+<td>├─ <code>remote.clj</code> + <code>remote/</code></td>
 <td>Optional remote HTTP/SSE server exposing chats to non-stdio clients.</td>
+</tr>
+<tr>
+<td>└─ ...</td>
+<td><code>plugins.clj</code>, <code>approval.clj</code>, <code>create.clj</code>, <code>otel.clj</code>, <code>repl.clj</code>, ...</td>
+</tr>
+<tr>
+<td><code>src/eca/api.clj</code> + <code>api/</code></td>
+<td>The module API: all that external modules see.</td>
 </tr>
 <tr>
 <td><code>src/eca/nrepl.clj</code></td>
@@ -1554,12 +1573,12 @@
 </tbody>
 </table>
 <p>Together these files implement the request flow:</p>
-<p><code>client/editor</code> → <code>stdin JSON-RPC</code> → <code>handlers</code> → <code>features</code> → <code>llm_api</code> → <code>llm_provider</code> → results streamed back via <code>messenger</code>.</p>
+<p><code>client/editor</code> → <code>stdin JSON-RPC</code> → <code>handlers</code> → <code>features</code> and modules → <code>llm_api</code> → provider module → results streamed back via <code>messenger</code>.</p>
 <p>With this map you can usually answer:</p>
 <ul>
 <li><em>"Where does request X enter the system?"</em> – look in <code>handlers.clj</code>.</li>
-<li><em>"How is tool Y executed?"</em> – see <code>src/eca/features/tools/&lt;y&gt;.clj</code>.</li>
-<li><em>"How do we talk to provider Z?"</em> – adapter under <code>llm_providers/</code>.</li>
+<li><em>"How is tool Y executed?"</em> – see <code>src/eca/modules/tools/&lt;y&gt;.clj</code>.</li>
+<li><em>"How do we talk to provider Z?"</em> – its module under <code>src/eca/modules/providers/</code>.</li>
 </ul>
 <h3 id="unit-tests">Unit Tests<a class="headerlink" href="#unit-tests" title="Permanent link">#</a></h3>
 <p>Run with <code>bb test</code> or run tests via Clojure REPL. CI runs the same task.</p>
@@ -1656,7 +1675,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 13:04:29 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 14, 2026 12:48:23 UTC">November 14, 2026</span>
   </span>
 
     

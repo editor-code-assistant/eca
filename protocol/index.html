@@ -625,6 +625,29 @@
   
   
     <li class="md-nav__item">
+      <a href="../config/modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Modules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../config/models/" class="md-nav__link">
         
   
@@ -2882,14 +2905,11 @@ separated by a <code>\r\n</code>.</p>
 <span class="w">    </span><span class="p">};</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * User provided initialization options.</span>
+<span class="cm">     * User provided initialization options: ECA config, merged with the other</span>
+<span class="cm">     * config sources (see https://eca.dev/config/introduction). Clients may</span>
+<span class="cm">     * also send settings of their own here, which ECA ignores.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">initializationOptions</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="cm">/*</span>
-<span class="cm">         * The chat agent.</span>
-<span class="cm">         */</span>
-<span class="w">         </span><span class="nx">chatAgent?</span><span class="o">:</span><span class="w"> </span><span class="kt">ChatAgent</span><span class="p">;</span>
-<span class="w">    </span><span class="p">};</span>
+<span class="w">    </span><span class="nx">initializationOptions?</span><span class="o">:</span><span class="w"> </span><span class="kt">object</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The capabilities provided by the client (editor or tool)</span>
@@ -5696,7 +5716,7 @@ their status and available tools and actions.</p>
 <li>method: <code>tool/serverUpdated</code></li>
 <li>params: <code>ToolServerUpdatedParams</code> defined as follows:</li>
 </ul>
-<div class="highlight"><pre><span></span><code><span class="kr">type</span><span class="w"> </span><span class="nx">ToolServerUpdatedParams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">EcaServerUpdatedParams</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">MCPServerUpdatedParams</span><span class="p">;</span>
+<div class="highlight"><pre><span></span><code><span class="kr">type</span><span class="w"> </span><span class="nx">ToolServerUpdatedParams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">EcaServerUpdatedParams</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">ModuleServerUpdatedParams</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">MCPServerUpdatedParams</span><span class="p">;</span>
 
 <span class="kd">interface</span><span class="w"> </span><span class="nx">EcaServerUpdatedParams</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;native&#39;</span><span class="p">;</span>
@@ -5715,6 +5735,33 @@ their status and available tools and actions.</p>
 <span class="cm">     * Note: `spawn_agent` and `task` are excluded from subagent tool sets.</span>
 <span class="cm">     * `spawn_agent` is excluded to prevent nesting, and `task` because</span>
 <span class="cm">     * task list state is chat-local and should be managed by the parent agent.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">tools</span><span class="o">:</span><span class="w"> </span><span class="kt">ServerTool</span><span class="p">[];</span>
+<span class="p">}</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * The tools of an external module (a user&#39;s or a plugin&#39;s ECA module). Its</span>
+<span class="cm"> * tools are named `&lt;name&gt;__&lt;tool&gt;`, like MCP tools. Sent again when modules</span>
+<span class="cm"> * load, reload, are enabled or disabled, or add or remove tools; when a</span>
+<span class="cm"> * module has no tools anymore, `tool/serverRemoved` drops its server.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ModuleServerUpdatedParams</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;module&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The module&#39;s tool prefix, e.g. `jira` for `jira__issue`.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The module id, e.g. `acme/jira`.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">module</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;running&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The module&#39;s tools.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">tools</span><span class="o">:</span><span class="w"> </span><span class="kt">ServerTool</span><span class="p">[];</span>
 <span class="p">}</span>
@@ -5852,8 +5899,9 @@ their status and available tools and actions.</p>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="tool-server-removed">Tool server removed (←)<a class="headerlink" href="#tool-server-removed" title="Permanent link">#</a></h3>
-<p>A server notification that an MCP server has been removed (via <code>mcp/removeServer</code>).
-Clients should drop the corresponding entry from any cached server list / UI.</p>
+<p>A server notification that an MCP server has been removed (via <code>mcp/removeServer</code>), or that
+an external module's tool server is gone (the module was removed or disabled, or has no tools
+anymore). Clients should drop the corresponding entry from any cached server list / UI.</p>
 <p><em>Notification:</em></p>
 <ul>
 <li>method: <code>tool/serverRemoved</code></li>
@@ -5861,7 +5909,7 @@ Clients should drop the corresponding entry from any cached server list / UI.</p
 </ul>
 <div class="highlight"><pre><span></span><code><span class="kd">interface</span><span class="w"> </span><span class="nx">ToolServerRemovedParams</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The MCP server name that was removed.</span>
+<span class="cm">     * The name of the MCP server, or of the module tool server, that was removed.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
@@ -6501,7 +6549,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 13:04:29 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 14, 2026 12:48:23 UTC">November 14, 2026</span>
   </span>
 
     
