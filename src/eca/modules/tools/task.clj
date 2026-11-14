@@ -1,4 +1,5 @@
 (ns eca.modules.tools.task
+  "The `:eca/task` module. A task list the model keeps for each chat."
   (:require
    [clojure.string :as str]
    [eca.features.chat.lifecycle :as lifecycle]

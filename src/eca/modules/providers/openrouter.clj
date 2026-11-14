@@ -1,4 +1,6 @@
-(ns eca.modules.providers.openrouter)
+(ns eca.modules.providers.openrouter
+  "The `:eca/openrouter` module. Models from many vendors, through
+   OpenRouter.")
 
 (set! *warn-on-reflection* true)
 

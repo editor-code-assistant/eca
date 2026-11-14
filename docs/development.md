@@ -28,42 +28,41 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/config.clj`        | Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).
    `src/eca/logger.clj`        | Logger interface, logs to stderr (stdout is reserved for JSON-RPC).
    `src/eca/shared.clj`        | Shared utility fns for the whole project.
-   `src/eca/llm_api.clj`       | Public façade used by features to call an LLM.
-   `src/eca/llm_providers/`    | Vendor adapters (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, `google.clj`, `copilot.clj`, `bedrock.clj`, `azure.clj`, `ollama.clj`, `openrouter.clj`, ...).
+   `src/eca/llm_api.clj`       | Public façade used by features to call an LLM, through the provider modules' APIs.
    `src/eca/llm_util.clj`      | Streaming/event helpers shared by providers.
-   `src/eca/features/`         | **High-level capabilities exposed to the editor**
+   `src/eca/features/`         | **Core capabilities exposed to the editor**
    ├─ `chat.clj` + `chat/`     | Streaming chat orchestration & tool-call pipeline (lifecycle, history, tool calls).
-   ├─ `agents.clj`             | Agents and subagents (definitions, spawning).
-   ├─ `commands.clj`           | Chat commands (`/init`, `/login`, `/context`, custom commands, ...).
-   ├─ `hooks.clj`              | User-configured hooks triggered on server events.
-   ├─ `skills.clj` + `skills/` | Skills discovery and loading.
-   ├─ `rules.clj`              | User-defined global/project/path-scoped rules.
+   ├─ `commands.clj`           | Core chat commands (`/login`, `/compact`, `/context`, ...) and running commands.
    ├─ `context.clj`            | Contexts attached to prompts (files, repo map, ...).
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `login.clj`              | Provider auth flows.
    ├─ `providers.clj`          | Model/provider resolution.
    ├─ `completion.clj`         | Non-chat LLM feature: code completion.
    ├─ `rewrite.clj`            | Non-chat LLM feature: text rewrite.
-   ├─ `index.clj`              | Workspace indexing helpers (repo map).
-   ├─ `tools.clj`              | Registry of tool servers and built-in tool descriptors, approval logic.
-   └─ `tools/`                 | Implementation of built-in tools:
-   ──├─ `filesystem.clj`       | read/write/edit/grep helpers
-   ──├─ `shell.clj`            | runs user-approved shell commands, background jobs
-   ──├─ `mcp.clj`              | MCP (Model Context Protocol) servers integration
-   ──├─ ...                    | other built-in tools: `git.clj`, `task.clj`, `agent.clj`, `ask_user.clj`, `skill.clj`, ...
-   ──└─ `util.clj`             | misc helpers shared by tools.
-   `src/eca/remote/`           | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
+   ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
+   ├─ `modules.clj`            | The `/modules` command.
+   └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
+   `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`
+   ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...
+   ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...).
+   ├─ `agents.clj` + `agents/` | Agents from config and Markdown files, and the agents ECA ships; `subagents.clj` + `subagents/` likewise.
+   ├─ `mcp.clj`                | MCP (Model Context Protocol) servers integration.
+   ├─ `hooks.clj`              | User-configured hooks triggered on server events.
+   ├─ `skills.clj`, `rules.clj`| Skills and rules: discovery, loading, their tools and prompt sections.
+   ├─ `remote.clj` + `remote/` | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
+   └─ ...                      | `plugins.clj`, `approval.clj`, `create.clj`, `otel.clj`, `repl.clj`, ...
+   `src/eca/api.clj` + `api/`  | The module API: all that external modules see.
    `src/eca/nrepl.clj`         | Starts an nREPL when built with `bb debug-cli`.
 
 Together these files implement the request flow:
 
-`client/editor` → `stdin JSON-RPC` → `handlers` → `features` → `llm_api` → `llm_provider` → results streamed back via `messenger`.
+`client/editor` → `stdin JSON-RPC` → `handlers` → `features` and modules → `llm_api` → provider module → results streamed back via `messenger`.
 
 With this map you can usually answer:
 
 - _"Where does request X enter the system?"_ – look in `handlers.clj`.
-- _"How is tool Y executed?"_ – see `src/eca/features/tools/<y>.clj`.
-- _"How do we talk to provider Z?"_ – adapter under `llm_providers/`.
+- _"How is tool Y executed?"_ – see `src/eca/modules/tools/<y>.clj`.
+- _"How do we talk to provider Z?"_ – its module under `src/eca/modules/providers/`.
 
 ### Unit Tests
 

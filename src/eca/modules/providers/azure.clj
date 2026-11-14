@@ -1,4 +1,5 @@
-(ns eca.modules.providers.azure)
+(ns eca.modules.providers.azure
+  "The `:eca/azure` module. Azure OpenAI, at the user's resource URL.")
 
 (set! *warn-on-reflection* true)
 

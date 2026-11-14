@@ -1,4 +1,6 @@
-(ns eca.modules.providers.z-ai)
+(ns eca.modules.providers.z-ai
+  "The `:eca/z-ai` module. Z.ai's GLM models, through its
+   Anthropic-compatible API.")
 
 (set! *warn-on-reflection* true)
 

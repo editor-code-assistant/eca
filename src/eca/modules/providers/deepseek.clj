@@ -1,4 +1,5 @@
-(ns eca.modules.providers.deepseek)
+(ns eca.modules.providers.deepseek
+  "The `:eca/deepseek` module. DeepSeek models.")
 
 (set! *warn-on-reflection* true)
 

@@ -1,4 +1,6 @@
 (ns eca.modules.tools.custom-tools
+  "The `:eca/custom-tools` module. Tools from the customTools config: shell
+   command templates."
   (:require
    [clojure.string :as string]
    [eca.cache :as cache]

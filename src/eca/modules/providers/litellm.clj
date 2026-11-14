@@ -1,4 +1,5 @@
-(ns eca.modules.providers.litellm)
+(ns eca.modules.providers.litellm
+  "The `:eca/litellm` module. A LiteLLM proxy, at the user's URL.")
 
 (set! *warn-on-reflection* true)
 

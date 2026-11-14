@@ -1,4 +1,5 @@
 (ns eca.modules.tools.ask-user
+  "The `:eca/ask-user` module. Let the model ask the user a question."
   (:require
    [cheshire.core :as json]
    [clojure.string :as string]

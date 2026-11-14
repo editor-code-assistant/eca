@@ -1,4 +1,5 @@
 (ns eca.modules.tools.filesystem
+  "The `:eca/filesystem` module. Read, write, edit, move and search files."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]

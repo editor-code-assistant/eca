@@ -1,4 +1,5 @@
 (ns eca.modules.tools.shell
+  "The `:eca/shell` module. Run shell commands and background jobs."
   (:require
    [babashka.fs :as fs]
    [babashka.process :as p]

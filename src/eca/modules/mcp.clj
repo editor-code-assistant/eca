@@ -1,4 +1,6 @@
 (ns eca.modules.mcp
+  "The `:eca/mcp` module. MCP servers: their tools, prompts, resources and
+   instructions."
   (:require
    [cheshire.core :as json]
    [cheshire.factory :as json.factory]

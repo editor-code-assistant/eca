@@ -1,4 +1,6 @@
 (ns eca.modules.compact-as-summary
+  "The `:eca/compact-as-summary` module. When the context fills up, the chat
+   model summarizes the chat."
   (:require
    [eca.features.tools.util :as tools.util]))
 

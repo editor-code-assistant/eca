@@ -1,4 +1,5 @@
-(ns eca.modules.providers.moonshot)
+(ns eca.modules.providers.moonshot
+  "The `:eca/moonshot` module. Moonshot's Kimi models.")
 
 (set! *warn-on-reflection* true)
 

@@ -1,5 +1,8 @@
 (ns eca.modules.subagents
-  "Tool for spawning or continuing subagents to perform focused tasks in isolated context."
+  "The `:eca/subagents` module: the `spawn_agent` tool, which spawns or
+   continues a subagent for a focused task in its own chat, and `/subagents`.
+   The subagents ECA ships are modules of their own, under
+   `eca.modules.subagents`."
   (:require
    [clojure.string :as str]
    [eca.config :as config]

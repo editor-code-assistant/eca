@@ -1,8 +1,8 @@
 (ns eca.features.built-in-command
-  "Handlers for built-in modules' commands whose code is in
-   `eca.features.commands`. They resolve it when called: that namespace
-   requires feature namespaces that declare these commands, e.g. the agents
-   one, which the config namespace requires.")
+  "Handlers for the `:eca/core` commands, whose code is in
+   `eca.features.commands`. They resolve it when called, so declaring the
+   commands doesn't load that namespace. The other built-in modules have
+   their commands' handlers in their own namespaces.")
 
 (set! *warn-on-reflection* true)
 

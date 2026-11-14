@@ -1,4 +1,6 @@
 (ns eca.modules.providers.ollama
+  "The `:eca/ollama` module. Local models through Ollama: the models pulled
+   locally. And the `:eca/api-ollama` module. The Ollama chat API."
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]

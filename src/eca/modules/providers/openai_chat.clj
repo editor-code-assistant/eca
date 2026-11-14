@@ -1,4 +1,6 @@
 (ns eca.modules.providers.openai-chat
+  "The `:eca/api-openai-chat` module. The OpenAI Chat Completions API, which
+   OpenAI-compatible providers speak."
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]

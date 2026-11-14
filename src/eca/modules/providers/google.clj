@@ -1,4 +1,6 @@
-(ns eca.modules.providers.google)
+(ns eca.modules.providers.google
+  "The `:eca/google` module. Gemini models, through Google's
+   OpenAI-compatible API.")
 
 (set! *warn-on-reflection* true)
 

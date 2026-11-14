@@ -1,4 +1,6 @@
 (ns eca.modules.providers.copilot
+  "The `:eca/copilot` module. GitHub Copilot models, with the account's own
+   model list and quota."
   (:require
    [cheshire.core :as json]
    [clojure.string :as string]

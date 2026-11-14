@@ -1,4 +1,6 @@
 (ns eca.modules.tools.editor
+  "The `:eca/editor` module. Diagnostics, definitions and references from the
+   editor."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]

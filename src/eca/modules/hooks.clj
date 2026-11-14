@@ -1,4 +1,7 @@
 (ns eca.modules.hooks
+  "The `:eca/hooks` module: the user's shell hooks, from the `hooks` config,
+   and `/hooks`. The hooks run where core calls them, after the modules' event
+   handlers at the same point; disabling the module turns them all off."
   (:require
    [babashka.fs :as fs]
    [babashka.process :as p]

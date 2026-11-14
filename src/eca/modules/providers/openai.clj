@@ -1,4 +1,7 @@
 (ns eca.modules.providers.openai
+  "The `:eca/openai` module. GPT models from OpenAI: a ChatGPT subscription
+   or a pasted key. And the `:eca/api-openai-responses` module. The OpenAI
+   Responses API."
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]

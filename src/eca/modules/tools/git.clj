@@ -1,4 +1,5 @@
 (ns eca.modules.tools.git
+  "The `:eca/git` module. Run git commands."
   (:require
    [babashka.process :as p]
    [clojure.string :as string]

@@ -1,4 +1,5 @@
-(ns eca.modules.providers.lmstudio)
+(ns eca.modules.providers.lmstudio
+  "The `:eca/lmstudio` module. Local models through LM Studio.")
 
 (set! *warn-on-reflection* true)
 

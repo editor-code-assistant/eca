@@ -1,5 +1,7 @@
 (ns eca.modules.tools.tool-search
-  "The `search_tools` tool, which loads deferred tools into the conversation."
+  "The `:eca/tool-search` module: when MCP servers bring too many tools, it
+   defers them, lists them in the system prompt and lets the model load the
+   ones it needs with the `search_tools` tool."
   (:require
    [cheshire.core :as json]
    [clojure.string :as string]

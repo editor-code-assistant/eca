@@ -1,5 +1,6 @@
 (ns eca.modules.providers.bedrock
-  "AWS Bedrock provider using the native Converse / ConverseStream APIs.
+  "The `:eca/bedrock` module, models on AWS Bedrock, and the `:eca/api-bedrock`
+   module: the native Converse / ConverseStream APIs.
 
    Bedrock exposes an OpenAI-compatible surface too, but it only serves the
    `openai.*` models — Claude (and other) inference profiles are reachable

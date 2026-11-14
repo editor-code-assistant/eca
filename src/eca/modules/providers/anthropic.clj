@@ -1,4 +1,7 @@
 (ns eca.modules.providers.anthropic
+  "The `:eca/anthropic` module. Claude models from Anthropic: a Max
+   subscription, a Console key or a pasted key. And the `:eca/api-anthropic`
+   module. The Anthropic Messages API."
   (:require
    [cheshire.core :as json]
    [clojure.java.io :as io]

@@ -1,5 +1,8 @@
 (ns eca.modules.plugins
-  "Plugin system for loading external configuration from git repos or local paths.
+  "The `:eca/plugins` module: plugin marketplaces, and `/plugins` to install,
+   update and remove plugins.
+
+   Plugin system for loading external configuration from git repos or local paths.
 
    Each source must contain .eca-plugin/marketplace.json listing available plugins.
    Installed plugins are discovered for skills, agents, commands, rules, hooks, and MCP servers.

@@ -1,4 +1,5 @@
-(ns eca.modules.providers.mistral)
+(ns eca.modules.providers.mistral
+  "The `:eca/mistral` module. Mistral models.")
 
 (set! *warn-on-reflection* true)
 
