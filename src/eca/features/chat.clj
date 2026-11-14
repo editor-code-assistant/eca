@@ -13,7 +13,6 @@
    [eca.features.chat.tool-calls :as tc]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
-   [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
@@ -29,6 +28,7 @@
    [eca.modules.events :as events]
    [eca.modules.hooks :as f.hooks]
    [eca.modules.mcp :as f.mcp]
+   [eca.modules.repo-map :as repo-map]
    [eca.modules.rules :as f.rules]
    [eca.modules.skills :as f.skills]
    [eca.modules.subagents :as f.tools.agent]
@@ -2371,7 +2371,7 @@
                                                       db
                                                       config
                                                       agent)))))
-            repo-map* (delay (f.index/repo-map db config {:as-string? true}))
+            repo-map* (delay (repo-map/repo-map db config {:as-string? true}))
             prompt-cache (get-in db [:chats chat-id :prompt-cache])
             auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
             static-signature (static-prompt-cache-signature

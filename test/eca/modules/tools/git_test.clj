@@ -2,7 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.modules.tools.git :as f.tools.git]
-   [eca.modules.tools.shell :as f.tools.shell]
+   [eca.shell :as shell]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -37,7 +37,7 @@
 (deftest git-command-shell-config-test
   (testing "no custom shell by default"
     (let [captured* (atom nil)]
-      (with-redefs [f.tools.shell/start-shell-process! (fn [opts]
+      (with-redefs [shell/start-shell-process! (fn [opts]
                                                          (reset! captured* opts)
                                                          (future {:exit 0 :out "ok"}))]
         (run-git! {"command" "git status"} {:chat-id "chat-123"})
@@ -47,7 +47,7 @@
         (is (nil? (:shell-args @captured*))))))
   (testing "honors toolCall shellCommand path/args config"
     (let [captured* (atom nil)]
-      (with-redefs [f.tools.shell/start-shell-process! (fn [opts]
+      (with-redefs [shell/start-shell-process! (fn [opts]
                                                          (reset! captured* opts)
                                                          (future {:exit 0 :out "ok"}))]
         (run-git! {"command" "git status"}
@@ -64,7 +64,7 @@
           :contents [{:type :text :text "Exit code: 2"}
                      {:type :text :text #"unexpected EOF while looking for matching"}
                      {:type :text :text #"(?s)^Hint: this shell cannot parse heredocs inside \$\(\.\.\.\).*git commit -F - <<'EOF'"}]}
-         (with-redefs [f.tools.shell/start-shell-process!
+         (with-redefs [shell/start-shell-process!
                        (constantly (future {:exit 2 :err "bash: -c: line 1: unexpected EOF while looking for matching `''"}))]
            (run-git! {"command" "git commit -m \"$(cat <<EOF\nit's\nEOF\n)\""} {})))))
   (testing "no hint when the command has no heredoc inside $()"
@@ -72,7 +72,7 @@
          {:error true
           :contents [{:type :text :text "Exit code: 2"}
                      {:type :text :text #"unexpected EOF while looking for matching"}]}
-         (with-redefs [f.tools.shell/start-shell-process!
+         (with-redefs [shell/start-shell-process!
                        (constantly (future {:exit 2 :err "bash: -c: line 1: unexpected EOF while looking for matching `''"}))]
            (run-git! {"command" "git commit -m 'don"} {})))))
   (testing "no hint on unrelated errors"
@@ -80,6 +80,6 @@
          {:error true
           :contents [{:type :text :text "Exit code: 128"}
                      {:type :text :text #"not a git repository"}]}
-         (with-redefs [f.tools.shell/start-shell-process!
+         (with-redefs [shell/start-shell-process!
                        (constantly (future {:exit 128 :err "fatal: not a git repository"}))]
            (run-git! {"command" "git commit -m \"$(cat <<EOF\nhi\nEOF\n)\""} {}))))))

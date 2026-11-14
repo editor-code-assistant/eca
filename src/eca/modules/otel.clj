@@ -7,9 +7,29 @@
    `:start` and `:stop` turn it on and off later."
   (:require
    [eca.metrics :as metrics]
-   [eca.opentelemetry :as opentelemetry]))
+   [steffan-westcott.clj-otel.api.metrics.instrument :as instrument]
+   [steffan-westcott.clj-otel.api.otel :as otel-api])
+  (:import
+   [io.opentelemetry.sdk.autoconfigure AutoConfiguredOpenTelemetrySdk]
+   [java.util.function Function]))
 
 (set! *warn-on-reflection* true)
+
+(defrecord OtelMetrics [otlp-config]
+  metrics/IMetrics
+
+  (start! [_this]
+    (otel-api/set-global-otel!
+     (-> (AutoConfiguredOpenTelemetrySdk/builder)
+         (.addPropertiesCustomizer ^Function (constantly otlp-config))
+         (.build)
+         .getOpenTelemetrySdk)))
+
+  (count! [_this name value attrs]
+    (-> (instrument/instrument {:name (str "eca-" name)
+                                :instrument-type :counter})
+        (instrument/add! {:value value
+                          :attributes attrs}))))
 
 ;; OpenTelemetry's global SDK can be set only once per process: the exporter
 ;; is made once, and turning the module off only stops counting with it
@@ -23,7 +43,7 @@
   [metrics otlp-config]
   (locking lock
     (let [exporter (or @exporter*
-                       (let [exporter (opentelemetry/->OtelMetrics otlp-config)]
+                       (let [exporter (->OtelMetrics otlp-config)]
                          (metrics/start! exporter)
                          (reset! exporter* exporter)))]
       (metrics/switch! metrics exporter))))

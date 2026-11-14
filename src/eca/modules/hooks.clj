@@ -9,8 +9,8 @@
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.modules :as modules]
-   [eca.modules.tools.shell :as f.tools.shell]
-   [eca.shared :as shared]))
+   [eca.shared :as shared]
+   [eca.shell :as shell]))
 
 (set! *warn-on-reflection* true)
 
@@ -74,7 +74,7 @@
 (defn run-shell-cmd [opts]
   (try
     (let [timeout-ms (or (:timeout opts) default-hook-timeout-ms)
-          proc (f.tools.shell/start-shell-process! opts)
+          proc (shell/start-shell-process! opts)
           result (deref proc timeout-ms ::timeout)]
       (if (= result ::timeout)
         (do
@@ -241,7 +241,7 @@
                   ;; modules may change the command first (:shell/before-exec)
                   run-command! (fn [opts]
                                  (run-and-parse-output!
-                                  (f.tools.shell/before-exec
+                                  (shell/before-exec
                                    ctx opts {:source :hook
                                              :hook name
                                              :hook-type hook-type

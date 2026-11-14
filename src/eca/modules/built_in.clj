@@ -2,14 +2,15 @@
   "The built-in modules, compiled into ECA. Each one is a `module` var in the
    namespace of its feature."
   (:require
-   [eca.features.commands :as f.commands]
-   [eca.features.index :as f.index]
-   [eca.features.tools :as f.tools]
-   [eca.features.tools.fetch-rule :as tools.fetch-rule]
    [eca.features.tools.skill :as tools.skill]
    [eca.modules.agents :as f.agents]
+   [eca.modules.agents.agent-code :as agent-code]
+   [eca.modules.agents.agent-plan :as agent-plan]
+   [eca.modules.approval :as approval]
    [eca.modules.compact-as-summary :as tools.chat]
    [eca.modules.core :as f.core]
+   [eca.modules.create :as create]
+   [eca.modules.custom-commands :as custom-commands]
    [eca.modules.hooks :as f.hooks]
    [eca.modules.mcp :as f.mcp]
    [eca.modules.otel :as f.otel]
@@ -31,7 +32,11 @@
    [eca.modules.providers.z-ai :as z-ai]
    [eca.modules.remote :as f.remote]
    [eca.modules.repl :as f.repl]
+   [eca.modules.repo-map :as repo-map]
+   [eca.modules.rules :as rules]
    [eca.modules.subagents :as tools.agent]
+   [eca.modules.subagents.subagent-explorer :as subagent-explorer]
+   [eca.modules.subagents.subagent-general :as subagent-general]
    [eca.modules.tools.ask-user :as tools.ask-user]
    [eca.modules.tools.custom-tools :as tools.custom]
    [eca.modules.tools.editor :as tools.editor]
@@ -55,27 +60,27 @@
    ;; agents
    f.agents/module
    tools.agent/module
-   f.agents/code-module
-   f.agents/plan-module
-   f.agents/explorer-module
-   f.agents/general-module
+   agent-code/module
+   agent-plan/module
+   subagent-explorer/module
+   subagent-general/module
    ;; skills, rules, tool search
    tools.skill/module
-   tools.fetch-rule/module
+   rules/module
    tools.tool-search/module
    ;; MCP
    f.mcp/module
    ;; user extensions
    tools.custom/module
-   f.commands/custom-commands-module
+   custom-commands/module
    f.hooks/module
    f.plugins/module
    ;; chat behavior
-   f.tools/approval-module
+   approval/module
    tools.chat/module
-   f.commands/create-module
+   create/module
    ;; editor features
-   f.index/module
+   repo-map/module
    ;; APIs
    anthropic/api-module
    bedrock/api-module

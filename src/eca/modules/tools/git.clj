@@ -5,9 +5,10 @@
    [eca.cache :as cache]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.modules.tools.shell :as shell]
+   [eca.modules.tools.shell :as tools.shell]
    [eca.modules.tools.shell.parser :as shell-parser]
-   [eca.shared :as shared]))
+   [eca.shared :as shared]
+   [eca.shell :as shell]))
 
 (set! *warn-on-reflection* true)
 
@@ -17,7 +18,7 @@
 
 (defmethod tools.util/tool-call-details-before-invocation :git
   [_name arguments _server {:keys [db chat-id]}]
-  (shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
+  (tools.shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
 
 (defn ^:private heredoc-in-substitution-hint
   "Some shells (e.g. macOS bash 3.2) fail to parse heredocs inside $(...) when

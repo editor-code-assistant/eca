@@ -5,9 +5,7 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.db :as db]
-   [eca.features.built-in-command :as built-in-command]
    ;; the built-in tools' modules and multimethods (details, cleanup)
-   [eca.features.tools.fetch-rule]
    [eca.features.tools.skill]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -859,33 +857,3 @@
                                                           (mapv tool-status-fn)
                                                           (mapv #(select-keys % [:name :description :parameters :disabled])))})
     (notify-module-servers! db* messenger config tool-status-fn)))
-
-(defn ^:private approval-from-config
-  "`:tool/before-call` handler of `:eca/approval`: the approval of the call by
-   the `toolCall.approval` rules, the chat's remembered approvals and trust,
-   with the `:reason` for it."
-  [{:keys [all-tools db config agent trust chat-id]} {:keys [tool arguments]}]
-  (let [decision (approval all-tools (resolve-tool tool all-tools) arguments db config agent
-                           {:trust trust :chat-id chat-id})
-        reason (case decision
-                 :trust/allow {:code :trust-allow :text "Tool call allowed by trust mode"}
-                 :allow {:code :user-config-allow :text "Tool call allowed by user config"}
-                 :deny {:code :user-config-deny :text "Tool call rejected by user config"}
-                 nil)]
-    ;; no :reason key for :ask: a nil one reads as a handler's value of the wrong type
-    (cond-> {:approval (if (= :trust/allow decision) :allow decision)}
-      reason (assoc :reason reason))))
-
-(def approval-module
-  {:id :eca/approval
-   :description "Tool approval from the toolCall.approval rules."
-   ;; first, so other modules see and may change the approval (4.17)
-   :event-handlers {:tool/before-call {:priority 1000 :handler #'approval-from-config}}
-   ;; the tool modules add their allow entries
-   :config-spec {:toolCall {:approval {:type :map
-                                       :default {:byDefault "ask" :allow {} :ask {} :deny {}}}}}
-   :commands (built-in-command/commands
-              [["approvals" "List tool call approvals remembered in the current chat via approve & remember." []]
-               ["forget-approvals" (str "Forget tool call approvals remembered in the current chat, so those calls "
-                                        "ask for approval again.")
-                []]])})

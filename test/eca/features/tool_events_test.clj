@@ -14,6 +14,7 @@
    [eca.modules.tools.custom-tools :as f.tools.custom]
    [eca.modules.tools.git :as f.tools.git]
    [eca.modules.tools.shell :as f.tools.shell]
+   [eca.shell :as shell]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -181,25 +182,25 @@
     (with-module! {:shell/before-exec (fn [_ {:keys [command]}]
                                         {:command (str "ssh box " command) :cwd "/srv" :env {"A" "1"}})})
     (is (= {:cwd "/srv" :script "ssh box echo hi" :chat-id "chat-1" :env {"A" "1"}}
-           (f.tools.shell/before-exec (ctx) opts {:source :tool :tool "eca__shell_command" :timeout-ms 1000})))
+           (shell/before-exec (ctx) opts {:source :tool :tool "eca__shell_command" :timeout-ms 1000})))
     (is (= [{:command "echo hi" :cwd "/tmp" :env nil :timeout-ms 1000 :background? false
              :source :tool :tool "eca__shell_command" :chat-id "chat-1"}]
            @events*)))
   (testing "without changes the options stay as they were"
     (with-module! {:shell/before-exec (constantly nil)})
-    (is (identical? opts (f.tools.shell/before-exec (ctx) opts {:source :tool}))))
+    (is (identical? opts (shell/before-exec (ctx) opts {:source :tool}))))
   (testing "values of the wrong type are ignored"
     (with-module! {:shell/before-exec (constantly {:command 42 :cwd "" :env "A=1"})})
-    (is (= opts (f.tools.shell/before-exec (ctx) opts {:source :tool}))))
+    (is (= opts (shell/before-exec (ctx) opts {:source :tool}))))
   (testing "without a config no event runs"
     (with-module! {:shell/before-exec (constantly {:command "nope"})})
-    (is (= opts (f.tools.shell/before-exec {} opts {:source :tool})))
+    (is (= opts (shell/before-exec {} opts {:source :tool})))
     (is (empty? @events*)))
   (when-not h/windows?
     (testing "a script file is offered as the command line that runs it; a new command runs as a script"
       (with-module! {:shell/before-exec (fn [_ {:keys [command]}] {:command (str "nice " command)})})
       (is (= {:cwd "/tmp" :script "nice bash '/tmp/it'\\''s.sh'"}
-             (f.tools.shell/before-exec (ctx) {:cwd "/tmp" :file "/tmp/it's.sh"} {:source :hook})))
+             (shell/before-exec (ctx) {:cwd "/tmp" :file "/tmp/it's.sh"} {:source :hook})))
       (is (match? [{:command "bash '/tmp/it'\\''s.sh'"}] @events*)))))
 
 (deftest shell-tool-before-exec-test
@@ -218,7 +219,7 @@
       (testing "and so do background jobs"
         (let [captured (atom nil)]
           (with-module! {:shell/before-exec (fn [_ {:keys [command]}] {:command (str "nice " command)})})
-          (with-redefs [f.tools.shell/start-shell-process! (fn [opts] (reset! captured opts) (throw (ex-info "stop" {})))]
+          (with-redefs [shell/start-shell-process! (fn [opts] (reset! captured opts) (throw (ex-info "stop" {})))]
             (shell-command {"command" "sleep 1" "background" "nap"} (assoc tool-ctx :db* (h/db*))))
           (is (= "nice sleep 1" (:script @captured)))
           (is (match? [{:command "sleep 1" :background? true :timeout-ms nil}] @events*)))))))
@@ -227,7 +228,7 @@
   (let [captured (atom nil)
         git (get-in f.tools.git/definitions ["git" :handler])]
     (with-module! {:shell/before-exec (fn [_ {:keys [command]}] {:command (str "nice " command)})})
-    (with-redefs [f.tools.shell/start-shell-process! (fn [opts]
+    (with-redefs [shell/start-shell-process! (fn [opts]
                                                        (reset! captured opts)
                                                        (doto (promise) (deliver {:exit 0 :out "" :err ""})))]
       (git {"command" "git status"} {:db (h/db) :config (h/config) :chat-id "chat-1"
@@ -241,7 +242,7 @@
         handler (get-in (f.tools.custom/definitions {:customTools {"ls" {:description "List." :command "ls"}}})
                         ["ls" :handler])]
     (with-module! {:shell/before-exec (fn [_ {:keys [command]}] {:command (str "sandbox " command)})})
-    (with-redefs [f.tools.shell/start-shell-process! (fn [opts] (reset! captured opts) (delay {:out "" :exit 0}))]
+    (with-redefs [shell/start-shell-process! (fn [opts] (reset! captured opts) (delay {:out "" :exit 0}))]
       (handler {} (ctx)))
     (is (= "sandbox ls" (:script @captured)))
     (is (match? [{:source :tool :tool "eca__ls" :command "ls" :timeout-ms nil}] @events*))))

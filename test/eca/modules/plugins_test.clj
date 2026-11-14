@@ -5,8 +5,8 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.config :as config]
-   [eca.features.commands :as commands]
    [eca.interpolation :as interpolation]
+   [eca.modules.custom-commands :as custom-commands]
    [eca.modules.plugins :as plugins]
    [eca.modules.rules :as rules]
    [eca.shared :as shared]
@@ -392,7 +392,7 @@
                  (get-in result [:config-fragment :hooks "demo::PostToolUse" 0 :hooks 0 :command])))
           (is (not-any? #(string/includes? (str %) ":::")
                         (keys (get-in result [:config-fragment :hooks]))))
-          (let [loaded-commands (vec (#'commands/custom-commands
+          (let [loaded-commands (vec (custom-commands/all
                                       {:pureConfig true
                                        :commands (:commands result)}
                                       []))]

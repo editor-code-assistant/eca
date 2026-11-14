@@ -30,25 +30,25 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | **Agents** | |
     | [`eca/agents`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents.clj) | Agents from config and Markdown files, and choosing one for each chat. |
     | [`eca/subagents`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/subagents.clj) | Let an agent hand a task to a subagent and get its answer. |
-    | [`eca/agent-code`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents.clj) | The code agent, for coding tasks. The default agent. |
-    | [`eca/agent-plan`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents.clj) | The plan agent: plans changes without making them. |
-    | [`eca/subagent-explorer`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents.clj) | The explorer subagent: finds and reads code without changing it. |
-    | [`eca/subagent-general`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents.clj) | The general subagent: research and multi-step tasks. |
+    | [`eca/agent-code`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents/agent_code.clj) | The code agent, for coding tasks. The default agent. |
+    | [`eca/agent-plan`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents/agent_plan.clj) | The plan agent: plans changes without making them. |
+    | [`eca/subagent-explorer`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/subagents/subagent_explorer.clj) | The explorer subagent: finds and reads code without changing it. |
+    | [`eca/subagent-general`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/subagents/subagent_general.clj) | The general subagent: research and multi-step tasks. |
     | **Skills, rules and MCP** | |
     | [`eca/skills`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/skill.clj) | Skills: `SKILL.md` folders the model loads when it needs them. |
-    | [`eca/rules`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/fetch_rule.clj) | Rules: global, project and path-scoped. |
+    | [`eca/rules`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rules.clj) | Rules: global, project and path-scoped. |
     | [`eca/mcp`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/mcp.clj) | MCP servers: their tools, prompts, resources and instructions. |
     | [`eca/tool-search`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/tools/tool_search.clj) | Hides MCP tools behind `search_tools` when there are too many. |
     | **Your extensions** | |
     | [`eca/custom-tools`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/tools/custom_tools.clj) | Tools from the `customTools` config: shell command templates. |
-    | [`eca/custom-commands`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/commands.clj) | Commands from Markdown files and the `commands` config. |
+    | [`eca/custom-commands`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/custom_commands.clj) | Commands from Markdown files and the `commands` config. |
     | [`eca/hooks`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/hooks.clj) | Your shell hooks. |
     | [`eca/plugins`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/plugins.clj) | Plugin marketplaces: install, update and remove bundles. |
     | **Chat** | |
-    | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools.clj) | Tool approval from the `toolCall.approval` rules. |
+    | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/approval.clj) | Tool approval from the `toolCall.approval` rules. |
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
-    | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/index.clj) | A map of the repository, for the `repoMap` context. |
-    | [`eca/create`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/commands.clj) | `/init`, `/skill-create` and the `eca-manage` skill. |
+    | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj) | A map of the repository, for the `repoMap` context. |
+    | [`eca/create`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/create.clj) | `/init`, `/skill-create` and the `eca-manage` skill. |
     | **LLM APIs** | |
     | [`eca/api-anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj) | The Anthropic Messages API. |
     | [`eca/api-openai-responses`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/openai.clj) | The OpenAI Responses API. |

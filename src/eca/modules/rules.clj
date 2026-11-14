@@ -1,9 +1,16 @@
 (ns eca.modules.rules
+  "The `:eca/rules` module: rules from the config and from global and project
+   files, given to the model in the system prompt, and path-scoped rules, which
+   the model fetches with the `fetch_rule` tool before reading or changing the
+   files they apply to."
   (:require
    [clojure.java.io :as io]
    [clojure.string :as string]
    [babashka.fs :as fs]
    [eca.config :as config]
+   [eca.features.built-in-command :as built-in-command]
+   [eca.features.prompt :as f.prompt]
+   [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared :refer [assoc-some]])
@@ -222,3 +229,231 @@
   [config roots rule-id agent-name full-model]
   (first (filter #(= rule-id (:id %))
                  (path-scoped-rules config roots agent-name full-model))))
+
+;; --- Path-scoped rules
+
+(def ^:private validated-path-rules-key :validated-path-rules)
+
+(defn fetch-rule-available?
+  [all-tools]
+  (tools.util/tool-available? all-tools "eca__fetch_rule"))
+
+(defn record-validated-rule!
+  [db* chat-id rule _match-info]
+  (swap! db* update-in [:chats chat-id validated-path-rules-key] (fnil conj #{}) (:id rule)))
+
+(defn validated-rule?
+  [db chat-id rule-id]
+  (contains? (get-in db [:chats chat-id validated-path-rules-key] #{}) rule-id))
+
+(defn enforce-on-modify?
+  "Returns true if the rule should be enforced before file modification.
+   Default (nil enforce) is modify — backwards compatible."
+  [rule]
+  (let [enforce (:enforce rule)]
+    (or (nil? enforce)
+        (some #(= "modify" %) enforce))))
+
+(defn enforce-on-read?
+  "Returns true if the rule should be enforced before file reading.
+   Default (nil enforce) is false — only opt-in via explicit `enforce: read`."
+  [rule]
+  (some #(= "read" %) (:enforce rule)))
+
+(defn applicable-path-scoped-rules
+  [config db chat-id agent all-tools target-path]
+  (when (and (fetch-rule-available? all-tools)
+             (not (string/blank? target-path)))
+    (let [full-model (get-in db [:chats chat-id :model])]
+      (matching-path-scoped-rules config
+                                          (:workspace-folders db)
+                                          agent
+                                          full-model
+                                          target-path))))
+
+(defn ^:private missing-path-scoped-rules
+  [config db chat-id agent all-tools target-path enforce?]
+  (let [target-path (shared/normalize-path target-path)]
+    (when target-path
+      (->> (applicable-path-scoped-rules config db chat-id agent all-tools target-path)
+           (filter (fn [{:keys [rule]}] (enforce? rule)))
+           (remove (fn [{:keys [rule]}] (validated-rule? db chat-id (:id rule))))
+           vec
+           not-empty))))
+
+(defn missing-path-scoped-rules-for-modify
+  "Returns rules that require fetching before modifying the target path."
+  [config db chat-id agent all-tools target-path]
+  (missing-path-scoped-rules config db chat-id agent all-tools target-path enforce-on-modify?))
+
+(defn missing-path-scoped-rules-for-read
+  "Returns rules that require fetching before reading the target path."
+  [config db chat-id agent all-tools target-path]
+  (missing-path-scoped-rules config db chat-id agent all-tools target-path enforce-on-read?))
+
+(defn missing-path-scoped-rules-error
+  [target-path missing-rules action]
+  (tools.util/single-text-content
+   (str "Path-scoped rules must be fetched before " action " '" target-path "'.\n"
+        "Fetch the missing rule(s) first:\n"
+        (->> missing-rules
+             (map (fn [{{:keys [id name]} :rule {:keys [matched-pattern]} :match}]
+                    (str "- " name "\n"
+                         "  id: " id "\n"
+                         "  path: " target-path "\n"
+                         "  matched-pattern: " matched-pattern "\n"
+                         "  next: call `fetch_rule` with this exact `id` and `path`.")))
+             (string/join "\n")))
+   :error))
+
+(defn require-fetched-path-scoped-rules
+  [target-path {:keys [config db chat-id agent all-tools]}]
+  (when-let [missing-rules (missing-path-scoped-rules-for-modify config db chat-id agent all-tools target-path)]
+    (missing-path-scoped-rules-error (shared/normalize-path target-path) missing-rules "modifying")))
+
+(defn require-fetched-path-scoped-rules-for-read
+  [target-path {:keys [config db chat-id agent all-tools]}]
+  (when-let [missing-rules (missing-path-scoped-rules-for-read config db chat-id agent all-tools target-path)]
+    (missing-path-scoped-rules-error (shared/normalize-path target-path) missing-rules "reading")))
+
+;; --- The fetch_rule tool and the module
+
+(defn ^:private rendered-rule-content
+  [{:keys [content name]} all-tools db chat-id]
+  (when-let [rendered (shared/safe-selmer-render content
+                                                 (f.prompt/->base-selmer-ctx all-tools chat-id db)
+                                                 (str "path-scoped-rule:" name)
+                                                 nil)]
+    (when-not (string/blank? rendered)
+      rendered)))
+
+(defn ^:private path-mismatch-message
+  [{:keys [id scope workspace-root paths]} {:keys [path reason relative-path]}]
+  (let [java-glob-note (str "Path matching uses Java NIO `PathMatcher` glob syntax against workspace-relative paths. "
+                            "Unlike most editor and shell-style glob matchers, patterns containing `**/` do not match the zero-directory case: "
+                            "`**/*.clj` does not match `foo.clj`, and `src/**/*.clj` matches nested files under `src/` but not `src/foo.clj`.")]
+    (case reason
+      :path-not-absolute
+      (str "Path '" path "' must be absolute. Pass the exact absolute file or directory path you plan to work with.\n"
+           java-glob-note)
+
+      :outside-rule-workspace
+      (str "Rule id '" id "' does not apply to path '" path "' because it is outside the rule workspace root '"
+           workspace-root
+           "'.\n"
+           "Allowed patterns: " (string/join ", " paths) "\n"
+           java-glob-note)
+
+      :outside-workspaces
+      (str "Rule id '" id "' does not apply to path '" path "' because global path-scoped rules are matched only against the current workspace roots.\n"
+           "Allowed patterns: " (string/join ", " paths) "\n"
+           java-glob-note)
+
+      :pattern-mismatch
+      (str "Rule id '" id "' does not apply to path '" path "'.\n"
+           "Checked relative path: " relative-path
+           (when (= :project scope)
+             (str " (from workspace root '" workspace-root "')"))
+           "\nAllowed patterns: " (string/join ", " paths) "\n"
+           java-glob-note)
+
+      (str "Rule id '" id "' does not apply to path '" path "'."))))
+
+(defn ^:private fetch-rule
+  [arguments {:keys [all-tools db db* config chat-id agent]}]
+  (let [rule-id (get arguments "id")
+        target-path (get arguments "path")
+        roots (:workspace-folders db)
+        full-model (get-in db [:chats chat-id :model])
+        rule (find-rule-by-id config roots rule-id agent full-model)
+        match-info (when rule
+                     (match-path-scoped-rule rule roots target-path))]
+    (cond
+      (nil? rule)
+      {:error true
+       :contents [{:type :text
+                   :text (format "Rule id '%s' not found in the current path-scoped rules catalog. Use the exact id from the catalog or /rules command." rule-id)}]}
+
+      (not (:match? match-info))
+      {:error true
+       :contents [{:type :text
+                   :text (path-mismatch-message rule match-info)}]}
+
+      (validated-rule? db chat-id rule-id)
+      {:error false
+       :contents [{:type :text
+                   :text (str "**" (:name rule) "** — already loaded in this chat, reuse the previously fetched content.")}]}
+
+      :else
+      (do
+        (record-validated-rule! db* chat-id rule match-info)
+        (let [header (str "**Rule**: " (:name rule) "\n"
+                          "**Path**: " (:path match-info) "\n"
+                          "**Matched pattern**: " (:matched-pattern match-info) "\n")]
+          (if-let [content (rendered-rule-content rule all-tools db chat-id)]
+            {:error false
+             :contents [{:type :text
+                         :text (str header "\n" content)}]}
+            {:error false
+             :contents [{:type :text
+                         :text (str header "\nThis rule contains no usable content for the current chat context and does not need to be loaded again in this chat.")}]}))))))
+
+(defn ^:private describe-rule
+  [{rule-name :name :keys [id paths enforce scope workspace-root]}]
+  (str "- " rule-name "\n"
+       "  id: " id "\n"
+       "  scope: " (some-> scope name) "\n"
+       (when workspace-root
+         (str "  workspace-root: " workspace-root "\n"))
+       "  paths: " (string/join ", " paths) "\n"
+       "  enforce: " (string/join ", " (or enforce ["modify"]))))
+
+(defn ^:private rules-catalog
+  "The tool description part listing the path-scoped rules available to the
+   chat, or nil when there are none."
+  [config db chat-id agent-name]
+  (let [roots (:workspace-folders db)
+        full-model (get-in db [:chats chat-id :model])]
+    (when-let [rules (seq (path-scoped-rules config roots agent-name full-model))]
+      (str "\n\nAvailable path-scoped rules"
+           (when chat-id
+             " for the current chat")
+           ":\n"
+           (->> rules
+                (map describe-rule)
+                (string/join "\n"))))))
+
+(defn definitions
+  [config db chat-id agent-name]
+  (let [catalog (rules-catalog config db chat-id agent-name)]
+    {"fetch_rule"
+     {:description (str (tools.util/read-tool-description "fetch_rule") catalog)
+      ;; Kept after a `prompts.tools` override of the description.
+      :description-suffix catalog
+      :parameters {:type "object"
+                   :properties {"id" {:type "string"
+                                      :description "The exact rule id from the path-scoped rules catalog"}
+                                "path" {:type "string"
+                                        :description "The exact absolute file or directory path you plan to work with"}}
+                   :required ["id" "path"]}
+      :handler #'fetch-rule
+      :enabled-fn (fn [{:keys [db config agent chat-id]}]
+                    (let [roots (:workspace-folders db)
+                          full-model (get-in db [:chats chat-id :model])]
+                      (seq (path-scoped-rules config roots agent full-model))))
+      :summary-fn (fn [{:keys [args]}]
+                    (if-let [rule-id (get args "id")]
+                      (format "Fetching rule '%s'" rule-id)
+                      "Fetching rule"))}}))
+
+(def module
+  {:id :eca/rules
+   :description "Rules: global, project and path-scoped."
+   :config-spec {:rules {:type :array :default []}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
+   :system-prompts [{:id :eca/rules :content #'f.prompt/rules-section}]
+   ;; fetch_rule exists only when the chat has path-scoped rules
+   :tools (fn [{:keys [config db chat-id agent]}]
+            (tools.util/->module-tools (definitions config db chat-id agent)))
+   :commands (built-in-command/commands
+              [["rules" "List available rules and their filtering metadata (agent, model, paths)." []]])})

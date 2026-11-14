@@ -2,7 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.modules.tools.custom-tools :as f.tools.custom]
-   [eca.modules.tools.shell :as f.tools.shell]))
+   [eca.shell :as shell]))
 
 (deftest definitions-test
   (testing "when a valid tool is configured"
@@ -13,7 +13,7 @@
                                                          "pattern"   {:type "string"}}
                                             :required    ["directory" "pattern"]}}}]
       (testing "and the command executes successfully"
-        (with-redefs [f.tools.shell/start-shell-process!
+        (with-redefs [shell/start-shell-process!
                       (fn [{:keys [script]}]
                         (is (= "find /tmp -name *.clj" script))
                         (delay {:out "mocked-output" :exit 0}))]
@@ -32,7 +32,7 @@
                              {:description "Echoes a message"
                               :command "echo {{message}}"
                               :schema {:properties {"message" {:type "string"}} :required ["message"]}}}]
-      (with-redefs [f.tools.shell/start-shell-process!
+      (with-redefs [shell/start-shell-process!
                     (fn [{:keys [script]}]
                       (delay (condp = script
                                "git status" {:out "On branch main" :exit 0}
@@ -51,7 +51,7 @@
   (testing "honors toolCall.shellCommand overrides from config"
     (let [mock-custom-tools {"ls" {:description "List files." :command "ls"}}
           captured (atom nil)]
-      (with-redefs [f.tools.shell/start-shell-process!
+      (with-redefs [shell/start-shell-process!
                     (fn [opts]
                       (reset! captured opts)
                       (delay {:out "" :exit 0}))]

@@ -6,7 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.index :as f.index]
    [eca.features.tools.util :as tools.util]
-   [eca.modules.rules.path-rules :as f.tools.path-rules]
+   [eca.modules.rules :as rules]
    [eca.modules.tools.filesystem :as f.tools.filesystem]
    [eca.shared :as shared :refer [multi-str]]
    [eca.test-helper :as h]
@@ -432,7 +432,7 @@
                         :text "fetch rules first"}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         f.tools.path-rules/require-fetched-path-scoped-rules (fn [_ _]
+                         rules/require-fetched-path-scoped-rules (fn [_ _]
                                                                                 (tools.util/single-text-content "fetch rules first" :error))]
              ((get-in f.tools.filesystem/definitions ["edit_file" :handler])
               {"path" path

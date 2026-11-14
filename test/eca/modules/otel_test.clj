@@ -6,7 +6,6 @@
    [eca.metrics :as metrics]
    [eca.modules :as modules]
    [eca.modules.otel :as f.otel]
-   [eca.opentelemetry :as opentelemetry]
    [eca.server :as server]
    [eca.test-helper :as h]))
 
@@ -31,7 +30,7 @@
    it in `events*`, and no exporter made yet."
   [[events*] & body]
   `(let [~events* (atom [])]
-     (with-redefs [opentelemetry/->OtelMetrics (fn [otlp-config#]
+     (with-redefs [f.otel/->OtelMetrics (fn [otlp-config#]
                                                  (swap! ~events* conj [:new otlp-config#])
                                                  (->FakeExporter ~events*))]
        (reset! @#'f.otel/exporter* nil)

@@ -11,7 +11,6 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.context :as f.context]
-   [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
@@ -19,6 +18,7 @@
    [eca.logger :as logger]
    [eca.modules.compact-as-summary :as f.tools.chat]
    [eca.modules.mcp :as f.mcp]
+   [eca.modules.repo-map :as repo-map]
    [eca.modules.rules :as f.rules]
    [eca.modules.skills :as f.skills]
    [eca.shared :as shared]
@@ -3309,7 +3309,7 @@
           real-build f.prompt/build-chat-instructions]
       (with-redefs [f.context/agents-file-contexts (constantly [])
                     f.context/raw-contexts->refined (fn [contexts _db] contexts)
-                    f.index/repo-map (fn [& _] @tree*)
+                    repo-map/repo-map (fn [& _] @tree*)
                     f.prompt/build-chat-instructions
                     (fn [& args]
                       (swap! build-calls* inc)

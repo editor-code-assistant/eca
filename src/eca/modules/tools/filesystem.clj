@@ -8,7 +8,7 @@
    [eca.features.index :as f.index]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.modules.rules.path-rules :as f.tools.path-rules]
+   [eca.modules.rules :as rules]
    [eca.modules.tools.filesystem.smart-edit :as smart-edit]
    [eca.modules.tools.filesystem.text-match :as text-match]
    [eca.shared :as shared])
@@ -177,7 +177,7 @@
 
 (defn ^:private read-file [{:strs [path] :as arguments} {:keys [db chat-id config] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
-      (f.tools.path-rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (rules/require-fetched-path-scoped-rules-for-read path ctx)
       (when-let [media-type (shared/image-media-type path)]
         (tools.util/single-text-content
          (str path " is an image (" media-type "), not a text file. "
@@ -221,7 +221,7 @@
 
 (defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
-      (f.tools.path-rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (rules/require-fetched-path-scoped-rules-for-read path ctx)
       (let [media-type (shared/image-media-type path)
             file (fs/file (fs/canonicalize path))
             size (when media-type (fs/size file))]
@@ -272,7 +272,7 @@
 (defn ^:private write-file [arguments ctx]
   (let [path (get arguments "path")
         content (get arguments "content")]
-    (or (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
+    (or (rules/require-fetched-path-scoped-rules path ctx)
         (with-file-path-lock path
           (fn []
             (let [old-content (try (slurp path) (catch Exception _ nil))]
@@ -493,7 +493,7 @@
 (defn ^:private edit-file [{:strs [path] :as arguments} ctx]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
-      (f.tools.path-rules/require-fetched-path-scoped-rules path ctx)
+      (rules/require-fetched-path-scoped-rules path ctx)
       (with-file-path-lock
         path
         (fn []

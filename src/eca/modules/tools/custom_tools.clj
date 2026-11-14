@@ -4,8 +4,8 @@
    [eca.cache :as cache]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.modules.tools.shell :as f.tools.shell]
-   [eca.shared :as shared]))
+   [eca.shared :as shared]
+   [eca.shell :as shell]))
 
 (set! *warn-on-reflection* true)
 
@@ -31,14 +31,14 @@
           shell-args (get shell-config :args)
           _ (logger/debug logger-tag "Running custom tool:" resolved-command)
           result (try
-                   @(f.tools.shell/start-shell-process!
-                     (f.tools.shell/before-exec ctx
-                                                (cond-> {:cwd work-dir
-                                                         :script resolved-command
-                                                         :chat-id chat-id}
-                                                  shell-path (assoc :shell-path shell-path)
-                                                  shell-args (assoc :shell-args shell-args))
-                                                {:source :tool :tool (str "eca__" tool-name)}))
+                   @(shell/start-shell-process!
+                     (shell/before-exec ctx
+                                        (cond-> {:cwd work-dir
+                                                 :script resolved-command
+                                                 :chat-id chat-id}
+                                          shell-path (assoc :shell-path shell-path)
+                                          shell-args (assoc :shell-args shell-args))
+                                        {:source :tool :tool (str "eca__" tool-name)}))
                    (catch Exception e
                      {:exit 1 :err (.getMessage e)}))
           exit (:exit result)

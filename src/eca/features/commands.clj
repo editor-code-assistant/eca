@@ -1,33 +1,30 @@
 (ns eca.features.commands
   (:require
-   [babashka.fs :as fs]
    [cheshire.core :as json]
-   [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.features.built-in-command :as built-in-command]
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.context :as f.context]
-   [eca.features.index :as f.index]
    [eca.features.login :as f.login]
    [eca.features.modules :as f.modules]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
    [eca.features.tools.util :as tools.util]
-   [eca.interpolation :as interpolation]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
+   [eca.modules.custom-commands :as custom-commands]
    [eca.modules.mcp :as f.mcp]
    [eca.modules.plugins :as f.plugins]
+   [eca.modules.repo-map :as repo-map]
    [eca.modules.rules :as f.rules]
    [eca.modules.skills :as f.skills]
    [eca.secrets :as secrets]
@@ -104,95 +101,6 @@
     {:chat new-chat
      :replay-messages (if page (:messages page) messages)}))
 
-(defn ^:private normalize-command-name [f]
-  (string/lower-case (fs/strip-ext (fs/file-name f))))
-
-(defn ^:private markdown-file? [file]
-  (and (not (fs/directory? file))
-       (string/ends-with? (string/lower-case (str file)) ".md")))
-
-(defn ^:private configured-command-files [path]
-  (cond
-    (not (fs/exists? path)) []
-    (fs/directory? path) (filter markdown-file? (fs/glob path "**" {:follow-links true}))
-    :else [path]))
-
-(defn ^:private normalize-frontmatter-arg [a]
-  (when (map? a)
-    (let [g (fn [k] (if (contains? a k) (get a k) (get a (keyword k))))]
-      (cond-> {}
-        (some? (g "name")) (assoc :name (str (g "name")))
-        (some? (g "description")) (assoc :description (str (g "description")))
-        (some? (g "required")) (assoc :required (boolean (g "required")))))))
-
-(defn ^:private merge-command-args
-  "Enriches detected args (the source of truth for order/names) with metadata
-   from the frontmatter `arguments` list. Named args match by name; positional
-   args (arg1, arg2, ...) match by index, letting frontmatter rename them."
-  [detected frontmatter-args named?]
-  (let [fm (mapv normalize-frontmatter-arg frontmatter-args)]
-    (vec (map-indexed
-          (fn [idx arg]
-            (let [fm-match (if named?
-                             (first (filter #(= (:name %) (:name arg)) fm))
-                             (nth fm idx nil))]
-              (merge arg fm-match)))
-          detected))))
-
-(defn ^:private command-file->command [type file opts]
-  (try
-    (let [base (normalize-command-name file)
-          raw (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)
-          {:keys [description body] fm-args :arguments} (shared/parse-md raw)
-          body (or body raw)
-          named? (boolean (seq (shared/named-arg-names body)))
-          detected (shared/extract-args-from-content body)]
-      (cond-> {:name (if-let [plugin (:plugin opts)]
-                       (shared/prefixed-name plugin base)
-                       base)
-               :path (str (fs/canonicalize file))
-               :type type
-               :content body
-               :arguments (merge-command-args detected fm-args named?)}
-        description (assoc :description description)
-        (:plugin opts) (assoc :plugin (:plugin opts))))
-    (catch Exception e
-      (logger/warn "[commands]" (format "Error parsing command file '%s': %s" (str file) (ex-message e)))
-      nil)))
-
-(defn ^:private global-file-commands []
-  (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
-                            (io/file (config/user-home) ".config"))
-        commands-dir (io/file xdg-config-home "eca" "commands")]
-    (keep #(command-file->command :user-global-file % {})
-          (configured-command-files commands-dir))))
-
-(defn ^:private local-file-commands [roots]
-  (->> roots
-       (mapcat (fn [{:keys [uri]}]
-                 (configured-command-files (fs/file (shared/uri->filename uri) ".eca" "commands"))))
-       (keep #(command-file->command :user-local-file % {}))))
-
-(defn ^:private config-commands [config roots]
-  (->> (get config :commands)
-       (mapcat
-        (fn [{:keys [path plugin]}]
-          (let [path (str (fs/expand-home path))
-                opts (cond-> {}
-                       plugin (assoc :plugin plugin))]
-            (->> (if (fs/absolute? path)
-                   (configured-command-files path)
-                   (mapcat (fn [{:keys [uri]}]
-                             (configured-command-files (fs/file (shared/uri->filename uri) path)))
-                           roots))
-                 (keep #(command-file->command :user-config % opts))))))))
-
-(defn ^:private custom-commands [config roots]
-  (concat (config-commands config roots)
-          (when-not (:pureConfig config)
-            (global-file-commands))
-          (local-file-commands roots)))
-
 (def ^:private built-in-command-order
   "The order in which clients list the built-in commands."
   ["init" "login" "model" "agent" "skills" "skill-create" "costs" "quota" "context" "approvals"
@@ -267,7 +175,7 @@
                               :type :custom-prompt
                               :description (or (:description custom) (:path custom))
                               :arguments (:arguments custom)})
-                           (custom-commands config (:workspace-folders db))))
+                           (custom-commands/all config (:workspace-folders db))))
         skills-cmds (when (modules/active? config :eca/skills)
                       (->> (f.skills/all config (:workspace-folders db))
                            (mapv (fn [skill]
@@ -1189,7 +1097,7 @@
                                                              (:messages imported-chat))}
                               chat-id {:messages [{:role "system" :content [{:type :text :text (str "Imported chat to: " (or (:title imported-chat) imported-id))}]}]}}})))
       "repo-map-show" {:type :chat-messages
-                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
+                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (repo-map/repo-map db config {:as-string? true})}]}]}}}
       "rules" (let [roots (:workspace-folders db)
                     msg (rules-msg config roots agent full-model all-tools)]
                 {:type :chat-messages
@@ -1268,7 +1176,7 @@
   [command args {:keys [db* config]}]
   (let [db @db*
         custom-cmds (when (modules/active? config :eca/custom-commands)
-                      (custom-commands config (:workspace-folders db)))
+                      (custom-commands/all config (:workspace-folders db)))
         skills (when (modules/active? config :eca/skills)
                  (f.skills/all config (:workspace-folders db)))]
     (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
@@ -1326,21 +1234,3 @@
                       entry
                       chat-id))
     (custom-or-skill-command command args chat-ctx)))
-
-(def create-module
-  {:id :eca/create
-   :description "Help the user set up and change ECA: AGENTS.md, skills, and the eca-manage skill."
-   :config-spec {:prompts {:init {:type :string :default "${classpath:prompts/init.md}"}
-                           :skillCreate {:type :string :default "${classpath:prompts/skill_create.md}"}}}
-   :commands (built-in-command/commands
-              [["init" "Create/update the AGENTS.md file teaching LLM about the project" []]
-               ["skill-create" "Create a skill considering a user request"
-                [{:name "name" :description "The skill name" :required true}
-                 {:name "prompt" :description "What to consider as this skill content" :required true}]]])})
-
-(def custom-commands-module
-  {:id :eca/custom-commands
-   :description "Commands from Markdown files and the commands config."
-   ;; read on every listing (~/.config/eca/commands, .eca/commands and config paths), so new
-   ;; files show up at once; they are listed and run after the modules' commands
-   :config-spec {:commands {:type :array :default []}}})

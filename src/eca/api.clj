@@ -17,7 +17,8 @@
    [eca.modules :as modules]
    [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
-   [eca.shared :as shared]))
+   [eca.shared :as shared]
+   [eca.shell :as shell]))
 
 (set! *warn-on-reflection* true)
 
@@ -532,7 +533,7 @@
   ([ctx command {:keys [cwd env input timeout-ms] :or {timeout-ms 60000}}]
    (let [config (config ctx)
          shell-config (get-in config [:toolCall :shellCommand])
-         opts ((requiring-resolve 'eca.modules.tools.shell/before-exec)
+         opts (shell/before-exec
                (assoc ctx :config config)
                (cond-> {:cwd (or cwd (first (workspaces ctx)) (System/getProperty "user.home"))
                         :script (str command)
@@ -542,7 +543,7 @@
                  (:path shell-config) (assoc :shell-path (:path shell-config))
                  (:args shell-config) (assoc :shell-args (:args shell-config)))
                (shared/assoc-some {:source :module :timeout-ms timeout-ms} :module (:module-id ctx)))
-         proc ((requiring-resolve 'eca.modules.tools.shell/start-shell-process!) opts)
+         proc (shell/start-shell-process! opts)
          result (try
                   (deref proc timeout-ms ::timeout)
                   (catch InterruptedException e
