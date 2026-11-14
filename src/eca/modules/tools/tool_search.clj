@@ -116,6 +116,45 @@
                     (format "Searching tools for '%s'" query)
                     "Listing deferred tools"))}})
 
+(def ^:private deferred-tool-description-max-length 250)
+
+(defn ^:private deferred-tool-summary
+  "First paragraph of the tool description, truncated: the catalog is routing
+   metadata, the full description arrives when the tool is loaded."
+  [description]
+  (let [summary (-> (str description)
+                    (string/split #"\R\s*\R" 2)
+                    first
+                    (string/replace #"\s+" " ")
+                    string/trim)]
+    (if (> (count summary) deferred-tool-description-max-length)
+      (str (string/trimr (subs summary 0 deferred-tool-description-max-length)) "…")
+      summary)))
+
+(defn ^:private deferred-tools-section
+  [all-tools]
+  (when-let [deferred-tools (seq (filter :deferrable all-tools))]
+    ["## Deferred Tools"
+     ""
+     (str (format "<deferred-tools%s>"
+                  (f.prompt/attr-str {:description (str "Tools that exist but are not loaded: their full descriptions and input schemas are unavailable and they cannot be called yet. "
+                                               "Load the ones you need with eca__search_tools, which makes them callable.")}))
+          "\n")
+     (reduce
+      (fn [tools-str {:keys [full-name description]}]
+        (str tools-str (format "<deferred-tool%s/>\n"
+                               (f.prompt/attr-str {:name full-name
+                                          :description (deferred-tool-summary description)}))))
+      ""
+      (sort-by :full-name deferred-tools))
+     "</deferred-tools>"
+     ""]))
+
+(defn deferred-tools-prompt-section
+  "`:eca/deferred-tools`: the tools hidden behind search_tools."
+  [{:keys [all-tools]}]
+  (deferred-tools-section all-tools))
+
 (def module
   {:id :eca/tool-search
    :description "Hide MCP tools behind search_tools when there are too many."
@@ -124,5 +163,5 @@
                                            :includePattern []
                                            :excludePattern []}}}
    :config-defaults {:toolCall {:approval {:allow {"eca__search_tools" {}}}}}
-   :system-prompts [{:id :eca/deferred-tools :content #'f.prompt/deferred-tools-prompt-section}]
+   :system-prompts [{:id :eca/deferred-tools :content #'deferred-tools-prompt-section}]
    :tools (fn [_ctx] (tools.util/->module-tools definitions))})

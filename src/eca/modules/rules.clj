@@ -12,7 +12,7 @@
    [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
-   [eca.shared :as shared :refer [assoc-some]])
+   [eca.shared :as shared :refer [assoc-some multi-str]])
   (:import
    [java.nio.file FileSystems Path PathMatcher]))
 
@@ -473,12 +473,93 @@
               (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
       "No rules available for the current agent and model.")))
 
+(defn ^:private rule-section
+  [tag description rendered-rules]
+  (when (seq rendered-rules)
+    [(format "<%s%s>" tag (f.prompt/attr-str {:description description}))
+     (string/join "\n" rendered-rules)
+     (format "</%s>" tag)
+     ""]))
+
+(defn ^:private path-scoped-rule-attrs
+  [{rule-name :name :keys [id paths enforce scope workspace-root]}]
+  (f.prompt/attr-str {:id id
+             :name rule-name
+             :scope (some-> scope name)
+             :workspace-root workspace-root
+             :paths (string/join "," paths)
+             :enforce (string/join "," (or enforce ["modify"]))}))
+
+(defn ^:private path-scoped-rule-catalog-entry
+  [rule]
+  (str "<rule" (path-scoped-rule-attrs rule) "/>"))
+
+(defn ^:private path-scoped-rule-sections
+  [path-scoped-rules render-entry]
+  (let [global-rules (filter #(= :global (:scope %)) path-scoped-rules)
+        project-rules (filter #(= :project (:scope %)) path-scoped-rules)]
+    (multi-str
+     (when (seq global-rules)
+       [(format "<global-path-scoped-rules%s>" (f.prompt/attr-str {:description "Path-scoped rules loaded outside the current workspace."}))
+        (->> global-rules
+             (map render-entry)
+             (string/join "\n"))
+        "</global-path-scoped-rules>"])
+     (->> project-rules
+          (group-by :workspace-root)
+          (sort-by first)
+          (map (fn [[workspace-root rules]]
+                 (str "<workspace-path-scoped-rules" (f.prompt/attr-str {:root workspace-root}) ">\n"
+                      (->> rules
+                           (map render-entry)
+                           (string/join "\n"))
+                      "\n</workspace-path-scoped-rules>")))))))
+
+(defn ^:private path-scoped-rule-catalog
+  [path-scoped-rules]
+  (path-scoped-rule-sections path-scoped-rules path-scoped-rule-catalog-entry))
+
+(defn rules-section
+  "`:eca/rules`: the static rules, and the catalog of path-scoped ones."
+  [{:keys [static-rules path-scoped-rules all-tools selmer-ctx]}]
+  (let [rendered-static-rules (keep (fn [{:keys [name content scope]}]
+                                      (when-let [rendered (shared/safe-selmer-render content selmer-ctx (str "rule:" name) nil)]
+                                        (when-not (string/blank? rendered)
+                                          {:scope (if (= :global scope) :global :project)
+                                           :content (format "<rule%s>%s</rule>" (f.prompt/attr-str {:name name}) rendered)})))
+                                    static-rules)
+        fetch-rule-available? (tools.util/tool-available? all-tools "eca__fetch_rule")
+        global-rules (->> rendered-static-rules
+                          (filter #(= :global (:scope %)))
+                          (map :content))
+        project-rules (->> rendered-static-rules
+                           (remove #(= :global (:scope %)))
+                           (map :content))
+        path-scoped-section (when (and fetch-rule-available? (seq path-scoped-rules))
+                              [(format "<path-scoped-rules%s>" (f.prompt/attr-str {:description "Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat."}))
+                               (path-scoped-rule-catalog path-scoped-rules)
+                               "</path-scoped-rules>"])
+        has-static-rules? (seq rendered-static-rules)]
+    (when (or has-static-rules? path-scoped-section)
+      ["## Rules"
+       ""
+       (format "<rules%s>" (f.prompt/attr-str {:description "Rules defined by user. Follow them as closely as possible."}))
+       (rule-section "global-rules"
+                     "Global user rules; project rules are more specific."
+                     global-rules)
+       (rule-section "project-rules"
+                     "Workspace rules; prefer over global rules when they conflict."
+                     project-rules)
+       path-scoped-section
+       "</rules>"
+       ""])))
+
 (def module
   {:id :eca/rules
    :description "Rules: global, project and path-scoped."
    :config-spec {:rules {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
-   :system-prompts [{:id :eca/rules :content #'f.prompt/rules-section}]
+   :system-prompts [{:id :eca/rules :content #'rules-section}]
    ;; fetch_rule exists only when the chat has path-scoped rules
    :tools (fn [{:keys [config db chat-id agent]}]
             (tools.util/->module-tools (definitions config db chat-id agent)))

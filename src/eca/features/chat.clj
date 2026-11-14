@@ -2176,7 +2176,7 @@
    {:keys [db*] :as chat-ctx}]
   (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (f.mcp/all-prompts @db*)))
         args-vals (zipmap (map :name arguments) args)
-        {:keys [messages error-message]} (f.prompt/get-prompt! prompt args-vals @db*)]
+        {:keys [messages error-message]} (f.mcp/get-prompt! prompt args-vals @db*)]
     (cond
       error-message
       (do (lifecycle/send-content! chat-ctx

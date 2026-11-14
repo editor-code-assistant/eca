@@ -170,12 +170,27 @@
    "Skills available:\n\n"
    (all config (:workspace-folders @db*))))
 
+(defn skills-section
+  "`:eca/skills`: the skills' names and descriptions."
+  [{:keys [skills]}]
+  (when (seq skills)
+    ["## Skills"
+     ""
+     (str (format "<skills%s>" (f.prompt/attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
+     (reduce
+      (fn [skills-str {:keys [name description]}]
+        (str skills-str (format "<skill%s/>\n" (f.prompt/attr-str {:name name :description description}))))
+      ""
+      skills)
+     "</skills>"
+     ""]))
+
 (def module
   {:id :eca/skills
    :description "Skills: SKILL.md folders the model loads when it needs them."
    :config-spec {:skills {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
-   :system-prompts [{:id :eca/skills :content #'f.prompt/skills-section}]   ; names and descriptions only
+   :system-prompts [{:id :eca/skills :content #'skills-section}]   ; names and descriptions only
    :tools (fn [_ctx] (tools.util/->module-tools definitions))
    ;; each skill is also a command, listed after the built-in ones
    :commands {"skills" {:description "List available skills"

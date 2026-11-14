@@ -8,10 +8,11 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.prompt :as f.prompt]
    [eca.logger :as logger]
    [eca.network :as network]
    [eca.oauth :as oauth]
-   [eca.shared :as shared]
+   [eca.shared :as shared :refer [multi-str]]
    [plumcp.core.api.capability :as pcap]
    [plumcp.core.api.entity-gen :as peg]
    [plumcp.core.api.entity-support :as pes]
@@ -1234,7 +1235,7 @@
                   (mapv #(assoc % :server (name server-name)) resources)))
         (:mcp-clients db)))
 
-(defn get-prompt! [name arguments db]
+(defn ^:private fetch-prompt [name arguments db]
   (if-let [mcp-client (->> (vals (:mcp-clients db))
                            (keep (fn [{:keys [client prompts]}]
                                    (when (some #(= name (:name %)) prompts)
@@ -1254,6 +1255,19 @@
                               :content [(->content (:content each-message))]})
                            (:messages prompt))})))
     {:error-message (format "Prompt '%s' not found in any connected MCP server" name)}))
+
+(defn get-prompt!
+  "Gets the MCP prompt `name` with `arguments` from the server that has it:
+   `{:description :messages}`, or `{:error-message ..}`."
+  [name arguments db]
+  (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))
+  (try
+    (let [result (fetch-prompt name arguments db)]
+      (logger/debug logger-tag "Prompt result: " result)
+      result)
+    (catch Exception e
+      (logger/warn logger-tag (format "Error calling prompt %s: %s" name e))
+      {:error-message (str "Error calling prompt: " (.getMessage e))})))
 
 (defn get-resource! [uri db]
   (when-let [mcp-client (->> (vals (:mcp-clients db))
@@ -1302,6 +1316,45 @@
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))
 
+(defn ^:private mcp-instructions-section [db]
+  (let [servers-with-instructions
+        (->> (:mcp-clients db)
+             (keep (fn [[server-name {:keys [status instructions]}]]
+                     (when (and (= :running status)
+                                (not (string/blank? instructions)))
+                       {:name (name server-name)
+                        :instructions instructions})))
+             seq)]
+    (when servers-with-instructions
+      (multi-str
+       "## MCP Server Instructions"
+       ""
+       (format "<mcp-server-instructions%s>" (f.prompt/attr-str {:description "Instructions from running MCP servers."}))
+       (->> servers-with-instructions
+            (map (fn [{:keys [name instructions]}]
+                   (multi-str
+                    (format "<mcp-server-instruction%s>" (f.prompt/attr-str {:name name}))
+                    instructions
+                    "</mcp-server-instruction>")))
+            (string/join "\n\n"))
+       "</mcp-server-instructions>"))))
+
+(defn mcp-resources-section
+  "`:eca/mcp-resources`: the MCP resources attached to the chat."
+  [{:keys [refined-contexts]}]
+  (let [resources (filter #(= :mcpResource (:type %)) refined-contexts)]
+    (when (seq resources)
+      ["## MCP Resources"
+       ""
+       (f.prompt/contexts-str resources nil nil
+                              {:description "Resources from connected MCP servers."})
+       ""])))
+
+(defn mcp-instructions-prompt-section
+  "`:eca/mcp-instructions`: the running MCP servers' instructions."
+  [{:keys [db]}]
+  (mcp-instructions-section db))
+
 (def module
   {:id :eca/mcp
    :description "MCP servers: their tools, prompts, resources and instructions."
@@ -1310,8 +1363,5 @@
    :config-spec {:mcpServers {:type :map :default {}}
                  :mcpTimeoutSeconds {:type :number :default 60}
                  :mcpKeepAliveSeconds {:type :number :default 30}}
-   ;; resolved when called: the prompt namespace requires this one
-   :system-prompts [{:id :eca/mcp-resources :dynamic? true
-                     :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/mcp-resources-section) ctx))}
-                    {:id :eca/mcp-instructions :dynamic? true
-                     :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/mcp-instructions-prompt-section) ctx))}]})
+   :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
+                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]})

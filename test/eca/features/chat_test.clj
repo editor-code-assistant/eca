@@ -1723,7 +1723,7 @@
       (with-redefs [f.mcp/all-prompts (constantly [{:name "my-prompt"
                                                     :server "test-server"
                                                     :arguments []}])
-                    f.prompt/get-prompt! (fn [_name _arguments _db]
+                    f.mcp/get-prompt! (fn [_name _arguments _db]
                                            {:messages [{:role "user"
                                                        :content [{:type :text
                                                                   :text "MCP prompt body"}]}]})]
@@ -1863,7 +1863,7 @@
           (with-redefs [f.mcp/all-prompts (constantly [{:name "my-prompt"
                                                         :server "test-server"
                                                         :arguments []}])
-                        f.prompt/get-prompt! (fn [_name _arguments _db]
+                        f.mcp/get-prompt! (fn [_name _arguments _db]
                                                {:messages [{:role "user"
                                                             :content [{:type :text
                                                                        :text "MCP prompt body"}]}]})]
@@ -2857,7 +2857,7 @@
           invoked? (atom nil)]
       (with-redefs [f.mcp/all-prompts (fn [_]
                                         [{:name "awesome-prompt" :arguments test-arguments}])
-                    f.prompt/get-prompt! (fn [_ args-map _]
+                    f.mcp/get-prompt! (fn [_ args-map _]
                                            (reset! prompt-args args-map)
                                            {:messages [{:role :user :content "test"}]})
                     f.chat/prompt-messages! (fn [messages source-type ctx]
@@ -2876,7 +2876,7 @@
           finished-status (atom nil)]
       (with-redefs [f.mcp/all-prompts (fn [_]
                                         [{:name "failing-prompt" :arguments [{:name "arg1"}]}])
-                    f.prompt/get-prompt! (fn [_ _ _]
+                    f.mcp/get-prompt! (fn [_ _ _]
                                            {:error-message "MCP error getting prompt: code=-32603 message=Invalid required argument: arg1"})
                     lifecycle/send-content! (fn [_ctx _role content]
                                               (reset! sent-content content))
@@ -2893,7 +2893,7 @@
           finished-status (atom nil)]
       (with-redefs [f.mcp/all-prompts (fn [_]
                                         [{:name "nil-prompt" :arguments []}])
-                    f.prompt/get-prompt! (fn [_ _ _] nil)
+                    f.mcp/get-prompt! (fn [_ _ _] nil)
                     lifecycle/send-content! (fn [_ctx _role content]
                                               (reset! sent-content content))
                     lifecycle/finish-chat-prompt! (fn [status _ctx]

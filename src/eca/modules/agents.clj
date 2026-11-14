@@ -10,6 +10,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.prompt :as f.prompt]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -283,6 +284,14 @@
         (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
         (str "Selected agent: `" selected-agent "`.")))))
 
+(defn ^:private prompt-section
+  "`:eca/agent-prompt`: the agent's own prompt, else `prompts.chat`."
+  [{:keys [agent config chat-id db selmer-ctx]}]
+  [(string/trimr
+    (shared/safe-selmer-render (f.prompt/eca-chat-prompt agent config chat-id db)
+                               selmer-ctx "chat-prompt"))
+   ""])
+
 (def module
   {:id :eca/agents
    :description "Agents from config and Markdown files, and choosing one for each chat."
@@ -290,9 +299,7 @@
                  :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
    ;; Markdown agents (~/.config/eca/agents, .eca/agents), under the config's own agents
    :agents (fn [{:keys [db]}] (all-md-agents (:workspace-folders db)))
-   ;; the agent's own prompt, else prompts.chat; resolved when called, as prompt requires config, which requires this
-   :system-prompts [{:id :eca/agent-prompt
-                     :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/agent-prompt-section) ctx))}]
+   :system-prompts [{:id :eca/agent-prompt :content #'prompt-section}]   ; the agent's own prompt, else prompts.chat
    :commands {"agent" {:description "Select agent for current chat (Ex: /agent plan)"
                        :arguments [{:name "agent-name"}]
                        :handler #'agent-command}}})

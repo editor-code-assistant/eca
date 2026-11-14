@@ -4,13 +4,9 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
-   [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.modules :as modules]
-   [eca.modules.mcp :as f.mcp]
-   [eca.shared :refer [multi-str] :as shared])
-  (:import
-   [java.util Map]))
+   [eca.shared :refer [multi-str] :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -84,7 +80,10 @@
       :else
       (format "\"%s\"" (string/replace value "\"" "&quot;")))))
 
-(defn ^:private attr-str [attrs]
+(defn attr-str
+  "The attributes of a prompt tag: ` k=\"v\"` for each non-nil value, with
+   the quotes the value needs."
+  [attrs]
   (->> attrs
        (keep (fn [[k v]]
                (when (some? v)
@@ -171,37 +170,9 @@
    ""
    "Use workspace roots as the base for resolving relative paths. Tool paths must be absolute unless the tool says otherwise."))
 
-(defn ^:private mcp-instructions-section [db]
-  (let [servers-with-instructions
-        (->> (:mcp-clients db)
-             (keep (fn [[server-name {:keys [status instructions]}]]
-                     (when (and (= :running status)
-                                (not (string/blank? instructions)))
-                       {:name (name server-name)
-                        :instructions instructions})))
-             seq)]
-    (when servers-with-instructions
-      (multi-str
-       "## MCP Server Instructions"
-       ""
-       (format "<mcp-server-instructions%s>" (attr-str {:description "Instructions from running MCP servers."}))
-       (->> servers-with-instructions
-            (map (fn [{:keys [name instructions]}]
-                   (multi-str
-                    (format "<mcp-server-instruction%s>" (attr-str {:name name}))
-                    instructions
-                    "</mcp-server-instruction>")))
-            (string/join "\n\n"))
-       "</mcp-server-instructions>"))))
-
 (def ^:private editor-state-context-types
   "Volatile editor-state contexts (e.g. cursor) delivered per-turn in the user message."
   #{:cursor})
-
-(def ^:private volatile-context-types
-  "Context types that change between turns and must be kept out of the cached
-   static prompt."
-  (into #{:mcpResource} editor-state-context-types))
 
 (def ^:private static-prompt-context-types
   "Context types rendered into the cached static prompt block.
@@ -214,151 +185,8 @@
   [ctx]
   (boolean (static-prompt-context-types (:type ctx))))
 
-(defn ^:private rule-section
-  [tag description rendered-rules]
-  (when (seq rendered-rules)
-    [(format "<%s%s>" tag (attr-str {:description description}))
-     (string/join "\n" rendered-rules)
-     (format "</%s>" tag)
-     ""]))
-
-(defn ^:private path-scoped-rule-attrs
-  [{rule-name :name :keys [id paths enforce scope workspace-root]}]
-  (attr-str {:id id
-             :name rule-name
-             :scope (some-> scope name)
-             :workspace-root workspace-root
-             :paths (string/join "," paths)
-             :enforce (string/join "," (or enforce ["modify"]))}))
-
-(defn ^:private path-scoped-rule-catalog-entry
-  [rule]
-  (str "<rule" (path-scoped-rule-attrs rule) "/>"))
-
-(defn ^:private path-scoped-rule-sections
-  [path-scoped-rules render-entry]
-  (let [global-rules (filter #(= :global (:scope %)) path-scoped-rules)
-        project-rules (filter #(= :project (:scope %)) path-scoped-rules)]
-    (multi-str
-     (when (seq global-rules)
-       [(format "<global-path-scoped-rules%s>" (attr-str {:description "Path-scoped rules loaded outside the current workspace."}))
-        (->> global-rules
-             (map render-entry)
-             (string/join "\n"))
-        "</global-path-scoped-rules>"])
-     (->> project-rules
-          (group-by :workspace-root)
-          (sort-by first)
-          (map (fn [[workspace-root rules]]
-                 (str "<workspace-path-scoped-rules" (attr-str {:root workspace-root}) ">\n"
-                      (->> rules
-                           (map render-entry)
-                           (string/join "\n"))
-                      "\n</workspace-path-scoped-rules>")))))))
-
-(defn ^:private path-scoped-rule-catalog
-  [path-scoped-rules]
-  (path-scoped-rule-sections path-scoped-rules path-scoped-rule-catalog-entry))
-
-(def ^:private deferred-tool-description-max-length 250)
-
-(defn ^:private deferred-tool-summary
-  "First paragraph of the tool description, truncated: the catalog is routing
-   metadata, the full description arrives when the tool is loaded."
-  [description]
-  (let [summary (-> (str description)
-                    (string/split #"\R\s*\R" 2)
-                    first
-                    (string/replace #"\s+" " ")
-                    string/trim)]
-    (if (> (count summary) deferred-tool-description-max-length)
-      (str (string/trimr (subs summary 0 deferred-tool-description-max-length)) "…")
-      summary)))
-
-(defn ^:private deferred-tools-section
-  [all-tools]
-  (when-let [deferred-tools (seq (filter :deferrable all-tools))]
-    ["## Deferred Tools"
-     ""
-     (str (format "<deferred-tools%s>"
-                  (attr-str {:description (str "Tools that exist but are not loaded: their full descriptions and input schemas are unavailable and they cannot be called yet. "
-                                               "Load the ones you need with eca__search_tools, which makes them callable.")}))
-          "\n")
-     (reduce
-      (fn [tools-str {:keys [full-name description]}]
-        (str tools-str (format "<deferred-tool%s/>\n"
-                               (attr-str {:name full-name
-                                          :description (deferred-tool-summary description)}))))
-      ""
-      (sort-by :full-name deferred-tools))
-     "</deferred-tools>"
-     ""]))
-
 ;; System prompt sections. Each one belongs to a module (`:system-prompts`)
 ;; and gets the prompt ctx: what the chat's system prompt is built from.
-
-(defn agent-prompt-section
-  "`:eca/agent-prompt`: the agent's own prompt, else `prompts.chat`."
-  [{:keys [agent config chat-id db selmer-ctx]}]
-  [(string/trimr
-    (shared/safe-selmer-render (eca-chat-prompt agent config chat-id db)
-                               selmer-ctx "chat-prompt"))
-   ""])
-
-(defn rules-section
-  "`:eca/rules`: the static rules, and the catalog of path-scoped ones."
-  [{:keys [static-rules path-scoped-rules all-tools selmer-ctx]}]
-  (let [rendered-static-rules (keep (fn [{:keys [name content scope]}]
-                                      (when-let [rendered (shared/safe-selmer-render content selmer-ctx (str "rule:" name) nil)]
-                                        (when-not (string/blank? rendered)
-                                          {:scope (if (= :global scope) :global :project)
-                                           :content (format "<rule%s>%s</rule>" (attr-str {:name name}) rendered)})))
-                                    static-rules)
-        fetch-rule-available? (tools.util/tool-available? all-tools "eca__fetch_rule")
-        global-rules (->> rendered-static-rules
-                          (filter #(= :global (:scope %)))
-                          (map :content))
-        project-rules (->> rendered-static-rules
-                           (remove #(= :global (:scope %)))
-                           (map :content))
-        path-scoped-section (when (and fetch-rule-available? (seq path-scoped-rules))
-                              [(format "<path-scoped-rules%s>" (attr-str {:description "Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat."}))
-                               (path-scoped-rule-catalog path-scoped-rules)
-                               "</path-scoped-rules>"])
-        has-static-rules? (seq rendered-static-rules)]
-    (when (or has-static-rules? path-scoped-section)
-      ["## Rules"
-       ""
-       (format "<rules%s>" (attr-str {:description "Rules defined by user. Follow them as closely as possible."}))
-       (rule-section "global-rules"
-                     "Global user rules; project rules are more specific."
-                     global-rules)
-       (rule-section "project-rules"
-                     "Workspace rules; prefer over global rules when they conflict."
-                     project-rules)
-       path-scoped-section
-       "</rules>"
-       ""])))
-
-(defn skills-section
-  "`:eca/skills`: the skills' names and descriptions."
-  [{:keys [skills]}]
-  (when (seq skills)
-    ["## Skills"
-     ""
-     (str (format "<skills%s>" (attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
-     (reduce
-      (fn [skills-str {:keys [name description]}]
-        (str skills-str (format "<skill%s/>\n" (attr-str {:name name :description description}))))
-      ""
-      skills)
-     "</skills>"
-     ""]))
-
-(defn deferred-tools-prompt-section
-  "`:eca/deferred-tools`: the tools hidden behind search_tools."
-  [{:keys [all-tools]}]
-  (deferred-tools-section all-tools))
 
 (defn additional-info-section
   "`:eca/additional-info`: OS, shell and other session facts."
@@ -449,24 +277,6 @@
              :db db
              :selmer-ctx (->base-selmer-ctx all-tools chat-id db)}]
     (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
-
-(defn mcp-resources-section
-  "`:eca/mcp-resources`: the MCP resources attached to the chat."
-  [{:keys [refined-contexts]}]
-  (let [volatile-contexts (filter #(and (volatile-context-types (:type %))
-                                        (not (editor-state-context-types (:type %))))
-                                  refined-contexts)]
-    (when (seq volatile-contexts)
-      ["## MCP Resources"
-       ""
-       (contexts-str volatile-contexts nil nil
-                     {:description "Resources from connected MCP servers."})
-       ""])))
-
-(defn mcp-instructions-prompt-section
-  "`:eca/mcp-instructions`: the running MCP servers' instructions."
-  [{:keys [db]}]
-  (mcp-instructions-section db))
 
 (def ^:private built-in-dynamic-sections
   "The order of the built-in dynamic sections."
@@ -609,13 +419,3 @@
       ;; Resource path
       :else
       (load-builtin-prompt (some-> legacy-config-file-prompt (string/replace-first #"prompts/" ""))))))
-
-(defn get-prompt! [^String name ^Map arguments db]
-  (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))
-  (try
-    (let [result (f.mcp/get-prompt! name arguments db)]
-      (logger/debug logger-tag "Prompt result: " result)
-      result)
-    (catch Exception e
-      (logger/warn logger-tag (format "Error calling prompt %s: %s" name e))
-      {:error-message (str "Error calling prompt: " (.getMessage e))})))
