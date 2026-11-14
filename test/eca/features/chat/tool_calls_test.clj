@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
+   [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.tools :as f.tools]
@@ -1096,3 +1097,129 @@
     (is (string/includes? text "send it again with valid JSON arguments"))
     (is (not (re-find #"(?i)split|shorter|smaller" text))
         "no advice to split the call: for compact_chat only the last call would count")))
+
+(def ^:private write-file-tool
+  {:name "write_file" :full-name "fs__write_file" :origin :mcp :server {:name "fs"}})
+
+(deftest decide-tool-call-action-remembered-approval-covers-test
+  (let [tool-call {:id "call-1" :full-name "fs__write_file" :arguments {"path" "/tmp/a"}}
+        chat-id "test-chat"]
+    (testing "a call asking by the config rules is covered once its tool is remembered"
+      (h/reset-components!)
+      (with-redefs [m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
+        (let [{:keys [decision remembered-approval-covers?]}
+              (#'tc/decide-tool-call-action tool-call [write-file-tool] (h/db) (h/config) :default chat-id)]
+          (is (= :ask decision))
+          (is (false? (remembered-approval-covers? (h/db))))
+          (swap! (h/db*) assoc-in [:chats chat-id :remembered-approvals "fs__write_file" :remember-to-approve?] true)
+          (is (true? (remembered-approval-covers? (h/db)))))))
+
+    (testing "a call a hook asked for is not covered"
+      (h/reset-components!)
+      (with-redefs [m.hooks/trigger-if-matches! (fn [_ _ {:keys [on-after-action]} _ _]
+                                                  (on-after-action {:exit 0 :parsed {"approval" "ask"}}))]
+        (let [plan (#'tc/decide-tool-call-action tool-call [write-file-tool] (h/db) (h/config) :default chat-id)]
+          (is (= :ask (:decision plan)))
+          (is (nil? (:remembered-approval-covers? plan))))))))
+
+(deftest on-tools-called!-approve-and-remember-covers-later-calls-of-the-batch-test
+  (testing "approving & remembering a call allows the batch's calls of the same tool without asking"
+    (h/reset-components!)
+    (let [chat-id "test-chat"
+          db* (h/db*)
+          prepared {:status :preparing :name "write_file" :full-name "fs__write_file" :server "fs" :origin :mcp}
+          _ (swap! db* #(-> %
+                            (assoc-in [:chats chat-id :status] :running)
+                            (assoc-in [:chats chat-id :messages] [])
+                            (assoc-in [:chats chat-id :tool-calls "call-1"] prepared)
+                            (assoc-in [:chats chat-id :tool-calls "call-2"] prepared)))
+          chat-ctx {:db* db* :config (h/config) :chat-id chat-id :provider "openai" :agent :default
+                    :messenger (h/messenger) :metrics (h/metrics)}
+          add-to-history! (fn [msg] (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
+          tool-calls [{:id "call-1" :full-name "fs__write_file" :arguments {"path" "/tmp/a"} :arguments-text "{}"}
+                      {:id "call-2" :full-name "fs__write_file" :arguments {"path" "/tmp/b"} :arguments-text "{}"}]
+          called-tools* (atom [])
+          approver (future
+                     (loop [attempts 0]
+                       (when (and (< attempts 500)
+                                  (not= :waiting-approval (:status (tc/get-tool-call-state @db* chat-id "call-1"))))
+                         (Thread/sleep 10)
+                         (recur (inc attempts))))
+                     (f.chat/tool-call-approve {:chat-id chat-id :tool-call-id "call-1" :save "session"}
+                                               db* (h/messenger) (h/config) (h/metrics)))]
+      (with-redefs [f.tools/all-tools                           (constantly [write-file-tool])
+                    m.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
+                    f.tools/call-tool!                          (fn [_ arguments & _]
+                                                                  (swap! called-tools* conj arguments)
+                                                                  {:contents [{:text "ok" :type :text}]})
+                    f.tools/tool-call-details-before-invocation (constantly nil)
+                    f.tools/tool-call-details-after-invocation  (constantly nil)
+                    f.tools/tool-call-summary                   (constantly "Tool")
+                    lifecycle/maybe-renew-auth-token            (fn [_] nil)]
+        (let [run (future ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls))]
+          (is (not= ::timeout (deref run 10000 ::timeout))
+              "the second call must not wait for another approval")
+          (when (= ::timeout (deref run 0 ::timeout))
+            ;; unblock the batch so the test ends
+            (some-> (tc/get-tool-call-state @db* chat-id "call-2") :approved?* (deliver false))))
+        @approver
+        (is (= #{{"path" "/tmp/a"} {"path" "/tmp/b"}} (set @called-tools*)))
+        (is (match? (m/embeds [{:content {:type :toolCallRun :id "call-1" :manual-approval true}}
+                               {:content {:type :toolCallRun :id "call-2" :manual-approval false}}])
+                    (:chat-content-received (h/messages))))
+        (is (= :user-config-allow
+               (get-in (tc/get-tool-call-state @db* chat-id "call-2") [:decision-reason :code])))))))
+
+(deftest tool-call-approve-and-remember-approves-waiting-calls-test
+  (testing "approving & remembering approves the session's waiting calls it covers"
+    (h/reset-components!)
+    (let [config (h/config)
+          delete-tool {:name "delete_file" :full-name "fs__delete_file" :origin :mcp :server {:name "fs"}}
+          waiting (fn [chat-id tool & [{:keys [covered?] :or {covered? true}}]]
+                    (cond-> {:status :waiting-approval
+                             :name (:name tool) :full-name (:full-name tool) :server "fs" :origin :mcp
+                             :arguments {"path" "/tmp/a"}
+                             :approved?* (promise)
+                             :future-cleanup-complete?* (promise)}
+                      covered? (assoc :remembered-approval-covers?
+                                      (fn [db]
+                                        (f.tools/remembered-approval-covers?
+                                         [write-file-tool delete-tool] tool {"path" "/tmp/a"} db config :default chat-id)))))]
+      (swap! (h/db*) assoc :chats
+             {"parent" {:id "parent" :tool-calls {"t1" (waiting "parent" write-file-tool)}}
+              "sub" {:id "sub" :parent-chat-id "parent"
+                     :tool-calls {"t2" (waiting "sub" write-file-tool)
+                                  "t3" (waiting "sub" write-file-tool {:covered? false})
+                                  "t4" (waiting "sub" delete-tool)}}
+              "other" {:id "other" :tool-calls {"t5" (waiting "other" write-file-tool)}}})
+      (f.chat/tool-call-approve {:chat-id "parent" :tool-call-id "t1" :save "session"}
+                                (h/db*) (h/messenger) config (h/metrics))
+      (let [state (fn [chat-id id] (tc/get-tool-call-state (h/db) chat-id id))
+            approved? (fn [chat-id id] (deref (:approved?* (state chat-id id)) 0 ::pending))]
+        (is (= :execution-approved (:status (state "parent" "t1"))))
+        (is (= :execution-approved (:status (state "sub" "t2"))) "a subagent's call of the remembered tool")
+        (is (true? (approved? "sub" "t2")))
+        (is (= :waiting-approval (:status (state "sub" "t3"))) "a call a hook asked for keeps asking")
+        (is (= :waiting-approval (:status (state "sub" "t4"))) "another tool keeps asking")
+        (is (= :waiting-approval (:status (state "other" "t5"))) "another chat session keeps asking")
+        (is (= ::pending (approved? "other" "t5")))))))
+
+(deftest transition-tool-call!-concurrent-events-test
+  (testing "of two concurrent approvals only one transitions the call"
+    (h/reset-components!)
+    (let [chat-id "test-chat"
+          approved?* (promise)
+          chat-ctx {:db* (h/db*) :chat-id chat-id :messenger (h/messenger) :config (h/config) :metrics (h/metrics)}]
+      (dotimes [_ 50]
+        (swap! (h/db*) assoc-in [:chats chat-id :tool-calls "call-1"]
+               {:status :waiting-approval :approved?* approved?*})
+        (let [start (promise)
+              approve #(future
+                         @start
+                         (try (tc/transition-tool-call! (h/db*) chat-ctx "call-1" :user-approve
+                                                        {:reason {:code :user-choice-allow :text "ok"}})
+                              :transitioned
+                              (catch clojure.lang.ExceptionInfo _ :invalid)))
+              results [(approve) (approve)]]
+          (deliver start true)
+          (is (= #{:transitioned :invalid} (set (map deref results)))))))))

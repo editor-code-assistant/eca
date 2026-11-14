@@ -2811,11 +2811,11 @@
                       :db* db*
                       :config config
                       :metrics metrics
-                      :messenger messenger}]
-        (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
-                                  {:reason {:code :user-choice-allow
-                                            :text "Tool call allowed by user choice"}})
-        (when (= "session" save)
+                      :messenger messenger}
+            remember? (= "session" save)]
+        ;; Remembered before approving, so the batch's next calls, which run once
+        ;; this one is approved, see it.
+        (when remember?
           ;; Remembered for the chat session (the root chat, shared with its
           ;; subagents) by full tool name, never server-wide. #639
           (let [{tool-call-name :name :keys [full-name origin arguments]}
@@ -2830,7 +2830,12 @@
                 (swap! db* db/update-remembered-approvals chat-id
                        update-in [full-name :remembered-command-keys] (fnil into #{}) keys'))
               (swap! db* db/update-remembered-approvals chat-id
-                     assoc-in [full-name :remember-to-approve?] true))))))))
+                     assoc-in [full-name :remember-to-approve?] true))))
+        (tc/transition-tool-call! db* chat-ctx tool-call-id :user-approve
+                                  {:reason {:code :user-choice-allow
+                                            :text "Tool call allowed by user choice"}})
+        (when remember?
+          (tc/approve-remembered-waiting-calls! db* (dissoc chat-ctx :chat-id) chat-id))))))
 
 (defn tool-call-reject
   [{:keys [chat-id tool-call-id]} db* messenger config metrics]

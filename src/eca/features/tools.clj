@@ -129,6 +129,14 @@
   ([all-tools tool args db config agent-name opts]
    (:decision (approval-decision all-tools tool args db config agent-name opts))))
 
+(defn remembered-approval-covers?
+  "Whether the 'approve and remember' approvals of `chat-id`'s chat session
+   allow the tool call, with no config `deny` rule rejecting it."
+  [all-tools tool args db config agent-name chat-id]
+  (= :session-remember
+     (get-in (approval-decision all-tools tool args db config agent-name {:chat-id chat-id})
+             [:rule :source])))
+
 (defn ^:private get-tool-patterns
   "Returns a set of tool patterns at `config-path`, merging global and agent-specific."
   [config agent-name config-path]
