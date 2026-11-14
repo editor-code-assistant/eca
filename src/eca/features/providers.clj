@@ -15,7 +15,7 @@
 
 (def ^:private declaration-keys
   "Keys of a provider declaration that aren't provider config."
-  #{:label :login})
+  #{:label :login :models-fn})
 
 (defn declarations
   "Provider id → declaration (`:label`, `:login` and the config keys a login

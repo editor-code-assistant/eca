@@ -10,21 +10,6 @@
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
    [eca.modules :as modules]
-   [eca.modules.providers.anthropic]
-   [eca.modules.providers.azure]
-   [eca.modules.providers.bedrock]
-   [eca.modules.providers.copilot]
-   [eca.modules.providers.deepseek]
-   [eca.modules.providers.google]
-   [eca.modules.providers.litellm]
-   [eca.modules.providers.lmstudio]
-   [eca.modules.providers.mistral]
-   [eca.modules.providers.moonshot]
-   [eca.modules.providers.ollama]
-   [eca.modules.providers.openai]
-   [eca.modules.providers.openai-chat]
-   [eca.modules.providers.openrouter]
-   [eca.modules.providers.z-ai]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)

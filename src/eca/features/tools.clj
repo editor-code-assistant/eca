@@ -5,25 +5,12 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.db :as db]
-   ;; the built-in tools' modules and multimethods (details, cleanup)
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
-   [eca.modules.compact-as-summary]
    [eca.modules.mcp :as f.mcp]
-   [eca.modules.mcp.clojure-mcp]
-   [eca.modules.subagents]
-   [eca.modules.tools.ask-user]
-   [eca.modules.tools.custom-tools]
-   [eca.modules.tools.editor]
-   [eca.modules.tools.filesystem]
-   [eca.modules.tools.git]
-   [eca.modules.tools.shell]
-   [eca.modules.tools.shell.background]
-   [eca.modules.tools.task]
-   [eca.modules.tools.tool-search :as f.tools.tool-search]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
    [java.util Map]
@@ -488,10 +475,11 @@
                                            :db db
                                            :full-model full-model})
                      all-tools)]
-     ;; search_tools only earns its context slot when something is actually deferred.
+     ;; search_tools, :eca/tool-search's tool, only earns its context slot when
+     ;; something is actually deferred.
      (if (some :deferrable all-tools)
        all-tools
-       (remove #(= f.tools.tool-search/tool-full-name (:full-name %)) all-tools)))))
+       (remove #(= "eca__search_tools" (:full-name %)) all-tools)))))
 
 (def ^:private progress-report-interval-ms 1000)
 

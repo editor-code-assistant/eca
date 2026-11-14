@@ -509,16 +509,6 @@
           ;; The chat_id goes first, so output truncation keeps it.
           (update-in [:contents 0 :text] #(str "Subagent chat_id: " subagent-chat-id "\n\n" %))))))
 
-(defn replayed-messages
-  "The part of a subagent chat's `messages` that one spawn_agent call ran, from
-   the call's tool-call `details`. A continued subagent runs over several calls,
-   so each call replays only its own part. Histories from before continuation
-   have no range and replay all."
-  [messages {:keys [details]}]
-  (if-let [[start end] (:subagent-message-range details)]
-    (take (- end start) (drop start messages))
-    messages))
-
 (defn ^:private agents-catalog
   "The tool description part listing the agents `parent-agent-name` can spawn,
    or nil when there are none."
@@ -537,6 +527,7 @@
    (let [catalog (agents-catalog config parent-agent-name)]
      {"spawn_agent"
       {:description (str (tools.util/read-tool-description "spawn_agent") catalog)
+       :normalize-arguments-fn normalize-arguments
        ;; Kept after a `prompts.tools` override of the description.
        :description-suffix catalog
        :parameters  {:type       "object"

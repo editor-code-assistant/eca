@@ -260,6 +260,17 @@
       :on-error on-error
       :on-stream on-stream-fn})))
 
+(defn ^:private local-models
+  "The models pulled into the Ollama at `api-url`, with whether they take
+   tools and reason, for the models list."
+  [{:keys [api-url]}]
+  (mapv (fn [{:keys [model] :as ollama-model}]
+          (let [capabilities (model-capabilities {:api-url api-url :model model})]
+            (assoc ollama-model
+                   :tools (boolean (some #(= % "tools") capabilities))
+                   :reason? (boolean (some #(= % "thinking") capabilities)))))
+        (list-models {:api-url api-url})))
+
 (def api-module
   {:id :eca/api-ollama
    :description "The Ollama chat API."
@@ -270,5 +281,6 @@
   {:id :eca/ollama
    :description "Local models through Ollama: the models pulled locally."
    :requires #{:eca/api-ollama}
-   :providers {"ollama" {:label "Ollama"}}
+   :providers {"ollama" {:label "Ollama"
+                         :models-fn #'local-models}}
    :config-defaults {:providers {"ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}}})

@@ -13,7 +13,6 @@
    [eca.modules.events :as events]
    [eca.modules.hooks :as f.hooks]
    [eca.modules.mcp :as f.tools.mcp]
-   [eca.modules.subagents :as f.tools.agent]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -1043,16 +1042,13 @@
                          :as   resolved-tool}                                           (f.tools/resolve-tool full-name all-tools)
                         full-name                                                     (or (:full-name resolved-tool) full-name)
                         server-name                                                   (:name server)
-                        spawn-agent?                                                  (and (= :native origin)
-                                                                                           (= "eca" server-name)
-                                                                                           (= "spawn_agent" name))
+                        normalize-arguments                                           (or (:normalize-arguments-fn resolved-tool) identity)
                         arguments                                                     (if parameters
                                                                                         (tools.util/omit-optional-empty-string-args parameters (:arguments tool-call))
                                                                                         (:arguments tool-call))
                         tool-call                                                     (assoc tool-call
                                                                                              :full-name full-name
-                                                                                             :arguments (cond-> arguments
-                                                                                                          spawn-agent? f.tools.agent/normalize-arguments))
+                                                                                             :arguments (normalize-arguments arguments))
                         arguments-error                                               (:arguments-error tool-call)
                         _                                                             (when arguments-error
                                                                                         (logger/warn logger-tag "Tool call arguments are not valid JSON, rejecting the call"
@@ -1080,8 +1076,7 @@
                         ;; hook finished block (see lifecycle/format-hook-output),
                         ;; so it respects visible:false / suppressOutput and the
                         ;; hook's real id/name. No synthetic event here.
-                        arguments                                                     (cond-> (:arguments decision-plan)
-                                                                                        spawn-agent? f.tools.agent/normalize-arguments)
+                        arguments                                                     (normalize-arguments (:arguments decision-plan))
                         _                                                             (swap! db* assoc-in [:chats chat-id :tool-calls id :arguments] arguments)
                         tool-call                                                     (assoc tool-call :arguments arguments)
                         ask?                                                          (= :ask decision)

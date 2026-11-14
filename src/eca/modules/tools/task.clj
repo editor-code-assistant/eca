@@ -1,7 +1,9 @@
 (ns eca.modules.tools.task
   (:require
    [clojure.string :as str]
-   [eca.features.tools.util :as tools.util]))
+   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.tools.util :as tools.util]
+   [eca.logger :as logger]))
 
 (set! *warn-on-reflection* true)
 
@@ -531,8 +533,23 @@
                  :required ["op"]}
     :handler execute-task}})
 
+(defn ^:private clear-done-tasks
+  "`:chat/input` handler: as a prompt starts, clears the chat's task list when
+   all its tasks are done, and shows the cleared list."
+  [{:keys [db* chat-id] :as ctx} _event]
+  (when-let [cleared-details (auto-clear-completed! db* chat-id)]
+    (logger/info "[TASK]" "Auto-cleared completed task list" {:chat-id chat-id})
+    (lifecycle/send-content! ctx :assistant
+                             {:type :toolCalled
+                              :server "eca"
+                              :name "task"
+                              :details cleared-details}))
+  nil)
+
 (def module
   {:id :eca/task
    :description "A task list the model keeps for each chat."
    :config-defaults {:toolCall {:approval {:allow {"eca__task" {}}}}}
-   :tools (fn [_ctx] (tools.util/->module-tools definitions))})
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))
+   ;; first, before modules see the prompt
+   :event-handlers {:chat/input {:priority 1000 :handler #'clear-done-tasks}}})

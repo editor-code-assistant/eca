@@ -31,8 +31,6 @@
    [eca.modules.repo-map :as repo-map]
    [eca.modules.rules :as f.rules]
    [eca.modules.skills :as f.skills]
-   [eca.modules.subagents :as f.tools.agent]
-   [eca.modules.tools.task :as f.tools.task]
    [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
 (set! *warn-on-reflection* true)
@@ -437,7 +435,7 @@
                    subagent-chat-id (when (= "tool_call_output" (:role message))
                                       (get-in message [:content :details :subagent-chat-id]))
                    subagent-messages (when subagent-chat-id
-                                       (f.tools.agent/replayed-messages (get-in db [:chats subagent-chat-id :messages])
+                                       (history/replayed-messages (get-in db [:chats subagent-chat-id :messages])
                                                                         (:content message)))]
                (if (some? subagent-messages)
                  ;; For subagent tool calls: toolCallRun + toolCallRunning, then
@@ -2659,13 +2657,6 @@
                   ;; server is about to apply.
                   _ (when (and seeded-default-trust? provided-chat-id)
                       (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
-              (when-let [cleared-details (f.tools.task/auto-clear-completed! db* chat-id)]
-                (logger/info logger-tag "Auto-cleared completed task list" {:chat-id chat-id})
-                (lifecycle/send-content! base-chat-ctx :assistant
-                                         {:type :toolCalled
-                                          :server "eca"
-                                          :name "task"
-                                          :details cleared-details}))
               (try
                 (prompt-input* params base-chat-ctx)
                 (catch Exception e

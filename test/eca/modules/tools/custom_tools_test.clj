@@ -2,7 +2,11 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.modules.tools.custom-tools :as f.tools.custom]
-   [eca.shell :as shell]))
+   [eca.shell :as shell]
+   [eca.test-helper :as h]))
+
+;; other tests add modules, e.g. :shell/before-exec handlers
+(h/reset-components-before-test)
 
 (deftest definitions-test
   (testing "when a valid tool is configured"
