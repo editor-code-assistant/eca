@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix approve & remember not applying to parallel tool calls already asking or pending in the same response or a subagent.
+
 ## 0.173.1
 
 - `baseConfigs` entries can be a file in a git repo, `{"git", "path", "ref"}`, fetched with the machine's git credentials (e.g. SSH keys), so no token is needed.

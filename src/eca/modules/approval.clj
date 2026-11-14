@@ -132,10 +132,20 @@
 (def ^:private config-deny-reason
   {:code :user-config-deny :text "Tool call rejected by user config"})
 
+(defn ^:private remembered-approval-covers?
+  "Whether the 'approve and remember' approvals of `chat-id`'s chat session
+   allow the tool call, with no config `deny` rule rejecting it."
+  [all-tools tool args db config agent-name chat-id]
+  (= :session-remember
+     (get-in (approval-decision all-tools tool args db config agent-name {:chat-id chat-id})
+             [:rule :source])))
+
 (defn ^:private approval-from-config
   "`:tool/before-call` handler of `:eca/approval`: the approval of the call by
    the `toolCall.approval` rules, the chat's remembered approvals and trust,
-   with the `:reason` for it."
+   with the `:reason` for it. A call the rules ask for also gets
+   `:remembered-approval-covers?`, a fn of a db and the call's arguments:
+   whether the chat session's remembered approvals now allow it."
   [{:keys [all-tools db config agent trust chat-id]} {:keys [tool arguments]}]
   (let [tool-def (f.tools/resolve-tool tool all-tools)
         opts {:trust trust :chat-id chat-id}
@@ -152,7 +162,10 @@
                  nil)]
     ;; no :reason key for :ask: a nil one reads as a handler's value of the wrong type
     (cond-> {:approval (if (= :trust/allow decision) :allow decision)}
-      reason (assoc :reason reason))))
+      reason (assoc :reason reason)
+      (= :ask decision) (assoc :remembered-approval-covers?
+                               (fn [db args]
+                                 (remembered-approval-covers? all-tools tool-def args db config agent chat-id))))))
 
 (defn ^:private keep-config-deny
   "`:tool/before-call` handler of `:eca/approval` after the other modules': a

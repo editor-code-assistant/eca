@@ -403,8 +403,9 @@
            ;; :status (keyword) is initialized by the state transition machinery
            ;; :approved?* (promise) is initialized by the :init-approval-promise action
            ;; :future-cleanup-complete?* (promise) is initialized by the :init-future-cleanup-promise action
-           ;; :arguments (map), :summary, :details, :manual-approval and the
-           ;; tool's :asks-user? are initialized by the :init-arguments action
+           ;; :arguments (map), :summary, :details, :manual-approval, the
+           ;; tool's :asks-user? and :remembered-approval-covers? are initialized
+           ;; by the :init-arguments action
            ;; :start-time (long) is initialized by the :set-start-time action
            ;; :future (future) is added by the :add-future action and removed by :remove-future
            ;; :resources (map) is updated by the :add-resources and :remove-resources actions,
@@ -432,7 +433,8 @@
                 (assoc-some :summary (:summary event-data)
                             :details (:details event-data)
                             :manual-approval (:manual-approval event-data)
-                            :asks-user? (:asks-user? event-data))))
+                            :asks-user? (:asks-user? event-data)
+                            :remembered-approval-covers? (:remembered-approval-covers? event-data))))
 
     :set-decision-reason
     (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :decision-reason]
@@ -465,7 +467,7 @@
 
     :remove-all-promises
     (swap! db* update-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id]
-           dissoc :approved?* :future-cleanup-complete?*)
+           dissoc :approved?* :future-cleanup-complete?* :remembered-approval-covers?)
 
     ;; Logging actions
     :log-rejection
@@ -497,8 +499,15 @@
    Note: The status is updated before any actions are run.
    Actions are run in the order specified."
   [db* chat-ctx tool-call-id event & [event-data]]
-  (let [current-state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)
-        current-status (:status current-state :initial) ; Default to :initial if no state
+  (let [status-path [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :status]
+        ;; The transition is chosen from the status in the same swap that
+        ;; changes it, so of two concurrent events only one leaves a status.
+        [old-db] (swap-vals! db* (fn [db]
+                                   (if-let [status (:status (get tool-call-state-machine
+                                                                 [(get-in db status-path :initial) event]))]
+                                     (assoc-in db status-path status)
+                                     db)))
+        current-status (get-in old-db status-path :initial) ; Default to :initial if no state
         transition-key [current-status event]
         {:keys [status actions finally-actions] :as transition} (get tool-call-state-machine transition-key)]
 
@@ -514,9 +523,6 @@
                          :tool-call-id tool-call-id
                          :valid-events valid-events}))))
 
-    ;; Atomic status update
-    (swap! db* assoc-in [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :status] status)
-
     (try
       (doseq [action actions]
         (execute-action! action db* chat-ctx tool-call-id event-data))
@@ -526,6 +532,50 @@
           (execute-action! action db* chat-ctx tool-call-id event-data))))
 
     transition))
+
+(def remembered-approval-reason
+  "The reason a call allowed by a remembered approval gets, as when
+   `:eca/approval` allows it up front."
+  {:code :user-config-allow
+   :text "Tool call allowed by user config"})
+
+(defn remembered-approval-covers-call?
+  "Whether the chat session's remembered approvals now allow the tool call with
+   `state`, for calls that asked only because of the config rules."
+  [db state]
+  (boolean (when-let [covers? (:remembered-approval-covers? state)]
+             (covers? db))))
+
+(defn approve-if-remembered!
+  "Approves the tool call `tool-call-id` of `chat-ctx`'s chat when it waits for
+   approval and the chat session's remembered approvals now allow it. Returns
+   true when it approved the call."
+  [db* chat-ctx tool-call-id]
+  (let [state (get-tool-call-state @db* (:chat-id chat-ctx) tool-call-id)]
+    (when (and (= :waiting-approval (:status state))
+               (remembered-approval-covers-call? @db* state))
+      (try
+        (transition-tool-call! db* chat-ctx tool-call-id :user-approve
+                               {:reason remembered-approval-reason})
+        true
+        (catch clojure.lang.ExceptionInfo e
+          ;; Another event (the user's answer, a stop) changed the status first.
+          (when-not (= "Invalid state transition" (ex-message e))
+            (throw e)))))))
+
+(defn approve-remembered-waiting-calls!
+  "Approves the tool calls waiting for approval in `chat-id`'s chat session (its
+   root chat and subagents) that the session's remembered approvals now allow.
+   `chat-ctx` is the context for the chats, without :chat-id."
+  [db* chat-ctx chat-id]
+  (let [db @db*
+        root-id (db/root-chat-id db chat-id)]
+    (doseq [[session-chat-id chat] (:chats db)
+            :when (= root-id (db/root-chat-id db session-chat-id))
+            [tool-call-id state] (:tool-calls chat)
+            :when (= :waiting-approval (:status state))]
+      (logger/with-chat-context session-chat-id (:parent-chat-id chat)
+        (approve-if-remembered! db* (assoc chat-ctx :chat-id session-chat-id) tool-call-id)))))
 
 (defn report-tool-call-progress!
   "Records the latest progress of an executing tool call and re-sends its

@@ -107,7 +107,10 @@
                                 :reason "Why, as {:code :text}: shown with the decision."
                                 :block "Rejects the call, with this reason for the model."
                                 :stop "Ends the turn, with this reason."
-                                :additional-context "Added to the call's output for the model, run or rejected."}}
+                                :additional-context "Added to the call's output for the model, run or rejected."
+                                :remembered-approval-covers? (str "For a call that asks: a fn of a db and the arguments, "
+                                                                  "whether the chat session's remembered approvals now "
+                                                                  "allow it. :eca/approval sets it when its rules ask.")}}
    :tool/approval {:kind :handle
                    :doc (str "What a tool call's approval would be, outside of a chat and without running it: "
                              "ECA hides the tools and skills the answer denies. :eca/approval answers from "
