@@ -54,7 +54,7 @@
     :config-spec :start :stop :tools :prefix :commands :system-prompts
     :providers :apis :config-defaults :event-handlers :defines})
 
-(def ^:private built-in-only-keys #{:rpc})
+(def ^:private built-in-only-keys #{:rpc :agents})
 
 (def ^:private later-keys #{:activation :strategies :skills :rules :contexts :capabilities :ui})
 
@@ -233,6 +233,8 @@
                                    #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))
                   (when (and (some? config-defaults) (not (or (map? config-defaults) (fn-like? config-defaults))))
                     [":config-defaults must be a map or a function"])
+                  (when (and (some? (:agents module)) (not (fn-like? (:agents module))))
+                    [":agents must be a function"])
                   (map-of-problems ":event-handlers" event-handlers qualified-kw? "a qualified keyword" handler-spec-problems)
                   (defines-problems (:defines module))
                   (when (and (not built-in?) (some built-in-only-keys ks))
@@ -824,6 +826,20 @@
                 (if (map? d) (shared/deep-merge acc d) acc)))
             spec-defaults
             (merge-order active))))
+
+(defn contributed-agents
+  "The agents the active modules under `config` add, name → agent config, from
+   their `:agents` functions; later modules win a name. `db` is what those
+   functions can read, e.g. the workspaces. The config's own agents win over
+   these."
+  [config db]
+  (reduce (fn [acc [entry f]]
+            (let [ctx {:db db :module-id (:id entry)}
+                  agents (invoke-safe ctx entry "agents"
+                                      {:timeout-ms (timeout-for entry nil default-handler-timeout-ms)} f ctx)]
+              (if (map? agents) (merge acc agents) acc)))
+          {}
+          (contributions config :agents)))
 
 (defn defaults-signature
   "What decides `default-config` under `config`: the active modules in merge

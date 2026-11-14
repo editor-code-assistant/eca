@@ -9,7 +9,7 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
-   [eca.features.built-in-command :as built-in-command]
+   [eca.config :as config]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -247,17 +247,55 @@
         (concat (global-md-agents)
                 (local-md-agents roots))))
 
+(defn ^:private agent-command
+  [{:keys [chat-id db* config messenger agent] :as ctx} {args :argv}]
+  (let [selected-agent (first args)
+        available-agents (sort (config/primary-agent-names config))
+        current-agent (or (get-in @db* [:chats chat-id :agent]) agent)]
+    (cond
+      (string/blank? selected-agent)
+      (if (seq available-agents)
+        (shared/multi-str (str "Current agent: `" current-agent "`")
+                          ""
+                          "Available agents:"
+                          (string/join "\n" (map #(str "- `" % "`") available-agents))
+                          ""
+                          "Run `/agent <agent-name>` to switch chat agent.")
+        "No primary agents are available.")
+
+      (not (some #{selected-agent} available-agents))
+      (shared/multi-str (str "Unknown agent: `" selected-agent "`")
+                        ""
+                        (when (seq available-agents)
+                          (str "Available agents:\n"
+                               (string/join "\n" (map #(str "- `" % "`") available-agents)))))
+
+      :else
+      (do
+        ;; Reuse the client-selection handler so command selection
+        ;; persists per-chat, preserves existing model/variant policy,
+        ;; and refreshes tools exactly like a client-side agent change.
+        ((requiring-resolve 'eca.handlers/chat-selected-agent-changed)
+         (select-keys ctx [:db* :messenger :config :metrics])
+         {:chat-id chat-id :agent selected-agent})
+        ;; Unlike a client-side change, the client doesn't know
+        ;; about this one and would revert it on its next prompt.
+        (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
+        (str "Selected agent: `" selected-agent "`.")))))
+
 (def module
   {:id :eca/agents
    :description "Agents from config and Markdown files, and choosing one for each chat."
    :config-spec {:defaultAgent {:type :string}                     ; :eca/agent-code sets it to "code"
                  :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
-   ;; Markdown agents (~/.config/eca/agents, .eca/agents) still merge where they did, under the config's
+   ;; Markdown agents (~/.config/eca/agents, .eca/agents), under the config's own agents
+   :agents (fn [{:keys [db]}] (all-md-agents (:workspace-folders db)))
    ;; the agent's own prompt, else prompts.chat; resolved when called, as prompt requires config, which requires this
    :system-prompts [{:id :eca/agent-prompt
                      :content (fn [ctx] ((requiring-resolve 'eca.features.prompt/agent-prompt-section) ctx))}]
-   :commands (built-in-command/commands
-              [["agent" "Select agent for current chat (Ex: /agent plan)" [{:name "agent-name"}]]])})
+   :commands {"agent" {:description "Select agent for current chat (Ex: /agent plan)"
+                       :arguments [{:name "agent-name"}]
+                       :handler #'agent-command}}})
 
 (def read-only-shell-commands
   "`argsMatchers` of the shell commands read-only agents may run without

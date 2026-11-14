@@ -1,12 +1,18 @@
 (ns eca.modules.skills
+  "The `:eca/skills` module: skills, `SKILL.md` folders from the config, the
+   workspaces, ~/.config/eca/skills, ~/.agents/skills, plugins and ECA itself.
+   The system prompt lists their names and descriptions; the model loads one
+   with the `skill` tool, and the user with its command."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [eca.config :as config]
+   [eca.features.prompt :as f.prompt]
+   [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.modules.skills.builtin :as skills.builtin]
-   [eca.shared :as shared]))
+   [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -115,3 +121,63 @@
              (global-skills))
            (plugin-skills (:pluginSkillDirs config))
            (skills.builtin/all config))))
+
+;; --- The skill tool and the module
+
+(defn ^:private skill
+  [arguments {:keys [db config agent]}]
+  (let [skill-name (get arguments "name")
+        all-skills (all config (:workspace-folders db))
+        skill (first (filter
+                      #(= skill-name (:name %))
+                      all-skills))]
+    (if skill
+      (let [body (if-let [handler (:handler-fn skill)]
+                   (handler {:db db :config config :skills all-skills :agent agent})
+                   (:body skill))]
+        {:error false
+         :contents [{:type :text
+                     :text (format (multi-str "**Skill**: %s"
+                                              "**Base directory**: %s"
+                                              ""
+                                              "%s")
+                                   (:name skill)
+                                   (or (:dir skill) "(built-in)")
+                                   body)}]})
+      {:error true
+       :contents [{:type :text
+                   :text (format "Skill '%s' not found, available skills: %s" skill-name (mapv :name all-skills))}]})))
+
+(def definitions
+  {"skill"
+   {:description (tools.util/read-tool-description "skill")
+    :parameters {:type "object"
+                 :properties {"name" {:type "string"
+                                      :description "The skill identifier from available skills to load (e.g. review-pr)"}}
+                 :required ["name"]}
+    :handler #'skill
+    :enabled-fn (fn [{:keys [db config]}]
+                  (seq (all config (:workspace-folders db))))
+    :summary-fn (fn [{:keys [args]}]
+                  (if-let [name (get args "name")]
+                    (format "Loading skill '%s'" name)
+                    "Loading skill"))}})
+
+(defn ^:private skills-command [{:keys [db* config]} _args]
+  (reduce
+   (fn [s {:keys [name description]}]
+     (str s "- " name ": " description "\n"))
+   "Skills available:\n\n"
+   (all config (:workspace-folders @db*))))
+
+(def module
+  {:id :eca/skills
+   :description "Skills: SKILL.md folders the model loads when it needs them."
+   :config-spec {:skills {:type :array :default []}}
+   :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
+   :system-prompts [{:id :eca/skills :content #'f.prompt/skills-section}]   ; names and descriptions only
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))
+   ;; each skill is also a command, listed after the built-in ones
+   :commands {"skills" {:description "List available skills"
+                        :arguments []
+                        :handler #'skills-command}}})

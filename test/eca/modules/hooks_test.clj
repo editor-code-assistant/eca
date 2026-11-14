@@ -2183,3 +2183,53 @@
                                               :on-follow-up (fn [follow-up-text _chat-ctx]
                                                               (reset! follow-up* follow-up-text))}))
       (is (= "Run the test suite" @follow-up*)))))
+
+(deftest hooks-msg-test
+  (testing "no hooks configured shows the empty message"
+    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
+           (#'f.hooks/hooks-msg {:hooks {}}))))
+
+  (testing "a hook with no actions is treated as no hooks"
+    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
+           (#'f.hooks/hooks-msg {:hooks {"empty" {:type "preToolCall" :actions []}}}))))
+
+  (testing "description is rendered after the hook name"
+    (let [out (#'f.hooks/hooks-msg
+               {:hooks {"guard" {:type "preToolCall"
+                                 :description "blocks dangerous tools"
+                                 :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "`guard`"))
+      (is (string/includes? out "— blocks dangerous tools"))))
+
+  (testing "invisible hooks render the hidden marker"
+    (let [out (#'f.hooks/hooks-msg
+               {:hooks {"silent" {:type "preToolCall"
+                                  :visible false
+                                  :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "*(hidden)*"))))
+
+  (testing "visible hooks (default) do not render the hidden marker"
+    (let [out (#'f.hooks/hooks-msg
+               {:hooks {"loud" {:type "preToolCall"
+                                :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (not (string/includes? out "*(hidden)*")))))
+
+  (testing "a string matcher is rendered verbatim"
+    (let [out (#'f.hooks/hooks-msg
+               {:hooks {"m" {:type "preToolCall"
+                             :matcher "read_file"
+                             :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "matcher: `read_file`"))))
+
+  (testing "a map matcher is rendered as JSON"
+    (let [out (#'f.hooks/hooks-msg
+               {:hooks {"m" {:type "preToolCall"
+                             :matcher {:tool_name "read_file"}
+                             :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "matcher: `{\"tool_name\":\"read_file\"}`"))))
+
+  (testing "plugin-prefixed hook names are rendered"
+    (let [out (#'f.hooks/hooks-msg
+               {:hooks {"my-plugin::guard" {:type "preToolCall"
+                                            :actions [{:type "shell" :shell "exit 0"}]}}})]
+      (is (string/includes? out "`my-plugin::guard`")))))

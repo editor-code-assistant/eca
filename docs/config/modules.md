@@ -35,7 +35,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/subagent-explorer`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/subagents/subagent_explorer.clj) | The explorer subagent: finds and reads code without changing it. |
     | [`eca/subagent-general`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/subagents/subagent_general.clj) | The general subagent: research and multi-step tasks. |
     | **Skills, rules and MCP** | |
-    | [`eca/skills`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/features/tools/skill.clj) | Skills: `SKILL.md` folders the model loads when it needs them. |
+    | [`eca/skills`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/skills.clj) | Skills: `SKILL.md` folders the model loads when it needs them. |
     | [`eca/rules`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rules.clj) | Rules: global, project and path-scoped. |
     | [`eca/mcp`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/mcp.clj) | MCP servers: their tools, prompts, resources and instructions. |
     | [`eca/tool-search`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/tools/tool_search.clj) | Hides MCP tools behind `search_tools` when there are too many. |

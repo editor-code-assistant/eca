@@ -6,7 +6,6 @@
    [clojure.walk :as walk]
    [eca.db :as db]
    ;; the built-in tools' modules and multimethods (details, cleanup)
-   [eca.features.tools.skill]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]

@@ -8,7 +8,6 @@
    [clojure.string :as string]
    [babashka.fs :as fs]
    [eca.config :as config]
-   [eca.features.built-in-command :as built-in-command]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
@@ -446,6 +445,34 @@
                       (format "Fetching rule '%s'" rule-id)
                       "Fetching rule"))}}))
 
+(defn ^:private rules-msg [config roots agent full-model all-tools]
+  (let [{static :static path-scoped :path-scoped} (all-rules config roots agent full-model)
+        visible-path-scoped (when (tools.util/tool-available? all-tools "eca__fetch_rule")
+                              path-scoped)
+        format-content-preview (fn [content]
+                                 (let [content (or content "")
+                                       preview (subs content 0 (min 120 (count content)))]
+                                   (str preview (when (> (count content) 120) "..."))))
+        format-rule (fn [{rule-name :name :keys [scope path agents models paths content]} include-content?]
+                      (str "### " rule-name " (" (some-> scope name) ")\n"
+                           "Source: " path "\n"
+                           "Agent filter: " (if agents (string/join ", " agents) "all") "\n"
+                           "Model filter: " (if models (string/join ", " models) "all") "\n"
+                           (when paths
+                             (str "Path filter: " (string/join ", " paths) "\n"))
+                           (when include-content?
+                             (str "Content preview: " (format-content-preview content) "\n"))
+                           "\n"))]
+    (if (or (seq static) (seq visible-path-scoped))
+      (str
+       (when (seq static)
+         (str "Static rules (full content is included directly in the system prompt):\n\n"
+              (reduce (fn [s rule] (str s (format-rule rule true))) "" static)))
+       (when (seq visible-path-scoped)
+         (str "Path-scoped rules (only a catalog is included in the system prompt; load full content with fetch_rule using the rule id and target path):\n\n"
+              (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
+      "No rules available for the current agent and model.")))
+
 (def module
   {:id :eca/rules
    :description "Rules: global, project and path-scoped."
@@ -455,5 +482,7 @@
    ;; fetch_rule exists only when the chat has path-scoped rules
    :tools (fn [{:keys [config db chat-id agent]}]
             (tools.util/->module-tools (definitions config db chat-id agent)))
-   :commands (built-in-command/commands
-              [["rules" "List available rules and their filtering metadata (agent, model, paths)." []]])})
+   :commands {"rules" {:description "List available rules and their filtering metadata (agent, model, paths)."
+                       :arguments []
+                       :handler (fn [{:keys [db* config agent full-model all-tools]} _args]
+                                  (rules-msg config (:workspace-folders @db*) agent full-model all-tools))}}})

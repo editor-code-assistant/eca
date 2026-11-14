@@ -23,7 +23,6 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
-   [eca.modules.agents :as agents]
    [eca.modules.events :as events]
    [eca.shared :as shared :refer [multi-str]]
    [rewrite-json.core :as rj])
@@ -661,15 +660,14 @@
          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
         migrate-legacy-config
         enable-optional-modules
-        ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
-        ;; Plugin agents merge at same level as markdown agents
+        ;; Merge the modules' agents, e.g. markdown-defined ones (lowest priority —
+        ;; JSON config agents win). Plugin agents merge at the same level
         (as-> config
-              (let [md-agent-configs (when (and (not pure-config?)
-                                                (modules/active? {:modules modules-config} :eca/agents))
-                                       (agents/all-md-agents (:workspace-folders db)))]
-                (if (or (seq md-agent-configs) (seq plugin-agents))
+              (let [module-agents (when-not pure-config?
+                                    (modules/contributed-agents {:modules modules-config} db))]
+                (if (or (seq module-agents) (seq plugin-agents))
                   (update config :agent (fn [existing]
-                                          (merge md-agent-configs plugin-agents existing)))
+                                          (merge module-agents plugin-agents existing)))
                   config)))
         (update :agent resolve-agent-inheritance)
         (update :providers resolve-provider-inheritance))))

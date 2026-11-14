@@ -51,43 +51,6 @@
                                           (string/includes? % "The conversation was not compacted."))}}]
                   (:chat-content-received (h/messages)))))))
 
-(deftest subagents-msg-parent-visibility-test
-  (let [config {:agent {"explorer" {:mode "subagent"
-                                     :description "Unrestricted explorer"}
-                        "duel-worker" {:mode "subagent"
-                                       :description "Private duel worker"
-                                       :spawnableBy "duel"}
-                        "dual-role" {:mode ["primary" "subagent"]
-                                     :description "Private dual-role agent"
-                                     :spawnableBy ["duel"]}
-                        "primary-only" {:mode "primary"
-                                        :description "Primary only"}}}]
-    (testing "/subagents includes unrestricted and authorized restricted agents"
-      (let [message (#'f.commands/subagents-msg config "duel")]
-        (is (string/includes? message "explorer"))
-        (is (string/includes? message "duel-worker"))
-        (is (string/includes? message "dual-role"))
-        (is (not (string/includes? message "primary-only")))))
-
-    (testing "/subagents hides restricted agents from other or missing parents"
-      (doseq [parent-agent-name ["code" nil]]
-        (let [message (#'f.commands/subagents-msg config parent-agent-name)]
-          (is (string/includes? message "explorer"))
-          (is (not (string/includes? message "duel-worker")))
-          (is (not (string/includes? message "dual-role"))))))
-
-    (testing "/subagents dispatch passes the current primary agent"
-      (let [db* (atom {:workspace-folders []})
-            result (f.commands/handle-command! "subagents" []
-                                               {:chat-id "chat-1"
-                                                :db* db*
-                                                :config (assoc config :pureConfig true)
-                                                :messenger (h/messenger)
-                                                :agent "duel"})
-            message (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
-        (is (string/includes? message "duel-worker"))
-        (is (string/includes? message "dual-role"))))))
-
 (deftest prompt-show-text-test
   (testing "uses compact section headings and omits the /prompt-show command itself"
     (let [result (#'f.commands/prompt-show-text
@@ -894,56 +857,6 @@
       (is (= 10 (count result)))
       (is (= {:name "arg1" :required true} (first result)))
       (is (= {:name "arg10" :required true} (last result))))))
-
-(deftest hooks-msg-test
-  (testing "no hooks configured shows the empty message"
-    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
-           (#'f.commands/hooks-msg {:hooks {}}))))
-
-  (testing "a hook with no actions is treated as no hooks"
-    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
-           (#'f.commands/hooks-msg {:hooks {"empty" {:type "preToolCall" :actions []}}}))))
-
-  (testing "description is rendered after the hook name"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"guard" {:type "preToolCall"
-                                 :description "blocks dangerous tools"
-                                 :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "`guard`"))
-      (is (string/includes? out "— blocks dangerous tools"))))
-
-  (testing "invisible hooks render the hidden marker"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"silent" {:type "preToolCall"
-                                  :visible false
-                                  :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "*(hidden)*"))))
-
-  (testing "visible hooks (default) do not render the hidden marker"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"loud" {:type "preToolCall"
-                                :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (not (string/includes? out "*(hidden)*")))))
-
-  (testing "a string matcher is rendered verbatim"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"m" {:type "preToolCall"
-                             :matcher "read_file"
-                             :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "matcher: `read_file`"))))
-
-  (testing "a map matcher is rendered as JSON"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"m" {:type "preToolCall"
-                             :matcher {:tool_name "read_file"}
-                             :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "matcher: `{\"tool_name\":\"read_file\"}`"))))
-
-  (testing "plugin-prefixed hook names are rendered"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"my-plugin::guard" {:type "preToolCall"
-                                            :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "`my-plugin::guard`")))))
 
 (deftest context-usage-text-test
   (let [text (#'f.commands/context-usage-text

@@ -4,7 +4,6 @@
    client uses it."
   (:require
    [clojure.string]
-   [eca.features.built-in-command :as built-in-command]
    [eca.features.index :as f.index]
    [eca.shared :as shared]))
 
@@ -107,5 +106,6 @@
                                    :repoMap {:maxTotalEntries 800
                                              :maxEntriesPerDir 50}}}}
    ;; the repoMap context itself waits for module contexts
-   :commands (built-in-command/commands
-              [["repo-map-show" "Actual repoMap of current session." []]])})
+   :commands {"repo-map-show" {:description "Actual repoMap of current session."
+                               :arguments []
+                               :handler (fn [{:keys [db* config]} _args] (repo-map @db* config {:as-string? true}))}}})

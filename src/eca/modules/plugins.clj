@@ -15,12 +15,11 @@
    [clojure.string :as string]
    [eca.cache :as cache]
    [eca.config :as config]
-   [eca.features.built-in-command :as built-in-command]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.modules.agents :as agents]
    [eca.modules.plugins.git :as git]
-   [eca.shared :as shared]))
+   [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -599,17 +598,74 @@
     (catch Exception e
       {:status :error :message (ex-message e)})))
 
+(defn ^:private plugins-command [{:keys [config]} _args]
+  (let [{:keys [plugins error]}
+        (try
+          {:plugins (list-marketplace-plugins (:plugins config))}
+          (catch Exception e {:error (ex-message e)}))]
+    (cond
+      error (str "Could not list plugins: " error)
+      (seq plugins)
+      (let [by-source (group-by :source-name plugins)]
+        (multi-str (reduce-kv
+                    (fn [s source-name source-plugins]
+                      (let [{:keys [source-url commit]} (first source-plugins)]
+                        (str s "**" source-name "** (`" source-url "`)\n"
+                             (if commit
+                               (str "Pinned commit: `" commit "`\n")
+                               "Local development source (unpinned)\n")
+                             (reduce
+                              (fn [s2 {:keys [name description installed?]}]
+                                (str s2 "- "
+                                     (when installed? "✅ ")
+                                     name "@" source-name
+                                     (when description (str " — " description))
+                                     "\n"))
+                              ""
+                              source-plugins)
+                             "\n")))
+                    "Plugins available:\n\n"
+                    by-source)
+                   "Use `/plugin-install <name@marketplace>` to install a plugin."
+                   "Use `/plugin-update <marketplace>` to update its pinned version, then restart ECA."))
+      :else "No plugins found. Check your configured marketplaces under the `plugins` key.")))
+
+(defn ^:private plugin-install-command [{:keys [config]} {args :argv}]
+  (let [plugin-input (first args)]
+    (:message (if (string/blank? plugin-input)
+                {:status :error
+                 :message "Usage: `/plugin-install <plugin-name>` or `/plugin-install <plugin-name@marketplace>`"}
+                (install-plugin! (:plugins config) plugin-input)))))
+
+(defn ^:private plugin-update-command [{:keys [config]} {args :argv}]
+  (let [source-name (first args)]
+    (:message (if (or (not= 1 (count args)) (string/blank? source-name))
+                {:status :error
+                 :message "Usage: `/plugin-update <marketplace>`. Updates all plugins from that source on the next restart."}
+                (update-source! (:plugins config) source-name)))))
+
+(defn ^:private plugin-uninstall-command [{:keys [config]} {args :argv}]
+  (let [plugin-input (first args)]
+    (:message (if (string/blank? plugin-input)
+                {:status :error
+                 :message "Usage: `/plugin-uninstall <plugin-name>` or `/plugin-uninstall <plugin-name@marketplace>`"}
+                (uninstall-plugin! (:plugins config) plugin-input)))))
+
 (def module
   {:id :eca/plugins
    :description "Plugin marketplaces: install, update and remove bundles."
    ;; bundles still merge into the config where they did, over the user's files
    :config-spec {:plugins {:type :map
                            :default {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}}}
-   :commands (built-in-command/commands
-              [["plugins" "List available plugins from configured marketplaces." []]
-               ["plugin-install" "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
-                [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]]
-               ["plugin-update" "Update a marketplace's pinned version for the next restart (all its plugins)."
-                [{:name "marketplace" :description "Configured marketplace source name" :required true}]]
-               ["plugin-uninstall" "Uninstall a plugin (e.g. /plugin-uninstall my-plugin@marketplace)"
-                [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]]])})
+   :commands {"plugins" {:description "List available plugins from configured marketplaces."
+                         :arguments []
+                         :handler #'plugins-command}
+              "plugin-install" {:description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
+                                :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]
+                                :handler #'plugin-install-command}
+              "plugin-update" {:description "Update a marketplace's pinned version for the next restart (all its plugins)."
+                               :arguments [{:name "marketplace" :description "Configured marketplace source name" :required true}]
+                               :handler #'plugin-update-command}
+              "plugin-uninstall" {:description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin@marketplace)"
+                                  :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]
+                                  :handler #'plugin-uninstall-command}}})

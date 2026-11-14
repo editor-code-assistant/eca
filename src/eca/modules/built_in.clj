@@ -2,7 +2,6 @@
   "The built-in modules, compiled into ECA. Each one is a `module` var in the
    namespace of its feature."
   (:require
-   [eca.features.tools.skill :as tools.skill]
    [eca.modules.agents :as f.agents]
    [eca.modules.agents.agent-code :as agent-code]
    [eca.modules.agents.agent-plan :as agent-plan]
@@ -34,6 +33,7 @@
    [eca.modules.repl :as f.repl]
    [eca.modules.repo-map :as repo-map]
    [eca.modules.rules :as rules]
+   [eca.modules.skills :as skills]
    [eca.modules.subagents :as tools.agent]
    [eca.modules.subagents.subagent-explorer :as subagent-explorer]
    [eca.modules.subagents.subagent-general :as subagent-general]
@@ -65,7 +65,7 @@
    subagent-explorer/module
    subagent-general/module
    ;; skills, rules, tool search
-   tools.skill/module
+   skills/module
    rules/module
    tools.tool-search/module
    ;; MCP

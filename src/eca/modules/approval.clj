@@ -5,8 +5,10 @@
    approval and may change it. The rules are evaluated by
    `eca.features.tools/approval`, which core also uses to keep a config deny."
   (:require
-   [eca.features.built-in-command :as built-in-command]
-   [eca.features.tools :as f.tools]))
+   [clojure.string :as string]
+   [eca.db :as db]
+   [eca.features.tools :as f.tools]
+   [eca.shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -26,6 +28,38 @@
     (cond-> {:approval (if (= :trust/allow decision) :allow decision)}
       reason (assoc :reason reason))))
 
+(def ^:private no-remembered-approvals-msg
+  "No tool call approvals remembered in this chat.")
+
+(defn ^:private remembered-approvals-lines
+  "One markdown line per remembered tool, listing its remembered command keys
+   for granular tools (e.g. shell commands)."
+  [approvals]
+  (for [[full-name {:keys [remembered-command-keys]}] (sort-by key approvals)]
+    (str "- `" full-name "`: "
+         (if (seq remembered-command-keys)
+           (string/join ", " (map #(str "`" % "`") (sort remembered-command-keys)))
+           "all calls"))))
+
+(defn ^:private approvals-command [{:keys [db* chat-id]} _args]
+  (let [approvals (db/remembered-approvals @db* chat-id)]
+    (if (empty? approvals)
+      no-remembered-approvals-msg
+      (multi-str "Tool call approvals remembered in this chat:"
+                 ""
+                 (remembered-approvals-lines approvals)
+                 ""
+                 "Run `/forget-approvals` to forget them."))))
+
+(defn ^:private forget-approvals-command [{:keys [db* chat-id]} _args]
+  (let [[old-db] (swap-vals! db* db/update-remembered-approvals chat-id (constantly nil))
+        approvals (db/remembered-approvals old-db chat-id)]
+    (if (empty? approvals)
+      no-remembered-approvals-msg
+      (multi-str "Forgot the tool call approvals remembered in this chat:"
+                 ""
+                 (remembered-approvals-lines approvals)))))
+
 (def module
   {:id :eca/approval
    :description "Tool approval from the toolCall.approval rules."
@@ -34,8 +68,10 @@
    ;; the tool modules add their allow entries
    :config-spec {:toolCall {:approval {:type :map
                                        :default {:byDefault "ask" :allow {} :ask {} :deny {}}}}}
-   :commands (built-in-command/commands
-              [["approvals" "List tool call approvals remembered in the current chat via approve & remember." []]
-               ["forget-approvals" (str "Forget tool call approvals remembered in the current chat, so those calls "
-                                        "ask for approval again.")
-                []]])})
+   :commands {"approvals" {:description "List tool call approvals remembered in the current chat via approve & remember."
+                           :arguments []
+                           :handler #'approvals-command}
+              "forget-approvals" {:description (str "Forget tool call approvals remembered in the current chat, "
+                                                    "so those calls ask for approval again.")
+                                  :arguments []
+                                  :handler #'forget-approvals-command}}})

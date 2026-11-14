@@ -8,7 +8,6 @@
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.modules.mcp :as f.mcp]
-   [eca.modules.skills :as f.skills]
    [eca.shared :refer [multi-str] :as shared])
   (:import
    [java.util Map]))
@@ -30,7 +29,10 @@
 
 (def ^:private compact-prompt-template (memoize compact-prompt-template*))
 
-(defn ^:private get-config-prompt [key agent-name config]
+(defn get-config-prompt
+  "The prompt `key` of the `prompts` config: the agent's own, else the
+   global one."
+  [key agent-name config]
   (or (get-in config [:agent agent-name :prompts key])
       (get-in config [:prompts key])))
 
@@ -572,22 +574,6 @@
                                               full-text
                                               "```"))})
                                "rewrite-prompt")))
-
-(defn init-prompt [all-tools agent-name db config]
-  (shared/safe-selmer-render
-   (get-config-prompt :init agent-name config)
-   (->base-selmer-ctx all-tools db)
-   "init-prompt"))
-
-(defn skill-create-prompt [skill-name user-prompt all-tools agent-name db config]
-  (shared/safe-selmer-render
-   (get-config-prompt :skillCreate agent-name config)
-   (merge
-    (->base-selmer-ctx all-tools db)
-    {:skillFilePath (str (fs/file (f.skills/global-skills-dir) skill-name "SKILL.md"))
-     :skillName skill-name
-     :userPrompt user-prompt})
-   "skill-create-prompt"))
 
 (defn chat-title-prompt [agent-name config]
   (get-config-prompt :chatTitle agent-name config))

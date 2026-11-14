@@ -5,7 +5,6 @@
    [cheshire.core :as json]
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.features.built-in-command :as built-in-command]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.modules :as modules]
@@ -349,10 +348,51 @@
             nil
             matched-actions)))
 
+(def ^:private hook-type-order
+  "Display order for hook types in /hooks output."
+  ["sessionStart" "sessionEnd" "chatStart" "chatEnd" "chatStatusChanged" "subagentStart"
+   "preRequest" "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
+   "preCompact" "postCompact"])
+
+(defn ^:private hooks-msg [config]
+  (let [hooks-map (:hooks config)
+        hooks-by-type (->> hooks-map
+                           (keep (fn [[hook-name hook]]
+                                   (when (seq (:actions hook))
+                                     {:name (name hook-name)
+                                      :type (:type hook)
+                                      :description (:description hook)
+                                      :visible (:visible hook true)
+                                      :matcher (:matcher hook)})))
+                           (group-by :type))
+        known (set hook-type-order)
+        display-order (concat hook-type-order (sort (remove known (keys hooks-by-type))))]
+    (if (empty? hooks-by-type)
+      "No hooks configured. Add hooks to your config under the `hooks` key."
+      (reduce
+       (fn [s hook-type]
+         (if-let [hooks (seq (get hooks-by-type hook-type))]
+           (str s "**" hook-type "**\n"
+                (reduce
+                 (fn [s2 {:keys [name description visible matcher]}]
+                   (str s2 "- `" name "`"
+                        (when description (str " — " description))
+                        (when-not visible " *(hidden)*")
+                        (when (some? matcher)
+                          (str " matcher: `" (if (string? matcher) matcher (json/generate-string matcher)) "`"))
+                        "\n"))
+                 ""
+                 (sort-by :name hooks))
+                "\n")
+           s))
+       "Hooks active:\n\n"
+       display-order))))
+
 (def module
   {:id :eca/hooks
    ;; the hooks still run at their sites; disabling the module turns them all off
    :description "The user's shell hooks."
    :config-spec {:hooks {:type :map :default {}}}
-   :commands (built-in-command/commands
-              [["hooks" "List active hooks grouped by type." []]])})
+   :commands {"hooks" {:description "List active hooks grouped by type."
+                       :arguments []
+                       :handler (fn [{:keys [config]} _args] (hooks-msg config))}}})

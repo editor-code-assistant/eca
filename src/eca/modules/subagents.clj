@@ -3,7 +3,6 @@
   (:require
    [clojure.string :as str]
    [eca.config :as config]
-   [eca.features.built-in-command :as built-in-command]
    [eca.features.tools.util :as tools.util]
    [eca.llm-api.errors :as llm-providers.errors]
    [eca.logger :as logger]
@@ -595,6 +594,43 @@
       ;; The subagent ran, so report the model it really used.
       subagent-final-step (shared/assoc-some :model (:model child) :variant (:variant child)))))
 
+(defn ^:private format-tool-permissions [{:keys [toolCall]}]
+  (when-let [approval (:approval toolCall)]
+    (let [by-default (:byDefault approval)
+          allow-tools (keys (:allow approval))
+          deny-tools (keys (:deny approval))
+          ask-tools (keys (:ask approval))
+          parts (cond-> []
+                  by-default (conj (str "  Default: " by-default))
+                  (seq allow-tools) (conj (str "  Allow: " (str/join ", " (sort allow-tools))))
+                  (seq ask-tools) (conj (str "  Ask: " (str/join ", " (sort ask-tools))))
+                  (seq deny-tools) (conj (str "  Deny: " (str/join ", " (sort deny-tools)))))]
+      (when (seq parts)
+        (str/join "\n" parts)))))
+
+(defn ^:private subagents-msg [config parent-agent-name]
+  (let [subagents (->> (config/available-subagents config parent-agent-name)
+                       (sort-by first))]
+    (if (empty? subagents)
+      "No subagents configured, double check your configuration via json or markdown."
+      (reduce
+       (fn [s [agent-name agent-config]]
+         (let [desc (:description agent-config)
+               model (:defaultModel agent-config)
+               steps (:maxSteps agent-config)
+               timeout (:timeoutSeconds agent-config)
+               permissions (format-tool-permissions agent-config)]
+           (str s "- **" agent-name "**"
+                (when desc (str ": " desc))
+                "\n"
+                (when model (str "  Model: " model "\n"))
+                (when steps (str "  Max steps: " steps "\n"))
+                (when timeout (str "  Timeout: " timeout "s\n"))
+                (when permissions (str "  Tool permissions:\n" permissions "\n"))
+                "\n")))
+       "Subagents available:\n\n"
+       subagents))))
+
 (def module
   {:id :eca/subagents
    :description "Let an agent hand a task to a subagent and get its answer."
@@ -603,5 +639,6 @@
    ;; its description lists the subagents the chat's agent can spawn
    :tools (fn [{:keys [config db agent]}]
             (tools.util/->module-tools (definitions config db agent)))
-   :commands (built-in-command/commands
-              [["subagents" "List available subagents and their configuration." []]])})
+   :commands {"subagents" {:description "List available subagents and their configuration."
+                           :arguments []
+                           :handler (fn [{:keys [config agent]} _args] (subagents-msg config agent))}}})

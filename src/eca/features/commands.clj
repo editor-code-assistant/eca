@@ -1,6 +1,5 @@
 (ns eca.features.commands
   (:require
-   [cheshire.core :as json]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
@@ -15,7 +14,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
-   [eca.features.tools.util :as tools.util]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -23,9 +21,6 @@
    [eca.modules :as modules]
    [eca.modules.custom-commands :as custom-commands]
    [eca.modules.mcp :as f.mcp]
-   [eca.modules.plugins :as f.plugins]
-   [eca.modules.repo-map :as repo-map]
-   [eca.modules.rules :as f.rules]
    [eca.modules.skills :as f.skills]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
@@ -224,62 +219,6 @@
      {:type :text :text contexts-str}]
     prompt))
 
-(defn ^:private format-tool-permissions [{:keys [toolCall]}]
-  (when-let [approval (:approval toolCall)]
-    (let [by-default (:byDefault approval)
-          allow-tools (keys (:allow approval))
-          deny-tools (keys (:deny approval))
-          ask-tools (keys (:ask approval))
-          parts (cond-> []
-                  by-default (conj (str "  Default: " by-default))
-                  (seq allow-tools) (conj (str "  Allow: " (string/join ", " (sort allow-tools))))
-                  (seq ask-tools) (conj (str "  Ask: " (string/join ", " (sort ask-tools))))
-                  (seq deny-tools) (conj (str "  Deny: " (string/join ", " (sort deny-tools)))))]
-      (when (seq parts)
-        (string/join "\n" parts)))))
-
-(defn ^:private subagents-msg [config parent-agent-name]
-  (let [subagents (->> (config/available-subagents config parent-agent-name)
-                       (sort-by first))]
-    (if (empty? subagents)
-      "No subagents configured, double check your configuration via json or markdown."
-      (reduce
-       (fn [s [agent-name agent-config]]
-         (let [desc (:description agent-config)
-               model (:defaultModel agent-config)
-               steps (:maxSteps agent-config)
-               timeout (:timeoutSeconds agent-config)
-               permissions (format-tool-permissions agent-config)]
-           (str s "- **" agent-name "**"
-                (when desc (str ": " desc))
-                "\n"
-                (when model (str "  Model: " model "\n"))
-                (when steps (str "  Max steps: " steps "\n"))
-                (when timeout (str "  Timeout: " timeout "s\n"))
-                (when permissions (str "  Tool permissions:\n" permissions "\n"))
-                "\n")))
-       "Subagents available:\n\n"
-       subagents))))
-
-(def ^:private no-remembered-approvals-msg
-  "No tool call approvals remembered in this chat.")
-
-(defn ^:private remembered-approvals-lines
-  "One markdown line per remembered tool, listing its remembered command keys
-   for granular tools (e.g. shell commands)."
-  [approvals]
-  (for [[full-name {:keys [remembered-command-keys]}] (sort-by key approvals)]
-    (str "- `" full-name "`: "
-         (if (seq remembered-command-keys)
-           (string/join ", " (map #(str "`" % "`") (sort remembered-command-keys)))
-           "all calls"))))
-
-(def ^:private hook-type-order
-  "Display order for hook types in /hooks output."
-  ["sessionStart" "sessionEnd" "chatStart" "chatEnd" "chatStatusChanged" "subagentStart"
-   "preRequest" "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
-   "preCompact" "postCompact"])
-
 (defn module-usage-lines
   "`/costs` lines for the LLM calls modules made (`eca.api/complete!`), by
    module, or nil when there were none."
@@ -290,40 +229,6 @@
             (str "- `" (symbol id) "`: " calls (if (= 1 calls) " call, " " calls, ")
                  input-tokens " input tokens, " output-tokens " output tokens"
                  (when cost (str ", $" (shared/format-cost cost))))))))
-
-(defn ^:private hooks-msg [config]
-  (let [hooks-map (:hooks config)
-        hooks-by-type (->> hooks-map
-                           (keep (fn [[hook-name hook]]
-                                   (when (seq (:actions hook))
-                                     {:name (name hook-name)
-                                      :type (:type hook)
-                                      :description (:description hook)
-                                      :visible (:visible hook true)
-                                      :matcher (:matcher hook)})))
-                           (group-by :type))
-        known (set hook-type-order)
-        display-order (concat hook-type-order (sort (remove known (keys hooks-by-type))))]
-    (if (empty? hooks-by-type)
-      "No hooks configured. Add hooks to your config under the `hooks` key."
-      (reduce
-       (fn [s hook-type]
-         (if-let [hooks (seq (get hooks-by-type hook-type))]
-           (str s "**" hook-type "**\n"
-                (reduce
-                 (fn [s2 {:keys [name description visible matcher]}]
-                   (str s2 "- `" name "`"
-                        (when description (str " — " description))
-                        (when-not visible " *(hidden)*")
-                        (when (some? matcher)
-                          (str " matcher: `" (if (string? matcher) matcher (json/generate-string matcher)) "`"))
-                        "\n"))
-                 ""
-                 (sort-by :name hooks))
-                "\n")
-           s))
-       "Hooks active:\n\n"
-       display-order))))
 
 (defn ^:private format-expires-at [^long expires-at]
   (let [instant (Instant/ofEpochSecond expires-at)
@@ -405,34 +310,6 @@
                  (f.modules/unknown-config-keys-text unknown))
                (when-let [problems (seq (f.modules/config-problems config))]
                  (str "Config problems:\n" (string/join "\n" (map #(str "  " %) problems)))))))
-
-(defn ^:private rules-msg [config roots agent full-model all-tools]
-  (let [{static :static path-scoped :path-scoped} (f.rules/all-rules config roots agent full-model)
-        visible-path-scoped (when (tools.util/tool-available? all-tools "eca__fetch_rule")
-                              path-scoped)
-        format-content-preview (fn [content]
-                                 (let [content (or content "")
-                                       preview (subs content 0 (min 120 (count content)))]
-                                   (str preview (when (> (count content) 120) "..."))))
-        format-rule (fn [{rule-name :name :keys [scope path agents models paths content]} include-content?]
-                      (str "### " rule-name " (" (some-> scope name) ")\n"
-                           "Source: " path "\n"
-                           "Agent filter: " (if agents (string/join ", " agents) "all") "\n"
-                           "Model filter: " (if models (string/join ", " models) "all") "\n"
-                           (when paths
-                             (str "Path filter: " (string/join ", " paths) "\n"))
-                           (when include-content?
-                             (str "Content preview: " (format-content-preview content) "\n"))
-                           "\n"))]
-    (if (or (seq static) (seq visible-path-scoped))
-      (str
-       (when (seq static)
-         (str "Static rules (full content is included directly in the system prompt):\n\n"
-              (reduce (fn [s rule] (str s (format-rule rule true))) "" static)))
-       (when (seq visible-path-scoped)
-         (str "Path-scoped rules (only a catalog is included in the system prompt; load full content with fetch_rule using the rule id and target path):\n\n"
-              (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
-      "No rules available for the current agent and model.")))
 
 (defn ^:private fmt-tokens
   "Formats a token count compactly (e.g. 5300 -> \"5.3k\")."
@@ -573,10 +450,6 @@
   [command {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx} {args :argv}]
   (let [db @db*]
     (case command
-      "init" {:type :send-prompt
-              :on-finished-side-effect (fn []
-                                         (swap! db* assoc-in [:chats chat-id :messages] []))
-              :prompt (f.prompt/init-prompt all-tools agent db config)}
       "compact" (let [custom-instructions (string/join " " args)
                       no-compaction {:type :chat-messages
                                      :chats {chat-id {:messages [{:role "system"
@@ -691,46 +564,6 @@
                     (chat-message
                      (multi-str (str "Selected model: `" selected-model "`")
                                 "Using model defaults.")))))
-      "agent" (let [selected-agent (first args)
-                    available-agents (sort (config/primary-agent-names config))
-                    current-agent (or (get-in db [:chats chat-id :agent]) agent)
-                    chat-message (fn [text]
-                                   {:type :chat-messages
-                                    :chats {chat-id {:messages [{:role "system"
-                                                                 :content [{:type :text
-                                                                            :text text}]}]}}})]
-                (cond
-                  (string/blank? selected-agent)
-                  (if (seq available-agents)
-                    (chat-message
-                     (multi-str (str "Current agent: `" current-agent "`")
-                                ""
-                                "Available agents:"
-                                (string/join "\n" (map #(str "- `" % "`") available-agents))
-                                ""
-                                "Run `/agent <agent-name>` to switch chat agent."))
-                    (chat-message "No primary agents are available."))
-
-                  (not (some #{selected-agent} available-agents))
-                  (chat-message
-                   (multi-str (str "Unknown agent: `" selected-agent "`")
-                              ""
-                              (when (seq available-agents)
-                                (str "Available agents:\n"
-                                     (string/join "\n" (map #(str "- `" % "`") available-agents))))))
-
-                  :else
-                  (do
-                    ;; Reuse the client-selection handler so command selection
-                    ;; persists per-chat, preserves existing model/variant policy,
-                    ;; and refreshes tools exactly like a client-side agent change.
-                    ((requiring-resolve 'eca.handlers/chat-selected-agent-changed)
-                     (select-keys chat-ctx [:db* :messenger :config :metrics])
-                     {:chat-id chat-id :agent selected-agent})
-                    ;; Unlike a client-side change, the client doesn't know
-                    ;; about this one and would revert it on its next prompt.
-                    (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
-                    (chat-message (str "Selected agent: `" selected-agent "`.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
                    {{new-id :id new-title :title} :chat new-messages :replay-messages}
                    (fork-chat! chat (fork-title (:title chat)) [] chat-ctx)]
@@ -951,25 +784,6 @@
                  :chats {chat-id {:messages [{:role "system"
                                               :content [{:type :text
                                                          :text (f.quota/quota-text @db* providers)}]}]}}})
-      "approvals" (let [approvals (db/remembered-approvals db chat-id)
-                        text (if (empty? approvals)
-                               no-remembered-approvals-msg
-                               (multi-str "Tool call approvals remembered in this chat:"
-                                          ""
-                                          (remembered-approvals-lines approvals)
-                                          ""
-                                          "Run `/forget-approvals` to forget them."))]
-                    {:type :chat-messages
-                     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
-      "forget-approvals" (let [[old-db] (swap-vals! db* db/update-remembered-approvals chat-id (constantly nil))
-                               approvals (db/remembered-approvals old-db chat-id)
-                               text (if (empty? approvals)
-                                      no-remembered-approvals-msg
-                                      (multi-str "Forgot the tool call approvals remembered in this chat:"
-                                                 ""
-                                                 (remembered-approvals-lines approvals)))]
-                           {:type :chat-messages
-                            :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "sync-system-prompt" (do
                              (swap! db* update-in [:chats chat-id] dissoc :prompt-cache)
                              {:type :chat-messages
@@ -997,18 +811,6 @@
                    :chats {chat-id {:messages [{:role "system"
                                                 :content [{:type :text
                                                            :text (context-usage-text full-model breakdown compact-percentage)}]}]}}})
-      "skills" (let [skills (f.skills/all config (:workspace-folders db))
-                     msg (reduce
-                          (fn [s {:keys [name description]}]
-                            (str s "- " name ": " description "\n"))
-                          "Skills available:\n\n"
-                          skills)]
-                 {:type :chat-messages
-                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "skill-create" (let [skill-name (first args)
-                           user-prompt (second args)]
-                       {:type :send-prompt
-                        :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools agent db config)})
       "remote" (let [connect-url (:remote-connect-url db)
                      host (:remote-host db)
                      token (:remote-token db)
@@ -1096,75 +898,10 @@
                                            :messages (concat [{:role "system" :content [{:type :text :text summary}]}]
                                                              (:messages imported-chat))}
                               chat-id {:messages [{:role "system" :content [{:type :text :text (str "Imported chat to: " (or (:title imported-chat) imported-id))}]}]}}})))
-      "repo-map-show" {:type :chat-messages
-                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (repo-map/repo-map db config {:as-string? true})}]}]}}}
-      "rules" (let [roots (:workspace-folders db)
-                    msg (rules-msg config roots agent full-model all-tools)]
-                {:type :chat-messages
-                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "prompt-show" {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system"
                                                   :content [{:type :text
                                                              :text (prompt-show-text instructions user-messages)}]}]}}}
-      "subagents" (let [msg (subagents-msg config agent)]
-                    {:type :chat-messages
-                     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "plugins" (let [{:keys [plugins error]}
-                      (try
-                        {:plugins (f.plugins/list-marketplace-plugins (:plugins config))}
-                        (catch Exception e {:error (ex-message e)}))
-                      msg (cond
-                            error (str "Could not list plugins: " error)
-                            (seq plugins)
-                            (let [by-source (group-by :source-name plugins)]
-                              (multi-str (reduce-kv
-                                          (fn [s source-name source-plugins]
-                                            (let [{:keys [source-url commit]} (first source-plugins)]
-                                              (str s "**" source-name "** (`" source-url "`)\n"
-                                                   (if commit
-                                                     (str "Pinned commit: `" commit "`\n")
-                                                     "Local development source (unpinned)\n")
-                                                   (reduce
-                                                    (fn [s2 {:keys [name description installed?]}]
-                                                      (str s2 "- "
-                                                           (when installed? "✅ ")
-                                                           name "@" source-name
-                                                           (when description (str " — " description))
-                                                           "\n"))
-                                                    ""
-                                                    source-plugins)
-                                                   "\n")))
-                                          "Plugins available:\n\n"
-                                          by-source)
-                                         "Use `/plugin-install <name@marketplace>` to install a plugin."
-                                         "Use `/plugin-update <marketplace>` to update its pinned version, then restart ECA."))
-                            :else "No plugins found. Check your configured marketplaces under the `plugins` key.")]
-                  {:type :chat-messages
-                   :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "plugin-install" (let [plugin-input (first args)
-                             result (if (string/blank? plugin-input)
-                                      {:status :error
-                                       :message "Usage: `/plugin-install <plugin-name>` or `/plugin-install <plugin-name@marketplace>`"}
-                                      (f.plugins/install-plugin! (:plugins config) plugin-input))]
-                         {:type :chat-messages
-                          :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
-      "plugin-update" (let [source-name (first args)
-                            result (if (or (not= 1 (count args)) (string/blank? source-name))
-                                     {:status :error
-                                      :message "Usage: `/plugin-update <marketplace>`. Updates all plugins from that source on the next restart."}
-                                     (f.plugins/update-source! (:plugins config) source-name))]
-                        {:type :chat-messages
-                         :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
-      "plugin-uninstall" (let [plugin-input (first args)
-                               result (if (string/blank? plugin-input)
-                                        {:status :error
-                                         :message "Usage: `/plugin-uninstall <plugin-name>` or `/plugin-uninstall <plugin-name@marketplace>`"}
-                                        (f.plugins/uninstall-plugin! (:plugins config) plugin-input))]
-                           {:type :chat-messages
-                            :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
-      "hooks" (let [msg (hooks-msg config)]
-                {:type :chat-messages
-                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "modules" (let [msg (f.modules/handle! args chat-ctx)]
                   {:type :chat-messages
                    :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
