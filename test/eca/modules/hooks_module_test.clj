@@ -4,7 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.modules :as modules]
-   [eca.modules.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -13,15 +13,15 @@
 (def ^:private hooks {"my-hook" {:type "chatStatusChanged" :actions [{:type "shell" :shell "true"}]}})
 
 (deftest active-hooks-test
-  (is (= hooks (f.hooks/active-hooks {:hooks hooks})))
+  (is (= hooks (m.hooks/active-hooks {:hooks hooks})))
   (testing "disabling :eca/hooks turns off every shell hook"
-    (is (nil? (f.hooks/active-hooks {:hooks hooks :modules {:eca/hooks {:enabled false}}})))
+    (is (nil? (m.hooks/active-hooks {:hooks hooks :modules {:eca/hooks {:enabled false}}})))
     (let [ran* (atom 0)]
-      (with-redefs [f.hooks/run-hook-action! (fn [& _] (swap! ran* inc) {:exit 0})]
-        (f.hooks/trigger-if-matches! :chatStatusChanged {} {} (h/db)
+      (with-redefs [m.hooks/run-hook-action! (fn [& _] (swap! ran* inc) {:exit 0})]
+        (m.hooks/trigger-if-matches! :chatStatusChanged {} {} (h/db)
                                      {:hooks hooks :modules {:eca/hooks {:enabled false}}})
         (is (= 0 @ran*))
-        (f.hooks/trigger-if-matches! :chatStatusChanged {} {} (h/db) {:hooks hooks})
+        (m.hooks/trigger-if-matches! :chatStatusChanged {} {} (h/db) {:hooks hooks})
         (is (= 1 @ran*))))))
 
 (deftest status-changed-event-test

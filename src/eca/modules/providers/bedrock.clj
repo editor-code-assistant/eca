@@ -14,7 +14,7 @@
    [eca.client-http :as client]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.modules.providers.variants :as variants]
+   [eca.modules.providers.variants :as m.variants]
    [eca.shared :as shared :refer [assoc-some join-api-url]]
    [hato.client :as http])
   (:import
@@ -536,7 +536,7 @@
   {:id :eca/api-bedrock
    :description "The AWS Bedrock Converse API."
    :apis {"bedrock" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
-   :config-defaults {:variantsByModel (merge variants/anthropic-messages variants/any-api)}})
+   :config-defaults {:variantsByModel (merge m.variants/anthropic-messages m.variants/any-api)}})
 
 (def module
   {:id :eca/bedrock

@@ -19,9 +19,9 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
-   [eca.modules.custom-commands :as custom-commands]
-   [eca.modules.mcp :as f.mcp]
-   [eca.modules.skills :as f.skills]
+   [eca.modules.custom-commands :as m.custom-commands]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.skills :as m.skills]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -153,7 +153,7 @@
      :arguments (or (:arguments command) [])}))
 
 (defn all-commands [db config]
-  (let [mcp-prompts (->> (when (modules/active? config :eca/mcp) (f.mcp/all-prompts db))
+  (let [mcp-prompts (->> (when (modules/active? config :eca/mcp) (m.mcp/all-prompts db))
                          (mapv #(-> %
                                     (assoc :name (str (:server %) ":" (:name %))
                                            :type :mcpPrompt)
@@ -170,9 +170,9 @@
                               :type :custom-prompt
                               :description (or (:description custom) (:path custom))
                               :arguments (:arguments custom)})
-                           (custom-commands/all config (:workspace-folders db))))
+                           (m.custom-commands/all config (:workspace-folders db))))
         skills-cmds (when (modules/active? config :eca/skills)
-                      (->> (f.skills/all config (:workspace-folders db))
+                      (->> (m.skills/all config (:workspace-folders db))
                            (mapv (fn [skill]
                                    {:name (:name skill)
                                     :type :skill
@@ -913,9 +913,9 @@
   [command args {:keys [db* config]}]
   (let [db @db*
         custom-cmds (when (modules/active? config :eca/custom-commands)
-                      (custom-commands/all config (:workspace-folders db)))
+                      (m.custom-commands/all config (:workspace-folders db)))
         skills (when (modules/active? config :eca/skills)
-                 (f.skills/all config (:workspace-folders db)))]
+                 (m.skills/all config (:workspace-folders db)))]
     (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
       {:type :send-prompt
        :prompt (add-file-context custom-command-prompt args db)}

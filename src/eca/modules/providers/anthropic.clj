@@ -14,7 +14,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
-   [eca.modules.providers.variants :as variants]
+   [eca.modules.providers.variants :as m.variants]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
@@ -976,7 +976,7 @@
   {:id :eca/api-anthropic
    :description "The Anthropic Messages API."
    :apis {"anthropic" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
-   :config-defaults {:variantsByModel (merge variants/anthropic-messages variants/any-api)}})
+   :config-defaults {:variantsByModel (merge m.variants/anthropic-messages m.variants/any-api)}})
 
 (def module
   {:id :eca/anthropic

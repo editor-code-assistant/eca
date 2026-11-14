@@ -11,8 +11,8 @@
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.modules.events :as events]
-   [eca.modules.hooks :as f.hooks]
-   [eca.modules.mcp :as f.tools.mcp]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.mcp :as m.mcp]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -214,9 +214,9 @@
         native-tools (filter #(= :native (:origin %))
                              (f.tools/all-tools chat-id (:agent chat-ctx) db (:config chat-ctx)))
         hook-state* (atom {:stop-turn? false :stop-reason nil :stop-hook-name nil})]
-    (f.hooks/trigger-if-matches!
+    (m.hooks/trigger-if-matches!
      :postToolCall
-     (merge (f.hooks/chat-hook-data db chat-ctx)
+     (merge (m.hooks/chat-hook-data db chat-ctx)
             {:tool-name (:name tool-call-state)
              :server (:server tool-call-state)
              :tool-input (:arguments tool-call-state)
@@ -235,7 +235,7 @@
                              ;; default placeholder so the LLM still sees a meaningful signal.
                              ;; raw-error is already normalized to nil-or-non-empty-string by
                              ;; run-and-parse-output!, so a plain `or` is enough here.
-                             (= f.hooks/hook-rejection-exit-code exit)
+                             (= m.hooks/hook-rejection-exit-code exit)
                              (replace-tool-output!
                               (:db* chat-ctx)
                               (:chat-id chat-ctx)
@@ -750,7 +750,7 @@
   [acc result]
   (let [parsed (:parsed result)
         success? (zero? (:exit result))
-        exit-code-2? (= f.hooks/hook-rejection-exit-code (:exit result))
+        exit-code-2? (= m.hooks/hook-rejection-exit-code (:exit result))
         stop-turn-result? (and success? (false? (get parsed "continue" true)))
         ;; success? (exit 0) and exit-code-2? are mutually exclusive, so the
         ;; approval field is only read on exit 0.
@@ -887,9 +887,9 @@
                            :stop-hook-name nil})
 
         _ (when-not module-ended?
-            (f.hooks/trigger-if-matches!
+            (m.hooks/trigger-if-matches!
              :preToolCall
-             (merge (f.hooks/chat-hook-data db {:chat-id chat-id
+             (merge (m.hooks/chat-hook-data db {:chat-id chat-id
                                                 :agent agent-name
                                                 :full-model full-model
                                                 :variant variant})
@@ -1262,7 +1262,7 @@
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
             (lifecycle/assert-chat-not-stopped! chat-ctx)
-            (f.tools.mcp/await-pending-tools-refresh @db* 5000)
+            (m.mcp/await-pending-tools-refresh @db* 5000)
             ;; Token can expire during long tool calls (e.g. spawn_agent),
             ;; so renew before any continuation branch.
             (lifecycle/maybe-renew-auth-token chat-ctx)

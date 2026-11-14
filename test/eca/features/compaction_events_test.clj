@@ -9,7 +9,7 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.commands :as f.commands]
    [eca.modules :as modules]
-   [eca.modules.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -137,7 +137,7 @@
     (setup-chat!)
     (with-module! {:chat/before-compact (constantly {:block "Not during a deploy."})})
     (let [hooks* (atom [])]
-      (with-redefs [f.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
+      (with-redefs [m.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
         (is (= {:type :new-chat-status :status :idle}
                (f.commands/handle-command! "compact" [] (ctx)))))
       (is (not-any? #{:preCompact} @hooks*)))
@@ -162,7 +162,7 @@
     (swap! (h/db*) update-in [:chats chat-id] assoc :compact-done? true :last-summary "The summary.")
     (with-module! {:chat/after-compact (constantly {:additional-context "Keep the plan." :stop "Review first."})})
     (let [hooks* (atom [])
-          result (with-redefs [f.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
+          result (with-redefs [m.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
                    (lifecycle/complete-compact! (ctx) "auto"))]
       (is (match? {:compacted? true :stop-turn? true :stop-reason "Review first." :stop-module :acme/compact} result))
       (is (not-any? #{:postCompact} @hooks*)))

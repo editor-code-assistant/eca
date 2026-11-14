@@ -10,10 +10,10 @@
    [eca.features.chat.tool-calls :as tc]
    [eca.features.tools :as f.tools]
    [eca.modules :as modules]
-   [eca.modules.hooks :as f.hooks]
-   [eca.modules.tools.custom-tools :as f.tools.custom]
-   [eca.modules.tools.git :as f.tools.git]
-   [eca.modules.tools.shell :as f.tools.shell]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.tools.custom-tools :as m.custom-tools]
+   [eca.modules.tools.git :as m.git]
+   [eca.modules.tools.shell :as m.shell]
    [eca.shell :as shell]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -65,7 +65,7 @@
         add-to-history! (fn [msg] (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
         continue (with-redefs [f.tools/all-tools (constantly all-tools)
                                f.tools/approval (constantly :allow)
-                               f.hooks/trigger-if-matches! (fn [hook-type data & _]
+                               m.hooks/trigger-if-matches! (fn [hook-type data & _]
                                                              (swap! hooks* conj [hook-type data])
                                                              nil)
                                f.tools/call-tool! (fn [& _] result)
@@ -205,7 +205,7 @@
 
 (deftest shell-tool-before-exec-test
   (when-not h/windows?
-    (let [shell-command (get-in f.tools.shell/definitions ["shell_command" :handler])
+    (let [shell-command (get-in m.shell/definitions ["shell_command" :handler])
           tool-ctx {:db (h/db) :config (h/config) :chat-id "chat-1"
                     :call-state-fn (constantly {:status :executing})
                     :state-transition-fn (constantly nil)}]
@@ -226,7 +226,7 @@
 
 (deftest git-tool-before-exec-test
   (let [captured (atom nil)
-        git (get-in f.tools.git/definitions ["git" :handler])]
+        git (get-in m.git/definitions ["git" :handler])]
     (with-module! {:shell/before-exec (fn [_ {:keys [command]}] {:command (str "nice " command)})})
     (with-redefs [shell/start-shell-process! (fn [opts]
                                                        (reset! captured opts)
@@ -239,7 +239,7 @@
 
 (deftest custom-tool-before-exec-test
   (let [captured (atom nil)
-        handler (get-in (f.tools.custom/definitions {:customTools {"ls" {:description "List." :command "ls"}}})
+        handler (get-in (m.custom-tools/definitions {:customTools {"ls" {:description "List." :command "ls"}}})
                         ["ls" :handler])]
     (with-module! {:shell/before-exec (fn [_ {:keys [command]}] {:command (str "sandbox " command)})})
     (with-redefs [shell/start-shell-process! (fn [opts] (reset! captured opts) (delay {:out "" :exit 0}))]
@@ -252,9 +252,9 @@
   (h/config! {:hooks {"notify" {:type "postRequest" :actions [{:type "shell" :shell "notify-send hi" :timeout 5000}]}
                       "check" {:type "preRequest" :actions [{:type "shell" :shell "check-prompt"}]}}})
   (let [opts* (atom [])]
-    (with-redefs [f.hooks/run-shell-cmd (fn [opts] (swap! opts* conj opts) {:exit 0 :out nil :err nil})]
+    (with-redefs [m.hooks/run-shell-cmd (fn [opts] (swap! opts* conj opts) {:exit 0 :out nil :err nil})]
       (testing "shell hooks run the command the modules give"
-        (f.hooks/trigger-if-matches! :postRequest {:chat-id "chat-1"} {} (h/db) (h/config))
+        (m.hooks/trigger-if-matches! :postRequest {:chat-id "chat-1"} {} (h/db) (h/config))
         (is (match? [{:script "sandbox notify-send hi"}] @opts*))
         (is (match? [{:source :hook :hook "notify" :hook-type :postRequest :command "notify-send hi"
                       :timeout-ms 5000 :chat-id "chat-1"}]

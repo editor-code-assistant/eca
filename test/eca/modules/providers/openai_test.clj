@@ -3,7 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
-   [eca.modules.providers.openai :as llm-providers.openai]
+   [eca.modules.providers.openai :as m.openai]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -20,7 +20,7 @@
         (let [body {:model "mymodel"
                     :input "hi"
                     :stream false}
-              response (#'llm-providers.openai/base-responses-request!
+              response (#'m.openai/base-responses-request!
                         {:rid "r1"
                          :api-key "fake-key"
                          :api-url "http://localhost:1"
@@ -46,7 +46,7 @@
                                 {:status 429
                                  :headers {"retry-after" "7"}
                                  :body error-body})]
-        (let [result (#'llm-providers.openai/base-responses-request!
+        (let [result (#'m.openai/base-responses-request!
                       {:rid "r1"
                        :api-key "fake-key"
                        :api-url "http://localhost:1"
@@ -60,7 +60,7 @@
 (deftest base-responses-codex-routing-test
   (testing "Codex requests send stable routing headers and replay returned turn state"
     (let [requests* (atom [])
-          turn-context (#'llm-providers.openai/new-codex-turn-context)
+          turn-context (#'m.openai/new-codex-turn-context)
           turn-id (:session-id turn-context)]
       (with-redefs [http/post (fn [url opts]
                                 (swap! requests* conj [url opts])
@@ -68,7 +68,7 @@
                                  :headers {"x-codex-turn-state" "turn-state-1"}
                                  :body {:output [{:content [{:text "ok"}]}]}})]
         (dotimes [_ 2]
-          (#'llm-providers.openai/base-responses-request!
+          (#'m.openai/base-responses-request!
            {:rid "r1"
             :api-key "oauth-token"
             :account-id "account-1"
@@ -113,7 +113,7 @@
                                                   first-stream
                                                   final-stream)
                                          java.nio.charset.StandardCharsets/UTF_8))})]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          {:model "gpt-test"
           :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
           :instructions "test"
@@ -159,8 +159,8 @@
         (let [server-url "http://localhost/callback"
               code        "abc123"
               verifier    "verifierXYZ"
-              result      (with-redefs [llm-providers.openai/oauth-token-url "http://localhost:99/oauth/token"]
-                            (#'llm-providers.openai/oauth-authorize
+              result      (with-redefs [m.openai/oauth-token-url "http://localhost:99/oauth/token"]
+                            (#'m.openai/oauth-authorize
                              server-url code verifier))]
 
           ;; request validation
@@ -169,7 +169,7 @@
                  (select-keys @req* [:method :uri])))
 
           (is (= {:grant_type     "authorization_code"
-                  :client_id      @#'llm-providers.openai/client-id
+                  :client_id      @#'m.openai/client-id
                   :code           code
                   :code_verifier  verifier
                   :redirect_uri   server-url}
@@ -199,8 +199,8 @@
                   :expires_in     3600}})
 
         (let [refresh-token "old-r-token"
-              result        (with-redefs [llm-providers.openai/oauth-token-url "http://localhost:99/oauth/token"]
-                              (#'llm-providers.openai/oauth-refresh refresh-token))]
+              result        (with-redefs [m.openai/oauth-token-url "http://localhost:99/oauth/token"]
+                              (#'m.openai/oauth-refresh refresh-token))]
 
           ;; request validation
           (is (= {:method "POST"
@@ -209,7 +209,7 @@
 
           (is (= {:grant_type     "refresh_token"
                   :refresh_token  refresh-token
-                  :client_id      @#'llm-providers.openai/client-id}
+                  :client_id      @#'m.openai/client-id}
                  (:body @req*))
               "Outgoing payload should match refresh token fields")
 
@@ -223,7 +223,7 @@
 (deftest create-response-refreshes-account-id-after-tool-call-test
   (testing "uses refreshed provider auth metadata after a long-running tool call"
     (let [requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [api-key account-id on-stream] :as _opts}]
                       (swap! requests* conj {:api-key api-key
                                              :account-id account-id})
@@ -237,7 +237,7 @@
                                                :usage {:input_tokens 1
                                                        :output_tokens 1}}}))
                       :ok)]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          {:model "gpt-test"
           :user-messages [{:role "user" :content [{:type :text :text "hi"}]}]
           :instructions "ins"
@@ -276,7 +276,7 @@
           tools-called* (atom 0)
           messages* (atom [])
           errors* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [body on-error on-stream] :as _opts}]
                       (let [request-number (count (swap! requests* conj body))]
                         (case request-number
@@ -301,7 +301,7 @@
                                                      :usage {:input_tokens 2
                                                              :output_tokens 1}}}))))
                       :ok)]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          {:model "gpt-test"
           :user-messages [{:role "user" :content [{:type :text :text "inspect"}]}]
           :instructions "ins"
@@ -354,13 +354,13 @@
   (testing "no previous history"
     (is (match?
          []
-         (#'llm-providers.openai/normalize-messages [] true))))
+         (#'m.openai/normalize-messages [] true))))
 
   (testing "With basic text history"
     (is (match?
          [{:role "user" :content [{:type "input_text" :text "Count with me: 1"}]}
           {:role "assistant" :content "2"}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "Count with me: 1"}]}
            {:role "assistant" :content "2"}]
           true))))
@@ -376,7 +376,7 @@
            :call_id "call-1"
            :output "Allowed directories: /foo/bar\n"}
           {:role "assistant" :content [{:type "output_text" :text "I see /foo/bar"}]}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "List the files you are allowed"}]}
            {:role "assistant" :content [{:type :text :text "Ok!"}]}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
@@ -395,7 +395,7 @@
            :call_id "call-1"
            :name "eca__editor_diagnostics"
            :arguments "{}"}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "Check diagnostics"}]}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__editor_diagnostics" :arguments nil}}]
           true))))
@@ -405,12 +405,12 @@
            :content [{:type "input_text" :text "edit this"}
                      {:type "input_image"
                       :image_url "data:image/png;base64,AAA"}]}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "user" :content [{:type :text :text "edit this"}
                                    {:type :image :media-type "image/png" :base64 "AAA"}]}]
           true))))
   (testing "User message with image and supports-image? false drops the image part"
-    (let [normalized (#'llm-providers.openai/normalize-messages
+    (let [normalized (#'m.openai/normalize-messages
                       [{:role "user" :content [{:type :text :text "edit this"}
                                                {:type :image :media-type "image/png" :base64 "AAA"}]}]
                       false)]
@@ -428,7 +428,7 @@
          [{:role "user"
            :content [{:type "input_image"
                       :image_url "data:image/png;base64,DDD"}]}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "image_generation_call"
             :content {:id "ig_xyz" :media-type "image/png" :base64 "DDD"}}]
           true))))
@@ -437,19 +437,19 @@
          [{:role "user"
            :content [{:type "input_image"
                       :image_url "data:image/png;base64,DDD"}]}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "image_generation_call" :content {:base64 "DDD"}}]
           true))))
   (testing "image_generation_call role drops the entry entirely when supports-image? is false"
     (is (= []
-           (#'llm-providers.openai/normalize-messages
+           (#'m.openai/normalize-messages
             [{:role "image_generation_call" :content {:base64 "DDD"}}]
             false))))
   (testing "server web search history artifacts are skipped on replay"
     (is (match?
          [{:role "assistant"
            :content [{:type "output_text" :text "Found the answer."}]}]
-         (#'llm-providers.openai/normalize-messages
+         (#'m.openai/normalize-messages
           [{:role "server_tool_use"
             :content {:id "ws_1" :name "web_search" :input {:query "latest news"}}}
            {:role "server_tool_result"
@@ -494,7 +494,7 @@
     (let [prepare-calls* (atom [])
           tools-called* (atom [])
           requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (when (= 1 (count @requests*))
@@ -522,7 +522,7 @@
                                                :usage {:input_tokens 10
                                                        :output_tokens 5}
                                                :status "completed"}})))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-prepare-tool-call (fn [data] (swap! prepare-calls* conj data))
@@ -551,7 +551,7 @@
         (let [tools-called* (atom [])
               errors* (atom [])
               requests* (atom [])]
-          (with-redefs [llm-providers.openai/base-responses-request!
+          (with-redefs [m.openai/base-responses-request!
                         (fn [{:keys [on-stream] :as opts}]
                           (swap! requests* conj opts)
                           (when (= 1 (count @requests*))
@@ -575,7 +575,7 @@
                                                    :usage {:input_tokens 10
                                                            :output_tokens 5}
                                                    :status "completed"}})))]
-            (llm-providers.openai/create-response!
+            (m.openai/create-response!
              (base-provider-params)
              (base-callbacks
               {:on-error (fn [error] (swap! errors* conj error))
@@ -596,7 +596,7 @@
         read-tool {:full-name "eca__read_file"
                    :description "read"
                    :parameters {:type "object"}}]
-    (with-redefs [llm-providers.openai/base-responses-request!
+    (with-redefs [m.openai/base-responses-request!
                   (fn [{:keys [on-stream] :as opts}]
                     (let [request-number (count (swap! requests* conj opts))]
                       (on-stream "response.completed"
@@ -614,7 +614,7 @@
                                                       [])
                                              :usage {:input_tokens 10 :output_tokens 5}
                                              :status "completed"}})))]
-      (llm-providers.openai/create-response!
+      (m.openai/create-response!
        (assoc (base-provider-params)
               :provider "openai"
               :auth-type :auth/oauth
@@ -666,7 +666,7 @@
         {:status 401 :body "unauthorized"})
       ;; callbacks=nil -> sync mode: on-stream is set but on-error is nil,
       ;; which previously caused an NPE when the request returned non-200.
-      (let [result (llm-providers.openai/create-response! (base-provider-params) nil)]
+      (let [result (m.openai/create-response! (base-provider-params) nil)]
         (is (match? {:error {:status 401
                              :body "unauthorized"
                              :message "OpenAI response status: 401 body: unauthorized"}}
@@ -712,7 +712,7 @@
                                   {:status 200
                                    :headers response-headers
                                    :body stream-body})]
-          (llm-providers.openai/create-response!
+          (m.openai/create-response!
            (base-provider-params)
            (base-callbacks
             {:on-error (fn [error]
@@ -735,12 +735,12 @@
                                  :headers response-headers
                                  :body failed-response})]
         (is (= {:error expected-error}
-               (llm-providers.openai/create-response!
+               (m.openai/create-response!
                 (assoc (base-provider-params) :extra-payload {:stream false})
                 nil)))))
 
     (testing "structured request ID takes precedence over response and header IDs"
-      (let [error (#'llm-providers.openai/response-failed->error-data
+      (let [error (#'m.openai/response-failed->error-data
                    {:response {:id "resp_123"
                                :request_id "response_req"
                                :error {:message "failed"
@@ -759,7 +759,7 @@
                                 {:status 200
                                  :headers {}
                                  :body stream-body})]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params) :cancelled? (constantly true))
          (base-callbacks
           {:on-error (fn [error] (swap! errors* conj error))
@@ -796,7 +796,7 @@
                                 {:status 200
                                  :headers response-headers
                                  :body stream-body})]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-error (fn [error]
@@ -830,7 +830,7 @@
                                  :headers response-headers
                                  :body (java.io.ByteArrayInputStream.
                                         (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-error (fn [error] (swap! errors* conj error))
@@ -863,7 +863,7 @@
                                 {:status 200
                                  :headers response-headers
                                  :body stream-body})]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-error (fn [error]
@@ -886,7 +886,7 @@
                                         :media-type "image/png"
                                         :base64 "AAAA"}]}}}]
     (testing "image content + supports-image? true emits function_call_output + user input_image"
-      (let [out (vec (#'llm-providers.openai/normalize-messages
+      (let [out (vec (#'m.openai/normalize-messages
                       [tool-output-with-image] true))]
         (is (= 2 (count out))
             "two messages: function_call_output then user input_image")
@@ -900,14 +900,14 @@
                     (second out)))))
 
     (testing "image content + supports-image? false emits only text function_call_output"
-      (let [out (vec (#'llm-providers.openai/normalize-messages
+      (let [out (vec (#'m.openai/normalize-messages
                       [tool-output-with-image] false))]
         (is (= 1 (count out)))
         (is (match? {:type "function_call_output" :call_id "call-1"}
                     (first out)))))
 
     (testing "no image content emits only text function_call_output"
-      (let [out (vec (#'llm-providers.openai/normalize-messages
+      (let [out (vec (#'m.openai/normalize-messages
                       [{:role "tool_call_output"
                         :content {:id "call-2"
                                   :output {:contents [{:type :text :text "ok"}]}}}]
@@ -922,16 +922,16 @@
   (testing "image_generation tool is appended when flag is on"
     (is (match?
          [{:type "image_generation" :output_format "png"}]
-         (#'llm-providers.openai/->tools [] false true))))
+         (#'m.openai/->tools [] false true))))
   (testing "image_generation tool is NOT appended when flag is off"
     (is (= []
-           (#'llm-providers.openai/->tools [] false false))))
+           (#'m.openai/->tools [] false false))))
   (testing "image_generation tool sits alongside web_search and function tools"
     (is (match?
          [{:type "function" :name "eca__foo"}
           {:type "web_search"}
           {:type "image_generation" :output_format "png"}]
-         (#'llm-providers.openai/->tools
+         (#'m.openai/->tools
           [{:full-name "eca__foo" :description "d" :parameters {}}]
           true true))))
   (testing "function tools explicitly opt out of Responses strict mode"
@@ -941,7 +941,7 @@
              :parameters {:type "object"
                           :properties {"limit" {:type "number"}}}
              :strict false}]
-           (#'llm-providers.openai/->tools
+           (#'m.openai/->tools
             [{:full-name "mcp__search_records"
               :description "Search records"
               :parameters {:type "object"
@@ -951,14 +951,14 @@
 (deftest create-response-standard-preserves-built-in-tools-test
   (testing "standard Responses requests keep web_search and image_generation when enabled"
     (let [requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :web-search true
                 :image-generation true)
@@ -975,20 +975,20 @@
                     {:status 200
                      :body {:models [{:slug "gpt-5.6-sol"
                                       :supports_parallel_tool_calls true}]}})
-                  llm-providers.openai/base-responses-request!
+                  m.openai/base-responses-request!
                   (fn [{:keys [on-stream] :as opts}]
                     (reset! request* opts)
                     (on-stream "response.completed"
                                {:response {:output []
                                            :usage {:input_tokens 0 :output_tokens 0}
                                            :status "completed"}}))]
-      (let [models (#'llm-providers.openai/fetch-oauth-models "oauth-token" {})
+      (let [models (#'m.openai/fetch-oauth-models "oauth-token" {})
             provider-data (get-in models
                                   ["gpt-5.6-sol" :discovered-provider-data])]
         (is (true? (:responses-lite? provider-data)))
         (is (true? (:parallel-tool-calls? provider-data)))
         (is (nil? (:parallel-tool-calls-without-lite? provider-data)))
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :model "gpt-5.6-sol"
                 :provider "openai"
@@ -1013,7 +1013,7 @@
                          :provider-data {:responses-lite? true
                                          :parallel-tool-calls? true
                                          :parallel-tool-calls-without-lite? true}}}]]
-    (with-redefs [llm-providers.openai/base-responses-request!
+    (with-redefs [m.openai/base-responses-request!
                   (fn [{:keys [on-stream] :as opts}]
                     (reset! request* opts)
                     (on-stream "response.completed"
@@ -1022,7 +1022,7 @@
                                            :status "completed"}}))]
       (doseq [{:keys [label params]} cases]
         (testing label
-          (llm-providers.openai/create-response!
+          (m.openai/create-response!
            (merge (base-provider-params)
                   {:provider "openai" :auth-type :auth/oauth}
                   params)
@@ -1036,7 +1036,7 @@
         tools-called* (atom 0)
         completed {:response {:status "completed" :output []
                               :usage {:input_tokens 1 :output_tokens 1}}}]
-    (with-redefs [llm-providers.openai/base-responses-request!
+    (with-redefs [m.openai/base-responses-request!
                   (fn [{:keys [on-stream on-error] :as opts}]
                     (case (count (swap! requests* conj opts))
                       1 (on-stream "response.completed"
@@ -1045,7 +1045,7 @@
                                                :name "eca__read_file" :arguments "{}"}]))
                       2 (on-error {:code "server_is_overloaded"})
                       3 (on-stream "response.completed" completed)))]
-      (llm-providers.openai/create-response!
+      (m.openai/create-response!
        (assoc (base-provider-params)
               :provider "openai" :auth-type :auth/oauth
               :web-search true :image-generation true :reason? true
@@ -1078,14 +1078,14 @@
 (deftest create-response-codex-request-shapes-test
   (testing "API-key requests ignore Codex-only Lite metadata, even for Lite models"
     (let [request* (atom nil)]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (reset! request* opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :model "gpt-5.6-sol"
                 :provider "openai"
@@ -1098,14 +1098,14 @@
 
   (testing "regular Codex requests use top-level instructions without duplicating a system input"
     (let [request* (atom nil)]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (reset! request* opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :provider "openai"
                 :auth-type :auth/oauth)
@@ -1116,7 +1116,7 @@
 
   (testing "Responses Lite moves instructions and function tools into developer input items"
     (let [request* (atom nil)]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (reset! request* opts)
                       (on-stream "response.completed"
@@ -1125,7 +1125,7 @@
                                              :status "completed"}}))]
         ;; gpt-5.6-sol Lite metadata (:responses-lite? true, default effort
         ;; "low") comes from the static fallback, no :provider-data needed.
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :model "gpt-5.6-sol"
                 :provider "openai"
@@ -1148,14 +1148,14 @@
 
   (testing "discovered provider-data wins over the static Lite fallback"
     (let [request* (atom nil)]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (reset! request* opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :model "gpt-5.6-sol"
                 :provider "openai"
@@ -1167,14 +1167,14 @@
 
   (testing "provider-data can disable parallel tool calls for Codex requests"
     (let [request* (atom nil)]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (reset! request* opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params)
                 :provider "openai"
                 :auth-type :auth/oauth
@@ -1186,14 +1186,14 @@
 (deftest create-response-image-generation-tool-on-request-test
   (testing "request body includes image_generation tool when :image-generation is true"
     (let [requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params) :image-generation true)
          (base-callbacks {}))
         (is (= 1 (count @requests*)))
@@ -1202,14 +1202,14 @@
             "tools array should include the image_generation built-in tool"))))
   (testing "request body excludes image_generation tool when :image-generation is false"
     (let [requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks {}))
         (is (= 1 (count @requests*)))
@@ -1222,7 +1222,7 @@
     (let [server-events* (atom [])
           received-msgs* (atom [])
           requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (on-stream "response.output_item.added"
@@ -1236,7 +1236,7 @@
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params) :image-generation true)
          (base-callbacks
           {:on-message-received (fn [m] (swap! received-msgs* conj m))
@@ -1256,14 +1256,14 @@
 (deftest create-response-prompt-cache-key-test
   (testing "prompt_cache_key uses the provided :prompt-cache-key verbatim"
     (let [requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (assoc (base-provider-params) :prompt-cache-key "alice@ECA/plan")
          (base-callbacks {}))
         (is (= 1 (count @requests*)))
@@ -1272,14 +1272,14 @@
             "Body should pass the caller-supplied cache key unchanged"))))
   (testing "prompt_cache_key falls back to $USER@ECA when :prompt-cache-key is absent"
     (let [requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (on-stream "response.completed"
                                  {:response {:output []
                                              :usage {:input_tokens 0 :output_tokens 0}
                                              :status "completed"}}))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks {}))
         (is (= 1 (count @requests*)))
@@ -1291,7 +1291,7 @@
   (testing "empty output in response.completed still triggers on-tools-called via atom fallback"
     (let [tools-called* (atom [])
           requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (when (= 1 (count @requests*))
@@ -1316,7 +1316,7 @@
                                                :usage {:input_tokens 10
                                                        :output_tokens 5}
                                                :status "completed"}})))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-tools-called (fn [tool-calls]
@@ -1334,7 +1334,7 @@
     (let [tools-called* (atom [])
           finish-received* (atom false)
           requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (case (count @requests*)
@@ -1371,7 +1371,7 @@
                                                  :usage {:input_tokens 5 :output_tokens 3}
                                                  :status "completed"}})
                         nil))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-message-received (fn [msg]
@@ -1391,7 +1391,7 @@
   (testing "different item IDs across streaming events still produce correct tool calls"
     (let [tools-called* (atom [])
           requests* (atom [])]
-      (with-redefs [llm-providers.openai/base-responses-request!
+      (with-redefs [m.openai/base-responses-request!
                     (fn [{:keys [on-stream] :as opts}]
                       (swap! requests* conj opts)
                       (when (= 1 (count @requests*))
@@ -1421,7 +1421,7 @@
                                                          :arguments "{\"command\":\"ls\"}"}]
                                                :usage {:input_tokens 10 :output_tokens 5}
                                                :status "completed"}})))]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          (base-provider-params)
          (base-callbacks
           {:on-tools-called (fn [tool-calls]
@@ -1451,7 +1451,7 @@
                                                                               {:effort "max"}]}
                                                 {:slug "gpt-5.6-terra"
                                                  :use_responses_lite false}]}})]
-        (let [result (#'llm-providers.openai/fetch-oauth-models
+        (let [result (#'m.openai/fetch-oauth-models
                       "oauth-token" "account-1" {"gpt-5.5" {}})
               client-version (second (re-find #"client_version=(\d+\.\d+\.\d+)"
                                               (first @request*)))]
@@ -1474,30 +1474,30 @@
 (deftest fetch-oauth-models-fallback-on-error-test
   (testing "falls back to known Codex caps when /models is unauthorized"
     (with-redefs [http/get (fn [_url _opts] {:status 401 :body {:error "unauthorized"}})]
-      (let [result (#'llm-providers.openai/fetch-oauth-models "expired-token" {"gpt-5.5" {}})]
+      (let [result (#'m.openai/fetch-oauth-models "expired-token" {"gpt-5.5" {}})]
         (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))))))
 
 (deftest fetch-oauth-models-live-preserves-fallback-limit-test
   (testing "a live model without a context window keeps the fallback cap"
     (with-redefs [http/get (fn [_url _opts] {:status 200 :body {:models [{:slug "gpt-5.5"}]}})]
-      (let [result (#'llm-providers.openai/fetch-oauth-models "oauth-token" {"gpt-5.5" {}})]
+      (let [result (#'m.openai/fetch-oauth-models "oauth-token" {"gpt-5.5" {}})]
         (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))))))
 
 (deftest fetch-oauth-models-no-api-key-uses-fallback-test
   (testing "without an API key, returns fallback caps without hitting the network"
     (let [calls* (atom 0)]
       (with-redefs [http/get (fn [_ _] (swap! calls* inc) {:status 200 :body {}})]
-        (let [result (#'llm-providers.openai/fetch-oauth-models nil {})]
+        (let [result (#'m.openai/fetch-oauth-models nil {})]
           (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))
           (is (zero? @calls*)))))))
 
 (deftest codex-turn-context-headers-test
-  (let [context (#'llm-providers.openai/new-codex-turn-context)
+  (let [context (#'m.openai/new-codex-turn-context)
         turn-id (:session-id context)
         client-version (second (re-find #"client_version=(\d+\.\d+\.\d+)"
-                                        @#'llm-providers.openai/codex-models-url))]
+                                        @#'m.openai/codex-models-url))]
     (testing "session and thread routing stay stable for the turn"
-      (let [headers (#'llm-providers.openai/codex-request-headers
+      (let [headers (#'m.openai/codex-request-headers
                      {:account-id "account-1"
                       :turn-context context})]
         (is (= {"ChatGPT-Account-ID" "account-1"
@@ -1510,14 +1510,14 @@
                (get headers "User-Agent")))))
 
     (testing "the first turn state is replayed and later values cannot replace it"
-      (#'llm-providers.openai/capture-codex-turn-state! context "state-1")
-      (#'llm-providers.openai/capture-codex-turn-state! context "state-2")
+      (#'m.openai/capture-codex-turn-state! context "state-1")
+      (#'m.openai/capture-codex-turn-state! context "state-2")
       (is (= "state-1"
-             (get (#'llm-providers.openai/codex-request-headers {:turn-context context})
+             (get (#'m.openai/codex-request-headers {:turn-context context})
                   "x-codex-turn-state"))))))
 
 (deftest codex-responses-lite-body-test
-  (let [body (#'llm-providers.openai/codex-responses-lite-body
+  (let [body (#'m.openai/codex-responses-lite-body
               {:model "gpt-5.6-sol"
                :instructions "Use the repository rules."
                :input [{:role "user" :content "Fix it"}]
@@ -1544,7 +1544,7 @@
   (testing "Lite always declares all-turn reasoning context"
     (is (= {:context "all_turns"}
            (:reasoning
-            (#'llm-providers.openai/codex-responses-lite-body
+            (#'m.openai/codex-responses-lite-body
              {:input [{:role "user" :content "Generate a title"}]}))))))
 
 (deftest codex-live-model-discovery-test
@@ -1555,7 +1555,7 @@
           :discovered-variants
           {"low" {:reasoning {:effort "low" :summary "auto"}}
            "max" {:reasoning {:effort "max" :summary "auto"}}}}
-         (#'llm-providers.openai/codex-live-model-discovery
+         (#'m.openai/codex-live-model-discovery
           {:use_responses_lite true
            :default_reasoning_level "low"
            :supported_reasoning_levels [{:effort "low"}
@@ -1563,24 +1563,24 @@
                                         {:effort "ultra"}]
            :supports_parallel_tool_calls true})))
   (testing "an explicit live false value overrides static Lite fallbacks"
-    (is (false? (get-in (#'llm-providers.openai/codex-live-model-discovery
+    (is (false? (get-in (#'m.openai/codex-live-model-discovery
                          {:use_responses_lite false})
                         [:discovered-provider-data :responses-lite?])))))
 
 (deftest codex-model-fallback-discovery-test
   (testing "all current Lite Codex models retain Lite metadata without /models"
     (doseq [model ["gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra"]]
-      (is (true? (get-in (#'llm-providers.openai/codex-model-fallback-discovery model)
+      (is (true? (get-in (#'m.openai/codex-model-fallback-discovery model)
                          [:discovered-provider-data :responses-lite?])))))
   (testing "gpt-6-astra defaults to low effort and has no none variant"
-    (let [discovery (#'llm-providers.openai/codex-model-fallback-discovery "gpt-6-astra")]
+    (let [discovery (#'m.openai/codex-model-fallback-discovery "gpt-6-astra")]
       (is (= "low" (get-in discovery [:discovered-provider-data :default-reasoning-effort])))
       (is (= #{"low" "medium" "high" "xhigh" "max"}
              (set (keys (:discovered-variants discovery)))))))
   (testing "gpt-6-astra keeps the Codex context cap without /models"
     (is (= 272000
-           (get-in (#'llm-providers.openai/fetch-oauth-models nil {})
+           (get-in (#'m.openai/fetch-oauth-models nil {})
                    ["gpt-6-astra" :limit :context]))))
   (testing "model matching is case-insensitive"
-    (is (true? (get-in (#'llm-providers.openai/codex-model-fallback-discovery "GPT-5.6-SOL")
+    (is (true? (get-in (#'m.openai/codex-model-fallback-discovery "GPT-5.6-SOL")
                        [:discovered-provider-data :responses-lite?])))))

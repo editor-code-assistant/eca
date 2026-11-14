@@ -11,7 +11,7 @@
    [eca.features.prompt :as f.prompt]
    [eca.modules :as modules]
    [eca.modules.events :as events]
-   [eca.modules.repl :as f.repl]
+   [eca.modules.repl :as m.repl]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]])
@@ -97,7 +97,7 @@
                                                           ": /repl shows how to use it.")}])
                     (:show-message (h/messages)))))
       (testing "it writes its port in its folder of the workspace's cache"
-        (is (= (str (f.repl/port-file (h/db))) port-file))
+        (is (= (str (m.repl/port-file (h/db))) port-file))
         (is (= (str port) (slurp port-file))))
       (testing "/repl shows the address"
         (let [text (command-text "repl" (repl-config))]

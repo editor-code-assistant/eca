@@ -3,7 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
-   [eca.modules.providers.ollama :as llm-providers.ollama]
+   [eca.modules.providers.ollama :as m.ollama]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -95,8 +95,8 @@
                        :tools nil
                        :api-url "http://localhost:1"
                        :max-output-tokens 512}]
-        (llm-providers.ollama/chat! base-opts nil)
-        (llm-providers.ollama/chat!
+        (m.ollama/chat! base-opts nil)
+        (m.ollama/chat!
          (assoc base-opts :extra-payload {:options {:num_predict 99}}) nil)))
     (let [bodies (mapv #(json/parse-string (:body %) true) @requests*)]
       (is (= 512 (get-in bodies [0 :options :num_predict])))
@@ -107,18 +107,18 @@
   (testing "no previous history"
     (is (match?
          []
-         (#'llm-providers.ollama/normalize-messages []))))
+         (#'m.ollama/normalize-messages []))))
   (testing "With basic text history"
     (is (match?
          [{:role "user" :content "Count with me: 1"}
           {:role "assistant" :content "2"}]
-         (#'llm-providers.ollama/normalize-messages
+         (#'m.ollama/normalize-messages
           [{:role "user" :content "Count with me: 1"}
            {:role "assistant" :content "2"}]))))
   (testing "Every text block of a user message is sent, not only the first"
     (is (match?
          [{:role "user" :content "Explain it\n<contexts>a.clj</contexts>\n<editor-state>cursor</editor-state>"}]
-         (#'llm-providers.ollama/normalize-messages
+         (#'m.ollama/normalize-messages
           [{:role "user" :content [{:type :text :text "Explain it"}
                                    {:type :text :text "<contexts>a.clj</contexts>"}
                                    {:type :image :media-type "image/png" :base64 "AAAA"}
@@ -133,7 +133,7 @@
                                     :arguments {}}}]}
           {:role "tool" :content "Allowed directories: /foo/bar\n"}
           {:role "assistant" :content "I see /foo/bar"}]
-         (#'llm-providers.ollama/normalize-messages
+         (#'m.ollama/normalize-messages
           [{:role "user" :content "List the files you are allowed"}
            {:role "assistant" :content "Ok!"}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
@@ -151,7 +151,7 @@
            :content "I should read the file first.\n\nReading the file."
            :tool_calls [{:type "function"
                          :function {:name "eca__read_file" :arguments {"path" "/a"}}}]}]
-         (#'llm-providers.ollama/normalize-messages
+         (#'m.ollama/normalize-messages
           [{:role "user" :content "Add a todo"}
            {:role "reason" :content {:id "r1" :text "I should read the file first."}}
            {:role "assistant" :content "Reading the file."}
@@ -162,7 +162,7 @@
          [{:role "assistant" :content "First." :tool_calls [{:function {:name "eca__read_file"}}]}
           {:role "tool" :content "file body\n"}
           {:role "assistant" :content "Second.\n\nDone."}]
-         (#'llm-providers.ollama/normalize-messages
+         (#'m.ollama/normalize-messages
           [{:role "reason" :content {:id "r1" :text "First."}}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__read_file" :arguments {}}}
            {:role "tool_call_output" :content {:id "call-1" :full-name "eca__read_file" :arguments {}
@@ -174,7 +174,7 @@
          [{:role "assistant"
            :tool_calls [{:function {:name "eca__read_file"}}
                         {:function {:name "eca__grep"}}]}]
-         (#'llm-providers.ollama/normalize-messages
+         (#'m.ollama/normalize-messages
           [{:role "tool_call" :content {:id "c1" :full-name "eca__read_file" :arguments {}}}
            {:role "tool_call" :content {:id "c2" :full-name "eca__grep" :arguments {}}}])))))
 
@@ -187,7 +187,7 @@
                                 (is (= :stream (:as opts)))
                                 {:status 200
                                  :body stream-body})]
-        (llm-providers.ollama/chat!
+        (m.ollama/chat!
          {:model "test-model"
           :instructions "System prompt"
           :user-messages [{:role "user" :content "hello"}]
@@ -228,7 +228,7 @@
                      usage-callback?
                      (assoc :on-usage-updated (fn [usage] (swap! events* conj [:usage usage]))))]
      (with-redefs [http/post (fn [_url _opts] {:status 200 :body stream-body})]
-       (llm-providers.ollama/chat!
+       (m.ollama/chat!
         {:model "test-model"
          :instructions "System prompt"
          :user-messages [{:role "user" :content "hello"}]

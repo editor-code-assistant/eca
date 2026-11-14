@@ -8,7 +8,7 @@
    [eca.messenger :as messenger]
    [eca.modules :as modules]
    [eca.modules.events :as events]
-   [eca.modules.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -389,7 +389,7 @@
 
 (defn ^:private compact-hook-data
   [db chat-ctx trigger extra]
-  (merge (f.hooks/chat-hook-data db chat-ctx)
+  (merge (m.hooks/chat-hook-data db chat-ctx)
          {:triggered trigger}
          extra))
 
@@ -414,7 +414,7 @@
   [acc result]
   (let [parsed (:parsed result)
         success? (zero? (:exit result))
-        exit-code-2? (= f.hooks/hook-rejection-exit-code (:exit result))
+        exit-code-2? (= m.hooks/hook-rejection-exit-code (:exit result))
         stop-turn-result? (and success? (false? (get parsed "continue" true)))]
     (cond
       ;; continue:false blocks compaction and stops the turn (with optional stopReason).
@@ -445,7 +445,7 @@
                            :hook-name nil
                            :stop-turn? false})
         db @db*]
-    (f.hooks/trigger-if-matches!
+    (m.hooks/trigger-if-matches!
      :preCompact
      (compact-hook-data db chat-ctx trigger
                         {:custom-instructions (or custom-instructions "")})
@@ -519,7 +519,7 @@
                            :stop-reason nil
                            :stop-hook-name nil
                            :additional-contexts []})]
-    (f.hooks/trigger-if-matches!
+    (m.hooks/trigger-if-matches!
      :postCompact
      (compact-hook-data db chat-ctx trigger
                         {:compact-summary (or compact-summary "")})
@@ -718,7 +718,7 @@
         follow-up-active? (get-in db [:chats chat-id :follow-up-active?])
         ;; follow-up-active is always sent as a boolean (documented contract),
         ;; so hook authors can rely on the key being present as true or false.
-        base-hook-data (assoc-some (f.hooks/chat-hook-data db chat-ctx)
+        base-hook-data (assoc-some (m.hooks/chat-hook-data db chat-ctx)
                                    :response response
                                    :follow-up-active (boolean follow-up-active?))
         cb {:on-before-action (partial notify-before-hook-action! chat-ctx)
@@ -727,12 +727,12 @@
                                (swap! results* conj result))}
         ;; postRequest is primary-only. Subagent chats use subagentPostRequest.
         _ (if subagent?
-            (f.hooks/trigger-if-matches! :subagentPostRequest
+            (m.hooks/trigger-if-matches! :subagentPostRequest
                                          (assoc base-hook-data :parent-chat-id (db/parent-chat-id db chat-id))
                                          cb
                                          db
                                          config)
-            (f.hooks/trigger-if-matches! :postRequest base-hook-data cb db config))
+            (m.hooks/trigger-if-matches! :postRequest base-hook-data cb db config))
         hook-results @results*
         follow-ups (->> hook-results
                         (keep (fn [{:keys [parsed exit raw-error]}]
@@ -740,12 +740,12 @@
                                   (zero? exit)
                                   (shared/not-blank (get parsed "followUp"))
 
-                                  (= f.hooks/hook-rejection-exit-code exit)
+                                  (= m.hooks/hook-rejection-exit-code exit)
                                   (shared/not-blank raw-error))))
                         seq)
         follow-up-text (some->> follow-ups (string/join "\n\n"))
         stop-result (some (fn [{:keys [parsed name] :as result}]
-                            (when (f.hooks/successful-continue-false? result)
+                            (when (m.hooks/successful-continue-false? result)
                               {:stop-reason (shared/not-blank (get parsed "stopReason"))
                                :stop-hook-name name}))
                           hook-results)]
@@ -810,7 +810,7 @@
    Dedup state is stored at [:chats chat-id :last-status-payload]. Missing chats
    are ignored."
   [{:keys [db* chat-id config] :as chat-ctx}]
-  (let [hooks? (some #(= :chatStatusChanged (keyword (:type %))) (vals (f.hooks/active-hooks config)))
+  (let [hooks? (some #(= :chatStatusChanged (keyword (:type %))) (vals (m.hooks/active-hooks config)))
         handlers? (seq (events/handlers config :chat/status-changed))]
     (when (or hooks? handlers?)
       (let [path [:chats chat-id :last-status-payload]
@@ -834,9 +834,9 @@
                                         :waiting-reason (:waiting-reason payload)
                                         :parent-chat-id parent-chat-id)))
             (when hooks?
-              (f.hooks/trigger-if-matches!
+              (m.hooks/trigger-if-matches!
                :chatStatusChanged
-               (merge (f.hooks/chat-hook-data new-db chat-ctx)
+               (merge (m.hooks/chat-hook-data new-db chat-ctx)
                       (when parent-chat-id
                         {:parent-chat-id parent-chat-id})
                       (dissoc payload :chat-id))

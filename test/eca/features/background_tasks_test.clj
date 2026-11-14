@@ -3,7 +3,7 @@
    [babashka.process :as p]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.features.background-tasks :as bg]
-   [eca.modules.tools.shell.background :as tools.bg]
+   [eca.modules.tools.shell.background :as m.shell.background]
    [matcher-combinators.test :refer [match?]])
   (:import
    [java.io ByteArrayInputStream]))
@@ -242,7 +242,7 @@
 
 (deftest bg-job-tool-list-test
   (with-redefs [p/destroy-tree (constantly nil)]
-    (let [handler (get-in tools.bg/definitions ["bg_job" :handler])]
+    (let [handler (get-in m.shell.background/definitions ["bg_job" :handler])]
 
       (testing "list with no jobs"
         (is (match? {:error false
@@ -265,7 +265,7 @@
 
 (deftest bg-job-tool-read-output-test
   (with-redefs [p/destroy-tree (constantly nil)]
-    (let [handler (get-in tools.bg/definitions ["bg_job" :handler])]
+    (let [handler (get-in m.shell.background/definitions ["bg_job" :handler])]
 
       (testing "read_output requires job_id"
         (is (match? {:error true
@@ -294,7 +294,7 @@
 
 (deftest bg-job-tool-kill-test
   (with-redefs [p/destroy-tree (constantly nil)]
-    (let [handler (get-in tools.bg/definitions ["bg_job" :handler])]
+    (let [handler (get-in m.shell.background/definitions ["bg_job" :handler])]
 
       (testing "kill requires job_id"
         (is (match? {:error true
@@ -333,7 +333,7 @@
                       (handler {"action" "kill" "job_id" (:id job)} {}))))))))
 
 (deftest bg-job-tool-unknown-action-test
-  (let [handler (get-in tools.bg/definitions ["bg_job" :handler])]
+  (let [handler (get-in m.shell.background/definitions ["bg_job" :handler])]
     (testing "unknown action returns error"
       (is (match? {:error true
                    :contents [{:type :text :text #"Unknown action"}]}

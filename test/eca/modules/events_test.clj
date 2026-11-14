@@ -2,7 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.modules :as modules]
-   [eca.modules.core :as f.core]
+   [eca.modules.core :as m.core]
    [eca.modules.events :as events]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -17,7 +17,7 @@
 
 (defmacro ^:private with-modules [modules & body]
   `(with-redefs [modules/built-in-modules
-                 (constantly (into [f.core/module {:id :test/events :defines {:events test-events}}] ~modules))]
+                 (constantly (into [m.core/module {:id :test/events :defines {:events test-events}}] ~modules))]
      ~@body))
 
 (deftest core-events-test

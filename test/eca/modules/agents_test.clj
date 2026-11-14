@@ -4,7 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.interpolation :as interpolation]
-   [eca.modules.agents :as agents]
+   [eca.modules.agents :as m.agents]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -74,7 +74,7 @@
                   "\n"
                   "You should run sleep 1 and return \"I sleeped 1 second\"")
           parsed (shared/parse-md md)
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (match? {:description "You sleep one second when asked"
                    :mode "subagent"
                    :defaultModel "my-org-anthropic/sonnet-4.5"
@@ -88,32 +88,32 @@
 
   (testing "variant is trimmed without changing case"
     (is (= "XHigh"
-           (:variant (#'agents/md->agent-config {:variant "  XHigh  "})))))
+           (:variant (#'m.agents/md->agent-config {:variant "  XHigh  "})))))
 
   (testing "blank or malformed variant is ignored"
     (doseq [variant [nil "" "  " 42 [] {}]]
-      (is (nil? (:variant (#'agents/md->agent-config {:variant variant}))))))
+      (is (nil? (:variant (#'m.agents/md->agent-config {:variant variant}))))))
 
   (testing "maxSteps takes precedence over the legacy steps alias"
     (is (= 7
-           (:maxSteps (#'agents/md->agent-config {:maxSteps 7
-                                                  :steps 3})))))
+           (:maxSteps (#'m.agents/md->agent-config {:maxSteps 7
+                                                    :steps 3})))))
 
   (testing "timeoutSeconds is parsed from frontmatter"
     (is (= 1200
-           (:timeoutSeconds (#'agents/md->agent-config
+           (:timeoutSeconds (#'m.agents/md->agent-config
                              (shared/parse-md "---\ndescription: Slow\ntimeoutSeconds: 1200\n---\n\nPrompt"))))))
 
   (testing "missing or malformed timeoutSeconds is ignored"
     (doseq [timeout [nil "20m" 0 -5 [] {}]]
-      (is (nil? (:timeoutSeconds (#'agents/md->agent-config {:timeoutSeconds timeout}))))))
+      (is (nil? (:timeoutSeconds (#'m.agents/md->agent-config {:timeoutSeconds timeout}))))))
 
   (testing "tool entries with regex patterns"
     (let [parsed {:tools {"byDefault" "ask"
                           "allow" ["eca__shell_command(npm run .*)"
                                    "eca__shell_command(git commit .*)"
                                    "eca__read_file"]}}
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (match? {:toolCall {:approval {:byDefault "ask"
                                          :allow {"eca__shell_command" {:argsMatchers {"command" ["npm run .*" "git commit .*"]}}
                                                  "eca__read_file" {}}}}}
@@ -121,19 +121,19 @@
 
   (testing "tool entry with pattern for unknown tool arg (no tool-arg-name entry)"
     (let [parsed {:tools {"allow" ["eca__read_file(/tmp/.*)"]}}
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (match? {:toolCall {:approval {:allow {"eca__read_file" {}}}}}
                   config))))
 
   (testing "single tool with pattern"
     (let [parsed {:tools {"allow" ["eca__shell_command(git diff(\\s+.*)?)"]}}
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (match? {:toolCall {:approval {:allow {"eca__shell_command" {:argsMatchers {"command" ["git diff(\\s+.*)?"]}}}}}}
                   config))))
 
   (testing "minimal agent with only description and body"
     (let [parsed (shared/parse-md "---\ndescription: Simple agent\nmode: subagent\n---\n\nDo stuff")
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (match? {:description "Simple agent"
                    :mode "subagent"
                    :systemPrompt "Do stuff"}
@@ -144,12 +144,12 @@
 
   (testing "agent with no tools config omits toolCall"
     (let [parsed (shared/parse-md "---\ndescription: No tools\n---\n\nPrompt")
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (nil? (:toolCall config)))))
 
   (testing "agent with no mode produces config without :mode (consumers default to both modes)"
     (let [parsed (shared/parse-md "---\ndescription: An unspecified-mode agent\n---\n\nDo work.")
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (= "An unspecified-mode agent" (:description config)))
       (is (= "Do work." (:systemPrompt config)))
       (is (nil? (:mode config)))))
@@ -163,7 +163,7 @@
                   "---\n\n"
                   "Body.")
           parsed (shared/parse-md md)
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (= ["primary" "subagent"] (:mode config)))))
 
   (testing "spawnableBy string is normalized to one agent id"
@@ -172,7 +172,7 @@
                                        "spawnableBy: '  Duel  '\n"
                                        "---\n\n"
                                        "Body."))
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (= "duel" (:spawnableBy config)))))
 
   (testing "spawnableBy collection is normalized to distinct agent ids"
@@ -184,20 +184,20 @@
                                        "  - duel\n"
                                        "---\n\n"
                                        "Body."))
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (= ["duel" "another-orchestrator"] (:spawnableBy config)))))
 
   (testing "omitted or empty spawnableBy preserves unrestricted configuration"
-    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"}))))
-    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"
-                                                        :spawnableBy []})))))
+    (is (nil? (:spawnableBy (#'m.agents/md->agent-config {:description "open"}))))
+    (is (nil? (:spawnableBy (#'m.agents/md->agent-config {:description "open"
+                                                          :spawnableBy []})))))
 
   (testing "malformed spawnableBy is ignored"
-    (is (nil? (:spawnableBy (#'agents/md->agent-config {:description "open"
-                                                        :spawnableBy 42}))))
+    (is (nil? (:spawnableBy (#'m.agents/md->agent-config {:description "open"
+                                                          :spawnableBy 42}))))
     (is (= ["duel"]
-           (:spawnableBy (#'agents/md->agent-config {:description "partially valid"
-                                                     :spawnableBy ["duel" 42 nil]})))))
+           (:spawnableBy (#'m.agents/md->agent-config {:description "partially valid"
+                                                       :spawnableBy ["duel" 42 nil]})))))
 
   (testing "disabledTools list is normalized to a vector of strings"
     (let [md (str "---\n"
@@ -209,22 +209,22 @@
                   "---\n\n"
                   "Body.")
           parsed (shared/parse-md md)
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (= ["clojure-mcp" "eca__shell_command" ".*_file"]
              (:disabledTools config)))))
 
   (testing "disabledTools single string becomes a vector"
     (is (= ["clojure-mcp"]
-           (:disabledTools (#'agents/md->agent-config {:description "a"
-                                                       :disabledTools "clojure-mcp"})))))
+           (:disabledTools (#'m.agents/md->agent-config {:description "a"
+                                                         :disabledTools "clojure-mcp"})))))
 
   (testing "omitted, empty or malformed disabledTools is ignored"
-    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a"}))))
-    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a" :disabledTools []}))))
-    (is (nil? (:disabledTools (#'agents/md->agent-config {:description "a" :disabledTools 42}))))
+    (is (nil? (:disabledTools (#'m.agents/md->agent-config {:description "a"}))))
+    (is (nil? (:disabledTools (#'m.agents/md->agent-config {:description "a" :disabledTools []}))))
+    (is (nil? (:disabledTools (#'m.agents/md->agent-config {:description "a" :disabledTools 42}))))
     (is (= ["ok"]
-           (:disabledTools (#'agents/md->agent-config {:description "a"
-                                                       :disabledTools ["ok" "" nil]})))))
+           (:disabledTools (#'m.agents/md->agent-config {:description "a"
+                                                         :disabledTools ["ok" "" nil]})))))
 
   (testing "mcpToolSearch map form mirrors the config shape"
     (let [md (str "---\n"
@@ -237,7 +237,7 @@
                   "    - k8s-mcp__get_.*\n"
                   "---\n\n"
                   "Body.")
-          config (#'agents/md->agent-config (shared/parse-md md))]
+          config (#'m.agents/md->agent-config (shared/parse-md md))]
       (is (= {:deferAllWhenTotalTokensExceedPercentOfContext 10
               :includePattern [".*"]
               :excludePattern ["k8s-mcp__get_.*"]}
@@ -250,7 +250,7 @@
                   "  deferAllWhenTotalTokensExceedPercentOfContext: null\n"
                   "---\n\n"
                   "Body.")
-          config (#'agents/md->agent-config (shared/parse-md md))]
+          config (#'m.agents/md->agent-config (shared/parse-md md))]
       (is (= {:deferAllWhenTotalTokensExceedPercentOfContext nil} (:mcpToolSearch config)))))
 
   (testing "mcpToolSearch list shorthand means includePattern"
@@ -261,18 +261,18 @@
                   "  - other-mcp__.*\n"
                   "---\n\n"
                   "Body.")
-          config (#'agents/md->agent-config (shared/parse-md md))]
+          config (#'m.agents/md->agent-config (shared/parse-md md))]
       (is (= {:includePattern [".*" "other-mcp__.*"]} (:mcpToolSearch config)))))
 
   (testing "mcpToolSearch string shorthand means includePattern"
-    (let [config (#'agents/md->agent-config {:description "a" :mcpToolSearch ".*"})]
+    (let [config (#'m.agents/md->agent-config {:description "a" :mcpToolSearch ".*"})]
       (is (= {:includePattern [".*"]} (:mcpToolSearch config)))))
 
   (testing "omitted, empty or malformed mcpToolSearch is ignored"
-    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a"}))))
-    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a" :mcpToolSearch 42}))))
-    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a" :mcpToolSearch []}))))
-    (is (nil? (:mcpToolSearch (#'agents/md->agent-config {:description "a" :mcpToolSearch {}})))))
+    (is (nil? (:mcpToolSearch (#'m.agents/md->agent-config {:description "a"}))))
+    (is (nil? (:mcpToolSearch (#'m.agents/md->agent-config {:description "a" :mcpToolSearch 42}))))
+    (is (nil? (:mcpToolSearch (#'m.agents/md->agent-config {:description "a" :mcpToolSearch []}))))
+    (is (nil? (:mcpToolSearch (#'m.agents/md->agent-config {:description "a" :mcpToolSearch {}})))))
 
   (testing "tools as a YAML list normalizes to byDefault=ask + allow map (Claude form)"
     (let [md (str "---\n"
@@ -284,7 +284,7 @@
                   "---\n\n"
                   "Body.")
           parsed (shared/parse-md md)
-          config (#'agents/md->agent-config parsed)]
+          config (#'m.agents/md->agent-config parsed)]
       (is (match? {:description "Reviewer"
                    :systemPrompt "Body."
                    :toolCall {:approval {:byDefault "ask"
@@ -294,31 +294,31 @@
                   config))))
 
   (testing "tools as a malformed string is ignored without crashing the agent"
-    (let [config (#'agents/md->agent-config {:description "no tools" :tools "read"})]
+    (let [config (#'m.agents/md->agent-config {:description "no tools" :tools "read"})]
       (is (= "no tools" (:description config)))
       (is (nil? (:toolCall config)))))
 
   (testing "tools as a number is ignored without crashing the agent"
-    (let [config (#'agents/md->agent-config {:description "no tools" :tools 42})]
+    (let [config (#'m.agents/md->agent-config {:description "no tools" :tools 42})]
       (is (= "no tools" (:description config)))
       (is (nil? (:toolCall config))))))
 
 (deftest normalize-tools-test
   (testing "map form passes through unchanged"
     (is (= {"byDefault" "ask" "allow" ["read"]}
-           (#'agents/normalize-tools {"byDefault" "ask" "allow" ["read"]}))))
+           (#'m.agents/normalize-tools {"byDefault" "ask" "allow" ["read"]}))))
   (testing "vector form is wrapped as byDefault=ask + allow"
     (is (= {"byDefault" "ask" "allow" ["read" "search"]}
-           (#'agents/normalize-tools ["read" "search"]))))
+           (#'m.agents/normalize-tools ["read" "search"]))))
   (testing "list form (clojure list) is also accepted"
     (is (= {"byDefault" "ask" "allow" ["read" "search"]}
-           (#'agents/normalize-tools '("read" "search")))))
+           (#'m.agents/normalize-tools '("read" "search")))))
   (testing "nil returns nil"
-    (is (nil? (#'agents/normalize-tools nil))))
+    (is (nil? (#'m.agents/normalize-tools nil))))
   (testing "string returns nil (treated as malformed)"
-    (is (nil? (#'agents/normalize-tools "read"))))
+    (is (nil? (#'m.agents/normalize-tools "read"))))
   (testing "number returns nil (treated as malformed)"
-    (is (nil? (#'agents/normalize-tools 42)))))
+    (is (nil? (#'m.agents/normalize-tools 42)))))
 
 (deftest md-agents-from-directory-test
   (let [tmp-dir (fs/create-temp-dir)
@@ -344,8 +344,8 @@
       ;; Non-md files should be ignored (glob *.md)
       (spit (fs/file agents-dir "notes.txt") "not an agent")
 
-      (let [reviewer (#'agents/agent-md-file->agent (fs/file agents-dir "reviewer.md"))
-            sleeper (#'agents/agent-md-file->agent (fs/file agents-dir "sleeper.md"))]
+      (let [reviewer (#'m.agents/agent-md-file->agent (fs/file agents-dir "reviewer.md"))
+            sleeper (#'m.agents/agent-md-file->agent (fs/file agents-dir "sleeper.md"))]
         (is (match? ["reviewer" {:description "Reviews code changes"
                                  :mode "subagent"
                                  :defaultModel "anthropic/sonnet-4.5"
@@ -374,7 +374,7 @@
                  "Run the test suite."))
 
       (let [roots [{:uri (shared/filename->uri (str tmp-dir))}]
-            md-agents (agents/all-md-agents roots)]
+            md-agents (m.agents/all-md-agents roots)]
         (is (match? {"tester" {:description "Runs tests"
                                :mode "subagent"
                                :maxSteps 3
@@ -440,7 +440,7 @@
                    "mode: subagent\n"
                    "---\n\n"
                    "Follow this style: ${file:./fragments/style.md}"))
-        (let [[agent-name config] (#'agents/agent-md-file->agent (fs/file agents-dir "stylist.md"))]
+        (let [[agent-name config] (#'m.agents/agent-md-file->agent (fs/file agents-dir "stylist.md"))]
           (is (= "stylist" agent-name))
           (is (= "Follow this style: Always be concise." (:systemPrompt config)))))
 
@@ -452,7 +452,7 @@
                      "model: ${env:TEST_MODEL:anthropic/haiku-3}\n"
                      "---\n\n"
                      "Prompt."))
-          (let [[_ config] (#'agents/agent-md-file->agent (fs/file agents-dir "env-agent.md"))]
+          (let [[_ config] (#'m.agents/agent-md-file->agent (fs/file agents-dir "env-agent.md"))]
             (is (= "anthropic/sonnet-4" (:defaultModel config))))))
 
       (testing "resolves ${env:...} default value when env var is not set"
@@ -463,7 +463,7 @@
                      "model: ${env:UNSET_VAR:anthropic/haiku-3}\n"
                      "---\n\n"
                      "Prompt."))
-          (let [[_ config] (#'agents/agent-md-file->agent (fs/file agents-dir "default-agent.md"))]
+          (let [[_ config] (#'m.agents/agent-md-file->agent (fs/file agents-dir "default-agent.md"))]
             (is (= "anthropic/haiku-3" (:defaultModel config))))))
       (finally
         (fs/delete-tree tmp-dir)))))
@@ -479,33 +479,33 @@
                  "mode: subagent\n"
                  "---\n\n"
                  "Prompt."))
-      (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "My-Reviewer.md"))]
+      (let [[agent-name _] (#'m.agents/agent-md-file->agent (fs/file agents-dir "My-Reviewer.md"))]
         (is (= "my-reviewer" agent-name)))
       (finally
         (fs/delete-tree tmp-dir)))))
 
 (deftest agent-name-from-frontmatter-test
   (testing "honors YAML name and lowercases it"
-    (is (= "some-role" (#'agents/agent-name-from-frontmatter {:name "Some-Role"}))))
+    (is (= "some-role" (#'m.agents/agent-name-from-frontmatter {:name "Some-Role"}))))
   (testing "trims surrounding whitespace"
-    (is (= "foo" (#'agents/agent-name-from-frontmatter {:name "  Foo  "}))))
+    (is (= "foo" (#'m.agents/agent-name-from-frontmatter {:name "  Foo  "}))))
   (testing "stringifies non-string values"
-    (is (= "123" (#'agents/agent-name-from-frontmatter {:name 123}))))
+    (is (= "123" (#'m.agents/agent-name-from-frontmatter {:name 123}))))
   (testing "returns nil when name is absent"
-    (is (nil? (#'agents/agent-name-from-frontmatter {:description "no name"}))))
+    (is (nil? (#'m.agents/agent-name-from-frontmatter {:description "no name"}))))
   (testing "returns nil when name is blank"
-    (is (nil? (#'agents/agent-name-from-frontmatter {:name "   "})))
-    (is (nil? (#'agents/agent-name-from-frontmatter {:name ""})))))
+    (is (nil? (#'m.agents/agent-name-from-frontmatter {:name "   "})))
+    (is (nil? (#'m.agents/agent-name-from-frontmatter {:name ""})))))
 
 (deftest agent-name-from-filename-test
   (testing "single extension"
-    (is (= "architect" (#'agents/agent-name-from-filename (fs/file "architect.md")))))
+    (is (= "architect" (#'m.agents/agent-name-from-filename (fs/file "architect.md")))))
   (testing "multi-extension Claude-style file"
-    (is (= "architect" (#'agents/agent-name-from-filename (fs/file "architect.agent.md")))))
+    (is (= "architect" (#'m.agents/agent-name-from-filename (fs/file "architect.agent.md")))))
   (testing "lowercases the result"
-    (is (= "my-agent" (#'agents/agent-name-from-filename (fs/file "My-Agent.md")))))
+    (is (= "my-agent" (#'m.agents/agent-name-from-filename (fs/file "My-Agent.md")))))
   (testing "handles filenames with multiple dots"
-    (is (= "foo" (#'agents/agent-name-from-filename (fs/file "foo.bar.baz.md"))))))
+    (is (= "foo" (#'m.agents/agent-name-from-filename (fs/file "foo.bar.baz.md"))))))
 
 (deftest claude-tools-list-loads-agent-test
   (let [tmp-dir (fs/create-temp-dir)
@@ -523,7 +523,7 @@
                  "  - agent\n"
                  "---\n\n"
                  "You are a reviewer."))
-      (let [result (#'agents/agent-md-file->agent (fs/file agents-dir "glp-engineer.agent.md"))]
+      (let [result (#'m.agents/agent-md-file->agent (fs/file agents-dir "glp-engineer.agent.md"))]
         (testing "agent is loaded (not silently dropped by tools-list parse error)"
           (is (some? result)))
         (testing "agent id comes from YAML name"
@@ -546,7 +546,7 @@
                    "description: Name override\n"
                    "---\n\n"
                    "Body."))
-        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "Whatever.md"))]
+        (let [[agent-name _] (#'m.agents/agent-md-file->agent (fs/file agents-dir "Whatever.md"))]
           (is (= "my-custom-name" agent-name))))
 
       (testing "Claude-style .agent.md falls back to part before first dot when no YAML name"
@@ -555,7 +555,7 @@
                    "description: Architect persona\n"
                    "---\n\n"
                    "Body."))
-        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "architect.agent.md"))]
+        (let [[agent-name _] (#'m.agents/agent-md-file->agent (fs/file agents-dir "architect.agent.md"))]
           (is (= "architect" agent-name))))
 
       (testing "YAML name wins over multi-extension filename"
@@ -565,7 +565,7 @@
                    "description: Engineer persona\n"
                    "---\n\n"
                    "Body."))
-        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "engineer.agent.md"))]
+        (let [[agent-name _] (#'m.agents/agent-md-file->agent (fs/file agents-dir "engineer.agent.md"))]
           (is (= "senior-engineer" agent-name))))
 
       (testing "blank YAML name falls back to filename"
@@ -575,7 +575,7 @@
                    "description: Blank name\n"
                    "---\n\n"
                    "Body."))
-        (let [[agent-name _] (#'agents/agent-md-file->agent (fs/file agents-dir "fallback.md"))]
+        (let [[agent-name _] (#'m.agents/agent-md-file->agent (fs/file agents-dir "fallback.md"))]
           (is (= "fallback" agent-name))))
       (finally
         (fs/delete-tree tmp-dir)))))

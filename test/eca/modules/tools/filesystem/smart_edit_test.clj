@@ -1,7 +1,7 @@
 (ns eca.modules.tools.filesystem.smart-edit-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as string]
-            [eca.modules.tools.filesystem.smart-edit :as smart-edit]))
+            [eca.modules.tools.filesystem.smart-edit :as m.filesystem.smart-edit]))
 
 (deftest regex-start-of-line-flexible-whitespace-test
   (testing "Regex tier matches start-of-line with flexible inner whitespace and preserves indentation when unique"
@@ -12,7 +12,7 @@
                             "post\n")
           original "function myFunc(a, b) {"
           new "const yourFunc = (a, b) => {"
-          res (smart-edit/apply-smart-edit file-content original new "/tmp/file.js")]
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original new "/tmp/file.js")]
       (is (= file-content (:original-full-content res)))
       (is (string/includes? (:new-full-content res) "  const yourFunc = (a, b) => {"))
       (is (= :regex (:strategy res)))
@@ -26,7 +26,7 @@
                             "  }\n")
           original "function m(a) {"
           new "const price = '$100' and \\path"
-          res (smart-edit/apply-smart-edit file-content original new "/tmp/file.js")
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original new "/tmp/file.js")
           expected (str "pre\n"
                         "  const price = '$100' and \\path\n"
                         "  }\n")]
@@ -41,7 +41,7 @@
                             "    next\n")
           original "a\n\nc"
           new "x\n\ny"
-          res (smart-edit/apply-smart-edit file-content original new "/tmp/file.txt")
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original new "/tmp/file.txt")
           expected (str "    x\n"
                         "    \n"
                         "    y\n"
@@ -56,7 +56,7 @@
                             "  }\r\n")
           original "function m(a) {"
           new "const y = (a) => {"
-          res (smart-edit/apply-smart-edit file-content original new "/tmp/file.js")
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original new "/tmp/file.js")
           expected (str "head\r\n"
                         "  const y = (a) => {\r\n"
                         "  }\r\n")]
@@ -74,7 +74,7 @@
                             "  b\n")
           original (str "a\n"
                         "b")
-          res (smart-edit/apply-smart-edit file-content original "X" "/tmp/file.txt")]
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original "X" "/tmp/file.txt")]
       (is (= :ambiguous (:error res)))
       (is (= 2 (:match-count res))))))
 
@@ -85,7 +85,7 @@
                             "  function myFunc(a,b){\n"
                             "}\n")
           original "function myFunc(a, b) {"
-          res (smart-edit/apply-smart-edit file-content original "const z=(a,b)=>{" "/tmp/file.js")]
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original "const z=(a,b)=>{" "/tmp/file.js")]
       (is (= :ambiguous (:error res)))
       (is (= 2 (:match-count res))))))
 
@@ -94,7 +94,7 @@
     (let [file-content "function  f ( a , b ) ;\n"
           original "function f(a,b);"
           new "function g(a,b);"
-          res (smart-edit/apply-smart-edit file-content original new "/tmp/file.js")]
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original new "/tmp/file.js")]
       (is (= :regex (:strategy res)))
       (is (= "function g(a,b);\n" (:new-full-content res))))))
 
@@ -106,5 +106,5 @@
           ;; Include leading spaces so exact/normalized substring won't match mid-line
           original "  myFunc(a, b) {"
           new "  myFuncRenamed(a, b) {"
-          res (smart-edit/apply-smart-edit file-content original new "/tmp/file.js")]
+          res (m.filesystem.smart-edit/apply-smart-edit file-content original new "/tmp/file.js")]
       (is (= :not-found (:error res))))))

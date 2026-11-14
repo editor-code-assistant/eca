@@ -10,7 +10,7 @@
    [eca.features.chat.tool-calls :as tc]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
-   [eca.modules.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -34,8 +34,8 @@
                                               :shell "echo hey"}]}}})
     (let [on-before-action* (atom nil)
           on-after-action* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches!
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches!
          :preRequest
          {:foo "1"}
          {:on-before-action (set-action-payload on-before-action*)
@@ -52,16 +52,16 @@
                                    :actions [{:type "shell" :shell "echo hey"}]}}})
     (let [result* (atom nil)]
       ;; Should NOT match
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "other-mcp" :tool-name "my-tool"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
       (is (nil? @result*))
 
       ;; Should match
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "my-mcp" :tool-name "my-tool"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -73,15 +73,15 @@
                                        :matcher "manual"
                                        :actions [{:type "shell" :shell "echo hey"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches! :preCompact
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches! :preCompact
                                      {:triggered "auto"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
       (is (nil? @result*))
 
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches! :preCompact
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches! :preCompact
                                      {:triggered "manual"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -92,11 +92,11 @@
     (h/config! {:hooks {"all-compact" {:type "preCompact"
                                        :actions [{:type "shell" :shell "echo hey"}]}}})
     (let [triggers* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (swap! triggers* conj (:triggered (json/parse-string input true)))
                                             {:exit 0 :out "hey" :err nil})]
         (doseq [triggered ["manual" "auto"]]
-          (f.hooks/trigger-if-matches! :preCompact
+          (m.hooks/trigger-if-matches! :preCompact
                                        {:triggered triggered}
                                        {}
                                        (h/db) (h/config))))
@@ -110,8 +110,8 @@
     (let [result* (atom nil)
           warnings* (atom [])]
       (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))
-                    f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches! :preCompact
+                    m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches! :preCompact
                                      {:triggered "manual"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -128,17 +128,17 @@
                           "b-after" {:type (name hook-type)
                                      :actions [{:type "shell" :shell "echo after"}]}}})
       (let [calls* (atom [])]
-        (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+        (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                               (let [hook-name (:hook_name (json/parse-string input true))]
                                                 (swap! calls* conj hook-name)
                                                 (if (= "a-block" hook-name)
-                                                  {:exit f.hooks/hook-rejection-exit-code
+                                                  {:exit m.hooks/hook-rejection-exit-code
                                                    :out nil
                                                    :err "blocked"}
                                                   {:exit 0
                                                    :out "after"
                                                    :err nil})))]
-          (f.hooks/trigger-if-matches! hook-type data {} (h/db) (h/config)))
+          (m.hooks/trigger-if-matches! hook-type data {} (h/db) (h/config)))
         (is (= ["a-block" "b-after"] @calls*)))))
 
   (testing "exit 0 continue false stops remaining non-chatEnd hooks"
@@ -148,7 +148,7 @@
                         "b-after" {:type "postRequest"
                                    :actions [{:type "shell" :shell "echo after"}]}}})
     (let [calls* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [hook-name (:hook_name (json/parse-string input true))]
                                               (swap! calls* conj hook-name)
                                               (if (= "a-stop" hook-name)
@@ -158,7 +158,7 @@
                                                 {:exit 0
                                                  :out "after"
                                                  :err nil})))]
-        (f.hooks/trigger-if-matches! :postRequest {:prompt "hi"} {} (h/db) (h/config)))
+        (m.hooks/trigger-if-matches! :postRequest {:prompt "hi"} {} (h/db) (h/config)))
       (is (= ["a-stop"] @calls*))))
 
   (testing "non-zero continue false does not stop remaining hooks"
@@ -168,7 +168,7 @@
                         "b-after" {:type "postRequest"
                                    :actions [{:type "shell" :shell "echo after"}]}}})
     (let [calls* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [hook-name (:hook_name (json/parse-string input true))]
                                               (swap! calls* conj hook-name)
                                               (if (= "a-fail" hook-name)
@@ -178,7 +178,7 @@
                                                 {:exit 0
                                                  :out "after"
                                                  :err nil})))]
-        (f.hooks/trigger-if-matches! :postRequest {:prompt "hi"} {} (h/db) (h/config)))
+        (m.hooks/trigger-if-matches! :postRequest {:prompt "hi"} {} (h/db) (h/config)))
       (is (= ["a-fail" "b-after"] @calls*))))
 
   (testing "chatEnd continue false stops remaining hooks"
@@ -188,13 +188,13 @@
                         "b-cleanup" {:type "chatEnd"
                                      :actions [{:type "shell" :shell "echo after"}]}}})
     (let [calls* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [hook-name (:hook_name (json/parse-string input true))]
                                               (swap! calls* conj hook-name)
                                               {:exit 0
                                                :out "{\"continue\":false}"
                                                :err nil}))]
-        (f.hooks/trigger-if-matches! :chatEnd {:chat-id "chat-1"} {} (h/db) (h/config)))
+        (m.hooks/trigger-if-matches! :chatEnd {:chat-id "chat-1"} {} (h/db) (h/config)))
       (is (= ["a-cleanup"] @calls*)))))
 
 ;;; JSON parsing tests
@@ -206,10 +206,10 @@
                                 :actions [{:type "shell"
                                            :shell "echo '{\"additionalContext\":\"test\"}'"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"additionalContext\":\"test\"}"
                                                        :err nil})]
-        (f.hooks/trigger-if-matches! :preRequest {:foo "1"}
+        (m.hooks/trigger-if-matches! :preRequest {:foo "1"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
       (is (= "test" (get-in @result* [:parsed "additionalContext"])))))
@@ -219,8 +219,8 @@
     (h/config! {:hooks {"test" {:type "preRequest"
                                 :actions [{:type "shell" :shell "echo 'plain'"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "plain" :err nil})]
-        (f.hooks/trigger-if-matches! :preRequest {:foo "1"}
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "plain" :err nil})]
+        (m.hooks/trigger-if-matches! :preRequest {:foo "1"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
       (is (nil? (:parsed @result*)))
@@ -235,8 +235,8 @@
                                 :actions [{:type "shell" :file "hooks/definitely-not-here.sh"}]}}})
     (let [result* (atom nil)
           called* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! called* true) {:exit 0 :out nil :err nil})]
-        (f.hooks/trigger-if-matches! :preRequest {:foo "1"}
+      (with-redefs [m.hooks/run-shell-cmd (fn [_] (reset! called* true) {:exit 0 :out nil :err nil})]
+        (m.hooks/trigger-if-matches! :preRequest {:foo "1"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
       (is (false? @called*))
@@ -250,8 +250,8 @@
     (h/config! {:hooks {"test" {:type "preRequest"
                                 :actions [{:type "shell" :file "deps.edn"}]}}})
     (let [opts* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
-        (f.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
+        (m.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
       (is (match? {:file "deps.edn"} @opts*))))
 
   (testing "absolute hook file runs when it exists"
@@ -261,8 +261,8 @@
         (h/config! {:hooks {"test" {:type "preRequest"
                                     :actions [{:type "shell" :file hook-file}]}}})
         (let [opts* (atom nil)]
-          (with-redefs [f.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
-            (f.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
+          (with-redefs [m.hooks/run-shell-cmd (fn [opts] (reset! opts* opts) {:exit 0 :out nil :err nil})]
+            (m.hooks/trigger-if-matches! :preRequest {:foo "1"} {} (h/db) (h/config)))
           (is (match? {:file hook-file} @opts*)))))))
 
 ;;; New features tests
@@ -274,11 +274,11 @@
     (h/config! {:hooks {"test" {:type "preToolCall"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
+        (m.hooks/trigger-if-matches! :preToolCall
+                                     (merge (m.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
                                             {:tool-name "read_file"
                                              :server "eca"
                                              :tool-input {:path "/foo"}
@@ -295,11 +295,11 @@
     (h/config! {:hooks {"test" {:type "postToolCall"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
+        (m.hooks/trigger-if-matches! :postToolCall
+                                     (merge (m.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
                                             {:tool-name "read_file"
                                              :server "eca"
                                              :tool-input {:path "/foo"}
@@ -317,11 +317,11 @@
     (h/config! {:hooks {"test" {:type "postRequest"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :postRequest
-                                     (merge (f.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
+        (m.hooks/trigger-if-matches! :postRequest
+                                     (merge (m.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
                                             {:prompt "test"
                                              :follow-up-active false})
                                      {} (h/db) (h/config)))
@@ -334,7 +334,7 @@
     (h/config! {:hooks {"pr" {:type "postRequest"
                               :actions [{:type "shell" :shell "cat"}]}}})
     (let [input* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -357,7 +357,7 @@
     (h/config! {:hooks {"test" {:type "postRequest"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [input* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -379,7 +379,7 @@
     (h/config! {:hooks {"test" {:type "postRequest"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [input* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -415,7 +415,7 @@
     (h/config! {:hooks {"pr" {:type "postRequest"
                               :actions [{:type "shell" :shell "echo"}]}}})
     (let [ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_]
+      (with-redefs [m.hooks/run-shell-cmd (fn [_]
                                             (reset! ran?* true)
                                             {:exit 0 :out "" :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -432,7 +432,7 @@
     (h/config! {:hooks {"pr" {:type "postRequest"
                               :actions [{:type "shell" :shell "echo"}]}}})
     (let [ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_]
+      (with-redefs [m.hooks/run-shell-cmd (fn [_]
                                             (reset! ran?* true)
                                             {:exit 0 :out "" :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -452,7 +452,7 @@
     (let [finalized?* (atom false)
           after-finish?* (atom false)
           follow-up* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"followUp\":\"please continue\"}"
                                                        :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -476,7 +476,7 @@
                                  :actions [{:type "shell" :shell "echo"}]}}})
     (let [finalized?* (atom false)
           after-finish?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"continue\":false}"
                                                        :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -497,10 +497,10 @@
                                 :actions [{:type "shell"
                                            :shell "echo '{\"approval\":\"deny\",\"additionalContext\":\"Too large\"}'"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"approval\":\"deny\",\"additionalContext\":\"Too large\"}"
                                                        :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "read"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -781,11 +781,11 @@
     (h/config! {:hooks {"test" {:type "sessionStart"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :sessionStart
-                                     (f.hooks/base-hook-data (h/db))
+        (m.hooks/trigger-if-matches! :sessionStart
+                                     (m.hooks/base-hook-data (h/db))
                                      {} (h/db) (h/config)))
       (is (contains? @result* :workspaces))
       (is (contains? @result* :db_cache_path))
@@ -802,11 +802,11 @@
     (h/config! {:hooks {"test" {:type "sessionEnd"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :sessionEnd
-                                     (merge (f.hooks/base-hook-data (h/db))
+        (m.hooks/trigger-if-matches! :sessionEnd
+                                     (merge (m.hooks/base-hook-data (h/db))
                                             {:active-chats-count 2})
                                      {} (h/db) (h/config)))
       (is (= 2 (:active_chats_count @result*)))
@@ -818,11 +818,11 @@
     (h/config! {:hooks {"test" {:type "chatStart"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :chatStart
-                                     (merge (f.hooks/base-hook-data (h/db))
+        (m.hooks/trigger-if-matches! :chatStart
+                                     (merge (m.hooks/base-hook-data (h/db))
                                             {:chat-id "new-chat"
                                              :resumed false})
                                      {} (h/db) (h/config)))
@@ -834,11 +834,11 @@
     (h/config! {:hooks {"test" {:type "chatEnd"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :chatEnd
-                                     (merge (f.hooks/base-hook-data (h/db))
+        (m.hooks/trigger-if-matches! :chatEnd
+                                     (merge (m.hooks/base-hook-data (h/db))
                                             {:chat-id "chat-1"
                                              :title "Test"
                                              :message-count 10})
@@ -856,7 +856,7 @@
                                 :visible false
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [input* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
         (is (= {:blocked? false :reason nil :hook-name nil :stop-turn? false}
@@ -885,7 +885,7 @@
     (h/config! {:hooks {"test" {:type "preCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false,\"stopReason\":\"not now\"}"
                                                      :err nil})]
       (is (= {:blocked? true :reason "not now" :hook-name "test" :stop-turn? true}
@@ -901,7 +901,7 @@
     (h/config! {:hooks {"test" {:type "preCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false}"
                                                      :err "do not show"})]
       (is (= {:blocked? true :reason nil :hook-name "test" :stop-turn? true}
@@ -917,7 +917,7 @@
     (h/config! {:hooks {"test" {:type "preCompact"
                                 :visible true
                                 :actions [{:type "shell" :shell "exit 2"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit f.hooks/hook-rejection-exit-code
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                      :out nil
                                                      :err "  blocked by policy  "})]
       ;; Exit 2 surfaces no stderr reason, but the blocking hook name is kept.
@@ -935,7 +935,7 @@
     (h/config! {:hooks {"test" {:type "preCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "exit 2"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit f.hooks/hook-rejection-exit-code
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                      :out nil
                                                      :err "  hidden policy  "})]
       ;; Exit 2 surfaces no stderr reason, but the blocking hook name is kept.
@@ -952,7 +952,7 @@
     (h/config! {:hooks {"test" {:type "preCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 1
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 1
                                                      :out "{\"continue\":false,\"stopReason\":\"ignored\"}"
                                                      :err "failed"})]
       (is (= {:blocked? false :reason nil :hook-name nil :stop-turn? false}
@@ -973,7 +973,7 @@
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
     (let [input* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0
                                              :out "{\"additionalContext\":\"resume snapshot\"}"
@@ -1008,7 +1008,7 @@
     (h/config! {:hooks {"test" {:type "postCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false}"
                                                      :err nil})]
       (is (= {:stop-turn? true :stop-reason nil :stop-hook-name "test"}
@@ -1029,7 +1029,7 @@
     (h/config! {:hooks {"test" {:type "postCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "plain resume snapshot"
                                                      :err nil})]
       (lifecycle/run-post-compact-hooks! {:db* (h/db*)
@@ -1050,7 +1050,7 @@
     (h/config! {:hooks {"test" {:type "postCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"additionalContext\":\"\"}"
                                                      :err nil})]
       (is (= {:stop-turn? false :stop-reason nil :stop-hook-name nil}
@@ -1072,7 +1072,7 @@
                                 :actions [{:type "shell" :shell "echo"}]}}})
     (let [warnings* (atom [])]
       (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))
-                    f.hooks/run-shell-cmd (constantly {:exit 0
+                    m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"additionalContext\":\"resume snapshot\"}"
                                                        :err nil})]
         (lifecycle/run-post-compact-hooks! {:db* (h/db*)
@@ -1095,9 +1095,9 @@
     (h/config! {:hooks {"test" {:type "postToolCall"
                                 :actions [{:type "shell" :shell "echo test"}]}}})
     (let [ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
+      (with-redefs [m.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
+        (m.hooks/trigger-if-matches! :postToolCall
+                                     (merge (m.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
                                             {:tool-name "tool" :server "eca" :error true})
                                      {} (h/db) (h/config)))
       (is (false? @ran?*))))
@@ -1109,9 +1109,9 @@
                                 :runOnError true
                                 :actions [{:type "shell" :shell "echo test"}]}}})
     (let [ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
-                                     (merge (f.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
+      (with-redefs [m.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
+        (m.hooks/trigger-if-matches! :postToolCall
+                                     (merge (m.hooks/chat-hook-data (h/db) {:chat-id "chat-1" :agent "code"})
                                             {:tool-name "tool" :server "eca" :error true})
                                      {} (h/db) (h/config)))
       (is (true? @ran?*)))))
@@ -1123,11 +1123,11 @@
     (h/config! {:hooks {"test" {:type "subagentPostRequest"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [opts]
+      (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! result* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :subagentPostRequest
-                                     (merge (f.hooks/chat-hook-data (h/db) {:chat-id "sub-1" :agent "explorer"})
+        (m.hooks/trigger-if-matches! :subagentPostRequest
+                                     (merge (m.hooks/chat-hook-data (h/db) {:chat-id "sub-1" :agent "explorer"})
                                             {:response "found the answer"
                                              :parent-chat-id "parent-1"})
                                      {} (h/db) (h/config)))
@@ -1142,8 +1142,8 @@
     (h/config! {:hooks {"test" {:type "postRequest"
                                 :actions [{:type "shell" :shell "echo hey"}]}}})
     (let [ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :subagentPostRequest
+      (with-redefs [m.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
+        (m.hooks/trigger-if-matches! :subagentPostRequest
                                      {:prompt "task"}
                                      {} (h/db) (h/config)))
       (is (false? @ran?*))))
@@ -1153,8 +1153,8 @@
     (h/config! {:hooks {"test" {:type "subagentPostRequest"
                                 :actions [{:type "shell" :shell "echo hey"}]}}})
     (let [ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :postRequest
+      (with-redefs [m.hooks/run-shell-cmd (fn [_] (reset! ran?* true) {:exit 0 :out "" :err nil})]
+        (m.hooks/trigger-if-matches! :postRequest
                                      {:prompt "task"}
                                      {} (h/db) (h/config)))
       (is (false? @ran?*)))))
@@ -1172,8 +1172,8 @@
                                         "matcher" {"vendor/my-mcp__write_file" {"argsMatchers" {"path" [".*\\.allium$"]}}}
                                         "actions" [{"type" "shell" "shell" "echo ok"}]}}}))
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "vendor/my-mcp" :tool-name "write_file"
                                       :tool-input {"path" "/foo/bar/spec.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1191,8 +1191,8 @@
                                       :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; Should NOT match — wrong extension, with real provider-style string keys.
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/bar/spec.md"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1200,8 +1200,8 @@
       (is (nil? @result*))
 
       ;; Should NOT match — required arg is missing.
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"source" "/foo/bar/spec.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1209,8 +1209,8 @@
       (is (nil? @result*))
 
       ;; Should match — .allium extension, with real provider-style string keys.
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/bar/spec.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1231,8 +1231,8 @@
     (let [native-tools [{:origin :native :name "write_file"}]
           result* (atom nil)]
       ;; Native short selector matches only the ECA native tool.
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file" :tool-input {}}
                                      {:on-after-action (set-action-payload result*)
                                       :native-tools native-tools}
@@ -1241,8 +1241,8 @@
 
       ;; The same short selector must not match an MCP tool with the same name.
       (reset! result* nil)
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "my-mcp" :tool-name "write_file" :tool-input {}}
                                      {:on-after-action (set-action-payload result*)
                                       :native-tools native-tools}
@@ -1255,8 +1255,8 @@
       (h/config! {:hooks {"regex-looking" {:type "preToolCall"
                                            :matcher {".*write_file" {}}
                                            :actions [{:type "shell" :shell "echo ok"}]}}})
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file" :tool-input {}}
                                      {:on-after-action (set-action-payload result*)
                                       :native-tools native-tools}
@@ -1269,8 +1269,8 @@
                                         :matcher {"write_file" {}}
                                         :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :postToolCall
                                      {:server "eca" :tool-name "write_file" :tool-input {}}
                                      {:on-after-action (set-action-payload result*)
                                       :native-tools [{:origin :native :name "write_file"}]}
@@ -1286,8 +1286,8 @@
                                     :matcher {"eca__write_file" {:argsMatchers {"path" ["["]}}}
                                     :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/spec.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1301,8 +1301,8 @@
                                       :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; Should match — empty map = no arg filtering
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/any/path.txt"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1318,8 +1318,8 @@
                                       :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; write_file with .allium → match
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :postToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/spec.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1328,8 +1328,8 @@
 
       ;; write_file with .txt → no match (argsMatchers filters it out)
       (reset! result* nil)
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :postToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/spec.txt"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1338,8 +1338,8 @@
 
       ;; move_file with any path → match (empty map = no filter)
       (reset! result* nil)
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :postToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :postToolCall
                                      {:server "eca" :tool-name "move_file"
                                       :tool-input {"source" "/foo.txt" "destination" "/bar.txt"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1353,8 +1353,8 @@
                                       :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; read_file is NOT in matcher map
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "read_file"
                                       :tool-input {:path "/foo/spec.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1368,8 +1368,8 @@
                                    :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; Should match
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {:path "/any"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1381,8 +1381,8 @@
     (h/config! {:hooks {"my-hook" {:type "preToolCall"
                                    :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "anything"
                                       :tool-input {:path "/any"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1396,8 +1396,8 @@
                                    :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; .allium → match
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/bar.allium"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1406,8 +1406,8 @@
 
       ;; .spec → match
       (reset! result* nil)
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/bar.spec"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1416,8 +1416,8 @@
 
       ;; .txt → no match
       (reset! result* nil)
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/foo/bar.txt"}}
                                      {:on-after-action (set-action-payload result*)}
@@ -1432,8 +1432,8 @@
                                    :actions [{:type "shell" :shell "echo ok"}]}}})
     (let [result* (atom nil)]
       ;; Both args match → match
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/bar.allium"
                                                    "original_content" "foo bar"}}
@@ -1443,8 +1443,8 @@
 
       ;; Only path matches, original_content doesn't → no match
       (reset! result* nil)
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "ok" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file"
                                       :tool-input {"path" "/bar.allium"
                                                    "original_content" "no match here"}}
@@ -1460,8 +1460,8 @@
     (h/config! {:hooks {"test" {:type "preRequest"
                                 :actions [{:type "shell" :shell "echo plain"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "plain text" :err nil})]
-        (f.hooks/trigger-if-matches! :preRequest
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "plain text" :err nil})]
+        (m.hooks/trigger-if-matches! :preRequest
                                      {:foo "1"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -1474,10 +1474,10 @@
     (h/config! {:hooks {"test" {:type "preRequest"
                                 :actions [{:type "shell" :shell "echo"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"additionalContext\":\"ctx\"}"
                                                        :err nil})]
-        (f.hooks/trigger-if-matches! :preRequest
+        (m.hooks/trigger-if-matches! :preRequest
                                      {:foo "1"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -1494,13 +1494,13 @@
                                   :actions [{:type "shell" :shell "echo post"}]}}})
     (let [calls* (atom [])
           inputs* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [{:keys [hook_name] :as parsed-input} (json/parse-string input true)
                                                   hook-name hook_name]
                                               (swap! inputs* conj parsed-input)
                                               (swap! calls* conj hook-name)
                                               (if (= "a-block" hook-name)
-                                                {:exit f.hooks/hook-rejection-exit-code
+                                                {:exit m.hooks/hook-rejection-exit-code
                                                  :out nil
                                                  :err "blocked"}
                                                 {:exit 0
@@ -1529,7 +1529,7 @@
                                    :visible false
                                    :actions [{:type "shell" :shell "exit 2"}]}}})
     (let [side-effect-ran?* (atom false)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit f.hooks/hook-rejection-exit-code
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                        :out nil
                                                        :err "blocked invisibly"})]
         (#'f.chat/prompt-messages!
@@ -1560,7 +1560,7 @@
     (let [input* (atom nil)]
       (with-redefs [config/all (constantly (h/config))
                     config/await-plugins-resolved! (fn [] nil)
-                    f.hooks/run-shell-cmd (fn [{:keys [input]}]
+                    m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (reset! input* (json/parse-string input true))
                                             {:exit 0 :out "" :err nil})]
         (is (= {:stop-turn? false}
@@ -1582,7 +1582,7 @@
                                  :actions [{:type "shell" :shell "echo"}]}}})
     (with-redefs [config/all (constantly (h/config))
                   config/await-plugins-resolved! (fn [] nil)
-                  f.hooks/run-shell-cmd (constantly {:exit 0
+                  m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false,\"stopReason\":\"not now\"}"
                                                      :err nil})]
       (is (= {:stop-turn? true :stop-reason "not now" :stop-hook-name "start"}
@@ -1599,7 +1599,7 @@
     (swap! (h/db*) assoc :models {"openai/gpt" {}})
     (with-redefs [config/all (constantly (h/config))
                   config/await-plugins-resolved! (fn [] nil)
-                  f.hooks/run-shell-cmd (constantly {:exit 0
+                  m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false}"
                                                      :err nil})]
       (is (match? {:chat-id "chat-1"
@@ -1623,7 +1623,7 @@
     (h/config! {:hooks {"stop-tool" {:type "preToolCall"
                                      :actions [{:type "shell" :shell "echo"}]}}
                 :toolCall {:approval {:byDefault "allow"}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false,\"stopReason\":\"stop now\"}"
                                                      :err nil})]
       (is (match? {:decision :deny
@@ -1650,10 +1650,10 @@
     (h/config! {:hooks {"test" {:type "preToolCall"
                                 :actions [{:type "shell" :shell "echo"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"approval\":\"deny\",\"additionalContext\":\"You must never access /etc/priv\"}"
                                                        :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "read"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -1669,7 +1669,7 @@
                   :stop-reason nil
                   :stop-hook-name nil
                   :stop-turn? false}
-                 {:exit f.hooks/hook-rejection-exit-code
+                 {:exit m.hooks/hook-rejection-exit-code
                   :raw-output "{\"additionalContext\":\"should not reach LLM\",\"continue\":false}"
                   :raw-error "Security block"
                   :parsed {"additionalContext" "should not reach LLM"
@@ -1728,7 +1728,7 @@
                                             :visible false
                                             :actions [{:type "shell" :shell "echo"}]}}}))
           (run-hook! [result]
-            (with-redefs [f.hooks/run-shell-cmd (constantly result)]
+            (with-redefs [m.hooks/run-shell-cmd (constantly result)]
               (#'tc/run-post-tool-call-hooks!
                (h/db*)
                {:db* (h/db*)
@@ -1766,7 +1766,7 @@
 
     (testing "exit 2 replaces tool result with stderr and ignores stdout JSON"
       (setup!)
-      (run-hook! {:exit f.hooks/hook-rejection-exit-code
+      (run-hook! {:exit m.hooks/hook-rejection-exit-code
                   :out "{\"replacedOutput\":\"ignored stdout\"}"
                   :err "redacted by policy"})
       (is (= [{:type :text :text "redacted by policy"}]
@@ -1774,7 +1774,7 @@
 
     (testing "exit 2 with empty stderr replaces tool result with placeholder"
       (setup!)
-      (run-hook! {:exit f.hooks/hook-rejection-exit-code
+      (run-hook! {:exit m.hooks/hook-rejection-exit-code
                   :out "{\"replacedOutput\":\"ignored stdout\"}"
                   :err nil})
       (is (= [{:type :text :text "[Tool output hidden by hook]"}]
@@ -1814,8 +1814,8 @@
                                         :matcher "man.*"
                                         :actions [{:type "shell" :shell "echo hey"}]}}})
     (let [result* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
-        (f.hooks/trigger-if-matches! :preCompact
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0 :out "hey" :err nil})]
+        (m.hooks/trigger-if-matches! :preCompact
                                      {:triggered "manual"}
                                      {:on-after-action (set-action-payload result*)}
                                      (h/db) (h/config)))
@@ -1848,8 +1848,8 @@
                                :actions [{:type "shell" :shell "echo"}]}}})
     (let [warnings* (atom [])]
       (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))
-                    f.hooks/run-shell-cmd (constantly {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+                    m.hooks/run-shell-cmd (constantly {:exit 0 :out "" :err nil})]
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file" :tool-input {}}
                                      {}
                                      (h/db) (h/config)))
@@ -1863,10 +1863,10 @@
     (let [warnings* (atom [])
           calls* (atom [])]
       (with-redefs [logger/warn (fn [& args] (swap! warnings* conj args))
-                    f.hooks/run-shell-cmd (fn [opts]
+                    m.hooks/run-shell-cmd (fn [opts]
                                             (swap! calls* conj opts)
                                             {:exit 0 :out "" :err nil})]
-        (f.hooks/trigger-if-matches! :preToolCall
+        (m.hooks/trigger-if-matches! :preToolCall
                                      {:server "eca" :tool-name "write_file" :tool-input {}}
                                      {}
                                      (h/db) (h/config)))
@@ -1887,7 +1887,7 @@
     (let [fired-types* (atom [])]
       (with-redefs [config/all (constantly (h/config))
                     config/await-plugins-resolved! (fn [] nil)
-                    f.hooks/run-shell-cmd (fn [{:keys [input]}]
+                    m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [data (json/parse-string input true)]
                                               (swap! fired-types* conj (:hook_type data)))
                                             {:exit 0 :out "" :err nil})]
@@ -1907,7 +1907,7 @@
                         "spr" {:type "subagentPostRequest"
                                 :actions [{:type "shell" :shell "echo spr"}]}}})
     (let [fired-types* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [data (json/parse-string input true)]
                                               (swap! fired-types* conj (:hook_type data)))
                                             {:exit 0 :out "" :err nil})]
@@ -1930,7 +1930,7 @@
                         "spr" {:type "subagentPostRequest"
                                :actions [{:type "shell" :shell "echo spr"}]}}})
     (let [fired-types* (atom [])]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (let [data (json/parse-string input true)]
                                               (swap! fired-types* conj (:hook_type data)))
                                             {:exit 0
@@ -1992,7 +1992,7 @@
     (h/config! {:hooks {"test" {:type "preRequest"
                                 :actions [{:type "shell" :shell "cat"}]}}})
     (let [input* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (fn [{:keys [input]}]
+      (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
                                             (reset! input* (json/parse-string input true))
                                             {:exit 0 :out "" :err nil})]
         (#'f.chat/run-pre-request-hooks! {:db* (h/db*)
@@ -2010,7 +2010,7 @@
     (h/config! {:hooks {"blocker" {:type "preRequest"
                                    :visible true
                                    :actions [{:type "shell" :shell "exit 2"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit f.hooks/hook-rejection-exit-code
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                      :out nil
                                                      :err "nope"})]
       (let [state (#'f.chat/run-pre-request-hooks! {:db* (h/db*)
@@ -2061,7 +2061,7 @@
     (h/config! {:hooks {"stopper" {:type "subagentPostRequest"
                                    :visible false
                                    :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false,\"stopReason\":\"halt subagent\"}"
                                                      :err nil})]
       (lifecycle/finish-chat-prompt! :idle
@@ -2116,7 +2116,7 @@
     (h/config! {:hooks {"follow" {:type "postRequest"
                                    :actions [{:type "shell" :shell "echo"}]}}})
     (let [follow-up* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"followUp\":\"Run the tests\"}"
                                                        :err nil})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -2149,7 +2149,7 @@
     (h/config! {:hooks {"test" {:type "postCompact"
                                 :visible false
                                 :actions [{:type "shell" :shell "echo"}]}}})
-    (with-redefs [f.hooks/run-shell-cmd (constantly {:exit 0
+    (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"additionalContext\":\"resume snapshot\"}"
                                                      :err nil})]
       (let [result (lifecycle/run-post-compact-hooks! {:db* (h/db*)
@@ -2171,7 +2171,7 @@
     (h/config! {:hooks {"test" {:type "postRequest"
                                  :actions [{:type "shell" :shell "exit 2"}]}}})
     (let [follow-up* (atom nil)]
-      (with-redefs [f.hooks/run-shell-cmd (constantly {:exit f.hooks/hook-rejection-exit-code
+      (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                        :out nil
                                                        :err "Run the test suite"})]
         (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
@@ -2187,14 +2187,14 @@
 (deftest hooks-msg-test
   (testing "no hooks configured shows the empty message"
     (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
-           (#'f.hooks/hooks-msg {:hooks {}}))))
+           (#'m.hooks/hooks-msg {:hooks {}}))))
 
   (testing "a hook with no actions is treated as no hooks"
     (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
-           (#'f.hooks/hooks-msg {:hooks {"empty" {:type "preToolCall" :actions []}}}))))
+           (#'m.hooks/hooks-msg {:hooks {"empty" {:type "preToolCall" :actions []}}}))))
 
   (testing "description is rendered after the hook name"
-    (let [out (#'f.hooks/hooks-msg
+    (let [out (#'m.hooks/hooks-msg
                {:hooks {"guard" {:type "preToolCall"
                                  :description "blocks dangerous tools"
                                  :actions [{:type "shell" :shell "exit 0"}]}}})]
@@ -2202,34 +2202,34 @@
       (is (string/includes? out "— blocks dangerous tools"))))
 
   (testing "invisible hooks render the hidden marker"
-    (let [out (#'f.hooks/hooks-msg
+    (let [out (#'m.hooks/hooks-msg
                {:hooks {"silent" {:type "preToolCall"
                                   :visible false
                                   :actions [{:type "shell" :shell "exit 0"}]}}})]
       (is (string/includes? out "*(hidden)*"))))
 
   (testing "visible hooks (default) do not render the hidden marker"
-    (let [out (#'f.hooks/hooks-msg
+    (let [out (#'m.hooks/hooks-msg
                {:hooks {"loud" {:type "preToolCall"
                                 :actions [{:type "shell" :shell "exit 0"}]}}})]
       (is (not (string/includes? out "*(hidden)*")))))
 
   (testing "a string matcher is rendered verbatim"
-    (let [out (#'f.hooks/hooks-msg
+    (let [out (#'m.hooks/hooks-msg
                {:hooks {"m" {:type "preToolCall"
                              :matcher "read_file"
                              :actions [{:type "shell" :shell "exit 0"}]}}})]
       (is (string/includes? out "matcher: `read_file`"))))
 
   (testing "a map matcher is rendered as JSON"
-    (let [out (#'f.hooks/hooks-msg
+    (let [out (#'m.hooks/hooks-msg
                {:hooks {"m" {:type "preToolCall"
                              :matcher {:tool_name "read_file"}
                              :actions [{:type "shell" :shell "exit 0"}]}}})]
       (is (string/includes? out "matcher: `{\"tool_name\":\"read_file\"}`"))))
 
   (testing "plugin-prefixed hook names are rendered"
-    (let [out (#'f.hooks/hooks-msg
+    (let [out (#'m.hooks/hooks-msg
                {:hooks {"my-plugin::guard" {:type "preToolCall"
                                             :actions [{:type "shell" :shell "exit 0"}]}}})]
       (is (string/includes? out "`my-plugin::guard`")))))

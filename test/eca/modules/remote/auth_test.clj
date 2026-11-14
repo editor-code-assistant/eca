@@ -2,16 +2,16 @@
   (:require
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
-   [eca.modules.remote.auth :as auth]))
+   [eca.modules.remote.auth :as m.remote.auth]))
 
 (deftest generate-token-test
   (testing "generates a 5-character alphanumeric string"
-    (let [token (auth/generate-token)]
+    (let [token (m.remote.auth/generate-token)]
       (is (= 5 (count token)))
       (is (re-matches #"[a-z0-9]{5}" token))))
 
   (testing "generates unique tokens"
-    (let [tokens (repeatedly 10 auth/generate-token)]
+    (let [tokens (repeatedly 10 m.remote.auth/generate-token)]
       (is (= 10 (count (set tokens)))))))
 
 (def ^:private test-token "test-secret-token")
@@ -28,7 +28,7 @@
      token (assoc-in [:headers "authorization"] (str "Bearer " token)))))
 
 (deftest wrap-bearer-auth-test
-  (let [handler (auth/wrap-bearer-auth test-handler test-token ["/api/v1/health" "/"])]
+  (let [handler (m.remote.auth/wrap-bearer-auth test-handler test-token ["/api/v1/health" "/"])]
 
     (testing "allows requests with valid token"
       (let [response (handler (make-request :get "/api/v1/chats" test-token))]

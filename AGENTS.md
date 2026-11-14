@@ -35,6 +35,7 @@ ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/
   - One file per `ns`; always `(set! *warn-on-reflection* true)` near top.
   - Group `:require` as: Clojure stdlib, third‑party, then `eca.*`; sort within groups.
   - Prefer `:as` aliases; avoid `:refer` except in tests (`clojure.test` and what you use).
+  - Alias a module namespace `m.<module>` (`[eca.modules.tools.filesystem :as m.filesystem]`) and a module's helper namespace `m.<module>.<helper>` (`m.shell.parser`); the module runtime keeps plain names (`modules`, `events`, `loader`).
 
 - Naming/types/data:
   - Internal Clojure names and domain keys use kebab-case (`chat-id`, `tool-call-id`, `parent-chat-id`).

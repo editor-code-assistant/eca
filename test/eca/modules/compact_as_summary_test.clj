@@ -1,7 +1,7 @@
 (ns eca.modules.compact-as-summary-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.modules.compact-as-summary :as f.tools.chat]
+   [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -15,7 +15,7 @@
       ;; Set up initial state - chat is compacting
       (swap! db* assoc-in [:chats chat-id :compacting?] true)
       
-      (let [result ((get-in f.tools.chat/definitions ["compact_chat" :handler])
+      (let [result ((get-in m.compact-as-summary/definitions ["compact_chat" :handler])
                     {"summary" test-summary}
                     {:db* db* :chat-id chat-id})]
         (testing "returns correct response format"
@@ -37,7 +37,7 @@
           chat-id "test-chat-auto-compacting"
           test-summary "Auto-compacted summary"]
       (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
-      (let [result ((get-in f.tools.chat/definitions ["compact_chat" :handler])
+      (let [result ((get-in m.compact-as-summary/definitions ["compact_chat" :handler])
                     {"summary" test-summary}
                     {:db* db* :chat-id chat-id})
             chat-state (get-in @db* [:chats chat-id])]
@@ -51,7 +51,7 @@
           empty-summary ""]
       (swap! db* assoc-in [:chats chat-id :compacting?] true)
       
-      (let [result ((get-in f.tools.chat/definitions ["compact_chat" :handler])
+      (let [result ((get-in m.compact-as-summary/definitions ["compact_chat" :handler])
                     {"summary" empty-summary}
                     {:db* db* :chat-id chat-id})]
         (is (match?
@@ -66,7 +66,7 @@
 (deftest compact-chat-requires-active-compaction-test
   (let [db* (h/db*)
         chat-id "test-chat-not-compacting"
-        handler (get-in f.tools.chat/definitions ["compact_chat" :handler])]
+        handler (get-in m.compact-as-summary/definitions ["compact_chat" :handler])]
     (swap! db* assoc-in [:chats chat-id] {:id chat-id})
     (let [before @db*
           result (handler {"summary" "Must not be stored"}
@@ -80,11 +80,11 @@
 
 (deftest compact-chat-summary-fn-test
   (testing "Summary function returns constant string"
-    (is (= "Compacting..." ((get-in f.tools.chat/definitions ["compact_chat" :summary-fn]) {})))))
+    (is (= "Compacting..." ((get-in m.compact-as-summary/definitions ["compact_chat" :summary-fn]) {})))))
 
 (deftest compact-chat-tool-definition-test
   (testing "Tool definition has correct structure"
-    (let [tool-def (get f.tools.chat/definitions "compact_chat")]
+    (let [tool-def (get m.compact-as-summary/definitions "compact_chat")]
       (is (some? tool-def) "Tool definition should exist")
       (is (string? (:description tool-def)) "Should have a description")
       (is (map? (:parameters tool-def)) "Should have parameters")
@@ -94,7 +94,7 @@
       (is (fn? (:summary-fn tool-def)) "Should have a summary-fn")))
 
   (testing "Tool parameters schema is correct"
-    (let [params (get-in f.tools.chat/definitions ["compact_chat" :parameters])]
+    (let [params (get-in m.compact-as-summary/definitions ["compact_chat" :parameters])]
       (is (= "object" (:type params)))
       (is (contains? (:properties params) "summary"))
       (is (= "string" (get-in params [:properties "summary" :type])))

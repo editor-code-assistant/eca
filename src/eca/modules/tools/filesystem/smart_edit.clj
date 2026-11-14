@@ -9,7 +9,7 @@
    For multiple replacements, use eca.modules.tools.filesystem.text-match instead."
   (:require [clojure.string :as string]
             [eca.logger :as logger]
-            [eca.modules.tools.filesystem.text-match :as text-match])
+            [eca.modules.tools.filesystem.text-match :as m.filesystem.text-match])
   (:import
    [java.util.regex Pattern]))
 
@@ -50,8 +50,8 @@
                                    (drop-while string/blank?)
                                    first
                                    (or (first window))
-                                   (text-match/detect-indentation))
-                  indented-new (text-match/apply-indentation (string/join "\n" new-lines) indentation)
+                                   (m.filesystem.text-match/detect-indentation))
+                  indented-new (m.filesystem.text-match/apply-indentation (string/join "\n" new-lines) indentation)
                   indented-new-lines (string/split-lines indented-new)
                   result-lines (concat (take idx file-lines)
                                        indented-new-lines
@@ -105,7 +105,7 @@
                          :match-count cnt
                          :original-full-content file-content})
           :else (let [indentation (some-> matches first second)
-                      indented-new (text-match/apply-indentation new-content (or indentation ""))
+                      indented-new (m.filesystem.text-match/apply-indentation new-content (or indentation ""))
                       quoted (java.util.regex.Matcher/quoteReplacement indented-new)
                       new-content-str (string/replace-first file-content pattern quoted)]
                   (logger/debug "Content matched using regex matching for" path)
@@ -126,14 +126,14 @@
    Line ending style (CRLF vs LF) is automatically preserved."
   [file-content original-content new-content path]
   ;; Detect original line ending
-  (let [line-ending (text-match/detect-line-ending file-content)
+  (let [line-ending (m.filesystem.text-match/detect-line-ending file-content)
         ;; Normalize to LF for processing
-        norm-file (text-match/normalize-to-lf file-content)
-        norm-orig (text-match/normalize-to-lf original-content)
-        norm-new (text-match/normalize-to-lf new-content)
+        norm-file (m.filesystem.text-match/normalize-to-lf file-content)
+        norm-orig (m.filesystem.text-match/normalize-to-lf original-content)
+        norm-new (m.filesystem.text-match/normalize-to-lf new-content)
 
         ;; Try text-match strategies first (exact + normalized)
-        text-match-result (text-match/apply-content-change-to-string file-content original-content new-content false path)
+        text-match-result (m.filesystem.text-match/apply-content-change-to-string file-content original-content new-content false path)
 
         ;; Try advanced matching if text-match failed
         result (cond
@@ -154,6 +154,6 @@
     (if (:new-full-content result)
       (-> result
           (assoc :original-full-content file-content)
-          (update :new-full-content #(text-match/restore-trailing-newline file-content %))
-          (update :new-full-content text-match/restore-line-ending line-ending))
+          (update :new-full-content #(m.filesystem.text-match/restore-trailing-newline file-content %))
+          (update :new-full-content m.filesystem.text-match/restore-line-ending line-ending))
       result)))

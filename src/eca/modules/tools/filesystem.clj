@@ -9,9 +9,9 @@
    [eca.features.index :as f.index]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.modules.rules :as rules]
-   [eca.modules.tools.filesystem.smart-edit :as smart-edit]
-   [eca.modules.tools.filesystem.text-match :as text-match]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.tools.filesystem.smart-edit :as m.filesystem.smart-edit]
+   [eca.modules.tools.filesystem.text-match :as m.filesystem.text-match]
    [eca.shared :as shared])
   (:import
    [java.util Base64 Locale]
@@ -178,7 +178,7 @@
 
 (defn ^:private read-file [{:strs [path] :as arguments} {:keys [db chat-id config] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
-      (rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (m.rules/require-fetched-path-scoped-rules-for-read path ctx)
       (when-let [media-type (shared/image-media-type path)]
         (tools.util/single-text-content
          (str path " is an image (" media-type "), not a text file. "
@@ -222,7 +222,7 @@
 
 (defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
-      (rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (m.rules/require-fetched-path-scoped-rules-for-read path ctx)
       (let [media-type (shared/image-media-type path)
             file (fs/file (fs/canonicalize path))
             size (when media-type (fs/size file))]
@@ -273,7 +273,7 @@
 (defn ^:private write-file [arguments ctx]
   (let [path (get arguments "path")
         content (get arguments "content")]
-    (or (rules/require-fetched-path-scoped-rules path ctx)
+    (or (m.rules/require-fetched-path-scoped-rules path ctx)
         (with-file-path-lock path
           (fn []
             (let [old-content (try (slurp path) (catch Exception _ nil))]
@@ -488,13 +488,13 @@
    - For all_occurrences=false: uses smart-edit (multi-tier matching) for better handling"
   [file-content original-content new-content all? path]
   (if all?
-    (text-match/apply-content-change-to-string file-content original-content new-content all? path)
-    (smart-edit/apply-smart-edit file-content original-content new-content path)))
+    (m.filesystem.text-match/apply-content-change-to-string file-content original-content new-content all? path)
+    (m.filesystem.smart-edit/apply-smart-edit file-content original-content new-content path)))
 
 (defn ^:private edit-file [{:strs [path] :as arguments} ctx]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
-      (rules/require-fetched-path-scoped-rules path ctx)
+      (m.rules/require-fetched-path-scoped-rules path ctx)
       (with-file-path-lock
         path
         (fn []

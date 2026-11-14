@@ -4,7 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-api.errors :as llm-providers.errors]
-   [eca.modules.providers.copilot :as llm-providers.copilot]
+   [eca.modules.providers.copilot :as m.copilot]
    [eca.test-helper :as h]))
 
 (def ^:private test-provider-settings
@@ -13,22 +13,22 @@
 
 (deftest github-url-derivation-test
   (testing "defaults to github.com when no auth config"
-    (is (= "https://github.com" (#'llm-providers.copilot/github-base-url {})))
-    (is (= "https://api.github.com" (#'llm-providers.copilot/github-api-base-url {})))
-    (is (= "Iv1.b507a08c87ecfe98" (#'llm-providers.copilot/copilot-client-id {}))))
+    (is (= "https://github.com" (#'m.copilot/github-base-url {})))
+    (is (= "https://api.github.com" (#'m.copilot/github-api-base-url {})))
+    (is (= "Iv1.b507a08c87ecfe98" (#'m.copilot/copilot-client-id {}))))
 
   (testing "uses custom GitHub Enterprise URL"
     (let [settings {:auth {:url "https://ghe.example.com"}}]
-      (is (= "https://ghe.example.com" (#'llm-providers.copilot/github-base-url settings)))
-      (is (= "https://ghe.example.com/api/v3" (#'llm-providers.copilot/github-api-base-url settings)))))
+      (is (= "https://ghe.example.com" (#'m.copilot/github-base-url settings)))
+      (is (= "https://ghe.example.com/api/v3" (#'m.copilot/github-api-base-url settings)))))
 
   (testing "uses custom client ID"
     (let [settings {:auth {:clientId "custom-id"}}]
-      (is (= "custom-id" (#'llm-providers.copilot/copilot-client-id settings)))))
+      (is (= "custom-id" (#'m.copilot/copilot-client-id settings)))))
 
   (testing "defaults client ID when only URL is overridden"
     (let [settings {:auth {:url "https://ghe.example.com"}}]
-      (is (= "Iv1.b507a08c87ecfe98" (#'llm-providers.copilot/copilot-client-id settings))))))
+      (is (= "Iv1.b507a08c87ecfe98" (#'m.copilot/copilot-client-id settings))))))
 
 (deftest oauth-url-test
   (testing "constructs GitHub device OAuth request and parses key response fields"
@@ -42,7 +42,7 @@
                   :device_code      "DEVICE-CODE"
                   :verification_uri "https://github.com/login/device"}})
 
-        (let [result (#'llm-providers.copilot/oauth-url test-provider-settings)]
+        (let [result (#'m.copilot/oauth-url test-provider-settings)]
 
           ;; request validation
           (is (= {:method "POST"
@@ -71,7 +71,7 @@
            :body {:access_token "gh-access-token"}})
 
         (let [device-code "device-code-123"
-              result (#'llm-providers.copilot/oauth-access-token test-provider-settings device-code)]
+              result (#'m.copilot/oauth-access-token test-provider-settings device-code)]
 
           ;; request validation
           (is (= {:method "POST"
@@ -100,7 +100,7 @@
                   :endpoints  {:api "https://copilot-proxy.ghe.example.com"}}})
 
         (let [access-token "gh-access-123"
-              result (#'llm-providers.copilot/oauth-renew-token test-provider-settings access-token)]
+              result (#'m.copilot/oauth-renew-token test-provider-settings access-token)]
 
           ;; request validation — uses /api/v3 prefix since test settings use a custom auth URL
           (is (= {:method "GET"
@@ -133,7 +133,7 @@
 
         (is (= {:api-key "copilot-api-key"
                 :expires-at 9999999999}
-               (#'llm-providers.copilot/oauth-renew-token test-provider-settings "gh-access-123")))
+               (#'m.copilot/oauth-renew-token test-provider-settings "gh-access-123")))
         (is (= 2 @requests*))))))
 
 (deftest oauth-renew-token-server-error-test
@@ -145,7 +145,7 @@
                     {:status 502 :body "<html>bad gateway</html>"})
 
                   (try
-                    (#'llm-providers.copilot/oauth-renew-token test-provider-settings "gh-access-123")
+                    (#'m.copilot/oauth-renew-token test-provider-settings "gh-access-123")
                     nil
                     (catch Exception e e)))]
       (is (= 2 @requests*))
@@ -160,7 +160,7 @@
                     {:status 511 :body "network authentication required"})
 
                   (try
-                    (#'llm-providers.copilot/oauth-renew-token test-provider-settings "gh-access-123")
+                    (#'m.copilot/oauth-renew-token test-provider-settings "gh-access-123")
                     nil
                     (catch Exception e e)))]
       (is (= 1 @requests*))
@@ -181,7 +181,7 @@
                   {:status 200 :body {:error "authorization_pending"}}
                   {:status 200 :body {:access_token "gh-access"}}))
             {:status 200 :body {:token "copilot-api-key" :expires_at 9999999999}}))
-        (#'llm-providers.copilot/poll-device-authorization!
+        (#'m.copilot/poll-device-authorization!
          "github-copilot"
          test-provider-settings
          db*
@@ -200,7 +200,7 @@
           result* (promise)]
       (with-client-proxied {}
         (fn handler [_req] {:status 200 :body {:error "authorization_pending"}})
-        (#'llm-providers.copilot/poll-device-authorization!
+        (#'m.copilot/poll-device-authorization!
          "github-copilot"
          test-provider-settings
          db*
@@ -215,7 +215,7 @@
           called* (atom false)]
       (with-client-proxied {}
         (fn handler [_req] {:status 200 :body {:access_token "gh-access"}})
-        (let [polling (#'llm-providers.copilot/poll-device-authorization!
+        (let [polling (#'m.copilot/poll-device-authorization!
                        "github-copilot"
                        test-provider-settings
                        db*
@@ -240,27 +240,27 @@
 
 (deftest model-not-supported-error?-test
   (testing "matches 400 with model_not_supported in string body"
-    (is (true? (llm-providers.copilot/model-not-supported-error?
+    (is (true? (m.copilot/model-not-supported-error?
                 {:status 400
                  :body "{\"error\":{\"message\":\"The requested model is not supported.\",\"code\":\"model_not_supported\"}}"}))))
 
   (testing "matches 400 with parsed map body"
-    (is (true? (llm-providers.copilot/model-not-supported-error?
+    (is (true? (m.copilot/model-not-supported-error?
                 {:status 400 :body {:error {:code "model_not_supported"}}}))))
 
   (testing "ignores other statuses and errors"
-    (is (false? (llm-providers.copilot/model-not-supported-error?
+    (is (false? (m.copilot/model-not-supported-error?
                  {:status 429 :body "model_not_supported"})))
-    (is (false? (llm-providers.copilot/model-not-supported-error?
+    (is (false? (m.copilot/model-not-supported-error?
                  {:status 400 :body "{\"error\":{\"code\":\"bad_request\"}}"})))
-    (is (false? (llm-providers.copilot/model-not-supported-error? {})))))
+    (is (false? (m.copilot/model-not-supported-error? {})))))
 
 (deftest enrich-model-not-supported-error-test
   (testing "rewrites message with model and guidance, keeping error data"
     (let [error {:message "OpenAI response status: 400 body: model_not_supported"
                  :status 400
                  :body "{\"error\":{\"code\":\"model_not_supported\"}}"}
-          enriched (llm-providers.copilot/enrich-model-not-supported-error error "gpt-6")]
+          enriched (m.copilot/enrich-model-not-supported-error error "gpt-6")]
       (is (string/includes? (:message enriched) "gpt-6"))
       (is (string/includes? (:message enriched) "not supported or not enabled"))
       (is (= 400 (:status enriched)))
@@ -268,7 +268,7 @@
 
   (testing "other errors pass through unchanged"
     (let [error {:message "boom" :status 500 :body "internal"}]
-      (is (= error (llm-providers.copilot/enrich-model-not-supported-error error "gpt-6"))))))
+      (is (= error (m.copilot/enrich-model-not-supported-error error "gpt-6"))))))
 
 (def ^:private models-catalog-response
   {:status 200
@@ -285,21 +285,21 @@
           models-catalog-response)
 
         (is (= {:listed? true :policy {:state "disabled" :terms "The terms."}}
-               (llm-providers.copilot/fetch-model-policy test-auth "gated")))
+               (m.copilot/fetch-model-policy test-auth "gated")))
 
         (is (= {:method "GET" :uri "/models"}
                (select-keys @req* [:method :uri])))
         (is (= "Bearer test-api-key" (get-in @req* [:headers "Authorization"])))
 
         (is (= {:listed? true :policy nil}
-               (llm-providers.copilot/fetch-model-policy test-auth "no-policy-model")))
+               (m.copilot/fetch-model-policy test-auth "no-policy-model")))
         (is (= {:listed? false :policy nil}
-               (llm-providers.copilot/fetch-model-policy test-auth "missing"))))))
+               (m.copilot/fetch-model-policy test-auth "missing"))))))
 
   (testing "returns nil when the catalog cannot be fetched"
     (with-client-proxied {}
       (fn handler [_req] {:status 401 :body "IDE token expired"})
-      (is (nil? (llm-providers.copilot/fetch-model-policy test-auth "gated"))))))
+      (is (nil? (m.copilot/fetch-model-policy test-auth "gated"))))))
 
 (deftest enable-model-policy!-test
   (testing "POSTs enabled state for the model policy"
@@ -310,7 +310,7 @@
           {:status 200 :body {:state "enabled"}})
 
         (is (= {:enabled? true}
-               (llm-providers.copilot/enable-model-policy! test-auth "gated")))
+               (m.copilot/enable-model-policy! test-auth "gated")))
 
         (is (= {:method "POST" :uri "/models/gated/policy"}
                (select-keys @req* [:method :uri])))
@@ -322,7 +322,7 @@
       (fn handler [_req] {:status 403 :body {:message "forbidden"}})
       ;; error bodies are not json-coerced by the client, they stay raw strings
       (is (= {:enabled? false :status 403 :body "{\"message\":\"forbidden\"}"}
-             (llm-providers.copilot/enable-model-policy! test-auth "gated"))))))
+             (m.copilot/enable-model-policy! test-auth "gated"))))))
 
 (deftest ask-to-enable-model!-test
   (testing "enables the model policy when user accepts"
@@ -340,7 +340,7 @@
               models-catalog-response)))
 
         (is (= {:result :enabled}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:answer "Enable model"})
                  :chat-id "chat-1"
                  :auth test-auth
@@ -364,7 +364,7 @@
             models-catalog-response))
 
         (is (= {:result :declined}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:answer "Cancel"})
                  :chat-id "chat-1"
                  :auth test-auth
@@ -381,7 +381,7 @@
             models-catalog-response))
 
         (is (= {:result :cancelled}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:cancelled true})
                  :chat-id "chat-1"
                  :auth test-auth
@@ -394,13 +394,13 @@
         (fn handler [_req] models-catalog-response)
 
         (is (= {:result :no-policy :listed? true :policy {:state "enabled" :terms "T"}}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:answer "Enable model"})
                  :chat-id "chat-1"
                  :auth test-auth
                  :model "open"})))
         (is (= {:result :no-policy :listed? false :policy nil}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:answer "Enable model"})
                  :chat-id "chat-1"
                  :auth test-auth
@@ -416,7 +416,7 @@
             models-catalog-response))
 
         (is (= {:result :enable-failed :enabled? false :status 403 :body "{\"message\":\"forbidden\"}"}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:answer "Enable model"})
                  :chat-id "chat-1"
                  :auth test-auth
@@ -432,7 +432,7 @@
             models-catalog-response))
 
         (is (= {:result :enable-rejected :policy {:state "disabled" :terms "The terms."}}
-               (llm-providers.copilot/ask-to-enable-model!
+               (m.copilot/ask-to-enable-model!
                 {:messenger (answering-messenger asked* {:answer "Enable model"})
                  :chat-id "chat-1"
                  :auth test-auth
@@ -458,7 +458,7 @@
 
   (testing "recover-error! maps consent outcomes to generic recovery outcomes"
     (let [recover! (fn [result]
-                     (with-redefs [llm-providers.copilot/ask-to-enable-model! (fn [_] result)]
+                     (with-redefs [m.copilot/ask-to-enable-model! (fn [_] result)]
                        (llm-providers.errors/recover-error!
                         {:provider "github-copilot"
                          :model "gpt-6"

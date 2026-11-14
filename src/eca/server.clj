@@ -9,10 +9,10 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
-   [eca.modules.otel :as f.otel]
-   [eca.modules.remote :as f.remote]
-   [eca.modules.remote.messenger :as remote.messenger]
-   [eca.modules.remote.server :as remote.server]
+   [eca.modules.otel :as m.otel]
+   [eca.modules.remote :as m.remote]
+   [eca.modules.remote.messenger :as m.remote.messenger]
+   [eca.modules.remote.server :as m.remote.server]
    [eca.nrepl :as nrepl]
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
@@ -60,8 +60,8 @@
     :eca/exit
     ;; the eca/remote module stops its server at shutdown; this one still runs
     ;; only when ECA exits without a shutdown request
-    (let [remote-stop-f (when-let [rs (f.remote/running)]
-                          (future (remote.server/stop! rs)))]
+    (let [remote-stop-f (when-let [rs (m.remote/running)]
+                          (future (m.remote.server/stop! rs)))]
       (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
       (some-> remote-stop-f deref))
     (shutdown-agents)
@@ -348,7 +348,7 @@
   (let [config (config/all @db*)
         metrics (metrics/->switchable (metrics/->NoopMetrics))]
     (when (and (:otlp config) (modules/active? config :eca/otel))
-      (f.otel/install! metrics (:otlp config)))
+      (m.otel/install! metrics (:otlp config)))
     metrics))
 
 (defn start-server! [server]
@@ -360,7 +360,7 @@
         ;; enables it after initialize). Broadcasting to an empty set is a no-op.
         sse-connections* (atom #{})
         ;; the eca/remote module's server (eca.modules.remote) takes them from it
-        messenger (remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
+        messenger (m.remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
         components {:db* db*
                     :messenger messenger
                     :metrics metrics

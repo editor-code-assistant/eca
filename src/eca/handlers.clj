@@ -17,10 +17,10 @@
    [eca.metrics :as metrics]
    [eca.models :as models]
    [eca.modules :as modules]
-   [eca.modules.hooks :as f.hooks]
-   [eca.modules.mcp :as f.mcp]
-   [eca.modules.plugins :as f.plugins]
-   [eca.modules.remote :as f.remote]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.plugins :as m.plugins]
+   [eca.modules.remote :as m.remote]
    [eca.modules.events :as events]
    [eca.modules.loader :as loader]
    [eca.shared :as shared]))
@@ -213,7 +213,7 @@
     ;; here, as before modules: the module's :start, which runs later, finds it running
     (when (modules/active? config :eca/remote)
       (send-progress! db* messenger {:type "start" :taskId "remote-server" :title "Starting remote server"})
-      (f.remote/start-server! components)
+      (m.remote/start-server! components)
       (send-progress! db* messenger {:type "finish" :taskId "remote-server" :title "Starting remote server"}))
     (future
       (Thread/sleep 1000) ;; wait chat window is open in some editors.
@@ -230,7 +230,7 @@
       (try
         (let [plugins-config (:plugins config)]
           (when (seq plugins-config)
-            (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))
+            (reset! config/plugin-components* (m.plugins/resolve-all! plugins-config))
             (config/clear-cache!)))
         (catch Exception e
           (reset! config/plugin-components* nil)
@@ -270,8 +270,8 @@
         ;; Trigger sessionStart before delivering plugins-resolved so it
         ;; completes before any chatStart hook can fire (chatStart waits
         ;; on await-plugins-resolved!).
-        (f.hooks/trigger-if-matches! :sessionStart
-                                     (f.hooks/base-hook-data @db*)
+        (m.hooks/trigger-if-matches! :sessionStart
+                                     (m.hooks/base-hook-data @db*)
                                      {}
                                      @db*
                                      config)
@@ -309,8 +309,8 @@
     (db/save-all-chats! @db* metrics)
 
     ;; 2. Trigger sessionEnd hook
-    (f.hooks/trigger-if-matches! :sessionEnd
-                                 (f.hooks/base-hook-data @db*)
+    (m.hooks/trigger-if-matches! :sessionEnd
+                                 (m.hooks/base-hook-data @db*)
                                  {}
                                  @db*
                                  config)
@@ -323,7 +323,7 @@
       (modules/stop-all! {:db* db* :config config :metrics metrics})
       (catch Exception e
         (logger/error "[MODULES]" "Could not stop modules:" e)))
-    (f.mcp/shutdown! db*)
+    (m.mcp/shutdown! db*)
     nil))
 
 (defn chat-prompt

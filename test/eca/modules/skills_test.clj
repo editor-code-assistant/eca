@@ -4,7 +4,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.modules :as modules]
-   [eca.modules.skills :as f.skills]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -26,7 +26,7 @@
                          :description "A test skill"
                          :body "Skill body content"
                          :dir (h/file-path "/my/project/.eca/skills/my-skill")}])
-             (f.skills/all {} roots))))))
+             (m.skills/all {} roots))))))
 
   (testing "global skills"
     (with-redefs [config/get-env (constantly (h/file-path "/home/someuser/.config"))
@@ -42,7 +42,7 @@
                          :description "A global skill"
                          :body "Global skill body"
                          :dir (h/file-path "/home/someuser/.config/eca/skills/global-skill")}])
-             (f.skills/all {} roots))))))
+             (m.skills/all {} roots))))))
 
   (testing "global skills with XDG_CONFIG_HOME fallback"
     (with-redefs [config/get-env (constantly nil)
@@ -59,7 +59,7 @@
                          :description "Fallback skill"
                          :body "Fallback body"
                          :dir (h/file-path "/home/someuser/.config/eca/skills/fallback-skill")}])
-             (f.skills/all {} roots))))))
+             (m.skills/all {} roots))))))
 
   (testing "config skill directories load SKILL.md files recursively"
     (let [tmp-dir (fs/create-temp-dir)
@@ -72,7 +72,7 @@
         (let [config {:pureConfig true :skills [{:path (str skills-dir)}]}
               ;; Exclude the skills modules ship (they have a :module) so
               ;; this test stays focused on configured on-disk skills.
-              result (->> (f.skills/all config [])
+              result (->> (m.skills/all config [])
                           (remove :module)
                           vec)]
           (is (= ["configured"] (mapv :name result)))
@@ -91,7 +91,7 @@
                (m/embeds [{:name "agent-skill"
                            :description "Agent skill"
                            :body "Agent body"}])
-               (f.skills/all {:pureConfig true} roots))))
+               (m.skills/all {:pureConfig true} roots))))
         (finally
           (fs/delete-tree tmp-dir)))))
 
@@ -109,7 +109,7 @@
                    "description: A skill with dynamic content\n"
                    "---\n"
                    "Base instructions: ${file:./fragments/instructions.md}"))
-        (let [skill (#'f.skills/skill-file->skill (fs/file skills-dir "SKILL.md"))]
+        (let [skill (#'m.skills/skill-file->skill (fs/file skills-dir "SKILL.md"))]
           (is (match? {:name "dynamic-skill"
                        :description "A skill with dynamic content"
                        :body "Base instructions: Do it carefully."}
@@ -131,7 +131,7 @@
              (m/embeds [{:name "quoted-skill"
                          :description "Single quoted description"
                          :body "Body"}])
-             (f.skills/all {} roots))))))
+             (m.skills/all {} roots))))))
 
   (testing "plugin skills are prefixed with plugin name"
     (with-redefs [config/get-env (constantly nil)
@@ -148,7 +148,7 @@
              (m/embeds [{:name "ui:button"
                          :plugin "ui"
                          :description "Button skill"}])
-             (f.skills/all config []))))))
+             (m.skills/all config []))))))
 
   (testing "plugin skill with same name as plugin drops the prefix"
     (with-redefs [config/get-env (constantly nil)
@@ -165,7 +165,7 @@
              (m/embeds [{:name "tdd"
                          :plugin "tdd"
                          :description "TDD skill"}])
-             (f.skills/all config []))))))
+             (m.skills/all config []))))))
 
   (testing "plugin skill dirs given as bare strings stay unprefixed (legacy)"
     (with-redefs [config/get-env (constantly nil)
@@ -181,7 +181,7 @@
         (is (match?
              (m/embeds [{:name "old"
                          :description "Legacy"}])
-             (f.skills/all config [])))))))
+             (m.skills/all config [])))))))
 
 (defn ^:private write-skill! [skills-dir skill-name description]
   (let [skill-dir (fs/file skills-dir skill-name)]
@@ -191,7 +191,7 @@
 
 (defn ^:private on-disk-skills
   "Calls `setup!` with a temp home and workspace dir, then returns the
-   [name description] of each skill on disk found by `f.skills/all`."
+   [name description] of each skill on disk found by `m.skills/all`."
   [config setup!]
   (let [tmp-dir (fs/create-temp-dir)
         home (fs/file tmp-dir "home")
@@ -202,7 +202,7 @@
       (setup! {:home home :workspace workspace})
       (with-redefs [config/get-env (constantly nil)
                     config/user-home (constantly (str home))]
-        (->> (f.skills/all config [{:uri (shared/filename->uri (str workspace))}])
+        (->> (m.skills/all config [{:uri (shared/filename->uri (str workspace))}])
              (remove :module)
              (mapv (juxt :name :description))))
       (finally
@@ -277,23 +277,23 @@
       (testing "a module's skills are listed with its id; a string body gets its arguments"
         (is (match? [{:name "static" :module :eca/test-skills :arguments [{:name "arg1"}]}
                      {:name "computed" :module :eca/test-skills}]
-                    (f.skills/all {:pureConfig true} []))))
+                    (m.skills/all {:pureConfig true} []))))
       (testing "a skill on disk with the same name wins"
         (let [tmp-dir (fs/create-temp-dir)]
           (try
             (write-skill! tmp-dir "static" "From disk")
             (is (match? [{:name "static" :description "From disk" :dir string?}
                          {:name "computed" :module :eca/test-skills}]
-                        (f.skills/all {:pureConfig true :skills [{:path (str tmp-dir)}]} [])))
+                        (m.skills/all {:pureConfig true :skills [{:path (str tmp-dir)}]} [])))
             (finally
               (fs/delete-tree tmp-dir)))))
       (testing "the skill tool returns a string body as is"
         (is (match? {:error false
                      :contents [{:type :text :text #"\*\*Base directory\*\*: \(built-in\)\n\nReview \$ARGS$"}]}
-                    (#'f.skills/skill {"name" "static"} tool-ctx))))
+                    (#'m.skills/skill {"name" "static"} tool-ctx))))
       (testing "and calls a function body as its module, with all skills"
         (is (match? {:error false
                      :contents [{:type :text :text #"\n\nBuilt by :eca/test-skills for code, with 2 skills$"}]}
-                    (#'f.skills/skill {"name" "computed"} tool-ctx))))
+                    (#'m.skills/skill {"name" "computed"} tool-ctx))))
       (testing "turning the module off drops its skills"
-        (is (empty? (f.skills/all {:pureConfig true :modules {:eca/test-skills {:enabled false}}} [])))))))
+        (is (empty? (m.skills/all {:pureConfig true :modules {:eca/test-skills {:enabled false}}} [])))))))

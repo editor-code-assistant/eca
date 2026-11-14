@@ -7,7 +7,7 @@
    [eca.features.index :as f.index]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
-   [eca.modules.mcp :as f.mcp]
+   [eca.modules.mcp :as m.mcp]
    [eca.shared :as shared :refer [assoc-some]])
   (:import
    [java.util Base64]))
@@ -159,7 +159,7 @@
                                  {:type :mcpResource
                                   :uri uri
                                   :content text})
-                               (:contents (f.mcp/get-resource! uri db)))
+                               (:contents (m.mcp/get-resource! uri db)))
                               (catch Exception e
                                 (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
                                 []))
@@ -365,4 +365,4 @@
               relative-files
               workspace-listed-files
               workspace-files
-              (mapv #(assoc % :type "mcpResource") (f.mcp/all-resources @db*))))))
+              (mapv #(assoc % :type "mcpResource") (m.mcp/all-resources @db*))))))

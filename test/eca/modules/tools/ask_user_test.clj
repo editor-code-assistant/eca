@@ -1,7 +1,7 @@
 (ns eca.modules.tools.ask-user-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.modules.tools.ask-user :as f.tools.ask-user]
+   [eca.modules.tools.ask-user :as m.ask-user]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -9,7 +9,7 @@
 
 (defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id db* trust]
                                      :or {tool-call-id "test-tool-call-id"}}]]
-  ((get-in f.tools.ask-user/definitions ["ask_user" :handler])
+  ((get-in m.ask-user/definitions ["ask_user" :handler])
    arguments
    {:messenger (or messenger (h/messenger))
     :config (or config (h/config))
@@ -132,7 +132,7 @@
 
 (deftest ask-user-enabled-fn-test
   (testing "Tool is enabled when client capability is set"
-    (let [enabled-fn (get-in f.tools.ask-user/definitions ["ask_user" :enabled-fn])]
+    (let [enabled-fn (get-in m.ask-user/definitions ["ask_user" :enabled-fn])]
       (is (true? (enabled-fn {:db {:client-capabilities {:code-assistant {:chat-capabilities {:ask-question true}}}}})))
       (is (nil? (enabled-fn {:db {:client-capabilities {:code-assistant {:chat-capabilities {}}}}})))
       (is (nil? (enabled-fn {:db {:client-capabilities {}}}))))))
@@ -224,13 +224,13 @@
 
 (deftest ask-user-summary-fn-test
   (testing "Summary shows Q: prefix with question"
-    (let [summary-fn (get-in f.tools.ask-user/definitions ["ask_user" :summary-fn])]
+    (let [summary-fn (get-in m.ask-user/definitions ["ask_user" :summary-fn])]
       (is (= "Q: Short question?" (summary-fn {:args {"question" "Short question?"}})))
       (is (= "Q: This is a very long question that exceeds th..."
              (summary-fn {:args {"question" "This is a very long question that exceeds the fifty character limit"}})))))
   (testing "Summary strips newlines from question"
-    (let [summary-fn (get-in f.tools.ask-user/definitions ["ask_user" :summary-fn])]
+    (let [summary-fn (get-in m.ask-user/definitions ["ask_user" :summary-fn])]
       (is (= "Q: First line second line" (summary-fn {:args {"question" "First line\nsecond line"}})))))
   (testing "Summary shows preparing when question not yet available"
-    (let [summary-fn (get-in f.tools.ask-user/definitions ["ask_user" :summary-fn])]
+    (let [summary-fn (get-in m.ask-user/definitions ["ask_user" :summary-fn])]
       (is (= "Preparing question" (summary-fn {:args {}}))))))

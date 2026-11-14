@@ -10,7 +10,7 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
-   [eca.modules.mcp :as f.mcp]
+   [eca.modules.mcp :as m.mcp]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
    [java.util Map]
@@ -445,7 +445,7 @@
                          (into [] (comp (remove #(contains? native-names (full-name-of %)))
                                         (map #(assoc % :origin :mcp)))
                                (when (modules/active? config :eca/mcp)
-                                 (f.mcp/all-tools db))))
+                                 (m.mcp/all-tools db))))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                         (mapv #(override-description % config agent-name))
@@ -574,7 +574,7 @@
                                ;; Stopping before returning keeps a late progress report
                                ;; from reaching the client after the call's result.
                                (try
-                                 (f.mcp/call-tool! server-name tool-name arguments {:db db
+                                 (m.mcp/call-tool! server-name tool-name arguments {:db db
                                                                                     :db* db*
                                                                                     :config config
                                                                                     :metrics metrics
@@ -664,7 +664,7 @@
                                                           (mapv #(select-keys % [:name :description :parameters :disabled])))})
     (notify-module-servers! db* messenger config tool-status-fn)
     (when (modules/active? config :eca/mcp)
-      (f.mcp/initialize-servers-async!
+      (m.mcp/initialize-servers-async!
        {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
        db*
        config
@@ -685,14 +685,14 @@
   [prev-config new-config db* messenger metrics]
   (let [default-agent (get new-config :defaultAgent)
         tool-status-fn (make-tool-status-fn new-config default-agent)]
-    (f.mcp/reconcile-servers!
+    (m.mcp/reconcile-servers!
      (mcp-view prev-config) (mcp-view new-config) db* metrics
      {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
       :on-server-removed (partial notify-server-removed metrics messenger)})))
 
 (defn stop-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/stop-server!
+    (m.mcp/stop-server!
      name
      db*
      config
@@ -700,7 +700,7 @@
 
 (defn start-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/start-server!
+    (m.mcp/start-server!
      name
      db*
      config
@@ -709,7 +709,7 @@
 
 (defn connect-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/connect-server!
+    (m.mcp/connect-server!
      name
      db*
      config
@@ -718,7 +718,7 @@
 
 (defn logout-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/logout-server!
+    (m.mcp/logout-server!
      name
      db*
      config
@@ -727,7 +727,7 @@
 
 (defn update-server! [name server-fields db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/update-server!
+    (m.mcp/update-server!
      name
      server-fields
      db*
@@ -737,7 +737,7 @@
 
 (defn disable-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/disable-server!
+    (m.mcp/disable-server!
      name
      db*
      config
@@ -745,7 +745,7 @@
 
 (defn enable-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/enable-server!
+    (m.mcp/enable-server!
      name
      db*
      metrics
@@ -753,7 +753,7 @@
 
 (defn add-server! [name server-config opts db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/add-server!
+    (m.mcp/add-server!
      name
      server-config
      opts
@@ -764,7 +764,7 @@
 
 (defn remove-server! [name db* messenger config metrics]
   (let [tool-status-fn (make-tool-status-fn config nil)]
-    (f.mcp/remove-server!
+    (m.mcp/remove-server!
      name
      db*
      config

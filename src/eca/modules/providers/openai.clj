@@ -14,7 +14,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
-   [eca.modules.providers.variants :as variants]
+   [eca.modules.providers.variants :as m.variants]
    [eca.oauth :as oauth]
    [eca.shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http]
@@ -1047,7 +1047,7 @@
   {:id :eca/api-openai-responses
    :description "The OpenAI Responses API."
    :apis {"openai-responses" {:handler (fn [_ctx request callbacks] (create-response! request callbacks))}}
-   :config-defaults {:variantsByModel (merge variants/openai-responses variants/any-api)}})
+   :config-defaults {:variantsByModel (merge m.variants/openai-responses m.variants/any-api)}})
 
 (def module
   {:id :eca/openai

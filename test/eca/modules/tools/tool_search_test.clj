@@ -3,7 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools.util :as tools.util]
-   [eca.modules.tools.tool-search :as f.tools.tool-search]))
+   [eca.modules.tools.tool-search :as m.tool-search]))
 
 (def ^:private deferred-tools
   [{:full-name "github__create_pull_request"
@@ -22,7 +22,7 @@
         {:full-name "eca__read_file" :description "Read a file" :parameters {}}))
 
 (defn ^:private search [db* arguments]
-  ((:handler (get f.tools.tool-search/definitions "search_tools"))
+  ((:handler (get m.tool-search/definitions "search_tools"))
    arguments
    {:db* db* :chat-id "chat-1" :all-tools all-tools}))
 
@@ -77,7 +77,7 @@
 
   (testing "errors when there is nothing deferred"
     (let [db* (atom {})
-          result ((:handler (get f.tools.tool-search/definitions "search_tools"))
+          result ((:handler (get m.tool-search/definitions "search_tools"))
                   {"query" "anything"}
                   {:db* db* :chat-id "chat-1" :all-tools [{:full-name "eca__read_file"}]})]
       (is (true? (:error result))))))

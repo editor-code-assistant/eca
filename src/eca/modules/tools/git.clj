@@ -6,8 +6,8 @@
    [eca.cache :as cache]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.modules.tools.shell :as tools.shell]
-   [eca.modules.tools.shell.parser :as shell-parser]
+   [eca.modules.tools.shell :as m.shell]
+   [eca.modules.tools.shell.parser :as m.shell.parser]
    [eca.shared :as shared]
    [eca.shell :as shell]))
 
@@ -19,7 +19,7 @@
 
 (defmethod tools.util/tool-call-details-before-invocation :git
   [_name arguments _server {:keys [db chat-id]}]
-  (tools.shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
+  (m.shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
 
 (defn ^:private heredoc-in-substitution-hint
   "Some shells (e.g. macOS bash 3.2) fail to parse heredocs inside $(...) when
@@ -135,7 +135,7 @@
                                          :description "Concise 2-3 word description of what is being done (e.g. \"staged changes\", \"all test files\")."}}
                  :required ["command" "operation"]}
     :handler #'git-command
-    :approval-keys-fn (fn [arguments] (shell-parser/approval-keys (get arguments "command")))
+    :approval-keys-fn (fn [arguments] (m.shell.parser/approval-keys (get arguments "command")))
     :summary-fn #'git-command-summary}})
 
 (defmethod tools.util/tool-call-destroy-resource! :eca__git [name resource-kwd resource]

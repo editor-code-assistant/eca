@@ -3,7 +3,7 @@
    [babashka.fs :as fs]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.modules.rules :as f.rules]
+   [eca.modules.rules :as m.rules]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -27,7 +27,7 @@
                          :name "cool-name"
                          :scope :global
                          :content "MY_RULE_CONTENT"}])
-             (:static (f.rules/all-rules config [] nil nil)))))))
+             (:static (m.rules/all-rules config [] nil nil)))))))
 
   (testing "absolute config rule inside the workspace is project-scoped static"
     (with-redefs [clojure.core/slurp (constantly "MY_RULE_CONTENT")
@@ -43,7 +43,7 @@
                          :scope :project
                          :workspace-root (h/file-path "/my/project")
                          :content "MY_RULE_CONTENT"}])
-             (:static (f.rules/all-rules config [{:uri (h/file-uri "file:///my/project")}] nil nil)))))))
+             (:static (m.rules/all-rules config [{:uri (h/file-uri "file:///my/project")}] nil nil)))))))
 
   (testing "relative config rule is project-scoped static"
     (with-redefs [fs/absolute? (constantly false)
@@ -62,7 +62,7 @@
                          :scope :project
                          :workspace-root (h/file-path "/my/project")
                          :content "MY_RULE_CONTENT"}])
-             (:static (f.rules/all-rules config roots nil nil)))))))
+             (:static (m.rules/all-rules config roots nil nil)))))))
 
   (testing "config rule directories load files recursively"
     (let [tmp-dir (fs/create-temp-dir)
@@ -74,7 +74,7 @@
         (spit (fs/file nested-dir "child.mdc") "Child rule")
         (let [config {:rules [{:path (str rules-dir)}]}
               result (filter #(contains? #{"root.md" "child.mdc"} (:name %))
-                             (:static (f.rules/all-rules config [] nil nil)))]
+                             (:static (m.rules/all-rules config [] nil nil)))]
           (is (= #{"root.md" "child.mdc"} (set (map :name result))))
           (is (= #{"Root rule" "Child rule"} (set (map :content result)))))
         (finally
@@ -98,7 +98,7 @@
                          :scope :project
                          :workspace-root (h/file-path "/my/project")
                          :content "MY_RULE_CONTENT"}])
-             (:static (f.rules/all-rules {} roots nil nil)))))))
+             (:static (m.rules/all-rules {} roots nil nil)))))))
 
   (testing "global file rules load as global static rules"
     (with-redefs [config/get-env (constantly (h/file-path "/home/someuser/.config"))
@@ -118,7 +118,7 @@
                          :name "cool-name"
                          :scope :global
                          :content "MY_RULE_CONTENT"}])
-             (:static (f.rules/all-rules {} roots nil nil))))))))
+             (:static (m.rules/all-rules {} roots nil nil))))))))
 
 (deftest agent-filtering-test
   (testing "keeps backward compatibility for rules without frontmatter"
@@ -132,7 +132,7 @@
                :path (h/file-path "/path/to/my-rule.md")
                :name "cool-name"
                :content "RAW_RULE_CONTENT"}]
-             (:static (f.rules/all-rules config [] "code" nil)))))))
+             (:static (m.rules/all-rules config [] "code" nil)))))))
 
   (testing "filters rule by single agent in frontmatter"
     (with-redefs [fs/absolute? (constantly true)
@@ -146,8 +146,8 @@
                :name "cool-name"
                :content "Only code"
                :agents ["code"]}]
-             (:static (f.rules/all-rules config [] "code" nil))))
-        (is (empty? (:static (f.rules/all-rules config [] "plan" nil)))))))
+             (:static (m.rules/all-rules config [] "code" nil))))
+        (is (empty? (:static (m.rules/all-rules config [] "plan" nil)))))))
 
   (testing "filters rule by multiple agents in frontmatter"
     (with-redefs [fs/absolute? (constantly true)
@@ -155,9 +155,9 @@
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "---\nagent:\n  - code\n  - plan\n---\n\nShared rule")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (= 1 (count (:static (f.rules/all-rules config [] "code" nil)))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] "plan" nil)))))
-        (is (empty? (:static (f.rules/all-rules config [] "reviewer" nil)))))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] "code" nil)))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] "plan" nil)))))
+        (is (empty? (:static (m.rules/all-rules config [] "reviewer" nil)))))))
 
   (testing "empty agent frontmatter applies to all agents"
     (with-redefs [fs/absolute? (constantly true)
@@ -165,8 +165,8 @@
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "---\nagent: \"\"\n---\n\nGlobal rule")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (= 1 (count (:static (f.rules/all-rules config [] "code" nil)))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] "plan" nil))))))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] "code" nil)))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] "plan" nil))))))))
 
   (testing "frontmatter without agent key is global"
     (with-redefs [fs/absolute? (constantly true)
@@ -178,10 +178,10 @@
              [{:type :user-config
                :name "cool-name"
                :content "Rule body"}]
-             (:static (f.rules/all-rules config [] "code" nil))))
+             (:static (m.rules/all-rules config [] "code" nil))))
         (is (match?
              [{:content "Rule body"}]
-             (:static (f.rules/all-rules config [] "plan" nil)))))))
+             (:static (m.rules/all-rules config [] "plan" nil)))))))
 
   (testing "malformed frontmatter skips invalid rule"
     (with-redefs [fs/absolute? (constantly true)
@@ -189,7 +189,7 @@
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "---\n: invalid yaml [[\n---\n\nBody")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (empty? (:static (f.rules/all-rules config [] "code" nil)))))))
+        (is (empty? (:static (m.rules/all-rules config [] "code" nil)))))))
 
   (testing "unclosed frontmatter skips invalid rule"
     (with-redefs [fs/absolute? (constantly true)
@@ -197,7 +197,7 @@
                   fs/file-name (constantly "cool-name")
                   clojure.core/slurp (constantly "---\nagent: code\npaths: src/**/*.clj")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (empty? (:static (f.rules/all-rules config [] "code" nil))))))))
+        (is (empty? (:static (m.rules/all-rules config [] "code" nil))))))))
 
 (deftest paths-frontmatter-test
   (testing "single paths string is parsed into :paths vector"
@@ -210,7 +210,7 @@
              [{:name "cool-name"
                :content "Rule body"
                :paths ["src/**/*.clj"]}]
-             (f.rules/path-scoped-rules config [] nil nil))))))
+             (m.rules/path-scoped-rules config [] nil nil))))))
 
   (testing "paths list is parsed into :paths vector"
     (with-redefs [fs/absolute? (constantly true)
@@ -222,7 +222,7 @@
              [{:name "cool-name"
                :content "Rule body"
                :paths ["src/**/*.{ts,tsx}" "lib/**/*.ts"]}]
-             (f.rules/path-scoped-rules config [] nil nil))))))
+             (m.rules/path-scoped-rules config [] nil nil))))))
 
   (testing "blank paths behaves like no path filter"
     (with-redefs [fs/absolute? (constantly true)
@@ -233,8 +233,8 @@
         (is (match?
              [{:name "cool-name"
                :content "Rule body"}]
-             (:static (f.rules/all-rules config [] nil nil))))
-        (is (nil? (:paths (first (:static (f.rules/all-rules config [] nil nil)))))))))
+             (:static (m.rules/all-rules config [] nil nil))))
+        (is (nil? (:paths (first (:static (m.rules/all-rules config [] nil nil)))))))))
 
   (testing "combined agent + paths frontmatter retains both"
     (with-redefs [fs/absolute? (constantly true)
@@ -247,7 +247,7 @@
                :content "Rule body"
                :agents ["code"]
                :paths ["src/**/*.clj"]}]
-             (f.rules/path-scoped-rules config [] "code" nil)))))))
+             (m.rules/path-scoped-rules config [] "code" nil)))))))
 
 (deftest model-frontmatter-test
   (testing "single model string is parsed into :models vector"
@@ -260,7 +260,7 @@
              [{:name "cool-name"
                :content "Rule body"
                :models ["claude-sonnet-4.*"]}]
-             (:static (f.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))))
+             (:static (m.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))))
 
   (testing "model list is parsed into :models vector"
     (with-redefs [fs/absolute? (constantly true)
@@ -272,7 +272,7 @@
              [{:name "cool-name"
                :content "Rule body"
                :models ["claude-sonnet-4.*" "gpt-4.*"]}]
-             (:static (f.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))))
+             (:static (m.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))))
 
   (testing "blank model behaves like no filter"
     (with-redefs [fs/absolute? (constantly true)
@@ -283,8 +283,8 @@
         (is (match?
              [{:name "cool-name"
                :content "Rule body"}]
-             (:static (f.rules/all-rules config [] nil nil))))
-        (is (nil? (:models (first (:static (f.rules/all-rules config [] nil nil)))))))))
+             (:static (m.rules/all-rules config [] nil nil))))
+        (is (nil? (:models (first (:static (m.rules/all-rules config [] nil nil)))))))))
 
   (testing "combined agent + model frontmatter retains both"
     (with-redefs [fs/absolute? (constantly true)
@@ -297,7 +297,7 @@
                :content "Rule body"
                :agents ["code"]
                :models ["claude-sonnet-4.*"]}]
-             (:static (f.rules/all-rules config [] "code" "anthropic/claude-sonnet-4-20250514"))))))))
+             (:static (m.rules/all-rules config [] "code" "anthropic/claude-sonnet-4-20250514"))))))))
 
 (deftest model-filtering-test
   (testing "rule without :models always matches any full-model"
@@ -306,9 +306,9 @@
                   fs/file-name (constantly "no-model-rule")
                   clojure.core/slurp (constantly "No model filter")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil "openai/gpt-4o")))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil nil))))))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil "openai/gpt-4o")))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil nil))))))))
 
   (testing "rule with :models only appears when full-model matches regex"
     (with-redefs [fs/absolute? (constantly true)
@@ -316,8 +316,8 @@
                   fs/file-name (constantly "model-rule")
                   clojure.core/slurp (constantly "---\nmodel: \"claude-sonnet-4.*\"\n---\n\nClaude rule")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
-        (is (empty? (:static (f.rules/all-rules config [] nil "openai/gpt-4o")))))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
+        (is (empty? (:static (m.rules/all-rules config [] nil "openai/gpt-4o")))))))
 
   (testing "rule with :models is excluded when full-model is nil"
     (with-redefs [fs/absolute? (constantly true)
@@ -325,7 +325,7 @@
                   fs/file-name (constantly "model-rule")
                   clojure.core/slurp (constantly "---\nmodel: \"claude-sonnet-4.*\"\n---\n\nClaude rule")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (empty? (:static (f.rules/all-rules config [] nil nil)))))))
+        (is (empty? (:static (m.rules/all-rules config [] nil nil)))))))
 
   (testing "model regex matching works with provider-prefixed full-model"
     (with-redefs [fs/absolute? (constantly true)
@@ -333,8 +333,8 @@
                   fs/file-name (constantly "model-rule")
                   clojure.core/slurp (constantly "---\nmodel: \"claude-sonnet-4.*\"\n---\n\nClaude rule")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil "claude-sonnet-4-20250514"))))))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil "claude-sonnet-4-20250514"))))))))
 
   (testing "static-rules respects model filtering"
     (with-redefs [fs/absolute? (constantly true)
@@ -349,9 +349,9 @@
                                              (= (h/file-path "/path/to/model-rule.md") p) "---\nmodel: \"claude.*\"\n---\n\nClaude only"))]
       (let [config {:rules [{:path (h/file-path "/path/to/no-model.md")}
                             {:path (h/file-path "/path/to/model-rule.md")}]}]
-        (is (= 2 (count (:static (f.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil "openai/gpt-4o")))))
-        (is (= ["no-model"] (names (:static (f.rules/all-rules config [] nil "openai/gpt-4o"))))))))
+        (is (= 2 (count (:static (m.rules/all-rules config [] nil "anthropic/claude-sonnet-4-20250514")))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil "openai/gpt-4o")))))
+        (is (= ["no-model"] (names (:static (m.rules/all-rules config [] nil "openai/gpt-4o"))))))))
 
   (testing "path-scoped-rules respects model filtering"
     (with-redefs [fs/absolute? (constantly true)
@@ -366,9 +366,9 @@
                                              (= (h/file-path "/path/to/no-model-path.md") p) "---\npaths: \"src/**/*.clj\"\n---\n\nClojure path rule"))]
       (let [config {:rules [{:path (h/file-path "/path/to/path-rule.md")}
                             {:path (h/file-path "/path/to/no-model-path.md")}]}]
-        (is (= 2 (count (f.rules/path-scoped-rules config [] nil "openai/gpt-4o"))))
-        (is (= 1 (count (f.rules/path-scoped-rules config [] nil "anthropic/claude-sonnet-4-20250514"))))
-        (is (= ["no-model-path"] (names (f.rules/path-scoped-rules config [] nil "anthropic/claude-sonnet-4-20250514"))))))))
+        (is (= 2 (count (m.rules/path-scoped-rules config [] nil "openai/gpt-4o"))))
+        (is (= 1 (count (m.rules/path-scoped-rules config [] nil "anthropic/claude-sonnet-4-20250514"))))
+        (is (= ["no-model-path"] (names (m.rules/path-scoped-rules config [] nil "anthropic/claude-sonnet-4-20250514"))))))))
 
 (deftest static-rules-test
   (testing "static-rules returns only rules without :paths"
@@ -384,9 +384,9 @@
                                              (= (h/file-path "/path/to/scoped.md") p) "---\npaths: \"src/**/*.clj\"\n---\n\nScoped rule"))]
       (let [config {:rules [{:path (h/file-path "/path/to/static.md")}
                             {:path (h/file-path "/path/to/scoped.md")}]}]
-        (is (= 1 (count (:static (f.rules/all-rules config [] nil nil)))))
-        (is (= ["static"] (names (:static (f.rules/all-rules config [] nil nil)))))
-        (is (nil? (:paths (first (:static (f.rules/all-rules config [] nil nil)))))))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] nil nil)))))
+        (is (= ["static"] (names (:static (m.rules/all-rules config [] nil nil)))))
+        (is (nil? (:paths (first (:static (m.rules/all-rules config [] nil nil)))))))))
 
   (testing "path-scoped-rules returns only rules with :paths"
     (with-redefs [fs/absolute? (constantly true)
@@ -401,9 +401,9 @@
                                              (= (h/file-path "/path/to/scoped.md") p) "---\npaths: \"src/**/*.clj\"\n---\n\nScoped rule"))]
       (let [config {:rules [{:path (h/file-path "/path/to/static.md")}
                             {:path (h/file-path "/path/to/scoped.md")}]}]
-        (is (= 1 (count (f.rules/path-scoped-rules config [] nil nil))))
-        (is (= ["scoped"] (names (f.rules/path-scoped-rules config [] nil nil))))
-        (is (some? (:paths (first (f.rules/path-scoped-rules config [] nil nil))))))))
+        (is (= 1 (count (m.rules/path-scoped-rules config [] nil nil))))
+        (is (= ["scoped"] (names (m.rules/path-scoped-rules config [] nil nil))))
+        (is (some? (:paths (first (m.rules/path-scoped-rules config [] nil nil))))))))
 
   (testing "static-rules is filtered by agent and model"
     (with-redefs [fs/absolute? (constantly true)
@@ -422,9 +422,9 @@
       (let [config {:rules [{:path (h/file-path "/path/to/global-rule.md")}
                             {:path (h/file-path "/path/to/code-rule.md")}
                             {:path (h/file-path "/path/to/claude-rule.md")}]}]
-        (is (= 3 (count (:static (f.rules/all-rules config [] "code" "anthropic/claude-sonnet-4-20250514")))))
-        (is (= 2 (count (:static (f.rules/all-rules config [] "plan" "anthropic/claude-sonnet-4-20250514")))))
-        (is (= 2 (count (:static (f.rules/all-rules config [] "code" "openai/gpt-4o"))))))))
+        (is (= 3 (count (:static (m.rules/all-rules config [] "code" "anthropic/claude-sonnet-4-20250514")))))
+        (is (= 2 (count (:static (m.rules/all-rules config [] "plan" "anthropic/claude-sonnet-4-20250514")))))
+        (is (= 2 (count (:static (m.rules/all-rules config [] "code" "openai/gpt-4o"))))))))
 
   (testing "path-scoped-rules is filtered by agent and model"
     (with-redefs [fs/absolute? (constantly true)
@@ -443,13 +443,13 @@
       (let [config {:rules [{:path (h/file-path "/path/to/global-path.md")}
                             {:path (h/file-path "/path/to/code-path.md")}
                             {:path (h/file-path "/path/to/claude-path.md")}]}]
-        (is (= 3 (count (f.rules/path-scoped-rules config [] "code" "anthropic/claude-sonnet-4-20250514"))))
-        (is (= 2 (count (f.rules/path-scoped-rules config [] "plan" "anthropic/claude-sonnet-4-20250514"))))
-        (is (= 2 (count (f.rules/path-scoped-rules config [] "code" "openai/gpt-4o"))))))))
+        (is (= 3 (count (m.rules/path-scoped-rules config [] "code" "anthropic/claude-sonnet-4-20250514"))))
+        (is (= 2 (count (m.rules/path-scoped-rules config [] "plan" "anthropic/claude-sonnet-4-20250514"))))
+        (is (= 2 (count (m.rules/path-scoped-rules config [] "code" "openai/gpt-4o"))))))))
 
 (deftest matching-path-scoped-rules-test
   (testing "returns every matching path-scoped rule with match details"
-    (with-redefs [f.rules/path-scoped-rules (constantly [{:id (h/file-path "/workspace-a/.eca/rules/format.md")
+    (with-redefs [m.rules/path-scoped-rules (constantly [{:id (h/file-path "/workspace-a/.eca/rules/format.md")
                                                           :name "format.md"
                                                           :scope :project
                                                           :workspace-root (h/file-path "/workspace-a")
@@ -463,7 +463,7 @@
                     :match {:match? true
                             :matched-pattern "src/**.clj"
                             :relative-path (str (fs/path "src" "core.clj"))}}]
-                  (f.rules/matching-path-scoped-rules {}
+                  (m.rules/matching-path-scoped-rules {}
                                                       [{:uri (h/file-uri "file:///workspace-a")}]
                                                       "code"
                                                       "openai/gpt-4o"
@@ -488,12 +488,12 @@
                             {:path (h/file-path "/path/to/rule-b.md")}
                             {:path (h/file-path "/path/to/static.md")}]}]
         (is (match? {:id (h/file-path "/path/to/rule-a.md") :name "rule-a" :content "Rule A content" :paths ["src/**/*.clj"]}
-                    (f.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-a.md") "code" "openai/gpt-4o")))
+                    (m.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-a.md") "code" "openai/gpt-4o")))
         (is (match? {:id (h/file-path "/path/to/rule-b.md") :name "rule-b" :content "Rule B content" :paths ["src/**/*.md"]}
-                    (f.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-b.md") "plan" "anthropic/claude-sonnet-4-20250514")))
-        (is (nil? (f.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-a.md") "plan" "openai/gpt-4o")))
-        (is (nil? (f.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-b.md") "plan" "openai/gpt-4o")))
-        (is (nil? (f.rules/find-rule-by-id config [] (h/file-path "/path/to/static.md") "code" "openai/gpt-4o"))))))
+                    (m.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-b.md") "plan" "anthropic/claude-sonnet-4-20250514")))
+        (is (nil? (m.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-a.md") "plan" "openai/gpt-4o")))
+        (is (nil? (m.rules/find-rule-by-id config [] (h/file-path "/path/to/rule-b.md") "plan" "openai/gpt-4o")))
+        (is (nil? (m.rules/find-rule-by-id config [] (h/file-path "/path/to/static.md") "code" "openai/gpt-4o"))))))
 
   (testing "returns nil when no rule matches the id"
     (with-redefs [fs/absolute? (constantly true)
@@ -501,7 +501,7 @@
                   fs/file-name (constantly "existing-rule")
                   clojure.core/slurp (constantly "---\npaths: \"src/**/*.clj\"\n---\n\nRule content")]
       (let [config {:rules [{:path (h/file-path "/path/to/my-rule.md")}]}]
-        (is (nil? (f.rules/find-rule-by-id config [] (h/file-path "/path/to/nonexistent.md") "code" "openai/gpt-4o"))))))
+        (is (nil? (m.rules/find-rule-by-id config [] (h/file-path "/path/to/nonexistent.md") "code" "openai/gpt-4o"))))))
 
   (testing "different rules can share the same basename because lookup uses exact id"
     (with-redefs [fs/absolute? (constantly true)
@@ -514,9 +514,9 @@
       (let [config {:rules [{:path (h/file-path "/workspace-a/.eca/rules/format.md")}
                             {:path (h/file-path "/workspace-b/.eca/rules/format.md")}]}]
         (is (= "Workspace A rule"
-               (:content (f.rules/find-rule-by-id config [] (h/file-path "/workspace-a/.eca/rules/format.md") "code" "openai/gpt-4o"))))
+               (:content (m.rules/find-rule-by-id config [] (h/file-path "/workspace-a/.eca/rules/format.md") "code" "openai/gpt-4o"))))
         (is (= "Workspace B rule"
-               (:content (f.rules/find-rule-by-id config [] (h/file-path "/workspace-b/.eca/rules/format.md") "code" "openai/gpt-4o"))))))))
+               (:content (m.rules/find-rule-by-id config [] (h/file-path "/workspace-b/.eca/rules/format.md") "code" "openai/gpt-4o"))))))))
 
 (deftest match-path-scoped-rule-test
   (let [workspace-a (h/file-path "/workspace-a")
@@ -530,7 +530,7 @@
                    :relative-path (str (fs/path "src" "nested" "core.clj"))
                    :matched-pattern "src/**/*.clj"
                    :paths ["src/**/*.clj"]}
-                  (f.rules/match-path-scoped-rule {:scope :project
+                  (m.rules/match-path-scoped-rule {:scope :project
                                                    :workspace-root workspace-a
                                                    :paths ["src/**/*.clj"]}
                                                   roots
@@ -542,7 +542,7 @@
                    :path workspace-b
                    :workspace-root workspace-a
                    :relative-path nil}
-                  (f.rules/match-path-scoped-rule {:scope :project
+                  (m.rules/match-path-scoped-rule {:scope :project
                                                    :workspace-root workspace-a
                                                    :paths ["src/**/*.clj"]}
                                                   roots
@@ -554,7 +554,7 @@
                    :workspace-root workspace-b
                    :relative-path (str (fs/path "lib" "foo.cljs"))
                    :matched-pattern "lib/**.cljs"}
-                  (f.rules/match-path-scoped-rule {:scope :global
+                  (m.rules/match-path-scoped-rule {:scope :global
                                                    :paths ["lib/**.cljs"]}
                                                   roots
                                                   (h/file-path "/workspace-b/lib/foo.cljs")))))
@@ -565,7 +565,7 @@
                    :path "src/foo.clj"
                    :workspace-root nil
                    :relative-path nil}
-                  (f.rules/match-path-scoped-rule {:scope :project
+                  (m.rules/match-path-scoped-rule {:scope :project
                                                    :workspace-root workspace-a
                                                    :paths ["src/**.clj"]}
                                                   roots
@@ -585,7 +585,7 @@
         (with-redefs [config/get-env (constantly (str (fs/path tmp-dir "no-global-config")))]
           (let [workspace-root (shared/normalize-path tmp-dir)
                 roots [{:uri (shared/filename->uri (str tmp-dir))}]
-                rules (f.rules/path-scoped-rules {} roots "code" "openai/gpt-5.2")
+                rules (m.rules/path-scoped-rules {} roots "code" "openai/gpt-5.2")
                 rule (first rules)]
             (is (= 1 (count rules)))
             (is (match? {:name "clojure.md"
@@ -602,7 +602,7 @@
                          :workspace-root workspace-root
                          :relative-path (str (fs/path "src" "nested" "foo.clj"))
                          :matched-pattern "src/**/*.clj"}
-                        (f.rules/match-path-scoped-rule rule roots (str target-file))))))
+                        (m.rules/match-path-scoped-rule rule roots (str target-file))))))
         (finally
           (fs/delete-tree tmp-dir))))))
 
@@ -620,7 +620,7 @@
                                              (= (h/file-path "/path/to/scoped.md") p) "---\npaths: \"src/**/*.clj\"\n---\n\nPath rule"))]
       (let [config {:rules [{:path (h/file-path "/path/to/static.md")}
                             {:path (h/file-path "/path/to/scoped.md")}]}
-            {:keys [static path-scoped]} (f.rules/all-rules config [] nil nil)]
+            {:keys [static path-scoped]} (m.rules/all-rules config [] nil nil)]
         (is (= 1 (count static)))
         (is (= "static.md" (:name (first static))))
         (is (nil? (:paths (first static))))
@@ -641,6 +641,6 @@
                                              (= (h/file-path "/path/to/global.md") p) "For everyone"))]
       (let [config {:rules [{:path (h/file-path "/path/to/code-only.md")}
                             {:path (h/file-path "/path/to/global.md")}]}]
-        (is (= 2 (count (:static (f.rules/all-rules config [] "code" nil)))))
-        (is (= 1 (count (:static (f.rules/all-rules config [] "plan" nil)))))
-        (is (= ["global.md"] (names (:static (f.rules/all-rules config [] "plan" nil)))))))))
+        (is (= 2 (count (:static (m.rules/all-rules config [] "code" nil)))))
+        (is (= 1 (count (:static (m.rules/all-rules config [] "plan" nil)))))
+        (is (= ["global.md"] (names (:static (m.rules/all-rules config [] "plan" nil)))))))))

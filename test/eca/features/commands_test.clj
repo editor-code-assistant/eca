@@ -6,8 +6,8 @@
    [eca.db :as db]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.commands :as f.commands]
-   [eca.modules.rules :as f.rules]
-   [eca.modules.skills :as f.skills]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -129,7 +129,7 @@
       (let [context-file (fs/file tmp-dir "example.clj")
             context-path (str (fs/canonicalize context-file))]
         (spit context-file "(def answer 42)")
-        (with-redefs [f.skills/all (constantly [{:name "review"
+        (with-redefs [m.skills/all (constantly [{:name "review"
                                                  :body "Review $1"}])]
           (let [result (f.commands/handle-command! "review"
                                                    [(str "@" context-path)]
@@ -144,7 +144,7 @@
 
 (deftest module-skill-command-test
   (testing "a skill whose body is a function asks the model to load it, also with arguments"
-    (with-redefs [f.skills/all (constantly [{:name "report" :body (fn [_ctx] "Report") :module :eca/test}])]
+    (with-redefs [m.skills/all (constantly [{:name "report" :body (fn [_ctx] "Report") :module :eca/test}])]
       (let [ctx (assoc (command-context "chat-1") :config {:pureConfig true})]
         (is (= {:type :send-prompt :prompt "Load skill: report"}
                (f.commands/handle-command! "report" [] ctx)))
@@ -711,7 +711,7 @@
 
 (deftest rules-command-test
   (testing "/rules shows static and path-scoped rules separately with filter metadata"
-    (with-redefs [f.rules/all-rules (fn [_config _roots agent full-model]
+    (with-redefs [m.rules/all-rules (fn [_config _roots agent full-model]
                                       (is (= "code" agent))
                                       (is (= "anthropic/claude-sonnet-4-20250514" full-model))
                                       {:static [{:name "coding-style.md"
@@ -754,7 +754,7 @@
         (is (not (string/includes? text "Content preview: Run formatter before saving."))))))
 
   (testing "/rules falls back to all when filters are omitted in rule metadata"
-    (with-redefs [f.rules/all-rules (fn [& _]
+    (with-redefs [m.rules/all-rules (fn [& _]
                                       {:static [{:name "global.md"
                                                  :scope :global
                                                  :path "/home/user/.config/eca/rules/global.md"
@@ -779,7 +779,7 @@
         (is (string/includes? text "Model filter: all")))))
 
   (testing "/rules hides path-scoped rules when fetch_rule is unavailable"
-    (with-redefs [f.rules/all-rules (constantly {:static []
+    (with-redefs [m.rules/all-rules (constantly {:static []
                                                  :path-scoped [{:name "format.md"
                                                                 :scope :project
                                                                 :path "/repo/.eca/rules/format.md"
@@ -803,7 +803,7 @@
         (is (= "No rules available for the current agent and model." text)))))
 
   (testing "/rules reports when there are no available rules"
-    (with-redefs [f.rules/all-rules (constantly {:static [] :path-scoped []})]
+    (with-redefs [m.rules/all-rules (constantly {:static [] :path-scoped []})]
       (let [result (#'f.commands/handle-command! "rules"
                                                  []
                                                  {:chat-id "chat-1"

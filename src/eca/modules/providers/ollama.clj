@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
-   [eca.modules.providers.variants :as variants]
+   [eca.modules.providers.variants :as m.variants]
    [eca.shared :refer [deep-merge join-api-url]]
    [hato.client :as http]))
 
@@ -277,7 +277,7 @@
   {:id :eca/api-ollama
    :description "The Ollama chat API."
    :apis {"ollama" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
-   :config-defaults {:variantsByModel variants/any-api}})
+   :config-defaults {:variantsByModel m.variants/any-api}})
 
 (def module
   {:id :eca/ollama

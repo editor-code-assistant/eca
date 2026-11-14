@@ -5,7 +5,7 @@
    [eca.config :as config]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
-   [eca.modules.otel :as f.otel]
+   [eca.modules.otel :as m.otel]
    [eca.server :as server]
    [eca.test-helper :as h]))
 
@@ -30,14 +30,14 @@
    it in `events*`, and no exporter made yet."
   [[events*] & body]
   `(let [~events* (atom [])]
-     (with-redefs [f.otel/->OtelMetrics (fn [otlp-config#]
+     (with-redefs [m.otel/->OtelMetrics (fn [otlp-config#]
                                                  (swap! ~events* conj [:new otlp-config#])
                                                  (->FakeExporter ~events*))]
-       (reset! @#'f.otel/exporter* nil)
+       (reset! @#'m.otel/exporter* nil)
        (try
          ~@body
          (finally
-           (reset! @#'f.otel/exporter* nil))))))
+           (reset! @#'m.otel/exporter* nil))))))
 
 (deftest activation-test
   (testing "off by default"
@@ -51,15 +51,15 @@
   (with-fake-exporter [events*]
     (let [m (metrics/->switchable (metrics/->NoopMetrics))]
       (testing "the first install makes the exporter and starts it"
-        (f.otel/install! m otlp)
+        (m.otel/install! m otlp)
         (metrics/count! m "x" 1 {})
         (is (= [[:new otlp] :start [:count "x"]] @events*)))
       (testing "off, nothing is exported"
-        (f.otel/uninstall! m)
+        (m.otel/uninstall! m)
         (metrics/count! m "y" 1 {})
         (is (= [[:count "x"]] (filterv vector? (rest @events*)))))
       (testing "on again, the same exporter counts, started once: OpenTelemetry's global SDK is set only once"
-        (f.otel/install! m otlp)
+        (m.otel/install! m otlp)
         (metrics/count! m "z" 1 {})
         (is (= [[:new otlp] :start [:count "x"] [:count "z"]] @events*))))))
 

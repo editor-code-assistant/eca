@@ -9,8 +9,8 @@
    [eca.db :as db]
    [eca.features.login :as login]
    [eca.modules :as modules]
-   [eca.modules.providers.anthropic :as llm-providers.anthropic]
-   [eca.modules.providers.copilot :as llm-providers.copilot]
+   [eca.modules.providers.anthropic :as m.anthropic]
+   [eca.modules.providers.copilot :as m.copilot]
    [eca.test-helper :as h]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
@@ -60,9 +60,9 @@
           (with-redefs-fn {#'http/post (constantly {:body {:user_code "1234"
                                                            :decide_code "5678"
                                                            :verification_uri "https://mock.github.com/login/device"}})
-                           #'llm-providers.copilot/poll-device-authorization! (fn [& args]
-                                                                                (reset! poll-args* args)
-                                                                                nil)}
+                           #'m.copilot/poll-device-authorization! (fn [& args]
+                                                                    (reset! poll-args* args)
+                                                                    nil)}
             #(login/login-step {:provider nil
                                 :step :login/start
                                 :chat-id 0
@@ -100,7 +100,7 @@
       (with-redefs-fn {#'http/post (constantly {:body {:user_code "1234"
                                                        :decide_code "5678"
                                                        :verification_uri "https://mock.github.com/login/device"}})
-                       #'llm-providers.copilot/poll-device-authorization! (fn [& _] nil)}
+                       #'m.copilot/poll-device-authorization! (fn [& _] nil)}
         #(login/login-step {:provider nil
                             :step :login/start
                             :chat-id 0
@@ -147,10 +147,10 @@
 
     (testing "token renewal uses the parent's refresh and updates only the inheriting provider"
       (swap! db* assoc-in [:auth "anthropic-work"] {:type :auth/oauth :refresh-token "work-refresh" :expires-at 1000})
-      (with-redefs-fn {#'llm-providers.anthropic/oauth-refresh (fn [refresh-token]
-                                                                 {:refresh-token (str refresh-token "-rotated")
-                                                                  :access-token "work-access"
-                                                                  :expires-at 9999999999})
+      (with-redefs-fn {#'m.anthropic/oauth-refresh (fn [refresh-token]
+                                                     {:refresh-token (str refresh-token "-rotated")
+                                                      :access-token "work-access"
+                                                      :expires-at 9999999999})
                        #'login/login-done! (fn [& _] nil)}
         #(login/login-step (assoc ctx :provider "anthropic-work" :step :login/renew-token)))
       (is (match? {:refresh-token "work-refresh-rotated"

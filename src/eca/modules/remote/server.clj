@@ -5,10 +5,10 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
-   [eca.modules.remote.auth :as auth]
-   [eca.modules.remote.routes :as routes]
-   [eca.modules.remote.sse :as sse]
-   [eca.modules.remote.tls :as tls]
+   [eca.modules.remote.auth :as m.remote.auth]
+   [eca.modules.remote.routes :as m.remote.routes]
+   [eca.modules.remote.sse :as m.remote.sse]
+   [eca.modules.remote.tls :as m.remote.tls]
    [eca.shared :as shared]
    [ring.adapter.jetty :as jetty])
   (:import
@@ -225,7 +225,7 @@
   (let [db @(:db* components)
         config (config/all db)
         remote-config (:remote config)
-        token (or (:password remote-config) (auth/generate-token))
+        token (or (:password remote-config) (m.remote.auth/generate-token))
         bind-host (:bindHost remote-config)
         host-base (or (:host remote-config)
                       ;; Default the display host to the explicit bind host
@@ -235,13 +235,13 @@
                       (detect-host))
         lan-ip (detect-lan-ip)
         user-port (:port remote-config)
-        ssl-context (tls/ssl-context remote-config)
+        ssl-context (m.remote.tls/ssl-context remote-config)
         ;; Use atom so the handler sees host:port after Jetty resolves the actual port
         host+port* (atom host-base)
-        handler (routes/create-handler components
-                                       {:token token
-                                        :host* host+port*
-                                        :sse-connections* sse-connections*})]
+        handler (m.remote.routes/create-handler components
+                                                {:token token
+                                                 :host* host+port*
+                                                 :sse-connections* sse-connections*})]
     (try
       (if-let [[^Server jetty-server actual-port bind-host]
                (if user-port
@@ -264,7 +264,7 @@
                              host-base)
               host-with-port (str display-host ":" actual-port)
               _ (reset! host+port* host-with-port)
-              heartbeat-ch (sse/start-heartbeat! sse-connections*)
+              heartbeat-ch (m.remote.sse/start-heartbeat! sse-connections*)
               localhost-only? (and (= bind-host "127.0.0.1") (not lan-ip))
               protocol (if ssl-context "https" (if private? "http" "https"))
               connect-url (str "https://web.eca.dev?host="
@@ -307,13 +307,13 @@
     (logger/info logger-tag "Stopping remote server...")
     ;; Broadcast disconnecting event
     (when sse-connections*
-      (sse/broadcast! sse-connections* "session:disconnecting" {:reason "shutdown"}))
+      (m.remote.sse/broadcast! sse-connections* "session:disconnecting" {:reason "shutdown"}))
     ;; Stop heartbeat
     (when heartbeat-stop-ch
       (async/close! heartbeat-stop-ch))
     ;; Close all SSE connections
     (when sse-connections*
-      (sse/close-all! sse-connections*))
+      (m.remote.sse/close-all! sse-connections*))
     ;; Stop Jetty with 5s timeout
     (.setStopTimeout server 5000)
     (.stop server)

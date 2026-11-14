@@ -9,7 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
-   [eca.modules.providers.variants :as variants]
+   [eca.modules.providers.variants :as m.variants]
    [eca.shared :refer [assoc-some deep-merge join-api-url]]
    [hato.client :as http]))
 
@@ -845,4 +845,4 @@
   {:id :eca/api-openai-chat
    :description "The OpenAI Chat Completions API, which OpenAI-compatible providers speak."
    :apis {"openai-chat" {:handler (fn [_ctx request callbacks] (chat-completion! request callbacks))}}
-   :config-defaults {:variantsByModel (merge variants/openai-chat variants/any-api)}})
+   :config-defaults {:variantsByModel (merge m.variants/openai-chat m.variants/any-api)}})

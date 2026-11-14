@@ -5,7 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-api :as llm-api]
-   [eca.modules.providers.anthropic :as llm-providers.anthropic]
+   [eca.modules.providers.anthropic :as m.anthropic]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -367,7 +367,7 @@
         (let [body {:model "claude-v1"
                     :input "hi"
                     :stream false}
-              response (#'llm-providers.anthropic/base-request!
+              response (#'m.anthropic/base-request!
                         {:rid "r1"
                          :api-key "fake-key"
                          :api-url "http://localhost:1"
@@ -391,7 +391,7 @@
          :body {:type "error" :error {:type "rate_limit_error" :message "Rate limit exceeded"}}
          :headers {"retry-after" "7"
                    "anthropic-ratelimit-unified-reset" "1783958400"}})
-      (let [response (#'llm-providers.anthropic/base-request!
+      (let [response (#'m.anthropic/base-request!
                       {:rid "r1"
                        :api-key "fake-key"
                        :api-url "http://localhost:1"
@@ -413,7 +413,7 @@
         (reset! req* req)
         {:status 200
          :body {:content [{:text "ok"}]}})
-      (#'llm-providers.anthropic/base-request!
+      (#'m.anthropic/base-request!
        {:rid "r1"
         :api-key "oauth-token"
         :api-url "http://localhost:1"
@@ -448,9 +448,9 @@
         (let [raw-code   "abc123#stateXYZ"
               verifier   "verifierXYZ"
               [code state] (string/split raw-code #"#")
-              result     (with-redefs [llm-providers.anthropic/oauth-token-url
+              result     (with-redefs [m.anthropic/oauth-token-url
                                        "http://localhost:99/v1/oauth/token"]
-                           (#'llm-providers.anthropic/oauth-authorize
+                           (#'m.anthropic/oauth-authorize
                             raw-code verifier))]
 
           (is (= {:method "POST"
@@ -460,7 +460,7 @@
           (is (= {:grant_type    "authorization_code"
                   :code          code
                   :state         state
-                  :client_id     @#'llm-providers.anthropic/client-id
+                  :client_id     @#'m.anthropic/client-id
                   :redirect_uri  "https://console.anthropic.com/oauth/code/callback"
                   :code_verifier verifier}
                  (:body @req*))
@@ -487,9 +487,9 @@
                   :expires_in    3600}})
 
         (let [refresh-token "old-r-token"
-              result        (with-redefs [llm-providers.anthropic/oauth-token-url
+              result        (with-redefs [m.anthropic/oauth-token-url
                                           "http://localhost:99/v1/oauth/token"]
-                              (#'llm-providers.anthropic/oauth-refresh refresh-token))]
+                              (#'m.anthropic/oauth-refresh refresh-token))]
 
           (is (= {:method "POST"
                   :uri    "/v1/oauth/token"}
@@ -497,7 +497,7 @@
 
           (is (= {:grant_type    "refresh_token"
                   :refresh_token refresh-token
-                  :client_id     @#'llm-providers.anthropic/client-id}
+                  :client_id     @#'m.anthropic/client-id}
                  (:body @req*))
               "Outgoing payload should match refresh-token fields")
 
@@ -519,9 +519,9 @@
            :body {:raw_key "sk-ant-test-key"}})
 
         (let [access-token "access-123"
-              result       (with-redefs [llm-providers.anthropic/create-api-key-url
+              result       (with-redefs [m.anthropic/create-api-key-url
                                          "http://localhost:99/api/oauth/claude_cli/create_api_key"]
-                             (#'llm-providers.anthropic/create-api-key access-token))]
+                             (#'m.anthropic/create-api-key access-token))]
 
           (is (= {:method "POST"
                   :uri    "/api/oauth/claude_cli/create_api_key"}
@@ -538,12 +538,12 @@
   (testing "no previous history"
     (is (match?
          []
-         (#'llm-providers.anthropic/normalize-messages [] true))))
+         (#'m.anthropic/normalize-messages [] true))))
   (testing "With basic text history"
     (is (match?
          [{:role "user" :content "Count with me: 1"}
           {:role "assistant" :content "2"}]
-         (#'llm-providers.anthropic/normalize-messages
+         (#'m.anthropic/normalize-messages
           [{:role "user" :content "Count with me: 1"}
            {:role "assistant" :content "2"}]
           true))))
@@ -559,7 +559,7 @@
                                    :tool_use_id "call-1"
                                    :content "Allowed directories: /foo/bar\n"}]}
           {:role "assistant" :content "I see /foo/bar"}]
-         (#'llm-providers.anthropic/normalize-messages
+         (#'m.anthropic/normalize-messages
           [{:role "user" :content "List the files you are allowed"}
            {:role "assistant" :content "Ok!"}
            {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
@@ -580,7 +580,7 @@
             {:role "assistant" :content [{:type "web_search_tool_result"
                                           :tool_use_id "srvtoolu_123"
                                           :content [{:type "web_search_result" :title "Test" :url "https://test.com"}]}]}]
-           (#'llm-providers.anthropic/normalize-messages
+           (#'m.anthropic/normalize-messages
             [{:role "server_tool_use" :content {:id "srvtoolu_123" :name "web_search" :input {:query "test"}}}
              {:role "server_tool_result" :content {:tool-use-id "srvtoolu_123"
                                                    :raw-content [{:type "web_search_result" :title "Test" :url "https://test.com"}]}}]
@@ -591,7 +591,7 @@
     (is (match?
          [{:role "user"
            :content [{:type :text :text "hello"}]}]
-         (#'llm-providers.anthropic/normalize-messages
+         (#'m.anthropic/normalize-messages
           [{:role "user"
             :content [{:type :text :text "hello"}
                       {:text "orphan without type"}
@@ -602,7 +602,7 @@
          [{:role "user"
            :content [{:type :text :text "compact the chat"}
                      {:type :text :text "<additionalContext>\ntoday is monday\n</additionalContext>"}]}]
-         (#'llm-providers.anthropic/normalize-messages
+         (#'m.anthropic/normalize-messages
           [{:role "user"
             :content [{:type :text :text "compact the chat"}
                       {:type :text :text "<additionalContext>\ntoday is monday\n</additionalContext>"}]}]
@@ -621,10 +621,10 @@
                  {:role "reason" :content {:id "r2" :external-id "sig2" :text "Now I'll summarize."}}
                  {:role "assistant" :content [{:type :text :text "Here are the results."}]}]
           result (-> input
-                     (#'llm-providers.anthropic/group-parallel-tool-calls)
-                     (#'llm-providers.anthropic/normalize-messages true)
-                     (#'llm-providers.anthropic/merge-adjacent-assistants)
-                     (#'llm-providers.anthropic/merge-adjacent-tool-results))]
+                     (#'m.anthropic/group-parallel-tool-calls)
+                     (#'m.anthropic/normalize-messages true)
+                     (#'m.anthropic/merge-adjacent-assistants)
+                     (#'m.anthropic/merge-adjacent-tool-results))]
       (is (match?
            [{:role "user" :content "search for something"}
             {:role "assistant"
@@ -643,7 +643,7 @@
     ;;   400 messages.N.content.0.thinking.thinking: Input should be a valid string
     ;; This happens when a content_block_start of type "thinking" arrived with no
     ;; thinking_delta before content_block_stop, leaving (:text content) nil.
-    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+    (let [out (vec (#'m.anthropic/normalize-messages
                     [{:role "reason" :content {:id "r1" :external-id "sig1" :text nil}}]
                     true))
           thinking-block (-> out first :content first)]
@@ -654,17 +654,17 @@
       (is (= "" (:thinking thinking-block)))
       (is (string? (:thinking thinking-block)))))
   (testing "reason message with missing :text key also serializes :thinking to \"\""
-    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+    (let [out (vec (#'m.anthropic/normalize-messages
                     [{:role "reason" :content {:id "r1" :external-id "sig1"}}]
                     true))]
       (is (= "" (-> out first :content first :thinking)))))
   (testing "reason message with present :text is preserved verbatim"
-    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+    (let [out (vec (#'m.anthropic/normalize-messages
                     [{:role "reason" :content {:id "r1" :external-id "sig1" :text "Let me think."}}]
                     true))]
       (is (= "Let me think." (-> out first :content first :thinking)))))
   (testing "redacted reason message is unaffected (no :thinking field)"
-    (let [out (vec (#'llm-providers.anthropic/normalize-messages
+    (let [out (vec (#'m.anthropic/normalize-messages
                     [{:role "reason" :content {:id "r1" :redacted? true :data "enc"}}]
                     true))]
       (is (match? {:role "assistant"
@@ -679,7 +679,7 @@
         {:role "tool_call" :content {:id "c1"}}
         {:role "tool_call_output" :content {:id "c1"}}
         {:role "assistant" :content "done"}]
-       (#'llm-providers.anthropic/group-parallel-tool-calls
+       (#'m.anthropic/group-parallel-tool-calls
         [{:role "user" :content "do something"}
          {:role "assistant" :content "ok"}
          {:role "tool_call" :content {:id "c1"}}
@@ -691,7 +691,7 @@
           {:role "tool_call" :content {:id "c2"}}
           {:role "tool_call_output" :content {:id "c1"}}
           {:role "tool_call_output" :content {:id "c2"}}]
-         (#'llm-providers.anthropic/group-parallel-tool-calls
+         (#'m.anthropic/group-parallel-tool-calls
           [{:role "tool_call" :content {:id "c1"}}
            {:role "tool_call_output" :content {:id "c1"}}
            {:role "tool_call" :content {:id "c2"}}
@@ -702,7 +702,7 @@
           {:role "tool_call" :content {:id "c1"}}
           {:role "tool_call_output" :content {:id "c2"}}
           {:role "tool_call_output" :content {:id "c1"}}]
-         (#'llm-providers.anthropic/group-parallel-tool-calls
+         (#'m.anthropic/group-parallel-tool-calls
           [{:role "tool_call" :content {:id "c2"}}
            {:role "tool_call_output" :content {:id "c2"}}
            {:role "tool_call" :content {:id "c1"}}
@@ -712,28 +712,28 @@
   (testing "single tool result passes through unchanged"
     (is (match?
          [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}]
-         (#'llm-providers.anthropic/merge-adjacent-tool-results
+         (#'m.anthropic/merge-adjacent-tool-results
           [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}]))))
   (testing "adjacent tool_result user messages are merged"
     (is (match?
          [{:role "user"
            :content [{:type "tool_result" :tool_use_id "c1" :content "result1"}
                      {:type "tool_result" :tool_use_id "c2" :content "result2"}]}]
-         (#'llm-providers.anthropic/merge-adjacent-tool-results
+         (#'m.anthropic/merge-adjacent-tool-results
           [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "result1"}]}
            {:role "user" :content [{:type "tool_result" :tool_use_id "c2" :content "result2"}]}]))))
   (testing "non-tool-result user messages are not merged"
     (is (match?
          [{:role "user" :content "hello"}
           {:role "user" :content "world"}]
-         (#'llm-providers.anthropic/merge-adjacent-tool-results
+         (#'m.anthropic/merge-adjacent-tool-results
           [{:role "user" :content "hello"}
            {:role "user" :content "world"}]))))
   (testing "mixed content user messages are not merged with tool results"
     (is (match?
          [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}
           {:role "user" :content [{:type "text" :text "follow up"}]}]
-         (#'llm-providers.anthropic/merge-adjacent-tool-results
+         (#'m.anthropic/merge-adjacent-tool-results
           [{:role "user" :content [{:type "tool_result" :tool_use_id "c1" :content "ok"}]}
            {:role "user" :content [{:type "text" :text "follow up"}]}])))))
 
@@ -746,10 +746,10 @@
                  {:role "tool_call" :content {:id "c2" :full-name "eca__read_file" :arguments {:path "/b"}}}
                  {:role "tool_call_output" :content {:id "c2" :output {:contents [{:type :text :text "content-b"}]}}}]
           result (-> input
-                     (#'llm-providers.anthropic/group-parallel-tool-calls)
-                     (#'llm-providers.anthropic/normalize-messages true)
-                     (#'llm-providers.anthropic/merge-adjacent-assistants)
-                     (#'llm-providers.anthropic/merge-adjacent-tool-results))]
+                     (#'m.anthropic/group-parallel-tool-calls)
+                     (#'m.anthropic/normalize-messages true)
+                     (#'m.anthropic/merge-adjacent-assistants)
+                     (#'m.anthropic/merge-adjacent-tool-results))]
       (is (match?
            [{:role "user" :content "read two files"}
             {:role "assistant"
@@ -762,7 +762,7 @@
            result)))))
 
 (deftest cache-control-value-test
-  (let [cache-control #'llm-providers.anthropic/cache-control-value]
+  (let [cache-control #'m.anthropic/cache-control-value]
     (testing "default 5-min TTL when no cache-retention set"
       (is (= {:type "ephemeral"} (cache-control "https://api.anthropic.com" nil)))
       (is (= {:type "ephemeral"} (cache-control nil nil))))
@@ -780,39 +780,39 @@
   (let [default-cache {:type "ephemeral"}]
     (is (match?
          []
-         (#'llm-providers.anthropic/add-cache-to-last-message [] default-cache)))
+         (#'m.anthropic/add-cache-to-last-message [] default-cache)))
     (testing "when message content is a vector"
       (is (match?
            [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral"}}]}]
-           (#'llm-providers.anthropic/add-cache-to-last-message
+           (#'m.anthropic/add-cache-to-last-message
             [{:role "user" :content [{:type :text :text "Hey"}]}] default-cache)))
       (is (match?
            [{:role "user" :content [{:type :text :text "Hey"}]}
             {:role "user" :content [{:type :text :text "Ho" :cache_control {:type "ephemeral"}}]}]
-           (#'llm-providers.anthropic/add-cache-to-last-message
+           (#'m.anthropic/add-cache-to-last-message
             [{:role "user" :content [{:type :text :text "Hey"}]}
              {:role "user" :content [{:type :text :text "Ho"}]}] default-cache))))
     (testing "when message content is string"
       (is (match?
            [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral"}}]}]
-           (#'llm-providers.anthropic/add-cache-to-last-message
+           (#'m.anthropic/add-cache-to-last-message
             [{:role "user" :content "Hey"}] default-cache)))
       (is (match?
            [{:role "user" :content "Hey"}
             {:role "user" :content [{:type :text :text "Ho" :cache_control {:type "ephemeral"}}]}]
-           (#'llm-providers.anthropic/add-cache-to-last-message
+           (#'m.anthropic/add-cache-to-last-message
             [{:role "user" :content "Hey"}
              {:role "user" :content "Ho"}] default-cache))))
     (testing "with 1-hour TTL"
       (let [long-cache {:type "ephemeral" :ttl "1h"}]
         (is (match?
              [{:role "user" :content [{:type :text :text "Hey" :cache_control {:type "ephemeral" :ttl "1h"}}]}]
-             (#'llm-providers.anthropic/add-cache-to-last-message
+             (#'m.anthropic/add-cache-to-last-message
               [{:role "user" :content [{:type :text :text "Hey"}]}] long-cache)))))))
 
 (deftest add-cache-to-last-tool-test
   (let [default-cache {:type "ephemeral"}
-        add-cache (fn [tools] (#'llm-providers.anthropic/add-cache-to-last-tool tools default-cache))]
+        add-cache (fn [tools] (#'m.anthropic/add-cache-to-last-tool tools default-cache))]
     (testing "empty tools returns empty"
       (is (match? [] (add-cache [])))
       (is (match? nil (add-cache nil))))
@@ -837,7 +837,7 @@
                        {:type "web_search_20250305" :name "web_search"}]))))))
 
 (deftest ->tools-test
-  (let [->tools #(#'llm-providers.anthropic/->tools % false)]
+  (let [->tools #(#'m.anthropic/->tools % false)]
     (testing "schema without top-level combinators is sent unchanged"
       (let [schema {:type "object" :properties {:x {:type "string"}} :required ["x"]}]
         (is (= [{:name "srv__plain" :description "Plain." :input_schema schema}]
@@ -907,7 +907,7 @@
                                         :media-type "image/png"
                                         :base64 "AAAA"}]}}}]
     (testing "image content + supports-image? true emits a single tool_result with mixed text+image blocks"
-      (let [out (vec (#'llm-providers.anthropic/normalize-messages
+      (let [out (vec (#'m.anthropic/normalize-messages
                       [tool-output-with-image] true))]
         (is (= 1 (count out))
             "Anthropic carries images in tool_result.content natively, no synthetic user message")
@@ -923,7 +923,7 @@
                     (first out)))))
 
     (testing "image content + supports-image? false falls back to legacy text-only tool_result"
-      (let [out (vec (#'llm-providers.anthropic/normalize-messages
+      (let [out (vec (#'m.anthropic/normalize-messages
                       [tool-output-with-image] false))]
         (is (= 1 (count out)))
         (is (match? {:role "user"
@@ -933,7 +933,7 @@
                     (first out)))))
 
     (testing "no image content emits the legacy text-only tool_result"
-      (let [out (vec (#'llm-providers.anthropic/normalize-messages
+      (let [out (vec (#'m.anthropic/normalize-messages
                       [{:role "tool_call_output"
                         :content {:id "call-2"
                                   :output {:contents [{:type :text :text "ok"}]}}}]
@@ -946,7 +946,7 @@
                     (first out)))))))
 
 (deftest max-tokens-input-overflow?-test
-  (let [overflow? #'llm-providers.anthropic/max-tokens-input-overflow?]
+  (let [overflow? #'m.anthropic/max-tokens-input-overflow?]
     (testing "Z.AI-style overflow: huge input, tiny output vs 32k cap"
       (is (true? (overflow? {:input_tokens 202525 :output_tokens 225} 32000))))
     (testing "tiny output vs a moderately large cap is still treated as overflow"
@@ -965,7 +965,7 @@
 
 (deftest finalize-messages-test
   (let [cache {:type "ephemeral"}
-        finalize #'llm-providers.anthropic/finalize-messages]
+        finalize #'m.anthropic/finalize-messages]
     (testing "mid-system? false behaves like add-cache-to-last-message (no trailing system message)"
       (is (match?
            [{:role "user" :content [{:type :text :text "hi" :cache_control {:type "ephemeral"}}]}]
@@ -993,7 +993,7 @@
                    (fn handler [req]
                      (reset! req* req)
                      {:status 200 :body {:content [{:text "ok"}]}})
-                   (llm-providers.anthropic/chat! params nil))
+                   (m.anthropic/chat! params nil))
                  (:body @req*)))]
     (testing "flag off keeps dynamic instructions in the cached :system prefix"
       (let [body (run! (assoc base-params :mid-conversation-system? false))]
@@ -1027,7 +1027,7 @@
                         (fn handler [req]
                           (reset! req* req)
                           {:status 200 :body {:content [{:text "ok"}]}})
-                        (llm-providers.anthropic/chat! params nil))
+                        (m.anthropic/chat! params nil))
                       (:system (:body @req*))))]
     (testing "OAuth (subscription) requests start with the Claude Code identity"
       (let [system (system-of (assoc base-params :auth-type :auth/oauth))]
@@ -1054,7 +1054,7 @@
                                                   {:status 200
                                                    :body (java.io.ByteArrayInputStream.
                                                           (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
-                          (llm-providers.anthropic/chat!
+                          (m.anthropic/chat!
                            {:model "claude-fable-5"
                             :api-url "http://localhost:1"
                             :api-key "fake-key"
@@ -1113,7 +1113,7 @@
                                                   {:status 200
                                                    :body (java.io.ByteArrayInputStream.
                                                           (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
-                          (llm-providers.anthropic/chat!
+                          (m.anthropic/chat!
                            {:model "claude-fable-5"
                             :api-url "http://localhost:1"
                             :api-key "fake-key"
@@ -1179,7 +1179,7 @@
                                                   {:status 200
                                                    :body (java.io.ByteArrayInputStream.
                                                           (.getBytes ^String stream-text java.nio.charset.StandardCharsets/UTF_8))})]
-                          (llm-providers.anthropic/chat!
+                          (m.anthropic/chat!
                            {:model "claude-fable-5"
                             :api-url "http://localhost:1"
                             :api-key "fake-key"
@@ -1279,7 +1279,7 @@
       (with-redefs [http/post (fn [_url _opts]
                                 {:status 200 :body (stalled-stream prefix closed?*)})]
         (let [result (future
-                       (llm-providers.anthropic/chat!
+                       (m.anthropic/chat!
                         {:model "claude-test"
                          :api-url "http://localhost:1"
                          :api-key "fake-key"

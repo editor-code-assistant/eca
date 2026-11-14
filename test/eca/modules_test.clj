@@ -6,7 +6,7 @@
    [eca.config :as config]
    [eca.modules :as modules]
    [eca.modules.built-in :as built-in]
-   [eca.modules.core :as f.core]
+   [eca.modules.core :as m.core]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -14,7 +14,7 @@
 
 (def ^:private core
   "`:eca/core` without its config keys, so tests see only their modules' ones."
-  (dissoc f.core/module :config-spec))
+  (dissoc m.core/module :config-spec))
 
 (defmacro ^:private with-built-ins
   "Runs body with `modules` as the built-in modules, next to :eca/core."

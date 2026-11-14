@@ -1,7 +1,7 @@
 (ns eca.modules.tools.git-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.modules.tools.git :as f.tools.git]
+   [eca.modules.tools.git :as m.git]
    [eca.shell :as shell]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -10,7 +10,7 @@
 (def ^:private state-transition-fn (constantly nil))
 
 (defn ^:private run-git! [arguments ctx]
-  ((get-in f.tools.git/definitions ["git" :handler])
+  ((get-in m.git/definitions ["git" :handler])
    arguments
    (merge {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
            :call-state-fn call-state-fn
@@ -32,7 +32,7 @@
          (run-git! {"command" "status" "operation" "status"} {}))))
   (testing "the command parameter asks for the full command line"
     (is (re-find #"starting with `git` or `gh`"
-                 (get-in f.tools.git/definitions ["git" :parameters :properties "command" :description])))))
+                 (get-in m.git/definitions ["git" :parameters :properties "command" :description])))))
 
 (deftest git-command-shell-config-test
   (testing "no custom shell by default"

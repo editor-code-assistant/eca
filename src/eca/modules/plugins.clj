@@ -20,8 +20,8 @@
    [eca.config :as config]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
-   [eca.modules.agents :as agents]
-   [eca.modules.plugins.git :as git]
+   [eca.modules.agents :as m.agents]
+   [eca.modules.plugins.git :as m.plugins.git]
    [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
@@ -56,7 +56,7 @@
    for a local development source. Missing local paths return nil; Git failures propagate."
   [^String source]
   (if (git-url? source)
-    (git/resolve! source (source-cache-path source))
+    (m.plugins.git/resolve! source (source-cache-path source))
     (let [local-dir (io/file source)]
       (if (fs/exists? local-dir)
         (do (logger/debug logger-tag "Using local plugin source:" source)
@@ -201,7 +201,7 @@
            (remove (fn [f]
                      (let [fname (string/lower-case (str (fs/file-name f)))]
                        (= fname "readme.md"))))
-           (keep agents/agent-md-file->agent)
+           (keep m.agents/agent-md-file->agent)
            (into {})))))
 
 (defn ^:private read-commands
@@ -468,7 +468,7 @@
   (try
     (if-let [source-url (get (into {} (parse-sources plugins-config)) source-name)]
       (if (git-url? source-url)
-        (let [{:keys [commit previous-commit]} (git/update! source-url parse-marketplace)]
+        (let [{:keys [commit previous-commit]} (m.plugins.git/update! source-url parse-marketplace)]
           {:status :ok
            :message (str "Marketplace `" source-name "` "
                          (if (= commit previous-commit)

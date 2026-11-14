@@ -6,14 +6,14 @@
    [eca.config :as config]
    [eca.features.commands :as f.commands]
    [eca.modules :as modules]
-   [eca.modules.skills :as f.skills]
+   [eca.modules.skills :as m.skills]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
 
 (defn- skill-named [config skill-name]
-  (->> (f.skills/all config [])
+  (->> (m.skills/all config [])
        (filter #(= skill-name (:name %)))
        first))
 
@@ -21,9 +21,9 @@
   (testing "eca/manage ships eca-info and eca-manage, built when the model loads them"
     (is (match? [{:name "eca-info" :module :eca/manage :body var?}
                  {:name "eca-manage" :module :eca/manage :body var?}]
-                (f.skills/all {:pureConfig true} []))))
+                (m.skills/all {:pureConfig true} []))))
   (testing "turning eca/manage off drops them"
-    (is (empty? (f.skills/all {:pureConfig true :modules {:eca/manage {:enabled false}}} [])))))
+    (is (empty? (m.skills/all {:pureConfig true :modules {:eca/manage {:enabled false}}} [])))))
 
 (deftest commands-test
   (testing "/init and /skill-create come from eca/manage"
@@ -34,7 +34,7 @@
 
 (deftest skill-tool-test
   (testing "the skill tool builds eca-info's body with all skills"
-    (let [{:keys [error contents]} (#'f.skills/skill {"name" "eca-info"}
+    (let [{:keys [error contents]} (#'m.skills/skill {"name" "eca-info"}
                                                      {:db {:workspace-folders [] :auth {} :models {} :mcp-clients {}}
                                                       :config {:pureConfig true}
                                                       :agent "code"})

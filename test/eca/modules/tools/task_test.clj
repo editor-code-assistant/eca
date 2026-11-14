@@ -3,7 +3,7 @@
    [clojure.test :refer [deftest is testing]]
    [matcher-combinators.test :refer [match?]]
    [eca.features.tools :as f.tools]
-   [eca.modules.tools.task :as task]))
+   [eca.modules.tools.task :as m.task]))
 
 (set! *warn-on-reflection* true)
 
@@ -12,34 +12,34 @@
 (deftest chat-isolation-test
   (testing "each chat has its own task list"
     (let [db* (atom {})
-          handler (get-in task/definitions ["task" :handler])]
+          handler (get-in m.task/definitions ["task" :handler])]
       (handler {"op" "add" "task" {"subject" "Chat 1 Task" "description" "Desc"}} {:db* db* :chat-id "chat-1"})
       (handler {"op" "add" "task" {"subject" "Chat 2 Task" "description" "Desc"}} {:db* db* :chat-id "chat-2"})
-      (is (= ["Chat 1 Task"] (map :subject (:tasks (task/get-task @db* "chat-1")))))
-      (is (= ["Chat 2 Task"] (map :subject (:tasks (task/get-task @db* "chat-2")))))))
+      (is (= ["Chat 1 Task"] (map :subject (:tasks (m.task/get-task @db* "chat-1")))))
+      (is (= ["Chat 2 Task"] (map :subject (:tasks (m.task/get-task @db* "chat-2")))))))
 
   (testing "empty chat returns empty task list"
     (is (= {:next-id 1 :active-summary nil :tasks []}
-           (task/get-task {} "nonexistent-chat")))))
+           (m.task/get-task {} "nonexistent-chat")))))
 
 ;; --- State Access Tests ---
 
 (deftest get-task-test
   (testing "returns empty task list for missing chat state"
     (is (= {:next-id 1 :active-summary nil :tasks []}
-           (task/get-task {} "missing-chat"))))
+           (m.task/get-task {} "missing-chat"))))
 
   (testing "returns stored task list state as-is"
     (let [state {:next-id 2
                  :active-summary "Doing stuff"
                  :tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}]}
           db {:chats {"c1" {:task state}}}]
-      (is (= state (task/get-task db "c1"))))))
+      (is (= state (m.task/get-task db "c1"))))))
 
 ;; --- Read Operation Tests ---
 
 (deftest op-read-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "reads empty state"
       (let [result (handler {"op" "read"} {:db {} :chat-id "c1"})]
         (is (not (:error result)))
@@ -96,7 +96,7 @@
 ;; --- Plan Operation Tests ---
 
 (deftest op-plan-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "creates task list with tasks"
       (let [db* (atom {})
             result (handler {"op" "plan"
@@ -147,7 +147,7 @@
 ;; --- Add Operation Tests ---
 
 (deftest op-add-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "adds single task"
       (let [db* (atom {})]
         (handler {"op" "add" "task" {"subject" "Task 1" "description" "Desc 1"}} {:db* db* :chat-id "c1"})
@@ -182,7 +182,7 @@
 ;; --- Update Operation Tests ---
 
 (deftest op-update-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "updates task metadata"
       (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "Old" :description "Old D" :status :pending :priority :medium :blocked-by #{}}]}}}})]
         (handler {"op" "update" "id" 1 "task" {"subject" "New" "priority" "high"}} {:db* db* :chat-id "c1"})
@@ -212,7 +212,7 @@
 ;; --- Start Operation Tests ---
 
 (deftest op-start-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "starts pending tasks by ids"
       (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}
                                                     {:id 2 :subject "T2" :description "D2" :status :pending :priority :medium :blocked-by #{}}]}}}})]
@@ -270,7 +270,7 @@
 ;; --- Complete Operation Tests ---
 
 (deftest op-complete-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "completes tasks by ids"
       (let [db* (atom {:chats {"c1" {:task {:active-summary "My task" :tasks [{:id 1 :subject "T1" :description "D1" :status :in-progress :priority :medium :blocked-by #{}}
                                                     {:id 2 :subject "T2" :description "D2" :status :in-progress :priority :medium :blocked-by #{}}]}}}})]
@@ -322,7 +322,7 @@
 ;; --- Delete Operation Tests ---
 
 (deftest op-delete-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "deletes tasks by ids and clears blocked_by references"
       (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}
                                                     {:id 2 :subject "T2" :description "D2" :status :pending :priority :medium :blocked-by #{1}}
@@ -359,7 +359,7 @@
 ;; --- Clear Operation Tests ---
 
 (deftest op-clear-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "resets to empty state"
       (let [db* (atom {:chats {"c1" {:task {:active-summary "Summary" :tasks [{:id 1}] :next-id 2}}}})]
         (handler {"op" "clear"} {:db* db* :chat-id "c1"})
@@ -370,7 +370,7 @@
 ;; --- Priority Validation Tests ---
 
 (deftest priority-validation-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "rejects invalid priority in add"
       (let [db* (atom {})
             result (handler {"op" "add" "task" {"subject" "T1" "description" "D1" "priority" "urgent"}} {:db* db* :chat-id "c1"})]
@@ -389,12 +389,12 @@
             result (handler {"op" "add" "task" {"subject" "T1" "description" "D1" "priority" "HIGH"}} {:db* db* :chat-id "c1"})]
         (is (:error result))
         (is (match? {:contents [{:type :text :text #"Invalid priority"}]} result))
-        (is (empty? (:tasks (task/get-task @db* "c1"))))))))
+        (is (empty? (:tasks (m.task/get-task @db* "c1"))))))))
 
 ;; --- Blocked By Validation Tests ---
 
 (deftest blocked-by-validation-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "rejects non-array blocked_by"
       (let [db* (atom {:chats {"c1" {:task {:tasks []}}}})
             result (handler {"op" "add" "task" {"subject" "T1" "description" "D1" "blocked_by" "not an array"}} {:db* db* :chat-id "c1"})]
@@ -406,7 +406,7 @@
             result (handler {"op" "add" "task" {"subject" "T1" "description" "D1" "blocked_by" ["nope"]}} {:db* db* :chat-id "c1"})]
         (is (:error result))
         (is (match? {:contents [{:type :text :text #"blocked_by must contain integer task IDs"}]} result))
-        (is (empty? (:tasks (task/get-task @db* "c1"))))))
+        (is (empty? (:tasks (m.task/get-task @db* "c1"))))))
 
     (testing "rejects self-reference in update"
       (let [db* (atom {:chats {"c1" {:task {:tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}]}}}})
@@ -417,7 +417,7 @@
 ;; --- Dependency Cycle Detection Tests ---
 
 (deftest dependency-cycle-detection-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "detects 2-node cycle via update"
       (let [db* (atom {:chats {"c1" {:task {:next-id 3
                                             :tasks [{:id 1 :subject "T1" :description "D1" :status :pending :priority :medium :blocked-by #{}}
@@ -448,7 +448,7 @@
 ;; --- Forward Reference in Batch Tests ---
 
 (deftest forward-reference-test
-  (let [handler (get-in task/definitions ["task" :handler])]
+  (let [handler (get-in m.task/definitions ["task" :handler])]
     (testing "allows forward references in batch add"
       (let [db* (atom {})]
         (handler {"op" "plan"
@@ -495,41 +495,41 @@
                                           :active-summary nil
                                           :tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
                                                   {:id 2 :subject "T2" :description "D2" :status :done :priority :medium :blocked-by #{}}]}}}})
-          result (task/auto-clear-completed! db* "c1")]
+          result (m.task/auto-clear-completed! db* "c1")]
       (is (some? result))
       (is (= :task (:type result)))
       (is (empty? (:tasks result)))
       (is (= {:next-id 1 :active-summary nil :tasks []}
-             (task/get-task @db* "c1")))))
+             (m.task/get-task @db* "c1")))))
 
   (testing "does not clear when tasks are still pending"
     (let [db* (atom {:chats {"c1" {:task {:next-id 3
                                           :active-summary nil
                                           :tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
                                                   {:id 2 :subject "T2" :description "D2" :status :pending :priority :medium :blocked-by #{}}]}}}})
-          result (task/auto-clear-completed! db* "c1")]
+          result (m.task/auto-clear-completed! db* "c1")]
       (is (nil? result))
-      (is (= 2 (count (:tasks (task/get-task @db* "c1")))))))
+      (is (= 2 (count (:tasks (m.task/get-task @db* "c1")))))))
 
   (testing "does not clear when tasks are in progress"
     (let [db* (atom {:chats {"c1" {:task {:next-id 3
                                           :active-summary "working"
                                           :tasks [{:id 1 :subject "T1" :description "D1" :status :done :priority :medium :blocked-by #{}}
                                                   {:id 2 :subject "T2" :description "D2" :status :in-progress :priority :medium :blocked-by #{}}]}}}})
-          result (task/auto-clear-completed! db* "c1")]
+          result (m.task/auto-clear-completed! db* "c1")]
       (is (nil? result))
-      (is (= 2 (count (:tasks (task/get-task @db* "c1")))))))
+      (is (= 2 (count (:tasks (m.task/get-task @db* "c1")))))))
 
   (testing "does nothing when task list is empty"
     (let [db* (atom {:chats {"c1" {:task {:next-id 1 :active-summary nil :tasks []}}}})
-          result (task/auto-clear-completed! db* "c1")]
+          result (m.task/auto-clear-completed! db* "c1")]
       (is (nil? result))
       (is (= {:next-id 1 :active-summary nil :tasks []}
-             (task/get-task @db* "c1")))))
+             (m.task/get-task @db* "c1")))))
 
   (testing "does nothing when chat has no task list"
     (let [db* (atom {})
-          result (task/auto-clear-completed! db* "c1")]
+          result (m.task/auto-clear-completed! db* "c1")]
       (is (nil? result))
       (is (= {:next-id 1 :active-summary nil :tasks []}
-             (task/get-task @db* "c1"))))))
+             (m.task/get-task @db* "c1"))))))

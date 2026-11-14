@@ -3,8 +3,8 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.modules :as modules]
-   [eca.modules.remote :as f.remote]
-   [eca.modules.remote.server :as remote.server]
+   [eca.modules.remote :as m.remote]
+   [eca.modules.remote.server :as m.remote.server]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -50,36 +50,36 @@
   (let [calls* (atom [])
         sse* (atom #{})
         components {:db* (h/db*) :messenger {:sse-connections* sse*}}]
-    (with-redefs [remote.server/start! (fake-start! calls*)
-                  remote.server/stop! (fake-stop! calls*)]
+    (with-redefs [m.remote.server/start! (fake-start! calls*)
+                  m.remote.server/stop! (fake-stop! calls*)]
       (try
         (testing "start-server! starts it once, with the messenger's SSE connections, and keeps its details for /remote"
-          (is (match? {:connect-url "https://web.eca.dev?host=h:7777"} (f.remote/start-server! components)))
-          (f.remote/start-server! components)
+          (is (match? {:connect-url "https://web.eca.dev?host=h:7777"} (m.remote/start-server! components)))
+          (m.remote/start-server! components)
           (is (= [[:start sse*]] @calls*))
           (is (match? {:remote-connect-url "https://web.eca.dev?host=h:7777" :remote-token "t" :remote-host "h:7777"}
                       (h/db)))
           (is (true? (get-in (h/db) ask-question-path))))
         (testing "stop-server! stops it and undoes what starting it changed"
-          (f.remote/stop-server! components)
+          (m.remote/stop-server! components)
           (is (= [:stop ::jetty] (last @calls*)))
-          (is (nil? (f.remote/running)))
+          (is (nil? (m.remote/running)))
           (is (nil? (:remote-connect-url (h/db))))
           (is (nil? (get-in (h/db) ask-question-path))))
         (testing "a client that can ask questions itself keeps that"
           (swap! (h/db*) assoc-in ask-question-path true)
-          (f.remote/start-server! components)
-          (f.remote/stop-server! components)
+          (m.remote/start-server! components)
+          (m.remote/stop-server! components)
           (is (true? (get-in (h/db) ask-question-path))))
         (finally
-          (f.remote/stop-server! components))))))
+          (m.remote/stop-server! components))))))
 
 (deftest module-test
   (let [calls* (atom [])
         components {:db* (h/db*) :messenger {:sse-connections* (atom #{})} :metrics (h/metrics)}]
     (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/remote))
-                  remote.server/start! (fake-start! calls*)
-                  remote.server/stop! (fake-stop! calls*)]
+                  m.remote.server/start! (fake-start! calls*)
+                  m.remote.server/stop! (fake-stop! calls*)]
       (try
         (modules/start! components {})
         (testing "off by default, nothing starts"
@@ -88,12 +88,12 @@
           (modules/set-enabled! :eca/remote true)
           (modules/reconcile! components {})
           (is (= :start (ffirst @calls*)))
-          (is (some? (f.remote/running))))
+          (is (some? (m.remote/running))))
         (testing "turning it off stops it"
           (modules/set-enabled! :eca/remote false)
           (modules/reconcile! components {})
           (is (= [:stop ::jetty] (last @calls*)))
-          (is (nil? (f.remote/running))))
+          (is (nil? (m.remote/running))))
         (finally
           (modules/stop-all! components)
-          (f.remote/stop-server! components))))))
+          (m.remote/stop-server! components))))))

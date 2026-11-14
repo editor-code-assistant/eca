@@ -6,7 +6,7 @@
    [eca.config :as config]
    [eca.features.modules :as f.modules]
    [eca.modules :as modules]
-   [eca.modules.core :as f.core]
+   [eca.modules.core :as m.core]
    [eca.modules.loader :as loader]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -14,7 +14,7 @@
 (h/reset-components-before-test)
 
 (def ^:private test-modules
-  [f.core/module
+  [m.core/module
    {:id :eca/sample
     :description "A sample module."
     :config-spec {:sampleUrl {:type :string :default "http://sample"}}

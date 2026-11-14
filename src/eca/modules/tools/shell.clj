@@ -10,8 +10,8 @@
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.modules.tools.shell.background :as tools.background]
-   [eca.modules.tools.shell.parser :as shell-parser]
+   [eca.modules.tools.shell.background :as m.shell.background]
+   [eca.modules.tools.shell.parser :as m.shell.parser]
    [eca.shell :as shell]
    [eca.shared :as shared]))
 
@@ -28,7 +28,7 @@
    `full-tool-name` tool in `chat-id`'s chat session. Returns nil when the
    command cannot be parsed."
   [full-tool-name command db chat-id]
-  (when-let [parsed (shell-parser/parse command)]
+  (when-let [parsed (m.shell.parser/parse command)]
     (let [remembered-keys (get-in (db/remembered-approvals db chat-id)
                                   [full-tool-name :remembered-command-keys]
                                   #{})]
@@ -256,7 +256,7 @@
                  :required ["command"]}
     :handler #'shell-command
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])
-    :approval-keys-fn (fn [arguments] (shell-parser/approval-keys (get arguments "command")))
+    :approval-keys-fn (fn [arguments] (m.shell.parser/approval-keys (get arguments "command")))
     :summary-fn #'shell-command-summary}})
 
 (defmethod tools.util/tool-call-destroy-resource! :eca__shell_command [name resource-kwd resource]
@@ -270,4 +270,4 @@
   {:id :eca/shell
    :description "Run shell commands and background jobs."
    :config-spec {:toolCall {:shellCommand {:summaryMaxLength {:type :number :default 35}}}}
-   :tools (fn [_ctx] (tools.util/->module-tools (merge definitions tools.background/definitions)))})
+   :tools (fn [_ctx] (tools.util/->module-tools (merge definitions m.shell.background/definitions)))})

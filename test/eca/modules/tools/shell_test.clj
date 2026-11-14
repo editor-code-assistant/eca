@@ -3,7 +3,7 @@
    [babashka.fs :as fs]
    [babashka.process :as p]
    [clojure.test :refer [are deftest is testing]]
-   [eca.modules.tools.shell :as f.tools.shell]
+   [eca.modules.tools.shell :as m.shell]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -16,7 +16,7 @@
     (let [events* (atom [])
           ;; An existing dir: on Windows a temp dir that the job still uses cannot be deleted.
           dir (System/getProperty "user.dir")
-          result ((get-in f.tools.shell/definitions ["shell_command" :handler])
+          result ((get-in m.shell/definitions ["shell_command" :handler])
                   {"command" "echo started" "background" "test job"}
                   {:db {:workspace-folders [{:uri (shared/filename->uri dir) :name "project"}]}
                    :db* (atom {})
@@ -34,7 +34,7 @@
           :contents [{:type :text
                       :text (format "working directory %s does not exist" (h/file-path "/baz"))}]}
          (with-redefs [fs/exists? (constantly false)]
-           ((get-in f.tools.shell/definitions ["shell_command" :handler])
+           ((get-in m.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/baz")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -49,7 +49,7 @@
                       :text "Stderr:\nSome error"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 1 :err "Some error"}))]
-           ((get-in f.tools.shell/definitions ["shell_command" :handler])
+           ((get-in m.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
              :call-state-fn call-state-fn
@@ -65,7 +65,7 @@
                       :text "Stdout:\nSome text"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
-           ((get-in f.tools.shell/definitions ["shell_command" :handler])
+           ((get-in m.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
              :call-state-fn call-state-fn
@@ -79,7 +79,7 @@
                       :text "Stdout:\nSome text"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future {:exit 0 :out "Some text"}))]
-           ((get-in f.tools.shell/definitions ["shell_command" :handler])
+           ((get-in m.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "working_directory" (h/file-path "/project/foo/src")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -92,7 +92,7 @@
                       :text "Command timed out after 50 ms"}]}
          (with-redefs [fs/exists? (constantly true)
                        p/process (constantly (future (Thread/sleep 1000) {:exit 0 :err "ok"}))]
-           ((get-in f.tools.shell/definitions ["shell_command" :handler])
+           ((get-in m.shell/definitions ["shell_command" :handler])
             {"command" "ls -lh"
              "timeout" 50}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
@@ -106,7 +106,7 @@
                     p/process (fn [opts]
                                 (reset! captured-opts opts)
                                 (future {:exit 0 :out "ok"}))]
-        ((get-in f.tools.shell/definitions ["shell_command" :handler])
+        ((get-in m.shell/definitions ["shell_command" :handler])
          {"command" "ls -lh"}
          {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
           :chat-id "chat-123"
@@ -122,7 +122,7 @@
                     p/process (fn [opts]
                                 (reset! captured-opts opts)
                                 (future {:exit 0 :out "ok"}))]
-        ((get-in f.tools.shell/definitions ["shell_command" :handler])
+        ((get-in m.shell/definitions ["shell_command" :handler])
          {"command" "ls -lh"}
          {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
           :call-state-fn call-state-fn
@@ -145,7 +145,7 @@
                         :text "Stdout:\nalso ok"}]}
            (with-redefs [fs/exists? (constantly true)
                          p/process (constantly (reset! proc (future {:exit 0 :out "also ok"})))]
-             ((get-in f.tools.shell/definitions ["shell_command" :handler])
+             ((get-in m.shell/definitions ["shell_command" :handler])
               {"command" "ls -lh"}
               {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
                :call-state-fn call-state-fn
@@ -156,7 +156,7 @@
           "Expected the resource in the call state to match the process"))))
 
 (deftest shell-require-approval-fn-test
-  (let [approval-fn (get-in f.tools.shell/definitions ["shell_command" :require-approval-fn])
+  (let [approval-fn (get-in m.shell/definitions ["shell_command" :require-approval-fn])
         db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
     (testing "returns nil when working_directory is not provided"
       (is (nil? (approval-fn nil {:db db})))
@@ -178,7 +178,7 @@
                                  :text "Stdout:\nSome output"}]}
                     (with-redefs [fs/exists? (constantly true)
                                   p/process (constantly (future {:exit 0 :out "Some output"}))]
-                      ((get-in f.tools.shell/definitions ["shell_command" :handler])
+                      ((get-in m.shell/definitions ["shell_command" :handler])
                        {"command" command}
                        {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
                         :agent "plan"
@@ -195,7 +195,7 @@
       "env")))
 
 (deftest shell-command-summary-test
-  (let [summary-fn (get-in f.tools.shell/definitions ["shell_command" :summary-fn])
+  (let [summary-fn (get-in m.shell/definitions ["shell_command" :summary-fn])
         config {:toolCall {:shellCommand {:summaryMaxLength 80}}}
         db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
     (testing "strips cd prefix when path matches a workspace root"
@@ -253,18 +253,18 @@
       (is (= {:type :shellCommand
               :commands [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}
                          {:command "rg" :args ["foo"] :approvalKey "rg" :remembered false}]}
-             (f.tools.shell/shell-command-details "eca__shell_command" "git status && rg foo" db "c1"))))
+             (m.shell/shell-command-details "eca__shell_command" "git status && rg foo" db "c1"))))
     (testing "remembered set is per tool name"
       (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
-             (:commands (f.tools.shell/shell-command-details "eca__git" "git status" db "c1")))))
+             (:commands (m.shell/shell-command-details "eca__git" "git status" db "c1")))))
     (testing "remembered set is per chat session, shared with its subagents"
       (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}]
-             (:commands (f.tools.shell/shell-command-details "eca__shell_command" "git status" db "c1-sub"))))
+             (:commands (m.shell/shell-command-details "eca__shell_command" "git status" db "c1-sub"))))
       (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
-             (:commands (f.tools.shell/shell-command-details "eca__shell_command" "git status" db "c2")))))
+             (:commands (m.shell/shell-command-details "eca__shell_command" "git status" db "c2")))))
     (testing "commands without approval key have no remembered flag"
       (is (= {:type :shellCommand
               :commands [{:command "sudo" :args ["ls"]}]}
-             (f.tools.shell/shell-command-details "eca__shell_command" "sudo ls" db "c1"))))
+             (m.shell/shell-command-details "eca__shell_command" "sudo ls" db "c1"))))
     (testing "unparseable command returns nil"
-      (is (nil? (f.tools.shell/shell-command-details "eca__shell_command" "echo $(x)" db "c1"))))))
+      (is (nil? (m.shell/shell-command-details "eca__shell_command" "echo $(x)" db "c1"))))))

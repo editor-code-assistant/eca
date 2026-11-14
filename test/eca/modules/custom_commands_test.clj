@@ -3,7 +3,7 @@
    [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.modules.custom-commands :as custom-commands]))
+   [eca.modules.custom-commands :as m.custom-commands]))
 
 (deftest config-commands-plugin-prefix-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -12,7 +12,7 @@
         (let [cmd-file (fs/file tmp-dir "deploy.md")]
           (spit cmd-file "Plugin command body")
           (let [config {:pureConfig true :commands [{:path (str cmd-file) :plugin "ui"}]}
-                result (vec (custom-commands/all config []))]
+                result (vec (m.custom-commands/all config []))]
             (is (= 1 (count result)))
             (is (= "ui:deploy" (:name (first result))))
             (is (= "ui" (:plugin (first result)))))))
@@ -21,7 +21,7 @@
         (let [cmd-file (fs/file tmp-dir "tdd.md")]
           (spit cmd-file "TDD body")
           (let [config {:pureConfig true :commands [{:path (str cmd-file) :plugin "tdd"}]}
-                result (vec (custom-commands/all config []))]
+                result (vec (m.custom-commands/all config []))]
             (is (= 1 (count result)))
             (is (= "tdd" (:name (first result))))
             (is (= "tdd" (:plugin (first result)))))))
@@ -30,7 +30,7 @@
         (let [cmd-file (fs/file tmp-dir "plain.md")]
           (spit cmd-file "Plain body")
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (vec (custom-commands/all config []))]
+                result (vec (m.custom-commands/all config []))]
             (is (= 1 (count result)))
             (is (= "plain" (:name (first result))))
             (is (not (contains? (first result) :plugin))))))
@@ -43,7 +43,7 @@
           (spit (fs/file nested-dir "ship.md") "Ship body")
           (spit (fs/file nested-dir "ignore.txt") "Ignored")
           (let [config {:pureConfig true :commands [{:path (str cmd-dir)}]}
-                result (vec (custom-commands/all config []))]
+                result (vec (m.custom-commands/all config []))]
             (is (= #{"review" "ship"} (set (map :name result))))
             (is (= #{"Review body" "Ship body"} (set (map :content result)))))))
 
@@ -57,7 +57,7 @@
         (let [cmd-file (fs/file tmp-dir "greet.md")]
           (spit cmd-file "Greet $ARG1!")
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (vec (custom-commands/all config []))]
+                result (vec (m.custom-commands/all config []))]
             (is (= 1 (count result)))
             (is (= "greet" (:name (first result))))
             (is (= [{:name "arg1" :required true}]
@@ -67,7 +67,7 @@
         (let [cmd-file (fs/file tmp-dir "simple.md")]
           (spit cmd-file "Simple body")
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (vec (custom-commands/all config []))]
+                result (vec (m.custom-commands/all config []))]
             (is (= [] (:arguments (first result)))))))
 
       (finally
@@ -91,7 +91,7 @@
                                        "---"
                                        "Weather for {{city}} using {{units}} units."]))
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (first (custom-commands/all config []))]
+                result (first (m.custom-commands/all config []))]
             (is (= "weather" (:name result)))
             (is (= "Generate a weather report" (:description result)))
             (is (= "Weather for {{city}} using {{units}} units." (:content result)))
@@ -109,7 +109,7 @@
                                        "---"
                                        "Weather for $1"]))
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (first (custom-commands/all config []))]
+                result (first (m.custom-commands/all config []))]
             (is (= [{:name "city" :description "City name" :required true}]
                    (:arguments result))))))
 
@@ -117,7 +117,7 @@
         (let [cmd-file (fs/file tmp-dir "plain.md")]
           (spit cmd-file "Hello $ARG1")
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (first (custom-commands/all config []))]
+                result (first (m.custom-commands/all config []))]
             (is (nil? (:description result)))
             (is (= "Hello $ARG1" (:content result)))
             (is (= [{:name "arg1" :required true}] (:arguments result))))))
@@ -126,7 +126,7 @@
         (let [cmd-file (fs/file tmp-dir "bad.md")]
           (spit cmd-file "Use $1 and {{city}}")
           (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}]
-            (is (empty? (custom-commands/all config []))))))
+            (is (empty? (m.custom-commands/all config []))))))
 
       (finally
         (fs/delete-tree tmp-dir)))))

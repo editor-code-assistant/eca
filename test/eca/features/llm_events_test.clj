@@ -11,7 +11,7 @@
    [eca.llm-api :as llm-api]
    [eca.models :as models]
    [eca.modules :as modules]
-   [eca.modules.providers.ollama :as llm-providers.ollama]
+   [eca.modules.providers.ollama :as m.ollama]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -138,7 +138,7 @@
   (let [updated* (atom nil)]
     (with-redefs [eca.models/models-dev (constantly {})
                   eca.models/fetch-provider-model-catalogs (constantly {:models {}})
-                  llm-providers.ollama/list-models (constantly [])]
+                  m.ollama/list-models (constantly [])]
       (models/sync-models! (h/db*) (h/config) #(reset! updated* %)))
     (testing "a module adds a model to the list"
       (is (= {:tools true :reason? false} (get-in (h/db) [:models "router/fast"])))

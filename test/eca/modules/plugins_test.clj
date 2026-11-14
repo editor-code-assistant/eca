@@ -6,9 +6,9 @@
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.config :as config]
    [eca.interpolation :as interpolation]
-   [eca.modules.custom-commands :as custom-commands]
-   [eca.modules.plugins :as plugins]
-   [eca.modules.rules :as rules]
+   [eca.modules.custom-commands :as m.custom-commands]
+   [eca.modules.plugins :as m.plugins]
+   [eca.modules.rules :as m.rules]
    [eca.shared :as shared]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -23,7 +23,7 @@
 
 (deftest reserved-install-mode-test
   (is (= [["company" "https://example.com/company.git"]]
-         (#'plugins/parse-sources
+         (#'m.plugins/parse-sources
           {"company" {:source "https://example.com/company.git"}
            "install" {:source "not-a-source"}
            "installMode" {:source "not-a-source"}}))))
@@ -31,22 +31,22 @@
 (deftest sanitize-source-url-test
   (testing "HTTPS URL"
     (is (= "github.com-my-org-my-plugins"
-           (#'plugins/sanitize-source-url "https://github.com/my-org/my-plugins.git"))))
+           (#'m.plugins/sanitize-source-url "https://github.com/my-org/my-plugins.git"))))
   (testing "SSH URL"
     (is (= "github.com-my-org-my-plugins"
-           (#'plugins/sanitize-source-url "git@github.com:my-org/my-plugins.git"))))
+           (#'m.plugins/sanitize-source-url "git@github.com:my-org/my-plugins.git"))))
   (testing "GitLab URL"
     (is (= "gitlab.com-org-repo"
-           (#'plugins/sanitize-source-url "https://gitlab.com/org/repo.git")))))
+           (#'m.plugins/sanitize-source-url "https://gitlab.com/org/repo.git")))))
 
 (deftest git-url?-test
   (testing "recognizes HTTPS URLs"
-    (is (true? (#'plugins/git-url? "https://github.com/org/repo.git"))))
+    (is (true? (#'m.plugins/git-url? "https://github.com/org/repo.git"))))
   (testing "recognizes SSH URLs"
-    (is (true? (#'plugins/git-url? "git@github.com:org/repo.git"))))
+    (is (true? (#'m.plugins/git-url? "git@github.com:org/repo.git"))))
   (testing "rejects local paths"
-    (is (false? (#'plugins/git-url? "/home/user/plugins")))
-    (is (false? (#'plugins/git-url? "./relative/path")))))
+    (is (false? (#'m.plugins/git-url? "/home/user/plugins")))
+    (is (false? (#'m.plugins/git-url? "./relative/path")))))
 
 (deftest read-marketplace-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -72,18 +72,18 @@
                         :source "./plugins/test/test-plugin"}
                        {:name "mcp-plugin"
                         :source "./plugins/test/mcp-plugin"}]
-                      (#'plugins/read-marketplace (fs/file tmp-dir))))))
+                      (#'m.plugins/read-marketplace (fs/file tmp-dir))))))
 
       (testing "returns nil for missing marketplace.json"
         (let [empty-dir (fs/file tmp-dir "empty")]
           (fs/create-dirs empty-dir)
-          (is (nil? (#'plugins/read-marketplace (fs/file empty-dir))))))
+          (is (nil? (#'m.plugins/read-marketplace (fs/file empty-dir))))))
 
       (testing "returns nil for malformed JSON"
         (let [bad-dir (fs/file tmp-dir "bad")]
           (fs/create-dirs (fs/file bad-dir ".eca-plugin"))
           (spit (fs/file bad-dir ".eca-plugin" "marketplace.json") "{invalid json")
-          (is (nil? (#'plugins/read-marketplace (fs/file bad-dir))))))
+          (is (nil? (#'m.plugins/read-marketplace (fs/file bad-dir))))))
       (finally
         (fs/delete-tree tmp-dir)))))
 
@@ -95,39 +95,39 @@
         (fs/create-dirs (fs/file plugin-dir "skills" "my-skill"))
         (spit (fs/file plugin-dir "skills" "my-skill" "SKILL.md")
               "---\nname: my-skill\ndescription: Test\n---\nBody")
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (= 1 (count (get-in result [:config-fragment :pluginSkillDirs]))))))
 
       (testing "discovers agents as parsed config"
         (fs/create-dirs (fs/file plugin-dir "agents"))
         (spit (fs/file plugin-dir "agents" "test-agent.md")
               "---\nname: test-agent\ndescription: A helper agent\n---\nAgent prompt body")
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (match? {"test-agent" {:description "A helper agent"
                                      :systemPrompt "Agent prompt body"}}
                       (:agents result)))))
 
       (testing "skips README.md in agents dir"
         (spit (fs/file plugin-dir "agents" "README.md") "# Docs")
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (not (contains? (:agents result) "readme")))))
 
       (testing "discovers commands as path entries"
         (fs/create-dirs (fs/file plugin-dir "commands"))
         (spit (fs/file plugin-dir "commands" "my-cmd.md")
               "---\ndescription: A command\n---\nCommand body")
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (= 1 (count (:commands result))))
           (is (string? (:path (first (:commands result)))))))
 
       (testing "attaches plugin name to commands when provided"
-        (let [result (#'plugins/discover-components (fs/file plugin-dir) "my-plugin")]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir) "my-plugin")]
           (is (match? (m/embeds [{:plugin "my-plugin"
                                   :path string?}])
                       (:commands result)))))
 
       (testing "attaches plugin name to skill dirs when provided"
-        (let [result (#'plugins/discover-components (fs/file plugin-dir) "my-plugin")]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir) "my-plugin")]
           (is (match? (m/embeds [{:plugin "my-plugin"
                                   :dir string?}])
                       (get-in result [:config-fragment :pluginSkillDirs])))))
@@ -136,7 +136,7 @@
         (fs/create-dirs (fs/file plugin-dir "rules"))
         (spit (fs/file plugin-dir "rules" "my-rule.mdc")
               "---\ndescription: A rule\nglobs: \"**/*.md\"\n---\nRule body")
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (= 1 (count (:rules result))))
           (is (string? (:path (first (:rules result)))))))
 
@@ -147,7 +147,7 @@
         (spit (fs/file plugin-dir "modules" "folder-module" "module.clj") "(ns acme.folder-module)")
         (spit (fs/file plugin-dir "modules" "README.md") "# Modules")
         (spit (fs/file plugin-dir "modules" ".hidden.clj") "(ns hidden)")
-        (let [result (#'plugins/discover-components (fs/file plugin-dir) "my-plugin")
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir) "my-plugin")
               modules-dir (str (fs/canonicalize (fs/file plugin-dir "modules")))]
           (is (= [{:path (str (fs/path modules-dir "file_module.clj")) :plugin "my-plugin"}
                   {:path (str (fs/path modules-dir "folder-module")) :plugin "my-plugin"}]
@@ -158,20 +158,20 @@
               (json/generate-string
                {:mcpServers {"test-server" {:type "http"
                                             :url "https://example.com/mcp"}}}))
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (match? {:test-server {:url "https://example.com/mcp"}}
                       (get-in result [:config-fragment :mcpServers])))))
 
       (testing "discovers eca.json config overrides in config-fragment"
         (spit (fs/file plugin-dir "eca.json")
               (json/generate-string {:mcpTimeoutSeconds 30}))
-        (let [result (#'plugins/discover-components (fs/file plugin-dir))]
+        (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (= 30 (get-in result [:config-fragment :mcpTimeoutSeconds])))))
 
       (testing "returns empty for non-existent directories"
         (let [empty-plugin (fs/file tmp-dir "empty-plugin")]
           (fs/create-dirs empty-plugin)
-          (let [result (#'plugins/discover-components (fs/file empty-plugin))]
+          (let [result (#'m.plugins/discover-components (fs/file empty-plugin))]
             (is (empty? (:agents result)))
             (is (empty? (:commands result)))
             (is (empty? (:rules result)))
@@ -187,10 +187,10 @@
                   "install" ["plugin-a" "plugin-b"]}]
       (is (match? (m/in-any-order [["my-org" "https://github.com/my-org/my-plugins.git"]
                                    ["local" "/home/user/plugins"]])
-                  (#'plugins/parse-sources config)))))
+                  (#'m.plugins/parse-sources config)))))
 
   (testing "returns empty for no sources"
-    (is (empty? (#'plugins/parse-sources {"install" ["plugin-a"]})))))
+    (is (empty? (#'m.plugins/parse-sources {"install" ["plugin-a"]})))))
 
 (deftest resolve-all!-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -217,7 +217,7 @@
                 (json/generate-string
                  {:mcpServers {"test-mcp" {:type "http"
                                            :url "https://example.com/mcp"}}}))
-          (let [result (plugins/resolve-all!
+          (let [result (m.plugins/resolve-all!
                         {"my-source" {:source (str source-dir)}
                          "install" ["my-plugin"]})]
             (is (= 1 (count (get-in result [:config-fragment :pluginSkillDirs]))))
@@ -231,12 +231,12 @@
                         (:commands result))))))
 
       (testing "returns empty for nil config"
-        (let [result (plugins/resolve-all! nil)]
+        (let [result (m.plugins/resolve-all! nil)]
           (is (empty? (:agents result)))
           (is (empty? (:commands result)))))
 
       (testing "returns empty for empty install"
-        (let [result (plugins/resolve-all!
+        (let [result (m.plugins/resolve-all!
                       {"my-source" {:source "/some/path"}
                        "install" []})]
           (is (empty? (:agents result)))))
@@ -246,7 +246,7 @@
           (fs/create-dirs (fs/file source-dir ".eca-plugin"))
           (spit (fs/file source-dir ".eca-plugin" "marketplace.json")
                 (json/generate-string {:plugins [{:name "exists" :source "./plugins/exists"}]}))
-          (let [result (plugins/resolve-all!
+          (let [result (m.plugins/resolve-all!
                         {"src" {:source (str source-dir)}
                          "install" ["does-not-exist"]})]
             (is (empty? (:agents result))))))
@@ -304,7 +304,7 @@
             "---\nname: remote-helper\ndescription: Remote helper\n---\nRemote prompt")
 
       (testing "dependencies from the marketplace entry are loaded"
-        (let [result (plugins/resolve-all!
+        (let [result (m.plugins/resolve-all!
                       {"src-a" {:source (str src-a)}
                        "install" ["meta"]})]
           (is (match? (m/embeds [{:plugin "dep-entry" :path string?}])
@@ -313,7 +313,7 @@
             (is (= "meta" (get-in result [:config-fragment :whoWins]))))))
 
       (testing "dependencies from .eca-plugin/plugin.json load, cross-marketplace refs work, unknown deps are skipped"
-        (let [result (plugins/resolve-all!
+        (let [result (m.plugins/resolve-all!
                       {"src-a" {:source (str src-a)}
                        "src-b" {:source (str src-b)}
                        "install" ["manifest-meta"]})]
@@ -323,7 +323,7 @@
                       (:agents result)))))
 
       (testing "dependency cycles terminate, loading each plugin once"
-        (let [result (plugins/resolve-all!
+        (let [result (m.plugins/resolve-all!
                       {"src-a" {:source (str src-a)}
                        "install" ["cycle-a"]})]
           (is (match? (m/in-any-order [{:plugin "cycle-a" :path string?}
@@ -331,14 +331,14 @@
                       (:commands result)))))
 
       (testing "shared dependencies are loaded once"
-        (let [result (plugins/resolve-all!
+        (let [result (m.plugins/resolve-all!
                       {"src-a" {:source (str src-a)}
                        "src-b" {:source (str src-b)}
                        "install" ["meta" "manifest-meta"]})]
           (is (= 1 (count (filter #(= "dep-entry" (:plugin %)) (:commands result)))))))
 
       (testing "dependency already explicitly installed is not loaded twice"
-        (let [result (plugins/resolve-all!
+        (let [result (m.plugins/resolve-all!
                       {"src-a" {:source (str src-a)}
                        "install" ["dep-entry" "meta"]})]
           (is (= 1 (count (filter #(= "dep-entry" (:plugin %)) (:commands result)))))
@@ -379,7 +379,7 @@
         (spit (fs/file plugin-dir "rules" "where.md")
               "Plugin rule: ${plugin:root}")
         (let [plugin-root (str (fs/canonicalize plugin-dir))
-              result (plugins/resolve-all!
+              result (m.plugins/resolve-all!
                       {"local" {:source (str source-dir)}
                        "install" ["demo"]})]
           (is (= (str plugin-root "/bin/server")
@@ -392,13 +392,13 @@
                  (get-in result [:config-fragment :hooks "demo::PostToolUse" 0 :hooks 0 :command])))
           (is (not-any? #(string/includes? (str %) ":::")
                         (keys (get-in result [:config-fragment :hooks]))))
-          (let [loaded-commands (vec (custom-commands/all
+          (let [loaded-commands (vec (m.custom-commands/all
                                       {:pureConfig true
                                        :commands (:commands result)}
                                       []))]
             (is (= [(str "Plugin command: " plugin-root)]
                    (mapv :content loaded-commands))))
-          (let [loaded-rules (vec (#'rules/config-rules {:rules (:rules result)} []))]
+          (let [loaded-rules (vec (#'m.rules/config-rules {:rules (:rules result)} []))]
             (is (= [(str "Plugin rule: " plugin-root)]
                    (mapv :content loaded-rules))))))
       (finally
@@ -419,7 +419,7 @@
               :agents {"agent-b" {:description "B"}}
               :commands []
               :rules [{:path "/b/rules/rule.mdc"}]}
-          result (#'plugins/merge-components [c1 c2])]
+          result (#'m.plugins/merge-components [c1 c2])]
       (is (= ["/a/skills" "/b/skills"]
              (get-in result [:config-fragment :pluginSkillDirs])))
       (is (match? {:server-a {:url "http://a"}
@@ -457,7 +457,7 @@
                  "  - agent\n"
                  "---\n\n"
                  "Role & Goal: review designs."))
-      (let [resolved (plugins/resolve-all!
+      (let [resolved (m.plugins/resolve-all!
                       {"local" {:source (str source-dir)}
                        "install" ["design-review"]})]
         (testing "plugin discovery loads the Claude-style agent without dropping it"
@@ -502,7 +502,7 @@
                  "description: Designs system architecture\n"
                  "---\n\n"
                  "Role & Goal: shape architectural decisions."))
-      (let [resolved (plugins/resolve-all!
+      (let [resolved (m.plugins/resolve-all!
                       {"local" {:source (str source-dir)}
                        "install" ["doc-authoring"]})]
         (testing "discovery picks up the plugin agent under the YAML `name:` id"
@@ -565,7 +565,7 @@
               (fn []
                 (let [db {:workspace-folders [{:uri (str (.toURI project-dir))}]}
                       before (:plugins (#'config/all* db))
-                      result (plugins/uninstall-plugin! before "alpha")
+                      result (m.plugins/uninstall-plugin! before "alpha")
                       after (:plugins (#'config/all* db))]
                   (is (= status (:status result)))
                   (is (= expected-install (get after "install")))
@@ -602,7 +602,7 @@
         (spit global-file raw)
         (with-redefs [shared/global-config-dir (constantly (str dir))
                       config/update-global-config! (fn [c] (swap! writes conj c))]
-          (let [result (plugins/uninstall-plugin! {"install" ["alpha"]} "alpha")]
+          (let [result (m.plugins/uninstall-plugin! {"install" ["alpha"]} "alpha")]
             (is (= :error (:status result)))
             (is (string/includes? (:message result) "Could not read the global config file"))
             (is (= [] @writes))

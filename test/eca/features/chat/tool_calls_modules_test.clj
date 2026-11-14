@@ -7,7 +7,7 @@
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules :as modules]
-   [eca.modules.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -18,7 +18,7 @@
 (def ^:private all-tools [{:name "test_tool" :full-name "eca__test_tool" :origin :native :server {:name "eca"}}])
 
 (defn- decide [config]
-  (with-redefs [f.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
+  (with-redefs [m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
     (#'tc/decide-tool-call-action tool-call all-tools (h/db) config "code" "chat-1")))
 
 (defn- with-module [module f]

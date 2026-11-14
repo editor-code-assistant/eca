@@ -4,7 +4,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.messenger :as messenger]
-   [eca.modules.tools.editor :as f.tools.editor]
+   [eca.modules.tools.editor :as m.editor]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -21,10 +21,10 @@
     (str f)))
 
 (defn ^:private definition-handler [args components]
-  ((get-in f.tools.editor/definitions ["editor_definition" :handler]) args components))
+  ((get-in m.editor/definitions ["editor_definition" :handler]) args components))
 
 (defn ^:private references-handler [args components]
-  ((get-in f.tools.editor/definitions ["editor_references" :handler]) args components))
+  ((get-in m.editor/definitions ["editor_references" :handler]) args components))
 
 (deftest diagnostics-invalid-path-test
   (testing "Path is a directory (invalid)"
@@ -33,7 +33,7 @@
           :contents [{:type :text
                       :text "Path needs to be a file, not a directory."}]}
          (with-redefs [fs/directory? (constantly true)]
-           ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
+           ((get-in m.editor/definitions ["editor_diagnostics" :handler])
             {"path" (h/file-path "/foo/dir")}
             {:messenger (h/messenger)}))))))
 
@@ -44,7 +44,7 @@
          {:error false
           :contents [{:type :text
                       :text "No diagnostics found"}]}
-         ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
+         ((get-in m.editor/definitions ["editor_diagnostics" :handler])
           {}
           {:messenger (h/messenger)})))))
 
@@ -63,7 +63,7 @@
                       :text (format "%s:%s:%s: %s: [wrong-arity] %s"
                                      (h/file-path "/project/foo/src/app.clj")
                                      10 4 "error" "Wrong number of args")}]}
-         ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
+         ((get-in m.editor/definitions ["editor_diagnostics" :handler])
           {}
           {:messenger (h/messenger)})))))
 
@@ -81,7 +81,7 @@
                       :text (format "%s:%s:%s: %s: %s"
                                      (h/file-path "/project/foo/src/app.clj")
                                      3 1 "warning" "Unused var")}]}
-         ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
+         ((get-in m.editor/definitions ["editor_diagnostics" :handler])
           {}
           {:messenger (h/messenger)})))))
 
@@ -94,7 +94,7 @@
                       :text "Error getting editor diagnostics"}]}
          (with-redefs [messenger/editor-diagnostics (fn [_ _]
                                                       (throw (Exception. "boom")))]
-           ((get-in f.tools.editor/definitions ["editor_diagnostics" :handler])
+           ((get-in m.editor/definitions ["editor_diagnostics" :handler])
             {}
             {:messenger (h/messenger)}))))))
 
@@ -275,7 +275,7 @@
                      :locations [{:uri (h/file-uri "file:///project/src/app.clj")
                                   :range {:start {:line 1 :character 1}
                                           :end {:line 1 :character 2}}}]})))
-        (binding [f.tools.editor/*starting-poll-interval-ms* 10]
+        (binding [m.editor/*starting-poll-interval-ms* 10]
           (is (match?
                {:error false
                 :contents [{:type :text
@@ -285,7 +285,7 @@
         (is (= 3 @calls*))))
     (testing "still starting when budget is exhausted"
       (reset! (:definition-response* (h/messenger)) {:status "starting"})
-      (binding [f.tools.editor/*starting-poll-interval-ms* 10]
+      (binding [m.editor/*starting-poll-interval-ms* 10]
         (is (match?
              {:error true
               :contents [{:type :text
@@ -338,8 +338,8 @@
 
 (deftest editor-nav-summary-test
   (testing "summary is generic while args are streaming and specific when parsed"
-    (let [def-summary (get-in f.tools.editor/definitions ["editor_definition" :summary-fn])
-          ref-summary (get-in f.tools.editor/definitions ["editor_references" :summary-fn])]
+    (let [def-summary (get-in m.editor/definitions ["editor_definition" :summary-fn])
+          ref-summary (get-in m.editor/definitions ["editor_references" :summary-fn])]
       (is (= "LSP definition" (def-summary {:args nil})))
       (is (= "LSP definition: foo" (def-summary {:args {"symbol" "foo"}})))
       (is (= "LSP references" (ref-summary {:args nil})))
@@ -347,8 +347,8 @@
 
 (deftest editor-nav-capability-gating-test
   (testing "tools enabled only when client declares capabilities"
-    (let [enabled-def? (get-in f.tools.editor/definitions ["editor_definition" :enabled-fn])
-          enabled-ref? (get-in f.tools.editor/definitions ["editor_references" :enabled-fn])]
+    (let [enabled-def? (get-in m.editor/definitions ["editor_definition" :enabled-fn])
+          enabled-ref? (get-in m.editor/definitions ["editor_references" :enabled-fn])]
       (is (true? (boolean (enabled-def? {:db {:client-capabilities {:code-assistant {:editor {:definition true}}}}}))))
       (is (not (enabled-def? {:db {:client-capabilities {:code-assistant {:editor {:diagnostics true}}}}})))
       (is (true? (boolean (enabled-ref? {:db {:client-capabilities {:code-assistant {:editor {:references true}}}}}))))

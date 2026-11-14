@@ -26,11 +26,11 @@
    [eca.models :as models]
    [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
-   [eca.modules.hooks :as f.hooks]
-   [eca.modules.mcp :as f.mcp]
-   [eca.modules.repo-map :as repo-map]
-   [eca.modules.rules :as f.rules]
-   [eca.modules.skills :as f.skills]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.repo-map :as m.repo-map]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
 (set! *warn-on-reflection* true)
@@ -561,15 +561,15 @@
                                                       :name action-name
                                                       :type action-type})
       ;; Run the hook action
-      (if-let [result (f.hooks/run-hook-action! action
+      (if-let [result (m.hooks/run-hook-action! action
                                                 action-name
                                                 :preRequest
-                                                (merge (f.hooks/chat-hook-data db chat-ctx)
+                                                (merge (m.hooks/chat-hook-data db chat-ctx)
                                                        {:prompt (:final-prompt state)})
                                                 db
                                                 chat-ctx)]
         (let [{:keys [raw-error exit]} result
-              exit-2? (= f.hooks/hook-rejection-exit-code exit)]
+              exit-2? (= m.hooks/hook-rejection-exit-code exit)]
           ;; Notify after action
           (lifecycle/notify-after-hook-action! chat-ctx (merge result
                                                                {:id id
@@ -644,7 +644,7 @@
       :blocked-hook-name nil
       :stop-reason nil
       :stop-hook-name nil}
-     (->> (f.hooks/active-hooks config)
+     (->> (m.hooks/active-hooks config)
           ;; This function owns preRequest chaining, so it must select legacy
           ;; prePrompt hooks itself; hook-matches? only normalizes legacy types
           ;; for the generic trigger-if-matches! path.
@@ -2172,9 +2172,9 @@
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
    {:keys [db*] :as chat-ctx}]
-  (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (f.mcp/all-prompts @db*)))
+  (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (m.mcp/all-prompts @db*)))
         args-vals (zipmap (map :name arguments) args)
-        {:keys [messages error-message]} (f.mcp/get-prompt! prompt args-vals @db*)]
+        {:keys [messages error-message]} (m.mcp/get-prompt! prompt args-vals @db*)]
     (cond
       error-message
       (do (lifecycle/send-content! chat-ctx
@@ -2262,13 +2262,13 @@
         hook-ctx (cond-> {:messenger messenger :chat-id chat-id}
                    subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id)))
         hook-type (if subagent? :subagentStart :chatStart)
-        hook-data (cond-> (f.hooks/chat-hook-data db-before-hooks {:chat-id chat-id
+        hook-data (cond-> (m.hooks/chat-hook-data db-before-hooks {:chat-id chat-id
                                                                    :agent agent
                                                                    :full-model full-model
                                                                    :variant variant})
                     subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id))
                     (not subagent?) (assoc :resumed resumed?))]
-    (f.hooks/trigger-if-matches! hook-type
+    (m.hooks/trigger-if-matches! hook-type
                                  hook-data
                                  {:on-before-action (partial lifecycle/notify-before-hook-action! hook-ctx)
                                   :on-after-action (fn [result]
@@ -2286,7 +2286,7 @@
     ;; Note: :chat-start-fired is set by prompt* (via swap-vals!) before this
     ;; runs, since prompt* is what decides whether start hooks fire at all.
     (let [stop-result (some (fn [{:keys [parsed name] :as result}]
-                              (when (f.hooks/successful-continue-false? result)
+                              (when (m.hooks/successful-continue-false? result)
                                 {:stop-turn? true
                                  :stop-reason (shared/not-blank (get parsed "stopReason"))
                                  :stop-hook-name name}))
@@ -2358,9 +2358,9 @@
             refined-contexts (concat
                               (f.context/agents-file-contexts db config)
                               (f.context/raw-contexts->refined contexts db))
-            {static-rules :static path-scoped-rules :path-scoped} (f.rules/all-rules config (:workspace-folders db) agent full-model)
+            {static-rules :static path-scoped-rules :path-scoped} (m.rules/all-rules config (:workspace-folders db) agent full-model)
             all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
-            skills (->> (f.skills/all config (:workspace-folders db))
+            skills (->> (m.skills/all config (:workspace-folders db))
                         (remove
                          (fn [skill]
                            (= :deny (f.tools/approval all-tools
@@ -2369,7 +2369,7 @@
                                                       db
                                                       config
                                                       agent)))))
-            repo-map* (delay (repo-map/repo-map db config {:as-string? true}))
+            repo-map* (delay (m.repo-map/repo-map db config {:as-string? true}))
             prompt-cache (get-in db [:chats chat-id :prompt-cache])
             auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
             static-signature (static-prompt-cache-signature
@@ -2952,11 +2952,11 @@
       (when-let [chat (get-in db [:chats chat-id])]
         ;; Trigger chatEnd hook BEFORE deleting (chat still exists in cache)
         (let [{:keys [agent model variant]} chat
-              hook-data (f.hooks/chat-hook-data db {:chat-id    chat-id
+              hook-data (m.hooks/chat-hook-data db {:chat-id    chat-id
                                                     :agent      agent
                                                     :full-model model
                                                     :variant    variant})]
-          (f.hooks/trigger-if-matches! :chatEnd
+          (m.hooks/trigger-if-matches! :chatEnd
                                        hook-data
                                        {}
                                        db

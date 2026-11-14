@@ -16,11 +16,11 @@
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.modules.compact-as-summary :as f.tools.chat]
-   [eca.modules.mcp :as f.mcp]
-   [eca.modules.repo-map :as repo-map]
-   [eca.modules.rules :as f.rules]
-   [eca.modules.skills :as f.skills]
+   [eca.modules.compact-as-summary :as m.compact-as-summary]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.repo-map :as m.repo-map]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -1720,10 +1720,10 @@
                      (on-message-received {:type :text :text "ok"})
                      (on-message-received {:type :finish}))
           mocks {:all-tools-mock (constantly []) :api-mock api-mock}]
-      (with-redefs [f.mcp/all-prompts (constantly [{:name "my-prompt"
+      (with-redefs [m.mcp/all-prompts (constantly [{:name "my-prompt"
                                                     :server "test-server"
                                                     :arguments []}])
-                    f.mcp/get-prompt! (fn [_name _arguments _db]
+                    m.mcp/get-prompt! (fn [_name _arguments _db]
                                            {:messages [{:role "user"
                                                        :content [{:type :text
                                                                   :text "MCP prompt body"}]}]})]
@@ -1860,10 +1860,10 @@
         (let [user-msgs* (atom [])
               mocks (capturing-llm-mocks user-msgs* (atom []))
               attached [{:type "file" :path path}]]
-          (with-redefs [f.mcp/all-prompts (constantly [{:name "my-prompt"
+          (with-redefs [m.mcp/all-prompts (constantly [{:name "my-prompt"
                                                         :server "test-server"
                                                         :arguments []}])
-                        f.mcp/get-prompt! (fn [_name _arguments _db]
+                        m.mcp/get-prompt! (fn [_name _arguments _db]
                                                {:messages [{:role "user"
                                                             :content [{:type :text
                                                                        :text "MCP prompt body"}]}]})]
@@ -2049,7 +2049,7 @@
    in production; any other tool returns a canned result."
   [full-name arguments chat-id & _]
   (if (= "eca__compact_chat" full-name)
-    ((get-in f.tools.chat/definitions ["compact_chat" :handler]) arguments {:db* (h/db*) :chat-id chat-id})
+    ((get-in m.compact-as-summary/definitions ["compact_chat" :handler]) arguments {:db* (h/db*) :chat-id chat-id})
     {:error false :contents [{:type :text :text "file contents"}]}))
 
 (defn ^:private repeated-auto-compact-api-mock
@@ -2855,9 +2855,9 @@
           prompt-args (atom nil)
           test-chat-ctx {:db* (atom {})}
           invoked? (atom nil)]
-      (with-redefs [f.mcp/all-prompts (fn [_]
+      (with-redefs [m.mcp/all-prompts (fn [_]
                                         [{:name "awesome-prompt" :arguments test-arguments}])
-                    f.mcp/get-prompt! (fn [_ args-map _]
+                    m.mcp/get-prompt! (fn [_ args-map _]
                                            (reset! prompt-args args-map)
                                            {:messages [{:role :user :content "test"}]})
                     f.chat/prompt-messages! (fn [messages source-type ctx]
@@ -2874,9 +2874,9 @@
     (let [test-chat-ctx {:db* (atom {})}
           sent-content (atom nil)
           finished-status (atom nil)]
-      (with-redefs [f.mcp/all-prompts (fn [_]
+      (with-redefs [m.mcp/all-prompts (fn [_]
                                         [{:name "failing-prompt" :arguments [{:name "arg1"}]}])
-                    f.mcp/get-prompt! (fn [_ _ _]
+                    m.mcp/get-prompt! (fn [_ _ _]
                                            {:error-message "MCP error getting prompt: code=-32603 message=Invalid required argument: arg1"})
                     lifecycle/send-content! (fn [_ctx _role content]
                                               (reset! sent-content content))
@@ -2891,9 +2891,9 @@
     (let [test-chat-ctx {:db* (atom {})}
           sent-content (atom nil)
           finished-status (atom nil)]
-      (with-redefs [f.mcp/all-prompts (fn [_]
+      (with-redefs [m.mcp/all-prompts (fn [_]
                                         [{:name "nil-prompt" :arguments []}])
-                    f.mcp/get-prompt! (fn [_ _ _] nil)
+                    m.mcp/get-prompt! (fn [_ _ _] nil)
                     lifecycle/send-content! (fn [_ctx _role content]
                                               (reset! sent-content content))
                     lifecycle/finish-chat-prompt! (fn [status _ctx]
@@ -2968,7 +2968,7 @@
   (testing "quoted file arguments with spaces remain one token"
     (is (= ["review" "@/dir/My File.clj"]
            (#'f.chat/tokenize-args "review \"@/dir/My File.clj\""))))
-  (with-redefs [f.mcp/all-prompts (constantly [{:name "prompt"
+  (with-redefs [m.mcp/all-prompts (constantly [{:name "prompt"
                                                 :server "server"}])]
     (testing "MCP prompt without args"
       (is (= {:type :mcp-prompt
@@ -3309,7 +3309,7 @@
           real-build f.prompt/build-chat-instructions]
       (with-redefs [f.context/agents-file-contexts (constantly [])
                     f.context/raw-contexts->refined (fn [contexts _db] contexts)
-                    repo-map/repo-map (fn [& _] @tree*)
+                    m.repo-map/repo-map (fn [& _] @tree*)
                     f.prompt/build-chat-instructions
                     (fn [& args]
                       (swap! build-calls* inc)
@@ -3381,7 +3381,7 @@
           mocks {:all-tools-mock (constantly [])
                  :api-mock (fn [{:keys [on-message-received]}]
                              (on-message-received {:type :finish}))}]
-      (with-redefs [f.rules/all-rules (fn [& _] {:static @rules* :path-scoped []})]
+      (with-redefs [m.rules/all-rules (fn [& _] {:static @rules* :path-scoped []})]
         (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
           (is (empty? (system-prompt-notices)) "No notice on the first prompt")
           (h/reset-messenger!)
@@ -3405,8 +3405,8 @@
           mocks {:all-tools-mock (constantly [])
                  :api-mock (fn [{:keys [on-message-received]}]
                              (on-message-received {:type :finish}))}]
-      (with-redefs [f.skills/all (fn [& _] @skills*)
-                    f.rules/all-rules (fn [& _] {:static @rules* :path-scoped []})
+      (with-redefs [m.skills/all (fn [& _] @skills*)
+                    m.rules/all-rules (fn [& _] {:static @rules* :path-scoped []})
                     f.prompt/build-chat-instructions (fn [& args]
                                                        (swap! build-calls* inc)
                                                        (apply real-build args))]
@@ -3437,7 +3437,7 @@
           mocks {:all-tools-mock (constantly [])
                  :api-mock (fn [{:keys [on-message-received]}]
                              (on-message-received {:type :finish}))}]
-      (with-redefs [f.skills/all (fn [& _] @skills*)
+      (with-redefs [m.skills/all (fn [& _] @skills*)
                     f.prompt/build-chat-instructions (fn [& args]
                                                        (swap! build-calls* inc)
                                                        (apply real-build args))]
@@ -3468,7 +3468,7 @@
           mocks {:all-tools-mock (fn [& _] @tools*)
                  :api-mock (fn [{:keys [on-message-received]}]
                              (on-message-received {:type :finish}))}]
-      (with-redefs [f.skills/all (fn [& _] @skills*)
+      (with-redefs [m.skills/all (fn [& _] @skills*)
                     f.prompt/build-chat-instructions (fn [& args]
                                                        (swap! build-calls* inc)
                                                        (apply real-build args))]
@@ -3498,7 +3498,7 @@
           mocks {:all-tools-mock (constantly [])
                  :api-mock (fn [{:keys [on-message-received]}]
                              (on-message-received {:type :finish}))}]
-      (with-redefs [f.skills/all (fn [& _] @skills*)
+      (with-redefs [m.skills/all (fn [& _] @skills*)
                     f.prompt/build-chat-instructions (fn [& args]
                                                        (swap! build-calls* inc)
                                                        (apply real-build args))]

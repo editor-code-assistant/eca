@@ -5,9 +5,9 @@
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.tools :as f.tools]
-   [eca.modules.mcp :as f.mcp]
-   [eca.modules.rules :as f.rules]
-   [eca.modules.tools.filesystem :as f.tools.filesystem]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.tools.filesystem :as m.filesystem]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -85,8 +85,8 @@
                      :description (format "Only in %s" (h/file-path "/path/to/project/foo"))
                      :parameters some?
                      :origin :native}])
-         (with-redefs [f.tools.filesystem/definitions {"directory_tree" {:description "Only in {{workspaceRoots}}"
-                                                                         :parameters {}}}]
+         (with-redefs [m.filesystem/definitions {"directory_tree" {:description "Only in {{workspaceRoots}}"
+                                                                   :parameters {}}}]
            (f.tools/all-tools "123" "code" {:workspace-folders [{:name "foo" :uri (h/file-uri "file:///path/to/project/foo")}]}
                               {})))))
   (testing "Override native tool description via global prompts config"
@@ -156,7 +156,7 @@
              (spawn-description {:agent (assoc agents "code" {:prompts {:tools {"eca__spawn_agent" "Code spawn description"}}})
                                  :prompts {:tools {"eca__spawn_agent" "Global spawn description"}}})))))
   (testing "Override keeps the fetch_rule path-scoped rules catalog after the custom description"
-    (with-redefs [f.rules/path-scoped-rules (constantly [{:id "rule-1"
+    (with-redefs [m.rules/path-scoped-rules (constantly [{:id "rule-1"
                                                           :name "format.md"
                                                           :scope :global
                                                           :paths ["**/*.clj"]}])]
@@ -715,7 +715,7 @@
          {:error    true
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `path`"}]}
-         (with-redefs [f.tools.filesystem/definitions
+         (with-redefs [m.filesystem/definitions
                        {"test_native_tool"
                         {:description "Test tool"
                          :parameters  {"type"      "object"
@@ -742,7 +742,7 @@
       (is (match?
            {:error false
             :contents [{:type :text :text "OK"}]}
-           (with-redefs [f.tools.filesystem/definitions
+           (with-redefs [m.filesystem/definitions
                          {"test_native_tool"
                           {:description "Test tool"
                            :parameters {"type" "object"
@@ -752,7 +752,7 @@
                                       (reset! called-args* args)
                                       {:error false
                                        :contents [{:type :text :text "OK"}]})}}
-                         f.mcp/call-tool! (fn [& _]
+                         m.mcp/call-tool! (fn [& _]
                                             (throw (ex-info "MCP should not be called" {})))]
              (f.tools/call-tool!
               "test_native_tool"
@@ -796,10 +796,10 @@
   (testing "MCP progress reaches on-progress, and nothing is reported after the call returns"
     (let [reported* (atom [])
           on-progress* (atom nil)]
-      (with-redefs [f.mcp/all-tools  (fn [_]
+      (with-redefs [m.mcp/all-tools  (fn [_]
                                        [{:name "slow" :server {:name "srv"}
                                          :parameters {"type" "object" :properties {}}}])
-                    f.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
+                    m.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
                                        (reset! on-progress* on-progress)
                                        (on-progress {:progress 1 :total 2})
                                        (on-progress {:progress 2 :total 2})
@@ -817,10 +817,10 @@
 (deftest call-tool!-mcp-chat-id-test
   (testing "the calling chat's id reaches the MCP call, which sends it as _meta.sessionId"
     (let [ctx* (atom nil)]
-      (with-redefs [f.mcp/all-tools  (fn [_]
+      (with-redefs [m.mcp/all-tools  (fn [_]
                                        [{:name "tool" :server {:name "srv"}
                                          :parameters {"type" "object" :properties {}}}])
-                    f.mcp/call-tool! (fn [_server _name _args ctx]
+                    m.mcp/call-tool! (fn [_server _name _args ctx]
                                        (reset! ctx* ctx)
                                        {:error false :contents []})]
         (f.tools/call-tool! "srv__tool" {} "chat-1" "call-1" "code"
@@ -834,14 +834,14 @@
          {:error    true
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `code`"}]}
-         (with-redefs [f.mcp/all-tools  (fn [_]
+         (with-redefs [m.mcp/all-tools  (fn [_]
                                           [{:name        "mcp_eval"
                                             :server      {:name "clojureMCP"}
                                             :description "eval code"
                                             :parameters  {"type"      "object"
                                                           :properties {"code" {:type "string"}}
                                                           :required   ["code"]}}])
-                       f.mcp/call-tool! (fn [& _]
+                       m.mcp/call-tool! (fn [& _]
                                           {:error    false
                                            :contents [{:type :text :text "should-not-be-called"}]})]
            (f.tools/call-tool!
@@ -864,7 +864,7 @@
          {:error    true
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `path`, `content`"}]}
-         (with-redefs [f.tools.filesystem/definitions
+         (with-redefs [m.filesystem/definitions
                        {"test_native_multi"
                         {:description "Test tool multi"
                          :parameters  {"type"      "object"
@@ -894,7 +894,7 @@
          {:error    true
           :contents [{:type :text
                       :text "INVALID_ARGS: unknown params: `offset`. Supported params: `path` (required), `line_offset`"}]}
-         (with-redefs [f.tools.filesystem/definitions
+         (with-redefs [m.filesystem/definitions
                        {"test_native_read"
                         {:description "Test tool read"
                          :parameters  {"type"      "object"
@@ -920,14 +920,14 @@
     (is (match?
          {:error    false
           :contents [{:type :text :text "OK"}]}
-         (with-redefs [f.mcp/all-tools  (fn [_]
+         (with-redefs [m.mcp/all-tools  (fn [_]
                                           [{:name        "mcp_eval"
                                             :server      {:name "clojureMCP"}
                                             :description "eval code"
                                             :parameters  {"type"      "object"
                                                           :properties {"code" {:type "string"}}
                                                           :required   ["code"]}}])
-                       f.mcp/call-tool! (fn [& _]
+                       m.mcp/call-tool! (fn [& _]
                                           {:error    false
                                            :contents [{:type :text :text "OK"}]})]
            (f.tools/call-tool!
@@ -949,7 +949,7 @@
     (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
           target-path (h/file-path "/workspace/a/src/nested/foo.clj")
           workspace-root (h/file-path "/workspace/a")]
-      (with-redefs [f.rules/path-scoped-rules (constantly [{:id rule-id
+      (with-redefs [m.rules/path-scoped-rules (constantly [{:id rule-id
                                                             :name "format.md"
                                                             :scope :project
                                                             :path rule-id
@@ -992,8 +992,8 @@
                 :workspace-root workspace-root
                 :paths ["src/**/*.clj"]
                 :content "Rule body"}]
-      (with-redefs [f.rules/path-scoped-rules (constantly [rule])
-                    f.rules/find-rule-by-id (constantly rule)]
+      (with-redefs [m.rules/path-scoped-rules (constantly [rule])
+                    m.rules/find-rule-by-id (constantly rule)]
         (let [db {:workspace-folders []
                   :chats {"chat-1" {:agent "code"
                                     :model "anthropic/claude-sonnet-4-20250514"}}}
@@ -1022,7 +1022,7 @@
     (let [rule-id (h/file-path "/workspace/a/.eca/rules/broken.md")
           target-path (h/file-path "/workspace/a/src/nested/foo.clj")
           workspace-root (h/file-path "/workspace/a")]
-      (with-redefs [f.rules/path-scoped-rules (constantly [{:id rule-id
+      (with-redefs [m.rules/path-scoped-rules (constantly [{:id rule-id
                                                             :name "broken.md"
                                                             :scope :project
                                                             :workspace-root workspace-root
@@ -1052,11 +1052,11 @@
   (testing "fetch_rule rejects rules outside the current filtered catalog"
     (let [rule-id (h/file-path "/workspace/a/.eca/rules/format.md")
           target-path (h/file-path "/workspace/a/src/foo.clj")]
-      (with-redefs [f.rules/path-scoped-rules (constantly [{:id (h/file-path "/other/rule.md")
+      (with-redefs [m.rules/path-scoped-rules (constantly [{:id (h/file-path "/other/rule.md")
                                                             :name "other.md"
                                                             :scope :project
                                                             :paths ["**/*.rb"]}])
-                    f.rules/find-rule-by-id (constantly nil)]
+                    m.rules/find-rule-by-id (constantly nil)]
         (let [db {:workspace-folders []
                   :chats {"chat-1" {:agent "code"
                                     :model "openai/gpt-4o"}}}
@@ -1082,7 +1082,7 @@
     (let [format-id (h/file-path "/workspace/a/.eca/rules/format.md")
           network-id (h/file-path "/home/user/.config/eca/rules/no-network.md")
           workspace-root (h/file-path "/workspace/a")]
-      (with-redefs [f.rules/path-scoped-rules (fn [_config _roots agent full-model]
+      (with-redefs [m.rules/path-scoped-rules (fn [_config _roots agent full-model]
                                                 (if (and (= agent "code")
                                                          (= full-model "anthropic/claude-sonnet-4-20250514"))
                                                   [{:id format-id
@@ -1147,8 +1147,8 @@
                   :content "Use the project formatter."}
             db* (atom db)
             writes* (atom {})]
-        (with-redefs [f.rules/path-scoped-rules (constantly [rule])
-                      f.rules/find-rule-by-id (constantly rule)
+        (with-redefs [m.rules/path-scoped-rules (constantly [rule])
+                      m.rules/find-rule-by-id (constantly rule)
                       fs/create-dirs (constantly nil)
                       spit (fn [path content] (swap! writes* assoc path content))
                       slurp (fn [path]
@@ -1180,8 +1180,8 @@
                   :content "Use the project formatter."}
             db* (atom db)
             writes* (atom {})]
-        (with-redefs [f.rules/path-scoped-rules (constantly [rule])
-                      f.rules/find-rule-by-id (constantly rule)
+        (with-redefs [m.rules/path-scoped-rules (constantly [rule])
+                      m.rules/find-rule-by-id (constantly rule)
                       fs/create-dirs (constantly nil)
                       spit (fn [path content] (swap! writes* assoc path content))
                       slurp (constantly "")]
@@ -1214,8 +1214,8 @@
             rules [read-rule modify-rule]
             db* (atom db)
             writes* (atom {})]
-        (with-redefs [f.rules/path-scoped-rules (constantly rules)
-                      f.rules/find-rule-by-id (fn [_config _roots rule-id _agent _full-model]
+        (with-redefs [m.rules/path-scoped-rules (constantly rules)
+                      m.rules/find-rule-by-id (fn [_config _roots rule-id _agent _full-model]
                                                 (first (filter #(= rule-id (:id %)) rules)))
                       fs/create-dirs (constantly nil)
                       spit (fn [path content] (swap! writes* assoc path content))
@@ -1237,7 +1237,7 @@
       (is (match?
            {:error false
             :contents [{:type :text :text "OK"}]}
-           (with-redefs [f.tools.filesystem/definitions
+           (with-redefs [m.filesystem/definitions
                          {"test_optional_empty"
                           {:description "Test tool optional empty"
                            :parameters  {"type"      "object"
@@ -1270,7 +1270,7 @@
       (is (match?
            {:error false
             :contents [{:type :text :text "OK"}]}
-           (with-redefs [f.tools.filesystem/definitions
+           (with-redefs [m.filesystem/definitions
                          {"test_required_empty"
                           {:description "Test tool required empty"
                            :parameters  {"type"      "object"

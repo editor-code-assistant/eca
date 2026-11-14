@@ -8,7 +8,7 @@
   (:require
    [eca.features.chat :as f.chat]
    [eca.messenger :as messenger]
-   [eca.modules.remote.sse :as sse]
+   [eca.modules.remote.sse :as m.remote.sse]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -22,13 +22,13 @@
   ;; Skip building the payloads when nobody listens: replays cost O(chat).
   (when (seq @sse-connections*)
     (doseq [payload (f.chat/messages->contents messages {:chat-id chat-id :db db})]
-      (sse/broadcast! sse-connections* "chat:content-received" (->camel payload)))))
+      (m.remote.sse/broadcast! sse-connections* "chat:content-received" (->camel payload)))))
 
 (defn ^:private broadcast-replay!
   "Broadcasts a clear of `chat-id` followed by its whole history, as clients
    without incremental updates expect after a history change."
   [sse-connections* db chat-id]
-  (sse/broadcast! sse-connections* "chat:cleared" (->camel {:chat-id chat-id :messages true}))
+  (m.remote.sse/broadcast! sse-connections* "chat:cleared" (->camel {:chat-id chat-id :messages true}))
   (broadcast-messages! sse-connections* db chat-id (get-in db [:chats chat-id :messages])))
 
 (defn ^:private positioned-flag? [{:keys [content parent-chat-id]}]
@@ -103,25 +103,25 @@
     (messenger/chat-content-received inner data)
     (if (and db* (positioned-flag? data))
       (broadcast-replay! sse-connections* @db* (:chat-id data))
-      (sse/broadcast! sse-connections* "chat:content-received" (->camel data))))
+      (m.remote.sse/broadcast! sse-connections* "chat:content-received" (->camel data))))
 
   (chat-cleared [_this params]
     (messenger/chat-cleared inner params)
-    (sse/broadcast! sse-connections* "chat:cleared" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "chat:cleared" (->camel params)))
 
   (chat-truncated [_this params]
     (messenger/chat-truncated inner params)
     (if db*
       (broadcast-replay! sse-connections* @db* (:chat-id params))
-      (sse/broadcast! sse-connections* "chat:truncated" (->camel params))))
+      (m.remote.sse/broadcast! sse-connections* "chat:truncated" (->camel params))))
 
   (chat-status-changed [_this params]
     (messenger/chat-status-changed inner params)
-    (sse/broadcast! sse-connections* "chat:status-changed" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "chat:status-changed" (->camel params)))
 
   (chat-deleted [_this params]
     (messenger/chat-deleted inner params)
-    (sse/broadcast! sse-connections* "chat:deleted" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "chat:deleted" (->camel params)))
 
   (chat-opened [_this params]
     (messenger/chat-opened inner params)
@@ -129,45 +129,45 @@
       ;; Only the newest page follows; send the older messages first so SSE
       ;; clients get the whole history in order.
       (let [{:keys [chat-id]} params]
-        (sse/broadcast! sse-connections* "chat:opened" (->camel (dissoc params :history)))
+        (m.remote.sse/broadcast! sse-connections* "chat:opened" (->camel (dissoc params :history)))
         (when db*
           (let [db @db*
                 messages (vec (get-in db [:chats chat-id :messages]))]
             (broadcast-messages! sse-connections* db chat-id
                                  (subvec messages 0 (max 0 (min (count messages)
                                                                 (- total returned))))))))
-      (sse/broadcast! sse-connections* "chat:opened" (->camel params))))
+      (m.remote.sse/broadcast! sse-connections* "chat:opened" (->camel params))))
 
   (rewrite-content-received [_this data]
     (messenger/rewrite-content-received inner data))
 
   (tool-server-updated [_this params]
     (messenger/tool-server-updated inner params)
-    (sse/broadcast! sse-connections* "tool:server-updated" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "tool:server-updated" (->camel params)))
 
   (tool-server-removed [_this params]
     (messenger/tool-server-removed inner params)
-    (sse/broadcast! sse-connections* "tool:server-removed" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "tool:server-removed" (->camel params)))
 
   (provider-updated [_this params]
     (messenger/provider-updated inner params)
-    (sse/broadcast! sse-connections* "providers:updated" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "providers:updated" (->camel params)))
 
   (jobs-updated [_this params]
     (messenger/jobs-updated inner params)
-    (sse/broadcast! sse-connections* "jobs:updated" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "jobs:updated" (->camel params)))
 
   (config-updated [_this params]
     (messenger/config-updated inner params)
-    (sse/broadcast! sse-connections* "config:updated" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "config:updated" (->camel params)))
 
   (showMessage [_this msg]
     (messenger/showMessage inner msg)
-    (sse/broadcast! sse-connections* "session:message" (->camel msg)))
+    (m.remote.sse/broadcast! sse-connections* "session:message" (->camel msg)))
 
   (progress [_this params]
     (messenger/progress inner params)
-    (sse/broadcast! sse-connections* "session:progress" (->camel params)))
+    (m.remote.sse/broadcast! sse-connections* "session:progress" (->camel params)))
 
   (editor-diagnostics [_this uri]
     (messenger/editor-diagnostics inner uri))
@@ -197,7 +197,7 @@
       ;; Skip questions already claimed during dispatch or handle attachment.
       ;; This check does not serialize broadcasting with concurrent resolution.
       (when (identical? result (get-in @pending-questions* [request-id :promise]))
-        (sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params)))
+        (m.remote.sse/broadcast! sse-connections* "chat:ask-question" (->camel wire-params)))
       (question-result result #(resolve-question! pending-questions* request-id % true)))))
 
 (defn make-broadcast-messenger

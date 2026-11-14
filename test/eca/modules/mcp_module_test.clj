@@ -7,7 +7,7 @@
    [eca.features.commands :as f.commands]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
-   [eca.modules.mcp :as f.mcp]
+   [eca.modules.mcp :as m.mcp]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
@@ -23,9 +23,9 @@
 
 (deftest mcp-tools-and-prompts-test
   (testing "MCP tools are listed while the module is active"
-    (with-redefs [f.mcp/all-tools (constantly [{:name "lookup" :server {:name "myMCP"} :description "Look up."
+    (with-redefs [m.mcp/all-tools (constantly [{:name "lookup" :server {:name "myMCP"} :description "Look up."
                                                 :parameters {:type "object"}}])
-                  f.mcp/all-prompts (constantly [{:name "summarize" :server "myMCP" :description "Summarize."}])]
+                  m.mcp/all-prompts (constantly [{:name "summarize" :server "myMCP" :description "Summarize."}])]
       (is (some #(= "myMCP__lookup" (:full-name %)) (f.tools/all-tools "c1" "code" db-with-mcp {})))
       (is (some #(= "myMCP:summarize" (:name %)) (f.commands/all-commands db-with-mcp {})))
       (testing "and hidden while it's disabled"
@@ -36,7 +36,7 @@
   (testing "disabling the module stops the servers through the config reconcile, enabling starts them"
     (let [calls* (atom [])
           servers {"myMCP" {:command "my-mcp"}}]
-      (with-redefs [f.mcp/reconcile-servers! (fn [prev-config new-config & _]
+      (with-redefs [m.mcp/reconcile-servers! (fn [prev-config new-config & _]
                                                (swap! calls* conj [(:mcpServers prev-config) (:mcpServers new-config)]))]
         (f.tools/reconcile-servers! {:mcpServers servers} (merge {:mcpServers servers} disabled)
                                     (h/db*) (h/messenger) (h/metrics))
@@ -45,7 +45,7 @@
         (is (= [[servers {}] [{} servers]] @calls*)))))
   (testing "disabled, init starts no server"
     (let [started* (atom 0)]
-      (with-redefs [f.mcp/initialize-servers-async! (fn [& _] (swap! started* inc))]
+      (with-redefs [m.mcp/initialize-servers-async! (fn [& _] (swap! started* inc))]
         (f.tools/init-servers! (h/db*) (h/messenger) disabled (h/metrics))
         (is (= 0 @started*))
         (f.tools/init-servers! (h/db*) (h/messenger) {} (h/metrics))

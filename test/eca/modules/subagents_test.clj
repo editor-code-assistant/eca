@@ -9,8 +9,8 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.llm-api :as llm-api]
-   [eca.modules.hooks :as hooks]
-   [eca.modules.subagents :as f.tools.agent]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.subagents :as m.subagents]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -53,13 +53,13 @@
             "openai/gpt-4.1" {}}})
 
 (defn ^:private spawn-handler []
-  (get-in (f.tools.agent/definitions test-config test-db) ["spawn_agent" :handler]))
+  (get-in (m.subagents/definitions test-config test-db) ["spawn_agent" :handler]))
 
 (defn ^:private spawn-summary [args]
-  ((get-in (f.tools.agent/definitions test-config test-db) ["spawn_agent" :summary-fn]) {:args args}))
+  ((get-in (m.subagents/definitions test-config test-db) ["spawn_agent" :summary-fn]) {:args args}))
 
 (defn ^:private spawn-description [parent-agent-name]
-  (get-in (f.tools.agent/definitions test-config test-db parent-agent-name)
+  (get-in (m.subagents/definitions test-config test-db parent-agent-name)
           ["spawn_agent" :description]))
 
 (defn ^:private stub-requiring-resolve
@@ -124,22 +124,22 @@
 
 (deftest spawn-agent-normalize-arguments-test
   (is (= {"agent" "explorer" "task" "find" "activity" "searching files"}
-         (f.tools.agent/normalize-arguments {"agent" "explorer"
-                                             "task" "find"
-                                             "activity" " searching\nfiles "})))
+         (m.subagents/normalize-arguments {"agent" "explorer"
+                                           "task" "find"
+                                           "activity" " searching\nfiles "})))
   (is (= {"agent" "explorer" "task" "find"}
-         (f.tools.agent/normalize-arguments {"agent" "explorer"
-                                             "task" "find"
-                                             "activity" ""})))
+         (m.subagents/normalize-arguments {"agent" "explorer"
+                                           "task" "find"
+                                           "activity" ""})))
   (is (= {"agent" "explorer" "task" "find"}
-         (f.tools.agent/normalize-arguments {"agent" "explorer"
-                                             "task" "find"
-                                             "activity" ["not" "string"]})))
+         (m.subagents/normalize-arguments {"agent" "explorer"
+                                           "task" "find"
+                                           "activity" ["not" "string"]})))
   (is (= {"agent" "explorer" "task" "find" "activity" "searching files"}
-         (f.tools.agent/normalize-arguments
-          (f.tools.agent/normalize-arguments {"agent" "explorer"
-                                              "task" "find"
-                                              "activity" " searching\nfiles "})))))
+         (m.subagents/normalize-arguments
+          (m.subagents/normalize-arguments {"agent" "explorer"
+                                            "task" "find"
+                                            "activity" " searching\nfiles "})))))
 
 (deftest spawn-agent-not-found-test
   (testing "throws when agent is not found"
@@ -419,7 +419,7 @@
              (cond-> {:id "parent" :model "openai/gpt-5.2"}
                (some? spawn-trust) (assoc :trust spawn-trust)))
       (let [approval-opts* (promise)]
-        (with-redefs [f.tools.agent/poll-interval-ms 10
+        (with-redefs [m.subagents/poll-interval-ms 10
                       llm-api/sync-prompt! (constantly nil)
                       config/await-plugins-resolved! (constantly true)
                       f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
@@ -508,7 +508,7 @@
           subagent-chat-id "subagent-tc-1"
           prompts* (atom [])
           stops* (atom 0)]
-      (with-redefs [f.tools.agent/poll-interval-ms 10
+      (with-redefs [m.subagents/poll-interval-ms 10
                     requiring-resolve
                     (fn [sym]
                       (case sym
@@ -555,8 +555,8 @@
           subagent-chat-id "subagent-tc-1"
           prompts* (atom [])
           stops* (atom 0)]
-      (with-redefs [f.tools.agent/poll-interval-ms 10
-                    f.tools.agent/summary-turn-timeout-ms 50
+      (with-redefs [m.subagents/poll-interval-ms 10
+                    m.subagents/summary-turn-timeout-ms 50
                     requiring-resolve
                     (fn [sym]
                       (case sym
@@ -605,7 +605,7 @@
         running! (fn [& _] (swap! db* update-in [:chats id] assoc :status :running :messages [(assistant-msg "Working.")]))]
     (testing "the summary turn starts only after the stopped turn has unwound"
       (let [status-at-summary* (promise)]
-        (with-redefs [f.tools.agent/poll-interval-ms 10
+        (with-redefs [m.subagents/poll-interval-ms 10
                       f.chat/prompt (fn [{:keys [message]} & _]
                                       (if (string/includes? message "Without calling any tools")
                                         (do (deliver status-at-summary* (get-in @db* [:chats id :status]))
@@ -624,8 +624,8 @@
     (testing "the summary turn is skipped when the stopped turn does not unwind in time"
       (reset! db* {:chats {"parent" {:model "test/model"}}})
       (let [prompts* (atom 0)]
-        (with-redefs [f.tools.agent/poll-interval-ms 10
-                      f.tools.agent/summary-turn-timeout-ms 50
+        (with-redefs [m.subagents/poll-interval-ms 10
+                      m.subagents/summary-turn-timeout-ms 50
                       f.chat/prompt (fn [& args] (swap! prompts* inc) (apply running! args))
                       f.chat/prompt-stop (fn [& _] (swap! db* assoc-in [:chats id :status] :stopping))]
           (let [result ((spawn-handler) {"agent" "slow" "task" "review"} context)]
@@ -637,7 +637,7 @@
     (let [db* (atom {:chats {"parent" {:model "test/model"}}})
           id "subagent-tc-1"
           stops* (atom 0)]
-      (with-redefs [f.tools.agent/poll-interval-ms 10
+      (with-redefs [m.subagents/poll-interval-ms 10
                     f.chat/prompt (fn [& _]
                                     (swap! db* #(-> %
                                                     (update-in [:chats id] assoc :status :idle :messages [(assistant-msg "Done.")])
@@ -660,8 +660,8 @@
                                                                    :config (assoc-in timeout-test-config [:agent "slow" :maxSteps] 3)
                                                                    :tool-call-id tool-call-id
                                                                    :call-state-fn (constantly {:status parent-status})))))]
-      (with-redefs [f.tools.agent/poll-interval-ms 10
-                    f.tools.agent/summary-turn-timeout-ms 50
+      (with-redefs [m.subagents/poll-interval-ms 10
+                    m.subagents/summary-turn-timeout-ms 50
                     f.chat/prompt (fn [& _]
                                     (case @mode*
                                       :answer (swap! db* update-in [:chats id] assoc
@@ -1072,7 +1072,7 @@
                                  [{:role "assistant"
                                    :content [{:type :text :text "Done."}]}]))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
-        (let [result ((get-in (f.tools.agent/definitions config-with-default test-db) ["spawn_agent" :handler])
+        (let [result ((get-in (m.subagents/definitions config-with-default test-db) ["spawn_agent" :handler])
                       {"agent" "explorer" "task" "explore" "activity" "exploring"
                        "model" "anthropic/claude-sonnet-4-6"}
                       {:db* db*
@@ -1106,7 +1106,7 @@
                                  [{:role "assistant"
                                    :content [{:type :text :text "Done."}]}]))
                         (clojure.lang.RT/var (namespace sym) (name sym))))]
-        (let [result ((get-in (f.tools.agent/definitions config-with-alias test-db) ["spawn_agent" :handler])
+        (let [result ((get-in (m.subagents/definitions config-with-alias test-db) ["spawn_agent" :handler])
                       {"agent" "explorer" "task" "explore" "activity" "exploring"}
                       {:db* db*
                        :config config-with-alias
@@ -1122,36 +1122,36 @@
 (deftest extract-final-assistant-text-test
   (testing "extracts text from last assistant message"
     (is (= "Hello world"
-           (#'f.tools.agent/extract-final-assistant-text
+           (#'m.subagents/extract-final-assistant-text
             [{:role "user" :content [{:type :text :text "Hi"}]}
              {:role "assistant" :content [{:type :text :text "Hello world"}]}]))))
 
   (testing "uses last assistant message when multiple exist"
     (is (= "Final answer"
-           (#'f.tools.agent/extract-final-assistant-text
+           (#'m.subagents/extract-final-assistant-text
             [{:role "assistant" :content [{:type :text :text "First response"}]}
              {:role "user" :content [{:type :text :text "More?"}]}
              {:role "assistant" :content [{:type :text :text "Final answer"}]}]))))
 
   (testing "joins multiple text blocks with newline"
     (is (= "Part 1\nPart 2"
-           (#'f.tools.agent/extract-final-assistant-text
+           (#'m.subagents/extract-final-assistant-text
             [{:role "assistant" :content [{:type :text :text "Part 1"}
                                           {:type :text :text "Part 2"}]}]))))
 
   (testing "ignores non-text content types"
     (is (= "Text only"
-           (#'f.tools.agent/extract-final-assistant-text
+           (#'m.subagents/extract-final-assistant-text
             [{:role "assistant" :content [{:type :tool-use :text "ignored"}
                                           {:type :text :text "Text only"}]}]))))
 
   (testing "returns nil when no assistant messages"
-    (is (nil? (#'f.tools.agent/extract-final-assistant-text
+    (is (nil? (#'m.subagents/extract-final-assistant-text
                [{:role "user" :content [{:type :text :text "Hi"}]}])))))
 
 (deftest definitions-test
   (testing "spawn_agent tool definition has correct structure"
-    (let [defs (f.tools.agent/definitions test-config test-db)
+    (let [defs (m.subagents/definitions test-config test-db)
           tool (get defs "spawn_agent")]
       (is (some? tool))
       (is (string? (:description tool)))
@@ -1168,7 +1168,7 @@
              (vec (keys (get-in tool [:parameters :properties])))))))
 
   (testing "model and variant enums are absent when no models in db"
-    (let [defs (f.tools.agent/definitions test-config {})
+    (let [defs (m.subagents/definitions test-config {})
           props (get-in defs ["spawn_agent" :parameters :properties])]
       (is (= "string" (:type (get props "model"))))
       (is (nil? (:enum (get props "model"))))
@@ -1176,14 +1176,14 @@
       (is (nil? (:enum (get props "variant"))))))
 
   (testing "gracefully handles nil db"
-    (let [defs (f.tools.agent/definitions test-config nil)
+    (let [defs (m.subagents/definitions test-config nil)
           props (get-in defs ["spawn_agent" :parameters :properties])]
       (is (some? (get props "model")))
       (is (nil? (:enum (get props "model"))))
       (is (nil? (:enum (get props "variant"))))))
 
   (testing "description includes available subagents"
-    (let [desc (:description (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
+    (let [desc (:description (get (m.subagents/definitions test-config test-db) "spawn_agent"))]
       (is (re-find #"- explorer:" desc))
       (is (re-find #"- general:" desc))
       (is (re-find #"- swiss-knife:" desc)
@@ -1192,19 +1192,19 @@
           "primary-only agents should not appear in subagent list")))
 
   (testing "description-suffix holds only the available subagents catalog"
-    (let [{:keys [description description-suffix]} (get (f.tools.agent/definitions test-config test-db) "spawn_agent")]
+    (let [{:keys [description description-suffix]} (get (m.subagents/definitions test-config test-db) "spawn_agent")]
       (is (string/starts-with? description-suffix "\n\nAvailable agents:\n"))
       (is (string/includes? description-suffix "- explorer: Explores codebases"))
       (is (string/ends-with? description description-suffix))))
 
   (testing "no agents catalog without available subagents"
-    (let [{:keys [description description-suffix]} (get (f.tools.agent/definitions {:agent {"code" {:mode "primary"}}} test-db)
+    (let [{:keys [description description-suffix]} (get (m.subagents/definitions {:agent {"code" {:mode "primary"}}} test-db)
                                                          "spawn_agent")]
       (is (nil? description-suffix))
       (is (not (string/includes? description "Available agents:")))))
 
   (testing "summary-fn formats agent name with activity"
-    (let [summary-fn (:summary-fn (get (f.tools.agent/definitions test-config test-db) "spawn_agent"))]
+    (let [summary-fn (:summary-fn (get (m.subagents/definitions test-config test-db) "spawn_agent"))]
       (is (= "explorer: searching files"
              (summary-fn {:args {"agent" "explorer" "activity" "searching files"}})))
       (is (= "Spawning agent"
@@ -1447,7 +1447,7 @@
     (with-redefs [llm-api/sync-prompt! (constantly nil)
                   config/await-plugins-resolved! (constantly true)
                   f.tools/all-tools (constantly [])
-                  hooks/trigger-if-matches!
+                  m.hooks/trigger-if-matches!
                   (fn [type data callbacks & _]
                     (when (and (= :subagentPostRequest type) (not (:follow-up-active data)))
                       ((:on-after-action callbacks) {:name "follow" :exit 0 :parsed {"followUp" "continue"}}))
@@ -1605,7 +1605,7 @@
                     (reset! call-state* {:status :stopping})
                     (f.chat/prompt-stop {:chat-id id} (h/db*) (h/messenger) (h/config) (h/metrics) {:silent? true})
                     (deliver stopped true))]
-        (with-redefs [f.tools.agent/stop-settle-timeout-ms 100
+        (with-redefs [m.subagents/stop-settle-timeout-ms 100
                       llm-api/sync-prompt! (constantly nil)
                       config/await-plugins-resolved! (constantly true)
                       f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
@@ -1693,7 +1693,7 @@
                     f.tools/all-tools (constantly [])
                     f.tools/approval (constantly :allow)
                     config/await-plugins-resolved! (constantly true)]
-        (let [handler (get-in (f.tools.agent/definitions (h/config) (h/db)) ["spawn_agent" :handler])
+        (let [handler (get-in (m.subagents/definitions (h/config) (h/db)) ["spawn_agent" :handler])
               ;; Bound the wait so a stalled prompt fails the test; allow headroom
               ;; for slower CI runners.
               result-fut (future
@@ -1763,7 +1763,7 @@
                         "primary-only" {:mode "primary"
                                         :description "Primary only"}}}]
     (testing "/subagents includes unrestricted and authorized restricted agents"
-      (let [message (#'f.tools.agent/subagents-msg config "duel")]
+      (let [message (#'m.subagents/subagents-msg config "duel")]
         (is (string/includes? message "explorer"))
         (is (string/includes? message "duel-worker"))
         (is (string/includes? message "dual-role"))
@@ -1771,7 +1771,7 @@
 
     (testing "/subagents hides restricted agents from other or missing parents"
       (doseq [parent-agent-name ["code" nil]]
-        (let [message (#'f.tools.agent/subagents-msg config parent-agent-name)]
+        (let [message (#'m.subagents/subagents-msg config parent-agent-name)]
           (is (string/includes? message "explorer"))
           (is (not (string/includes? message "duel-worker")))
           (is (not (string/includes? message "dual-role"))))))

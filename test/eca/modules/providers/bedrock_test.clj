@@ -3,7 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [with-client-proxied]]
-   [eca.modules.providers.bedrock :as llm-providers.bedrock]
+   [eca.modules.providers.bedrock :as m.bedrock]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]])
   (:import
@@ -52,17 +52,17 @@
     (is (= [["messageStart" {:role "assistant"}]
             ["contentBlockDelta" {:contentBlockIndex 0 :delta {:text "hi"}}]
             ["messageStop" {:stopReason "end_turn"}]]
-           (vec (#'llm-providers.bedrock/event-stream-seq
+           (vec (#'m.bedrock/event-stream-seq
                  (frames-stream (make-frame "messageStart" {:role "assistant"})
                                 (make-frame "contentBlockDelta" {:contentBlockIndex 0 :delta {:text "hi"}})
                                 (make-frame "messageStop" {:stopReason "end_turn"})))))))
 
   (testing "returns empty seq on a clean EOF"
-    (is (= [] (vec (#'llm-providers.bedrock/event-stream-seq (ByteArrayInputStream. (byte-array 0)))))))
+    (is (= [] (vec (#'m.bedrock/event-stream-seq (ByteArrayInputStream. (byte-array 0)))))))
 
   (testing "throws on a truncated frame"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unexpected EOF"
-                          (vec (#'llm-providers.bedrock/event-stream-seq
+                          (vec (#'m.bedrock/event-stream-seq
                                 (ByteArrayInputStream. (byte-array 6)))))))
 
   (testing "throws a clean error (not an NPE) when a frame is truncated after the prelude"
@@ -72,7 +72,7 @@
       (write-u32! baos 0)  ;; prelude crc
       ;; stream ends here: headers read hits an immediate EOF mid-frame
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Truncated Bedrock event-stream frame"
-                            (vec (#'llm-providers.bedrock/event-stream-seq
+                            (vec (#'m.bedrock/event-stream-seq
                                   (ByteArrayInputStream. (.toByteArray baos))))))))
 
   (testing "throws on a frame with negative payload length"
@@ -82,7 +82,7 @@
       (write-u32! baos 0)
       (.write baos (byte-array 8))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"negative payload length"
-                            (vec (#'llm-providers.bedrock/event-stream-seq
+                            (vec (#'m.bedrock/event-stream-seq
                                   (ByteArrayInputStream. (.toByteArray baos)))))))))
 
 ;; --- normalization / body ---
@@ -90,7 +90,7 @@
 (deftest normalize-conversation-test
   (testing "string content becomes a single text block"
     (is (match? [{:role "user" :content [{:text "hello"}]}]
-                (#'llm-providers.bedrock/normalize-conversation
+                (#'m.bedrock/normalize-conversation
                  [] [{:role "user" :content "hello"}] false))))
 
   (testing "tool call + output become Converse toolUse / toolResult blocks"
@@ -100,19 +100,19 @@
                   :content [{:toolResult {:toolUseId "t1"
                                           :status "success"
                                           :content [{:text string?}]}}]}]
-                (#'llm-providers.bedrock/normalize-conversation
+                (#'m.bedrock/normalize-conversation
                  [{:role "tool_call" :content {:id "t1" :full-name "get_weather" :arguments {:city "Paris"}}}
                   {:role "tool_call_output" :content {:id "t1" :output {:contents [{:type :text :text "sunny"}]}}}]
                  nil false))))
 
   (testing "consecutive same-role messages are merged"
     (is (match? [{:role "user" :content [{:text "a"} {:text "b"}]}]
-                (#'llm-providers.bedrock/normalize-conversation
+                (#'m.bedrock/normalize-conversation
                  [{:role "user" :content "a"}] [{:role "user" :content "b"}] false)))))
 
 (deftest build-body-test
   (testing "filters extra-payload to Converse-valid keys and deep-merges inferenceConfig"
-    (let [body (#'llm-providers.bedrock/build-body
+    (let [body (#'m.bedrock/build-body
                 {:messages []
                  :instructions "sys"
                  :max-output-tokens 500
@@ -125,10 +125,10 @@
 
   (testing "reasoning adds reasoning_config to additionalModelRequestFields"
     (is (match? {:additionalModelRequestFields {:reasoning_config {:type "enabled"}}}
-                (#'llm-providers.bedrock/build-body {:messages [] :reason? true}))))
+                (#'m.bedrock/build-body {:messages [] :reason? true}))))
 
   (testing "extra-payload cannot re-enable reasoning when reason? is false"
-    (let [body (#'llm-providers.bedrock/build-body
+    (let [body (#'m.bedrock/build-body
                 {:messages []
                  :reason? false
                  :extra-payload {:additionalModelRequestFields
@@ -139,14 +139,14 @@
 
   (testing "extra-payload reasoning_config is preserved when reason? is true"
     (is (match? {:additionalModelRequestFields {:reasoning_config {:budget_tokens 1024}}}
-                (#'llm-providers.bedrock/build-body
+                (#'m.bedrock/build-body
                  {:messages []
                   :reason? true
                   :extra-payload {:additionalModelRequestFields
                                   {:reasoning_config {:budget_tokens 1024}}}}))))
 
   (testing "variant thinking 'adaptive' + output_config map to Bedrock reasoning fields (#502)"
-    (let [body (#'llm-providers.bedrock/build-body
+    (let [body (#'m.bedrock/build-body
                 {:messages []
                  :reason? true
                  :extra-payload {:thinking {:type "adaptive" :display "summarized"}
@@ -162,7 +162,7 @@
           "anthropic-shaped thinking is not sent as a top-level key")))
 
   (testing "v2 default variant (thinking only, no output_config) yields adaptive reasoning_config"
-    (let [body (#'llm-providers.bedrock/build-body
+    (let [body (#'m.bedrock/build-body
                 {:messages []
                  :reason? true
                  :extra-payload {:thinking {:type "adaptive" :display "summarized"}}})]
@@ -183,7 +183,7 @@
                   :stopReason "end_turn"
                   :usage {:inputTokens 10 :outputTokens 3}}})
 
-        (let [result (llm-providers.bedrock/chat!
+        (let [result (m.bedrock/chat!
                       {:model "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
                        :api-url "http://localhost:1"
                        :api-key "fake-token"
@@ -221,7 +221,7 @@
                     :stopReason "end_turn"
                     :usage {:inputTokens 8 :outputTokens 4}})})
 
-        (let [result (llm-providers.bedrock/chat!
+        (let [result (m.bedrock/chat!
                       {:model "model-x" :api-url "http://localhost:1" :api-key "k"
                        :user-messages [{:role "user" :content "weather?"}] :past-messages []}
                       nil)]
@@ -252,7 +252,7 @@
                   (make-frame "messageStop" {:stopReason "end_turn"})
                   (make-frame "metadata" {:usage {:inputTokens 7 :outputTokens 2}}))]
       (with-redefs [http/post (fn [_ _] {:status 200 :body frames})]
-        (llm-providers.bedrock/chat!
+        (m.bedrock/chat!
          {:model "model-x" :api-url "http://localhost:1" :api-key "k"
           :user-messages [{:role "user" :content "hi"}] :past-messages []}
          (collecting-callbacks events*)))
@@ -285,7 +285,7 @@
       (with-redefs [http/post (fn [_ _]
                                 (swap! call-count* inc)
                                 {:status 200 :body (if (= 1 @call-count*) tool-frames final-frames)})]
-        (llm-providers.bedrock/chat!
+        (m.bedrock/chat!
          {:model "model-x" :api-url "http://localhost:1" :api-key "k"
           :user-messages [{:role "user" :content "weather?"}] :past-messages []}
          callbacks))
@@ -322,7 +322,7 @@
       (with-redefs [http/post (fn [_ _]
                                 (swap! call-count* inc)
                                 {:status 200 :body (if (= 1 @call-count*) tool-frames final-frames)})]
-        (llm-providers.bedrock/chat!
+        (m.bedrock/chat!
          {:model "model-x" :api-url "http://localhost:1" :api-key "k"
           :user-messages [{:role "user" :content "weather?"}] :past-messages []}
          callbacks))
@@ -339,7 +339,7 @@
   (testing "non-200 response is surfaced as an error result"
     (with-client-proxied {}
       (fn [_] {:status 400 :body {:message "ValidationException"}})
-      (let [result (llm-providers.bedrock/chat!
+      (let [result (m.bedrock/chat!
                     {:model "model-x" :api-url "http://localhost:1" :api-key "k"
                      :user-messages [{:role "user" :content "hi"}] :past-messages []}
                     nil)]
@@ -347,7 +347,7 @@
 
   (testing "a transport exception is surfaced as an error result"
     (with-redefs [http/post (fn [_ _] (throw (java.io.IOException. "connection refused")))]
-      (let [result (llm-providers.bedrock/chat!
+      (let [result (m.bedrock/chat!
                     {:model "model-x" :api-url "http://localhost:1" :api-key "k"
                      :user-messages [{:role "user" :content "hi"}] :past-messages []}
                     nil)]
@@ -359,7 +359,7 @@
                   (make-frame "messageStart" {:role "assistant"})
                   (make-frame "contentBlockDelta" {:contentBlockIndex 0 :delta {:text "partial"}}))]
       (with-redefs [http/post (fn [_ _] {:status 200 :body frames})]
-        (llm-providers.bedrock/chat!
+        (m.bedrock/chat!
          {:model "model-x" :api-url "http://localhost:1" :api-key "k"
           :user-messages [{:role "user" :content "hi"}] :past-messages []}
          (collecting-callbacks events*)))
@@ -373,7 +373,7 @@
                   (make-frame "messageStart" {:role "assistant"})
                   (make-frame "throttlingException" {:message "slow down"}))]
       (with-redefs [http/post (fn [_ _] {:status 200 :body frames})]
-        (llm-providers.bedrock/chat!
+        (m.bedrock/chat!
          {:model "model-x" :api-url "http://localhost:1" :api-key "k"
           :user-messages [{:role "user" :content "hi"}] :past-messages []}
          (collecting-callbacks events*)))
@@ -393,7 +393,7 @@
              :on-tools-called (constantly nil)}
         run! (fn [cb* event data]
                (reset! events* [])
-               (#'llm-providers.bedrock/handle-stream event data cb* ctx)
+               (#'m.bedrock/handle-stream event data cb* ctx)
                @events*)]
     (testing "text delta emits a message"
       (is (= [[:msg {:type :text :text "hi"}]]
@@ -425,7 +425,7 @@
                   (run! (atom {}) "throttlingException" {:message "slow down"}))))
 
     (testing "returns true for terminal events (messageStop, error frames), false otherwise"
-      (is (true? (#'llm-providers.bedrock/handle-stream "messageStop" {:stopReason "end_turn"} (atom {}) ctx)))
-      (is (true? (#'llm-providers.bedrock/handle-stream "throttlingException" {:message "x"} (atom {}) ctx)))
-      (is (false? (boolean (#'llm-providers.bedrock/handle-stream
+      (is (true? (#'m.bedrock/handle-stream "messageStop" {:stopReason "end_turn"} (atom {}) ctx)))
+      (is (true? (#'m.bedrock/handle-stream "throttlingException" {:message "x"} (atom {}) ctx)))
+      (is (false? (boolean (#'m.bedrock/handle-stream
                             "contentBlockDelta" {:contentBlockIndex 0 :delta {:text "x"}} (atom {}) ctx)))))))

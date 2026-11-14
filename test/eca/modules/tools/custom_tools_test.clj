@@ -1,7 +1,7 @@
 (ns eca.modules.tools.custom-tools-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.modules.tools.custom-tools :as f.tools.custom]
+   [eca.modules.tools.custom-tools :as m.custom-tools]
    [eca.shell :as shell]
    [eca.test-helper :as h]))
 
@@ -22,7 +22,7 @@
                         (is (= "find /tmp -name *.clj" script))
                         (delay {:out "mocked-output" :exit 0}))]
           (let [config {:customTools mock-custom-tools}
-                custom-defs (f.tools.custom/definitions config)
+                custom-defs (m.custom-tools/definitions config)
                 custom-tool-def (get custom-defs "file-search")]
             (is (some? custom-tool-def) "The custom tool should be loaded.")
             (let [result ((:handler custom-tool-def) {"directory" "/tmp" "pattern" "*.clj"} {})]
@@ -44,7 +44,7 @@
                                (do (is false "Unexpected command received by mock start-shell-process!")
                                    {:exit 1}))))]
         (let [config {:customTools mock-custom-tools}
-              custom-defs (f.tools.custom/definitions config)
+              custom-defs (m.custom-tools/definitions config)
               git-status-handler (get-in custom-defs ["git-status" :handler])
               echo-handler (get-in custom-defs ["echo-message" :handler])]
           (is (some? git-status-handler) "Git status tool should be loaded.")
@@ -59,7 +59,7 @@
                     (fn [opts]
                       (reset! captured opts)
                       (delay {:out "" :exit 0}))]
-        (let [custom-defs (f.tools.custom/definitions {:customTools mock-custom-tools})
+        (let [custom-defs (m.custom-tools/definitions {:customTools mock-custom-tools})
               handler (get-in custom-defs ["ls" :handler])
               ctx {:config {:toolCall {:shellCommand {:path "/custom/sh" :args ["-lc"]}}}
                    :chat-id "chat-123"}]
@@ -72,9 +72,9 @@
   (testing "when the custom tools config is empty or missing"
     (testing "with an empty map"
       (let [config {:customTools {}}
-            custom-defs (f.tools.custom/definitions config)]
+            custom-defs (m.custom-tools/definitions config)]
         (is (empty? custom-defs) "No custom tools should be loaded.")))
     (testing "with the key missing from the config"
       (let [config {}
-            custom-defs (f.tools.custom/definitions config)]
+            custom-defs (m.custom-tools/definitions config)]
         (is (empty? custom-defs) "No custom tools should be loaded.")))))

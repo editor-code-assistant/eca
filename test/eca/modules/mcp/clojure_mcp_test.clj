@@ -3,7 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools :as f.tools]
-   [eca.modules.mcp :as f.mcp]
+   [eca.modules.mcp :as m.mcp]
    [matcher-combinators.test :refer [match?]]))
 
 (def ^:private example-diff
@@ -17,7 +17,7 @@
 (deftest tool-call-details-before-invocation-clojure-mcp-dry-run-test
   (testing "the dry run previewing the change is called with the chat id"
     (let [call* (atom nil)]
-      (with-redefs [f.mcp/call-tool! (fn [server-name name args ctx]
+      (with-redefs [m.mcp/call-tool! (fn [server-name name args ctx]
                                        (reset! call* {:server-name server-name :name name
                                                       :args args :ctx ctx})
                                        {:error false :contents [{:type :text :text "new content"}]})]

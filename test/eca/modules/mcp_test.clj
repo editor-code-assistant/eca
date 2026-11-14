@@ -7,7 +7,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.modules.mcp :as mcp]
+   [eca.modules.mcp :as m.mcp]
    [eca.network :as network]
    [eca.oauth :as oauth]
    [plumcp.core.api.mcp-client :as pmc]
@@ -19,34 +19,34 @@
 (deftest all-tools-test
   (testing "empty db"
     (is (= []
-           (mcp/all-tools {}))))
+           (m.mcp/all-tools {}))))
 
   (testing "db with no mcp-clients"
     (is (= []
-           (mcp/all-tools {:some-other-key "value"}))))
+           (m.mcp/all-tools {:some-other-key "value"}))))
 
   (testing "db with empty mcp-clients"
     (is (= []
-           (mcp/all-tools {:mcp-clients {}}))))
+           (m.mcp/all-tools {:mcp-clients {}}))))
 
   (testing "db with mcp-clients but no tools"
     (is (= []
-           (mcp/all-tools {:mcp-clients {"server1" {}}}))))
+           (m.mcp/all-tools {:mcp-clients {"server1" {}}}))))
 
   (testing "db with single server with tools"
     (let [tools [{:name "tool1" :description "desc1" :server {:name "server1" :version "1.0.0"}}
                  {:name "tool2" :description "desc2" :server {:name "server1" :version "1.0.0"}}]]
       (is (= tools
-             (mcp/all-tools {:mcp-clients {"server1" {:version "1.0.0"
-                                                      :tools tools}}})))))
+             (m.mcp/all-tools {:mcp-clients {"server1" {:version "1.0.0"
+                                                        :tools tools}}})))))
 
   (testing "db with multiple servers with tools"
     (let [tools1 [{:name "tool1" :description "desc1" :server {:name "server1" :version nil}}]
           tools2 [{:name "tool2" :description "desc2" :server {:name "server2" :version nil}}
                   {:name "tool3" :description "desc3" :server {:name "server2" :version nil}}]]
       (is (= (concat tools1 tools2)
-             (mcp/all-tools {:mcp-clients {"server1" {:tools tools1}
-                                           "server2" {:tools tools2}}}))))))
+             (m.mcp/all-tools {:mcp-clients {"server1" {:tools tools1}
+                                             "server2" {:tools tools2}}}))))))
 
 (deftest call-tool-routes-to-server-test
   (testing "uses the requested MCP server when tool names collide"
@@ -56,16 +56,16 @@
                             "server-b" {:client :client-b
                                         :tools [{:name "shared_tool"}]})}
           calls* (atom [])]
-      (with-redefs [mcp/do-call-tool (fn [client name arguments needs-reinit?* _request-opts]
-                                         (swap! calls* conj {:client client
-                                                            :name name
-                                                            :arguments arguments
-                                                            :needs-reinit?* needs-reinit?*})
-                                         {:error false
-                                          :contents [{:type :text :text (str client)}]})]
+      (with-redefs [m.mcp/do-call-tool (fn [client name arguments needs-reinit?* _request-opts]
+                                           (swap! calls* conj {:client client
+                                                              :name name
+                                                              :arguments arguments
+                                                              :needs-reinit?* needs-reinit?*})
+                                           {:error false
+                                            :contents [{:type :text :text (str client)}]})]
         (is (= {:error false
                 :contents [{:type :text :text ":client-b"}]}
-               (mcp/call-tool! "server-b" "shared_tool" {"query" "value"} {:db db})))
+               (m.mcp/call-tool! "server-b" "shared_tool" {"query" "value"} {:db db})))
         (is (= [{:client :client-b
                  :name "shared_tool"
                  :arguments {"query" "value"}
@@ -75,26 +75,26 @@
 (deftest all-prompts-test
   (testing "empty db"
     (is (= []
-           (mcp/all-prompts {}))))
+           (m.mcp/all-prompts {}))))
 
   (testing "db with no mcp-clients"
     (is (= []
-           (mcp/all-prompts {:some-other-key "value"}))))
+           (m.mcp/all-prompts {:some-other-key "value"}))))
 
   (testing "db with empty mcp-clients"
     (is (= []
-           (mcp/all-prompts {:mcp-clients {}}))))
+           (m.mcp/all-prompts {:mcp-clients {}}))))
 
   (testing "db with mcp-clients but no prompts"
     (is (= []
-           (mcp/all-prompts {:mcp-clients {"server1" {}}}))))
+           (m.mcp/all-prompts {:mcp-clients {"server1" {}}}))))
 
   (testing "db with single server with prompts"
     (let [prompts [{:name "prompt1" :description "desc1"}
                    {:name "prompt2" :description "desc2"}]
           expected (mapv #(assoc % :server "server1") prompts)]
       (is (= expected
-             (mcp/all-prompts {:mcp-clients {"server1" {:prompts prompts}}})))))
+             (m.mcp/all-prompts {:mcp-clients {"server1" {:prompts prompts}}})))))
 
   (testing "db with multiple servers with prompts"
     (let [prompts1 [{:name "prompt1" :description "desc1"}]
@@ -104,32 +104,32 @@
                     (mapv #(assoc % :server "server1") prompts1)
                     (mapv #(assoc % :server "server2") prompts2))]
       (is (= expected
-             (mcp/all-prompts {:mcp-clients {"server1" {:prompts prompts1}
-                                             "server2" {:prompts prompts2}}}))))))
+             (m.mcp/all-prompts {:mcp-clients {"server1" {:prompts prompts1}
+                                               "server2" {:prompts prompts2}}}))))))
 
 (deftest all-resources-test
   (testing "empty db"
     (is (= []
-           (mcp/all-resources {}))))
+           (m.mcp/all-resources {}))))
 
   (testing "db with no mcp-clients"
     (is (= []
-           (mcp/all-resources {:some-other-key "value"}))))
+           (m.mcp/all-resources {:some-other-key "value"}))))
 
   (testing "db with empty mcp-clients"
     (is (= []
-           (mcp/all-resources {:mcp-clients {}}))))
+           (m.mcp/all-resources {:mcp-clients {}}))))
 
   (testing "db with mcp-clients but no resources"
     (is (= []
-           (mcp/all-resources {:mcp-clients {"server1" {}}}))))
+           (m.mcp/all-resources {:mcp-clients {"server1" {}}}))))
 
   (testing "db with single server with resources"
     (let [resources [{:uri "file://test1" :name "resource1"}
                      {:uri "file://test2" :name "resource2"}]
           expected (mapv #(assoc % :server "server1") resources)]
       (is (= expected
-             (mcp/all-resources {:mcp-clients {"server1" {:resources resources}}})))))
+             (m.mcp/all-resources {:mcp-clients {"server1" {:resources resources}}})))))
 
   (testing "db with multiple servers with resources"
     (let [resources1 [{:uri "file://test1" :name "resource1"}]
@@ -139,30 +139,30 @@
                     (mapv #(assoc % :server "server1") resources1)
                     (mapv #(assoc % :server "server2") resources2))]
       (is (= expected
-             (mcp/all-resources {:mcp-clients {"server1" {:resources resources1}
-                                               "server2" {:resources resources2}}}))))))
+             (m.mcp/all-resources {:mcp-clients {"server1" {:resources resources1}
+                                                 "server2" {:resources resources2}}}))))))
 
 (deftest shutdown!-test
   (testing "shutdown with no clients"
     (let [db* (atom {})]
-      (mcp/shutdown! db*)
+      (m.mcp/shutdown! db*)
       (is (= {:mcp-clients {}} @db*))))
 
   (testing "shutdown with empty mcp-clients"
     (let [db* (atom {:mcp-clients {}})]
-      (mcp/shutdown! db*)
+      (m.mcp/shutdown! db*)
       (is (= {:mcp-clients {}} @db*))))
 
   (testing "shutdown preserves other db data"
     (let [db* (atom {:mcp-clients {}
                      :workspace-folders []
                      :other-key "value"})]
-      (mcp/shutdown! db*)
+      (m.mcp/shutdown! db*)
       (is (= {:mcp-clients {}
               :workspace-folders []
               :other-key "value"} @db*)))))
 
-(def ^:private ->transport #'mcp/->transport)
+(def ^:private ->transport #'m.mcp/->transport)
 
 (deftest transport-middleware-reads-latest-token-test
   (testing "request middleware uses current atom value, not a stale snapshot"
@@ -191,8 +191,8 @@
           (let [result (rm {:headers {}})]
             (is (nil? (get-in result [:headers "Authorization"])))))))))
 
-(def ^:private walk-server-leaves #'mcp/walk-server-leaves)
-(def ^:private rj-assoc-server-entry #'mcp/rj-assoc-server-entry)
+(def ^:private walk-server-leaves #'m.mcp/walk-server-leaves)
+(def ^:private rj-assoc-server-entry #'m.mcp/rj-assoc-server-entry)
 
 (deftest walk-server-leaves-test
   (testing "flattens string/keyword keys to string paths"
@@ -228,11 +228,11 @@
           file (io/file (str temp) "config.json")]
       (try
         (spit file raw)
-        (#'mcp/update-config-file! file
-                                   #(rj-assoc-server-entry % "added"
-                                                           {:command "new-bin"
-                                                            :args ["-x"]
-                                                            :env {:FOO "bar"}}))
+        (#'m.mcp/update-config-file! file
+                                     #(rj-assoc-server-entry % "added"
+                                                             {:command "new-bin"
+                                                              :args ["-x"]
+                                                              :env {:FOO "bar"}}))
         (let [after (slurp file)]
           (is (string/includes? after "// user config")
               "top-of-file comment preserved")
@@ -241,7 +241,7 @@
           (is (string/includes? after "\"added\"")
               "new entry written")
           ;; Parse the written file (stripping comments via cheshire+allow-comments)
-          (let [parsed (#'mcp/parse-json-with-comments after)]
+          (let [parsed (#'m.mcp/parse-json-with-comments after)]
             (is (= {"command" "existing-bin"}
                    (get-in parsed ["mcpServers" "existing"])))
             (is (= {"command" "new-bin"
@@ -261,11 +261,11 @@
           file (io/file (str temp) "config.json")]
       (try
         (spit file raw)
-        (#'mcp/update-config-file! file
-                                   #(rj-assoc-server-entry % "s"
-                                                           {:command "new-bin"
-                                                            :args ["-a"]}))
-        (let [parsed (#'mcp/parse-json-with-comments (slurp file))]
+        (#'m.mcp/update-config-file! file
+                                     #(rj-assoc-server-entry % "s"
+                                                             {:command "new-bin"
+                                                              :args ["-a"]}))
+        (let [parsed (#'m.mcp/parse-json-with-comments (slurp file))]
           (is (= {"command" "new-bin"
                   "args" ["-a"]}
                  (get-in parsed ["mcpServers" "s"]))
@@ -280,8 +280,8 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"MCP server 'existing' already exists"
-           (mcp/add-server! "existing" {:command "bin"} {} db* config nil
-                            {:on-server-updated (constantly nil)})))))
+           (m.mcp/add-server! "existing" {:command "bin"} {} db* config nil
+                              {:on-server-updated (constantly nil)})))))
 
   (testing "rejects both :command and :url"
     (let [db* (atom {:workspace-folders []})
@@ -289,8 +289,8 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"must not specify both"
-           (mcp/add-server! "s" {:command "bin" :url "https://x"} {} db* config nil
-                            {:on-server-updated (constantly nil)})))))
+           (m.mcp/add-server! "s" {:command "bin" :url "https://x"} {} db* config nil
+                              {:on-server-updated (constantly nil)})))))
 
   (testing "rejects neither :command nor :url"
     (let [db* (atom {:workspace-folders []})
@@ -298,8 +298,8 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"must specify :command.*or :url"
-           (mcp/add-server! "s" {:disabled true} {} db* config nil
-                            {:on-server-updated (constantly nil)})))))
+           (m.mcp/add-server! "s" {:disabled true} {} db* config nil
+                              {:on-server-updated (constantly nil)})))))
 
   (testing "rejects blank name"
     (let [db* (atom {:workspace-folders []})
@@ -307,8 +307,8 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"name must be non-blank"
-           (mcp/add-server! "" {:command "bin"} {} db* config nil
-                            {:on-server-updated (constantly nil)})))))
+           (m.mcp/add-server! "" {:command "bin"} {} db* config nil
+                              {:on-server-updated (constantly nil)})))))
 
   (testing "rejects :workspace scope without :workspace-uri"
     (let [db* (atom {:workspace-folders []})
@@ -316,8 +316,8 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #":workspace scope requires :workspace-uri"
-           (mcp/add-server! "s" {:command "bin"} {:scope :workspace} db* config nil
-                            {:on-server-updated (constantly nil)}))))))
+           (m.mcp/add-server! "s" {:command "bin"} {:scope :workspace} db* config nil
+                              {:on-server-updated (constantly nil)}))))))
 
 (deftest add-server!-disabled-test
   (testing "disabled=true: writes config, emits :disabled, does not start"
@@ -328,18 +328,18 @@
       (try
         (with-redefs [config/global-config-file (constantly config-file)
                       config/all (fn [_] {:mcpServers {"s" {:command "bin" :disabled true}}})]
-          (let [result (mcp/add-server! "s"
-                                        {:command "bin" :disabled true}
-                                        {:scope :global}
-                                        db*
-                                        {:mcpServers {}}
-                                        nil
-                                        {:on-server-updated #(swap! updates* conj %)})]
+          (let [result (m.mcp/add-server! "s"
+                                          {:command "bin" :disabled true}
+                                          {:scope :global}
+                                          db*
+                                          {:mcpServers {}}
+                                          nil
+                                          {:on-server-updated #(swap! updates* conj %)})]
             (is (= :disabled (:status result)))
             (is (= "s" (:name result)))
             (is (= [:disabled] (mapv :status @updates*))
                 "only :disabled emitted, no start thread")
-            (let [written (#'mcp/parse-json-with-comments (slurp config-file))]
+            (let [written (#'m.mcp/parse-json-with-comments (slurp config-file))]
               (is (= {"command" "bin" "disabled" true}
                      (get-in written ["mcpServers" "s"]))))))
         (finally
@@ -357,14 +357,14 @@
           removed* (atom nil)]
       (try
         (with-redefs [config/global-config-file (constantly config-file)]
-          (mcp/remove-server! "s" db*
-                              {:mcpServers {"s" {:url "https://x"}
-                                            "other" {:command "o"}}}
-                              {:on-server-updated (constantly nil)
-                               :on-server-removed #(reset! removed* %)}))
+          (m.mcp/remove-server! "s" db*
+                                {:mcpServers {"s" {:url "https://x"}
+                                              "other" {:command "o"}}}
+                                {:on-server-updated (constantly nil)
+                                 :on-server-removed #(reset! removed* %)}))
         (is (= {:name "s"} @removed*))
         (is (nil? (get-in @db* [:mcp-auth "s"])))
-        (let [written (#'mcp/parse-json-with-comments (slurp config-file))]
+        (let [written (#'m.mcp/parse-json-with-comments (slurp config-file))]
           (is (nil? (get-in written ["mcpServers" "s"])))
           (is (some? (get-in written ["mcpServers" "other"]))
               "sibling entry preserved"))
@@ -376,10 +376,10 @@
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo
            #"does not exist"
-           (mcp/remove-server! "ghost" db*
-                               {:mcpServers {}}
-                               {:on-server-updated (constantly nil)
-                                :on-server-removed (constantly nil)}))))))
+           (m.mcp/remove-server! "ghost" db*
+                                 {:mcpServers {}}
+                                 {:on-server-updated (constantly nil)
+                                  :on-server-removed (constantly nil)}))))))
 
 (deftest initialize-server-retries-on-transport-error-test
   (testing "retries with token refresh when needs-reinit? is set during init (e.g. 403)"
@@ -395,9 +395,9 @@
                                  needs-reinit?* (atom (<= attempt 2))]
                              {:transport :mock-transport
                               :needs-reinit?* needs-reinit?*}))]
-      (with-redefs-fn {#'mcp/->transport make-transport
-                       #'mcp/->client (fn [_name _transport _timeout _workspaces _opts]
-                                        mock-client)
+      (with-redefs-fn {#'m.mcp/->transport make-transport
+                       #'m.mcp/->client (fn [_name _transport _timeout _workspaces _opts]
+                                          mock-client)
                        #'pp/stop-client-transport! (fn [_t _g] nil)
                        #'pmc/get-initialize-result (fn [_client]
                                                      {:serverInfo {:version "1.0"}
@@ -405,11 +405,11 @@
                        #'pmc/list-tools (fn [_client _opts] [])
                        #'pmc/list-prompts (fn [_client _opts] [])
                        #'pmc/list-resources (fn [_client _opts] [])
-                       #'mcp/try-refresh-token! (fn [_name _db* _url _metrics _config]
-                                                  (swap! refresh-count* inc)
-                                                  true)}
+                       #'m.mcp/try-refresh-token! (fn [_name _db* _url _metrics _config]
+                                                    (swap! refresh-count* inc)
+                                                    true)}
         (fn []
-          (#'mcp/initialize-server! "test-server" db*
+          (#'m.mcp/initialize-server! "test-server" db*
            {:mcpServers {"test-server" {:url "https://example.com/mcp"}}
             :mcpTimeoutSeconds 5}
            nil
@@ -426,12 +426,12 @@
                       :workspace-folders [{:uri "file:///tmp" :name "test"}]})
           attempt-count* (atom 0)
           refresh-count* (atom 0)]
-      (with-redefs-fn {#'mcp/->transport (fn [_name _config _workspaces _db*]
-                                           (swap! attempt-count* inc)
-                                           {:transport :mock-transport
-                                            :needs-reinit?* (atom true)})
-                       #'mcp/->client (fn [_name _transport _timeout _workspaces _opts]
-                                        (Object.))
+      (with-redefs-fn {#'m.mcp/->transport (fn [_name _config _workspaces _db*]
+                                             (swap! attempt-count* inc)
+                                             {:transport :mock-transport
+                                              :needs-reinit?* (atom true)})
+                       #'m.mcp/->client (fn [_name _transport _timeout _workspaces _opts]
+                                          (Object.))
                        #'pp/stop-client-transport! (fn [_t _g] nil)
                        #'pmc/get-initialize-result (fn [_client]
                                                      {:serverInfo {:version "1.0"}
@@ -439,11 +439,11 @@
                        #'pmc/list-tools (fn [_client _opts] [])
                        #'pmc/list-prompts (fn [_client _opts] [])
                        #'pmc/list-resources (fn [_client _opts] [])
-                       #'mcp/try-refresh-token! (fn [_name _db* _url _metrics _config]
-                                                  (swap! refresh-count* inc)
-                                                  false)}
+                       #'m.mcp/try-refresh-token! (fn [_name _db* _url _metrics _config]
+                                                    (swap! refresh-count* inc)
+                                                    false)}
         (fn []
-          (#'mcp/initialize-server! "fail-server" db*
+          (#'m.mcp/initialize-server! "fail-server" db*
            {:mcpServers {"fail-server" {:url "https://example.com/mcp"}}
             :mcpTimeoutSeconds 5}
            nil
@@ -457,21 +457,21 @@
 (deftest tool->internal-description-fallback-test
   (testing "uses :description when present"
     (is (= "Generate an image"
-           (:description (#'mcp/tool->internal
+           (:description (#'m.mcp/tool->internal
                           {:name "create-image"
                            :description "Generate an image"
                            :inputSchema {}})))))
 
   (testing "falls back to :title when :description is missing"
     (is (= "Create Image"
-           (:description (#'mcp/tool->internal
+           (:description (#'m.mcp/tool->internal
                           {:name "create-image"
                            :title "Create Image"
                            :inputSchema {}})))))
 
   (testing "falls back to :title when :description is empty string"
     (is (= "Create Image"
-           (:description (#'mcp/tool->internal
+           (:description (#'m.mcp/tool->internal
                           {:name "create-image"
                            :description ""
                            :title "Create Image"
@@ -479,19 +479,19 @@
 
   (testing "synthesizes from :name when both :description and :title are missing"
     (is (= "MCP tool: create-image"
-           (:description (#'mcp/tool->internal
+           (:description (#'m.mcp/tool->internal
                           {:name "create-image"
                            :inputSchema {}})))))
 
   (testing "synthesizes from :name when both :description and :title are empty"
     (is (= "MCP tool: edit-image"
-           (:description (#'mcp/tool->internal
+           (:description (#'m.mcp/tool->internal
                           {:name "edit-image"
                            :description ""
                            :title ""
                            :inputSchema {}}))))))
 
-(def ^:private auth-error-message? #'mcp/auth-error-message?)
+(def ^:private auth-error-message? #'m.mcp/auth-error-message?)
 
 (deftest auth-error-message?-test
   (testing "auth/session failures are flagged (servers that omit an HTTP status)"
@@ -535,7 +535,7 @@
                                             :refresh-token "refresh-2"
                                             :expires-at 9999})
                     db/update-global-cache! (fn [_db _metrics] nil)]
-        (is (true? (#'mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
+        (is (true? (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
         (is (= {:url "https://example.com/mcp"
                 :client-id "client-abc"
                 :client-secret "secret-xyz"}
@@ -565,40 +565,40 @@
                     oauth/refresh-token! (fn [_te _cid _rt & _opts]
                                            {:access-token "a" :refresh-token "r" :expires-at 2})
                     db/update-global-cache! (fn [_db _metrics] nil)]
-        (#'mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil
-                                  {:clientId "cfg-id" :clientSecret "cfg-secret"})
+        (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil
+                                    {:clientId "cfg-id" :clientSecret "cfg-secret"})
         (is (= {:client-id "cfg-id" :client-secret "cfg-secret"} @oauth-info-args*)))))
 
   (testing "no-op (no DCR) when there is no stored refresh token"
     (let [db* (atom {:mcp-auth {"s" {:type :auth/oauth :access-token "a"}}})
           oauth-called?* (atom false)]
       (with-redefs [oauth/oauth-info (fn [& _] (reset! oauth-called?* true) nil)]
-        (is (nil? (#'mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
+        (is (nil? (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
         (is (false? @oauth-called?*) "oauth-info must not run without a refresh token")))))
 
 (deftest do-call-tool-flags-reinit-on-auth-error-test
   (testing "JSON-RPC error without HTTP status but auth-like message flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            {:jsonrpc "2.0" :id "id-1" :error {:message "Unauthorized: token expired"}})]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              {:jsonrpc "2.0" :id "id-1" :error {:message "Unauthorized: token expired"}})]
+        (#'m.mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*))))
 
   (testing "ordinary JSON-RPC error without HTTP status does not flag reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            {:jsonrpc "2.0" :id "id-1" :error {:message "spreadsheet not found"}})]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              {:jsonrpc "2.0" :id "id-1" :error {:message "spreadsheet not found"}})]
+        (#'m.mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (false? @needs-reinit?*))))
 
   (testing "HTTP 401 still flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            {:jsonrpc "2.0" :id "id-1" :error {:message "boom" :plumcp.core/http-status 401}})]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              {:jsonrpc "2.0" :id "id-1" :error {:message "boom" :plumcp.core/http-status 401}})]
+        (#'m.mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*)))))
 
-(def ^:private reinit-worthy-http-status? #'mcp/reinit-worthy-http-status?)
+(def ^:private reinit-worthy-http-status? #'m.mcp/reinit-worthy-http-status?)
 
 (deftest reinit-worthy-http-status?-test
   (testing "statuses signaling broken session/auth (404 = expired session per Streamable HTTP spec)"
@@ -611,30 +611,30 @@
 (deftest do-call-tool-timeout-test
   (testing "timeout + silent ping probe (dead connection) flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            :eca.modules.mcp/call-timeout)
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              :eca.modules.mcp/call-timeout)
                     pmc/ping (fn [_client opts]
                                (:timeout-value opts))]
-        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
+        (let [result (#'m.mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
           (is (true? (:error result)))
           (is (string/includes? (-> result :contents first :text) "re-initializing"))))
       (is (true? @needs-reinit?*))))
 
   (testing "timeout + ping transport exception flags reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            :eca.modules.mcp/call-timeout)
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              :eca.modules.mcp/call-timeout)
                     pmc/ping (fn [_client _opts]
                                (throw (java.io.IOException. "Connection reset")))]
-        (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
+        (#'m.mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil))
       (is (true? @needs-reinit?*))))
 
   (testing "timeout but server answers ping (slow tool): plain timeout error, no reinit"
     (let [needs-reinit?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            :eca.modules.mcp/call-timeout)
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              :eca.modules.mcp/call-timeout)
                     pmc/ping (fn [_client _opts] {})]
-        (let [result (#'mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
+        (let [result (#'m.mcp/do-call-tool (Object.) "tool" {} needs-reinit?* nil)]
           (is (true? (:error result)))
           (is (string/includes? (-> result :contents first :text) "timed out after"))
           (is (not (string/includes? (-> result :contents first :text) "re-initializing")))))
@@ -642,10 +642,10 @@
 
   (testing "timeout on stdio server (no needs-reinit atom): plain timeout error, no probe"
     (let [pinged?* (atom false)]
-      (with-redefs [mcp/request-tool-call (fn [_client _name _args _request-opts]
-                                            :eca.modules.mcp/call-timeout)
+      (with-redefs [m.mcp/request-tool-call (fn [_client _name _args _request-opts]
+                                              :eca.modules.mcp/call-timeout)
                     pmc/ping (fn [_client _opts] (reset! pinged?* true) {})]
-        (let [result (#'mcp/do-call-tool (Object.) "tool" {} nil nil)]
+        (let [result (#'m.mcp/do-call-tool (Object.) "tool" {} nil nil)]
           (is (true? (:error result)))
           (is (string/includes? (-> result :contents first :text) "timed out after"))))
       (is (false? @pinged?*)))))
@@ -654,19 +654,19 @@
   (testing "progress notifications keep a call alive past the timeout and are reported"
     (let [cancelled* (atom nil)
           reported* (atom [])]
-      (with-redefs [mcp/tool-call-timeout-ms 200
+      (with-redefs [m.mcp/tool-call-timeout-ms 200
                     pcs/send-request-to-server (fn [_client request callback]
                                                  (let [token (get-in request [:params :_meta :progressToken])]
                                                    (future
                                                      (dotimes [i 5]
                                                        (Thread/sleep 100)
-                                                       (#'mcp/on-progress-notification
+                                                       (#'m.mcp/on-progress-notification
                                                         {:params {:progressToken token :progress i :total 5
                                                                   :message "working" :_meta {}}}))
                                                      (callback {:jsonrpc "2.0" :id (:id request) :result {:content []}}))))
                     pmc/cancel-sent-request (fn [_client id & _] (reset! cancelled* id))]
-        (is (= {:content []} (:result (#'mcp/request-tool-call (Object.) "tool" {}
-                                                               {:on-progress #(swap! reported* conj %)}))))
+        (is (= {:content []} (:result (#'m.mcp/request-tool-call (Object.) "tool" {}
+                                                                 {:on-progress #(swap! reported* conj %)}))))
         (is (nil? @cancelled*) "a completed call must not be cancelled")
         (is (= (mapv #(hash-map :progress % :total 5 :message "working") (range 5))
                @reported*)))))
@@ -674,17 +674,17 @@
   (testing "times out and cancels the request when neither response nor progress arrives"
     (let [sent-id* (atom nil)
           cancelled* (atom nil)]
-      (with-redefs [mcp/tool-call-timeout-ms 100
+      (with-redefs [m.mcp/tool-call-timeout-ms 100
                     pcs/send-request-to-server (fn [_client request _callback]
                                                  (reset! sent-id* (:id request)))
                     pmc/cancel-sent-request (fn [_client id & _] (reset! cancelled* id))]
         (is (= :eca.modules.mcp/call-timeout
-               (#'mcp/request-tool-call (Object.) "tool" {} nil)))
+               (#'m.mcp/request-tool-call (Object.) "tool" {} nil)))
         (is (some? @sent-id*))
         (is (= @sent-id* @cancelled*)))))
 
   (testing "progress listeners are removed once calls finish"
-    (is (empty? @@#'mcp/progress-listeners*))))
+    (is (empty? @@#'m.mcp/progress-listeners*))))
 
 (deftest request-tool-call-session-id-test
   (let [sent-meta* (atom nil)]
@@ -692,26 +692,26 @@
                                                (reset! sent-meta* (get-in request [:params :_meta]))
                                                (callback {:jsonrpc "2.0" :id (:id request) :result {:content []}}))]
       (testing "the chat id is sent as _meta.sessionId next to the progress token"
-        (#'mcp/request-tool-call (Object.) "tool" {} {:chat-id "chat-1"})
+        (#'m.mcp/request-tool-call (Object.) "tool" {} {:chat-id "chat-1"})
         (is (= #{:progressToken :sessionId} (set (keys @sent-meta*))))
         (is (string? (:progressToken @sent-meta*)))
         (is (= "chat-1" (:sessionId @sent-meta*))))
 
       (testing "no sessionId is sent without a chat id"
-        (#'mcp/request-tool-call (Object.) "tool" {} nil)
+        (#'m.mcp/request-tool-call (Object.) "tool" {} nil)
         (is (= #{:progressToken} (set (keys @sent-meta*))))))))
 
 (deftest reinitialize-server!-refreshes-before-init-test
   (testing "forces a token refresh before re-initializing (heals server-side expiry)"
     (let [calls* (atom [])]
       (with-redefs-fn {#'pp/stop-client-transport! (fn [_t _g] nil)
-                       #'mcp/try-refresh-token! (fn [name _db* url _metrics _config]
-                                                  (swap! calls* conj [:refresh name url])
-                                                  true)
-                       #'mcp/initialize-server! (fn [name _db* _config _metrics _cb]
-                                                  (swap! calls* conj [:init name]))}
+                       #'m.mcp/try-refresh-token! (fn [name _db* url _metrics _config]
+                                                    (swap! calls* conj [:refresh name url])
+                                                    true)
+                       #'m.mcp/initialize-server! (fn [name _db* _config _metrics _cb]
+                                                    (swap! calls* conj [:init name]))}
         (fn []
-          (#'mcp/reinitialize-server! "s" :old-client (atom {:mcp-clients {"s" {}}})
+          (#'m.mcp/reinitialize-server! "s" :old-client (atom {:mcp-clients {"s" {}}})
            {:mcpServers {"s" {:url "https://example.com/mcp"}}}
            nil)))
       (is (= [[:refresh "s" "https://example.com/mcp"] [:init "s"]] @calls*)
@@ -729,40 +729,40 @@
   (testing "expired token is refreshed in place, then the call runs on the existing client (no reinit)"
     (let [db* (call-tool-db* 0)
           calls* (atom [])]
-      (with-redefs [mcp/try-refresh-token! (fn [name _db* url _metrics _config]
-                                             (swap! calls* conj [:refresh name url])
-                                             true)
-                    mcp/reinitialize-server! (fn [& _] (swap! calls* conj [:reinit]))
-                    mcp/do-call-tool (fn [client _name _args _nr _request-opts]
-                                       (swap! calls* conj [:call client])
-                                       {:error false :contents []})]
+      (with-redefs [m.mcp/try-refresh-token! (fn [name _db* url _metrics _config]
+                                               (swap! calls* conj [:refresh name url])
+                                               true)
+                    m.mcp/reinitialize-server! (fn [& _] (swap! calls* conj [:reinit]))
+                    m.mcp/do-call-tool (fn [client _name _args _nr _request-opts]
+                                         (swap! calls* conj [:call client])
+                                         {:error false :contents []})]
         (is (= {:error false :contents []}
-               (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
-                                              :config call-tool-ctx-config :metrics {}})))
+               (m.mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
+                                                :config call-tool-ctx-config :metrics {}})))
         (is (= [[:refresh "s" "https://example.com/mcp"] [:call :client-s]] @calls*)))))
 
   (testing "expired token whose refresh fails routes to a full reinit"
     (let [db* (call-tool-db* 0)
           calls* (atom [])]
-      (with-redefs [mcp/try-refresh-token! (fn [_name _db* _url _metrics _config] nil)
-                    mcp/reinitialize-server! (fn [name _client _db* _config _metrics]
-                                               (swap! calls* conj [:reinit name]))
-                    mcp/do-call-tool (fn [client _name _args _nr _request-opts]
-                                       (swap! calls* conj [:call client])
-                                       {:error false :contents []})]
-        (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
-                                       :config call-tool-ctx-config :metrics {}})
+      (with-redefs [m.mcp/try-refresh-token! (fn [_name _db* _url _metrics _config] nil)
+                    m.mcp/reinitialize-server! (fn [name _client _db* _config _metrics]
+                                                 (swap! calls* conj [:reinit name]))
+                    m.mcp/do-call-tool (fn [client _name _args _nr _request-opts]
+                                         (swap! calls* conj [:call client])
+                                         {:error false :contents []})]
+        (m.mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
+                                         :config call-tool-ctx-config :metrics {}})
         (is (= [:reinit "s"] (first @calls*)) "refresh failure reinitializes before calling"))))
 
   (testing "fresh token: no proactive refresh, calls directly"
     (let [db* (call-tool-db* (+ (quot (System/currentTimeMillis) 1000) 3600))
           calls* (atom [])]
-      (with-redefs [mcp/try-refresh-token! (fn [& _] (swap! calls* conj [:refresh]) true)
-                    mcp/do-call-tool (fn [client _name _args _nr _request-opts]
-                                       (swap! calls* conj [:call client])
-                                       {:error false :contents []})]
-        (mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
-                                       :config call-tool-ctx-config :metrics {}})
+      (with-redefs [m.mcp/try-refresh-token! (fn [& _] (swap! calls* conj [:refresh]) true)
+                    m.mcp/do-call-tool (fn [client _name _args _nr _request-opts]
+                                         (swap! calls* conj [:call client])
+                                         {:error false :contents []})]
+        (m.mcp/call-tool! "s" "tool" {} {:db @db* :db* db*
+                                         :config call-tool-ctx-config :metrics {}})
         (is (= [[:call :client-s]] @calls*) "no refresh when token is not expired")))))
 
 (deftest call-tool!-sends-chat-id-as-session-id-test
@@ -779,14 +779,14 @@
                   pcs/remove-pending-client-request! (constantly nil)]
       (testing "sent on the tools/call request"
         (is (= {:error nil :contents []}
-               (mcp/call-tool! "s" "tool" {} {:db db :chat-id "chat-1"})))
+               (m.mcp/call-tool! "s" "tool" {} {:db db :chat-id "chat-1"})))
         (is (= [[:client-s {:sessionId "chat-1"}]] @sent*)))
 
       (testing "sent again when a transient transport error retries the call"
         (reset! sent* [])
         (reset! fail-next-send?* true)
         (is (= {:error nil :contents []}
-               (mcp/call-tool! "s" "tool" {} {:db db :chat-id "chat-1"})))
+               (m.mcp/call-tool! "s" "tool" {} {:db db :chat-id "chat-1"})))
         (is (= [[:client-s {:sessionId "chat-1"}]
                 [:client-s {:sessionId "chat-1"}]]
                @sent*)))
@@ -796,15 +796,15 @@
         (let [db* (atom {:mcp-clients {"s" {:client :client-s
                                             :tools [{:name "tool"}]
                                             :needs-reinit?* (atom true)}}})]
-          (with-redefs [mcp/reinitialize-server! (fn [server-name _client db* _config _metrics]
-                                                   (swap! db* assoc-in [:mcp-clients server-name :client] :new-client))]
-            (mcp/call-tool! "s" "tool" {} {:db @db* :db* db* :config call-tool-ctx-config :metrics {}
-                                           :chat-id "chat-1"}))
+          (with-redefs [m.mcp/reinitialize-server! (fn [server-name _client db* _config _metrics]
+                                                     (swap! db* assoc-in [:mcp-clients server-name :client] :new-client))]
+            (m.mcp/call-tool! "s" "tool" {} {:db @db* :db* db* :config call-tool-ctx-config :metrics {}
+                                             :chat-id "chat-1"}))
           (is (= [[:new-client {:sessionId "chat-1"}]] @sent*))))
 
       (testing "not sent without a chat id"
         (reset! sent* [])
-        (mcp/call-tool! "s" "tool" {} {:db db})
+        (m.mcp/call-tool! "s" "tool" {} {:db db})
         (is (= [[:client-s {}]] @sent*))))))
 
 (deftest with-serialized-sends-test
@@ -820,7 +820,7 @@
                         (Thread/sleep 1)
                         (.write out "\n"))
                       (upon-handshake-success [_ _] nil))
-          wrapped (#'mcp/with-serialized-sends transport)
+          wrapped (#'m.mcp/with-serialized-sends transport)
           messages (mapv #(str "msg-" %) (range 20))]
       (run! deref (mapv #(future (pp/send-message-to-server wrapped %)) messages))
       (is (= (set messages) (set (string/split-lines (str out)))))

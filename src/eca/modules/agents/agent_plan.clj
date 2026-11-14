@@ -3,7 +3,7 @@
    making them. It only adds the agent's entry to the `agent` config, so the
    user's config, or another module, can change it."
   (:require
-   [eca.modules.agents :as agents]))
+   [eca.modules.agents :as m.agents]))
 
 (set! *warn-on-reflection* true)
 
@@ -16,7 +16,7 @@
                                      :disabledTools ["edit_file" "write_file" "move_file" "git"]
                                      :toolCall {:approval {:byDefault "ask"
                                                            :allow {"eca__shell_command"
-                                                                   {:argsMatchers {"command" agents/read-only-shell-commands}}
+                                                                   {:argsMatchers {"command" m.agents/read-only-shell-commands}}
                                                                    "eca__compact_chat" {}
                                                                    "eca__preview_file_change" {}
                                                                    "eca__read_file" {}
@@ -29,4 +29,4 @@
                                                                    "eca__fetch_rule" {}
                                                                    "eca__spawn_agent" {}}
                                                            :deny {"eca__shell_command"
-                                                                  {:argsMatchers {"command" agents/dangerous-commands-regexes}}}}}}}}})
+                                                                  {:argsMatchers {"command" m.agents/dangerous-commands-regexes}}}}}}}}})

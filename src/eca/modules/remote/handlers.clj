@@ -10,8 +10,8 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as f.chat.history]
    [eca.handlers :as handlers]
-   [eca.modules.remote.messenger :as remote.messenger]
-   [eca.modules.remote.sse :as sse]
+   [eca.modules.remote.messenger :as m.remote.messenger]
+   [eca.modules.remote.sse :as m.remote.sse]
    [eca.shared :as shared]
    [ring.core.protocols :as ring.protocols])
   (:import
@@ -346,7 +346,7 @@
   (let [body (parse-body request)
         trust (boolean (:trust body))]
     (swap! db* assoc :trust trust)
-    (sse/broadcast! sse-connections* "trust:updated" {:trust trust})
+    (m.remote.sse/broadcast! sse-connections* "trust:updated" {:trust trust})
     (json-response {:trust trust})))
 
 (defn handle-answer-question
@@ -361,10 +361,10 @@
       (not (and (string? request-id) (seq request-id)))
       (error-response 400 "invalid_request" "Missing required field: requestId")
 
-      (remote.messenger/answer-question! messenger
-                                         request-id
-                                         (:answer body)
-                                         (:cancelled body))
+      (m.remote.messenger/answer-question! messenger
+                                           request-id
+                                           (:answer body)
+                                           (:cancelled body))
       (no-content)
 
       :else
@@ -424,17 +424,17 @@
     ;; Jetty calls this on its thread with the raw servlet output stream.
     ;; We register it as an SSE client and block until the connection closes.
     (let [done-ch (async/chan)
-          client (sse/add-client! sse-connections* os done-ch)]
+          client (m.remote.sse/add-client! sse-connections* os done-ch)]
       (try
         (let [db @db*
               config (config/all db)
               state-dump (session-state db config)]
-          (sse/broadcast! (atom #{client}) "session:connected" state-dump))
+          (m.remote.sse/broadcast! (atom #{client}) "session:connected" state-dump))
         ;; Block this Jetty thread until the writer loop terminates
         ;; (client disconnect, write error, or server shutdown)
         (async/<!! done-ch)
         (finally
-          (sse/remove-client! sse-connections* client))))))
+          (m.remote.sse/remove-client! sse-connections* client))))))
 
 (defn handle-events [{:keys [db*]} _request {:keys [sse-connections*]}]
   {:status 200
