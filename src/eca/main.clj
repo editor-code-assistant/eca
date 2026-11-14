@@ -9,6 +9,7 @@
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.built-in :as built-in]
    [eca.modules.loader :as loader]
    [eca.network :as network]
    [eca.read-chat :as read-chat]
@@ -174,6 +175,7 @@
 (defn run!
   "Entrypoint for ECA CLI."
   [& args]
+  (modules/set-built-ins! built-in/modules)
   (let [{:keys [action options exit-message ok?]} (parse args)]
     (if exit-message
       {:result-code (if ok? 0 1)

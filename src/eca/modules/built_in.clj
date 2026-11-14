@@ -3,7 +3,8 @@
    its namespace under `eca.modules`, named after its id. A provider's
    namespace also holds its API's module, `api-module`. Their order here
    doesn't matter: modules start after the ones they require, then by
-   priority and id."
+   priority and id. ECA's entry point, `eca.main`, hands this list to the
+   runtime with `eca.modules/set-built-ins!`."
   (:require
    [eca.modules.agents :as agents]
    [eca.modules.agents.agent-code :as agent-code]

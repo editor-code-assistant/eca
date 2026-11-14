@@ -21,8 +21,6 @@
    [eca.modules.mcp :as f.mcp]
    [eca.modules.plugins :as f.plugins]
    [eca.modules.remote :as f.remote]
-   ;; loaded here so the native image has it: eca.modules resolves it lazily
-   [eca.modules.built-in]
    [eca.modules.events :as events]
    [eca.modules.loader :as loader]
    [eca.shared :as shared]))

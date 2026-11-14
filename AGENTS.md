@@ -6,7 +6,7 @@ ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/
   - `src/eca/server.clj` / `src/eca/main.clj`: stdio server entrypoint / CLI interface.
   - `src/eca/handlers.clj`: entrypoint for all protocol methods, dispatches to features.
   - `src/eca/features/`: core capabilities — `chat.clj` (+ `chat/` lifecycle, history, tool-calls), `tools.clj` (tool pipeline and approval rules, + `tools/util.clj`), `commands.clj` (core commands), `context.clj`, `prompt.clj`, `login.clj`, `providers.clj`, `modules.clj` (`/modules`).
-  - `src/eca/modules/`: the module runtime (`modules.clj`, `events`, `loader`, `config_spec`, `data`) and the built-in modules, one namespace each, listed in `built_in.clj`: `tools/` (filesystem, shell, git, editor, task…), `providers/` (each provider, with its API when it has its own), `agents`, `subagents`, `skills`, `rules`, `mcp`, `hooks`, `plugins`, `remote`, `otel`, `repl`…
+  - `src/eca/modules/`: the module runtime (`modules.clj`, `events`, `loader`, `config_spec`, `data`) and the built-in modules, one namespace each, listed in `built_in.clj` (`eca.main` hands that list to the runtime): `tools/` (filesystem, shell, git, editor, task…), `providers/` (each provider, with its API when it has its own), `agents`, `subagents`, `skills`, `rules`, `mcp`, `hooks`, `plugins`, `remote`, `otel`, `repl`…
   - `src/eca/api.clj` + `src/eca/api/`: the module API, all that external modules see.
   - `src/eca/llm_api.clj`: façade used by features to call an LLM, through the provider modules' APIs.
   - `src/eca/db.clj`: in-memory state (sessions, chats, MCP); `src/eca/config.clj`: config resolution from multiple sources.

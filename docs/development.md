@@ -42,7 +42,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
    ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
-   `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`
+   `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`, which `eca.main` hands to the runtime
    ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...
    ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...).
    ├─ `agents.clj` + `agents/` | Agents from config and Markdown files, and the agents ECA ships; `subagents.clj` + `subagents/` likewise.

@@ -4,7 +4,9 @@
    `:commands`, `:event-handlers`, `:config-spec`...); see the Modular ECA
    design, #699.
 
-   Built-in modules are compiled and listed in `eca.modules.built-in`.
+   Built-in modules are compiled and listed in `eca.modules.built-in`, which
+   ECA's entry point (`eca.main`) hands to this runtime with `set-built-ins!`:
+   the module namespaces require this one, so it can't require their list.
    External modules are loaded at runtime. What config resolution depends on
    (external modules, session overrides, failed modules) lives in `registry*`,
    like `eca.config/plugin-components*`, and bumps `version` when it changes,
@@ -79,11 +81,21 @@
             [_ ^ExecutorService executor] pools]
       (.shutdownNow executor))))
 
+(defonce ^:private built-ins* (atom nil))
+
+(defn set-built-ins!
+  "Sets the compiled modules, `eca.modules.built-in/modules`. ECA's entry
+   point (`eca.main`) calls it at startup, before anything reads the config."
+  [modules]
+  (reset! built-ins* modules)
+  (swap-inputs! identity))
+
 (defn built-in-modules
-  "The compiled modules, resolved lazily: `eca.modules.built-in` requires the
-   feature namespaces, which require this one."
+  "The compiled modules, as `set-built-ins!` set them."
   []
-  @(requiring-resolve 'eca.modules.built-in/modules))
+  (or @built-ins*
+      (throw (ex-info "The built-in modules aren't set: ECA's entry point calls eca.modules/set-built-ins! at startup"
+                      {}))))
 
 (defn add-external!
   "Adds or replaces the external module loaded from `source`, its path.

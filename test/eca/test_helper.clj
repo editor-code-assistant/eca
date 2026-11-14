@@ -10,6 +10,7 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
+   [eca.modules.built-in :as built-in]
    [eca.modules.loader :as loader]
    [eca.shared :as shared]))
 
@@ -21,6 +22,9 @@
   (io/file (str (fs/create-temp-dir {:prefix "eca-test-cache"}))))
 
 (alter-var-root #'cache/global-dir (constantly (constantly isolated-cache-dir)))
+
+;; what eca.main does at startup: the module runtime needs the built-in list
+(modules/set-built-ins! built-in/modules)
 
 (def windows? (string/starts-with? (System/getProperty "os.name") "Windows"))
 
@@ -142,7 +146,7 @@
    :eca/core: a module set for `(with-redefs [modules/built-in-modules
    (constantly ..)])`."
   [& ids]
-  (let [all @(requiring-resolve 'eca.modules.built-in/modules)
+  (let [all built-in/modules
         by-id (into {} (map (juxt :id identity)) all)
         wanted (loop [wanted #{:eca/core} pending (vec ids)]
                  (if-let [id (first pending)]
