@@ -61,7 +61,8 @@
         (deref started 5000 :timeout)
         (modules/stop-all! (components))
         (is (true? (deref interrupted 5000 :timeout)))
-        (is (future-done? job))))))
+        ;; the job returns right after it sees the interrupt: wait for it
+        (is (not= :timeout (deref job 5000 :timeout)))))))
 
 (deftest data-dir-test
   (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1"})
