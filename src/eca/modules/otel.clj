@@ -4,7 +4,8 @@
    on the export before modules, and so do `modules.eca/otel.enabled` and
    `/modules enable eca/otel`. The export starts when ECA starts, as before
    modules (`eca.server`), so the startup's metrics count; the module's
-   `:start` and `:stop` turn it on and off later."
+   `:start` and `:stop` turn it on and off later. Once `otlp` turned it on, it
+   stays on for the session, through the shutdown too."
   (:require
    [eca.metrics :as metrics]
    [steffan-westcott.clj-otel.api.metrics.instrument :as instrument]

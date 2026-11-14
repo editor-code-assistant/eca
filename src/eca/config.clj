@@ -470,8 +470,12 @@
                             (into {}
                                   (map (fn [[k v]]
                                          (let [base-name (cond
-                                                           ;; all of it: a module id keeps its namespace
-                                                           (keyword? k) (subs (str k) 1)
+                                                           ;; a module id keeps its namespace; other keys
+                                                           ;; only their name, as before modules (a plugin's
+                                                           ;; .mcp.json server name ends up in tool names)
+                                                           (keyword? k) (if (= [:modules] cur-path)
+                                                                          (subs (str k) 1)
+                                                                          (name k))
                                                            (string? k) k
                                                            :else (str k))
                                                kebabed (if apply-kebab-key?
@@ -606,15 +610,21 @@
 
 (def ^:private optional-modules-turned-on-by
   "The optional modules a feature's own config turns on, as that config turned
-   the feature on before modules. An explicit `modules.<id>.enabled` wins."
+   the feature on before modules: for the rest of the session, so a config
+   change, or a JSON error while editing the file, doesn't stop the remote
+   server or the export (`modules/keep-on!`). An explicit
+   `modules.<id>.enabled` wins."
   {:eca/remote (fn [config] (get-in config [:remote :enabled]))
    :eca/otel (fn [config] (:otlp config))})
 
 (defn ^:private enable-optional-modules [config]
   (reduce-kv (fn [config id on?]
-               (if (and (on? config) (not (boolean? (get-in config [:modules id :enabled]))))
-                 (assoc-in config [:modules id :enabled] true)
-                 config))
+               (if (boolean? (get-in config [:modules id :enabled]))
+                 config
+                 (do (when (on? config)
+                       (modules/keep-on! id))
+                     (cond-> config
+                       (modules/kept-on? id) (assoc-in [:modules id :enabled] true)))))
              config
              optional-modules-turned-on-by))
 

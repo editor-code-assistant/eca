@@ -74,6 +74,21 @@
                    (string/starts-with? ns-name "eca.modules.providers."))
               (str id " in " ns-name)))))))
 
+(deftest stop-all-keep-running-test
+  (testing "stop-all! leaves the modules in keep-running running"
+    (let [calls* (atom [])
+          module (fn [id] {:id id
+                           :start (fn [_] (swap! calls* conj [:start id]) nil)
+                           :stop (fn [_] (swap! calls* conj [:stop id]))})
+          components {:db* (h/db*) :messenger (h/messenger)}]
+      (with-built-ins [(module :acme/a) (module :acme/kept)]
+        (modules/start! components {})
+        (reset! calls* [])
+        (modules/stop-all! components #{:acme/kept})
+        (is (= [[:stop :acme/a]] @calls*))
+        (is (modules/running? :acme/kept))
+        (is (not (modules/running? :acme/a)))))))
+
 (deftest problems-test
   (testing "a minimal module is valid"
     (is (= {:errors [] :warnings []} (modules/problems {:id :acme/x} {}))))

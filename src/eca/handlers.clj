@@ -320,7 +320,9 @@
     (f.background-tasks/cleanup-all!)
     (swap! db* assoc :stopping true)
     (try
-      (modules/stop-all! {:db* db* :config config :metrics metrics})
+      ;; the remote server and the OTel export run until ECA exits, as before
+      ;; modules: exit stops the server, and the shutdown's metric still exports
+      (modules/stop-all! {:db* db* :config config :metrics metrics} #{:eca/remote :eca/otel})
       (catch Exception e
         (logger/error "[MODULES]" "Could not stop modules:" e)))
     (m.mcp/shutdown! db*)

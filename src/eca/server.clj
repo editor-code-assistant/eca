@@ -58,8 +58,8 @@
 (defn ^:private exit [server]
   (metrics/task
     :eca/exit
-    ;; the eca/remote module stops its server at shutdown; this one still runs
-    ;; only when ECA exits without a shutdown request
+    ;; the remote server stops here, as before modules: shutdown leaves the
+    ;; eca/remote module running
     (let [remote-stop-f (when-let [rs (m.remote/running)]
                           (future (m.remote.server/stop! rs)))]
       (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed

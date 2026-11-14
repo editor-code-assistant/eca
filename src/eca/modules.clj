@@ -118,6 +118,20 @@
   []
   (:external @registry*))
 
+(defn keep-on!
+  "Keeps module `id` on for the rest of the session. `eca.config` calls it
+   when a feature's own config turns its optional module on (`remote.enabled`,
+   `otlp`): as before modules, a config change, or a JSON error while editing
+   the file, doesn't turn it off; only `modules.<id>.enabled` and `/modules`
+   do."
+  [id]
+  (when-not (contains? (:kept-on @registry*) id)
+    (swap-inputs! update :kept-on (fnil conj #{}) id)))
+
+(defn kept-on?
+  [id]
+  (contains? (:kept-on @registry*) id))
+
 ;; --- Validation
 
 (defn fn-like?
@@ -749,14 +763,18 @@
     (reconcile! components config)))
 
 (defn stop-all!
-  "Stops every running module, in reverse start order."
-  [components]
-  (locking lifecycle-lock
-    (swap! registry* assoc :session-started? false)
-    (doseq [r (reverse (running))]
-      (stop-module! components r))
-    (doseq [id (keys (:pools @registry*))]
-      (shutdown-pools! id))))
+  "Stops every running module, in reverse start order, but the ones in
+   `keep-running`."
+  ([components] (stop-all! components #{}))
+  ([components keep-running]
+   (locking lifecycle-lock
+     (swap! registry* assoc :session-started? false)
+     (doseq [r (reverse (running))
+             :when (not (contains? keep-running (:id (:entry r))))]
+       (stop-module! components r))
+     (doseq [id (keys (:pools @registry*))
+             :when (not (contains? keep-running id))]
+       (shutdown-pools! id)))))
 
 (defn fail!
   "Marks module `id` as failed for the session: it becomes inactive, with

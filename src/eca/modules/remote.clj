@@ -5,7 +5,8 @@
    and `/modules enable eca/remote`. The server starts at the same point of
    ECA's startup as before modules (`eca.handlers/initialized`); the module's
    `:start` and `:stop` start and stop it when the module is turned on or off
-   later, and at shutdown.
+   later. Once `remote.enabled` turned it on, it stays on for the session, and
+   the server stops when ECA exits, as before modules.
 
    The server's code, `eca.modules.remote.server`, is resolved when called: it
    requires the remote handlers, which require `eca.handlers`, which requires
