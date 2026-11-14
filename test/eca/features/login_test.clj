@@ -8,9 +8,9 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.login :as login]
-   [eca.llm-providers.anthropic :as llm-providers.anthropic]
-   [eca.llm-providers.copilot :as llm-providers.copilot]
    [eca.modules :as modules]
+   [eca.modules.providers.anthropic :as llm-providers.anthropic]
+   [eca.modules.providers.copilot :as llm-providers.copilot]
    [eca.test-helper :as h]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))

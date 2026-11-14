@@ -3,9 +3,9 @@
    [clojure.string :as string]
    [eca.features.built-in-command :as built-in-command]
    [eca.features.prompt :as f.prompt]
-   [eca.features.rules :as f.rules]
-   [eca.features.tools.path-rules :as f.tools.path-rules]
    [eca.features.tools.util :as tools.util]
+   [eca.modules.rules :as f.rules]
+   [eca.modules.rules.path-rules :as f.tools.path-rules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)

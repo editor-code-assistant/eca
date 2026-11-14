@@ -9,9 +9,9 @@
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.models :as models]
    [eca.modules :as modules]
+   [eca.modules.providers.ollama :as llm-providers.ollama]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 

@@ -19,11 +19,11 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.cache :as cache]
-   [eca.features.agents :as agents]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
+   [eca.modules.agents :as agents]
    [eca.modules.events :as events]
    [eca.shared :as shared :refer [multi-str]]
    [rewrite-json.core :as rj])

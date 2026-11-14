@@ -13,19 +13,13 @@
    [eca.features.chat.tool-calls :as tc]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
-   [eca.features.hooks :as f.hooks]
    [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
-   [eca.features.rules :as f.rules]
-   [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.agent :as f.tools.agent]
-   [eca.features.tools.mcp :as f.mcp]
-   [eca.features.tools.task :as f.tools.task]
    [eca.llm-api :as llm-api]
-   [eca.llm-providers.errors :as llm-providers.errors]
+   [eca.llm-api.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -33,6 +27,12 @@
    [eca.models :as models]
    [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
+   [eca.modules.hooks :as f.hooks]
+   [eca.modules.mcp :as f.mcp]
+   [eca.modules.rules :as f.rules]
+   [eca.modules.skills :as f.skills]
+   [eca.modules.subagents :as f.tools.agent]
+   [eca.modules.tools.task :as f.tools.task]
    [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
 (set! *warn-on-reflection* true)
@@ -2538,7 +2538,7 @@
    field.
 
    Rejected: blank, the reserved `subagent-` prefix (used for deterministic
-   subagent chat ids in `eca.features.tools.agent`), embedded whitespace or
+   subagent chat ids in `eca.modules.subagents`), embedded whitespace or
    control characters (which would mangle log lines / tab-line titles), and
    ids longer than `max-client-chat-id-length` characters."
   [chat-id]

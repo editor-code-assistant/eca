@@ -1,0 +1,149 @@
+(ns eca.modules.tools.git
+  (:require
+   [babashka.process :as p]
+   [clojure.string :as string]
+   [eca.cache :as cache]
+   [eca.features.tools.util :as tools.util]
+   [eca.logger :as logger]
+   [eca.modules.tools.shell :as shell]
+   [eca.modules.tools.shell.parser :as shell-parser]
+   [eca.shared :as shared]))
+
+(set! *warn-on-reflection* true)
+
+(def ^:private logger-tag "[TOOLS-GIT]")
+
+(def ^:private default-timeout 120000)
+
+(defmethod tools.util/tool-call-details-before-invocation :git
+  [_name arguments _server {:keys [db chat-id]}]
+  (shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
+
+(defn ^:private heredoc-in-substitution-hint
+  "Some shells (e.g. macOS bash 3.2) fail to parse heredocs inside $(...) when
+   the body contains an unbalanced quote (it's, don't). Returns a hint telling
+   the LLM to pass the text via stdin instead."
+  [command err]
+  (when (and err
+             (string/includes? err "unexpected EOF while looking for matching")
+             (string/includes? command "$(")
+             (string/includes? command "<<"))
+    (str "Hint: this shell cannot parse heredocs inside $(...) whose body contains quotes. "
+         "Pass the text via stdin instead:\n"
+         "git commit -F - <<'EOF'\n<message>\nEOF\n"
+         "gh pr create --body-file - <<'EOF'\n<body>\nEOF")))
+
+(defn ^:private git-command [arguments {:keys [db config chat-id tool-call-id call-state-fn state-transition-fn] :as ctx}]
+  (let [command (get arguments "command")]
+    (or (tools.util/invalid-arguments
+         arguments
+         [["command" #(and (string? %)
+                          (let [trimmed (string/triml %)
+                                cmd (if (string/starts-with? trimmed "cd ")
+                                      (or (some->> (re-find #"^cd\s+\S+\s*(?:&&|;)\s*(.*)" trimmed)
+                                                   second
+                                                   string/triml)
+                                          trimmed)
+                                      trimmed)]
+                            (or (string/starts-with? cmd "git ")
+                                (string/starts-with? cmd "git;")
+                                (string/starts-with? cmd "gh "))))
+           "command must start with 'git' or 'gh' (optionally preceded by 'cd <path> &&'): pass the full command line, e.g. 'git status' rather than 'status'"]])
+        (let [work-dir (or (some-> (:workspace-folders db)
+                                   first
+                                   :uri
+                                   shared/uri->filename)
+                           (cache/user-home))
+              {shell-path :path shell-args :args} (get-in config [:toolCall :shellCommand])
+              _ (logger/debug logger-tag "Running command:" command)
+              result (try
+                       (if-let [proc (when-not (= :stopping (:status (call-state-fn)))
+                                       (shell/start-shell-process! (shell/before-exec
+                                                                    ctx
+                                                                    (cond-> {:cwd work-dir
+                                                                             :script command
+                                                                             :chat-id chat-id}
+                                                                      shell-path (assoc :shell-path shell-path)
+                                                                      shell-args (assoc :shell-args shell-args))
+                                                                    {:source :tool
+                                                                     :tool "eca__git"
+                                                                     :timeout-ms default-timeout})))]
+                         (do
+                           (state-transition-fn :resources-created {:resources {:process proc}})
+                           (try (deref proc default-timeout ::timeout)
+                                (catch InterruptedException e
+                                  (let [msg (or (.getMessage e) "Git tool call was interrupted")]
+                                    (logger/debug logger-tag "Git tool call was interrupted"
+                                                  {:tool-call-id tool-call-id :message msg})
+                                    (tools.util/tool-call-destroy-resource! "eca__git" :process proc)
+                                    (state-transition-fn :resources-destroyed {:resources [:process]})
+                                    {:exit 1 :err msg}))))
+                         {:exit 1 :err "Tool call is :stopping, so process not spawned"})
+                       (catch Exception e
+                         (let [msg (or (.getMessage e) "Caught an Exception during execution of the git tool")]
+                           (logger/warn logger-tag "Got an Exception during execution" {:message msg})
+                           {:exit 1 :err msg}))
+                       (finally
+                         (let [state (call-state-fn)]
+                           (when-let [resources (:resources state)]
+                             (doseq [[res-kwd res] resources]
+                               (tools.util/tool-call-destroy-resource! "eca__git" res-kwd res))
+                             (when (#{:executing :stopping} (:status state))
+                               (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))]
+          (if (= result ::timeout)
+            (do
+              (logger/debug logger-tag "Command timed out after" default-timeout "ms")
+              (tools.util/single-text-content (str "Command timed out after " default-timeout " ms") true))
+            (do
+              (logger/debug logger-tag "Command executed:" result)
+              {:error (not (zero? (:exit result)))
+               :contents (remove nil?
+                                 (concat [{:type :text
+                                           :text (str "Exit code: " (:exit result))}]
+                                         (when-not (string/blank? (:err result))
+                                           [{:type :text
+                                             :text (str "Stderr:\n" (string/trim (:err result)))}])
+                                         (when-not (string/blank? (:out result))
+                                           [{:type :text
+                                             :text (str "Stdout:\n" (string/trim (:out result)))}])
+                                         (when-let [hint (heredoc-in-substitution-hint command (:err result))]
+                                           [{:type :text
+                                             :text hint}])))}))))))
+
+(defn ^:private git-command-summary [{:keys [args]}]
+  (let [operation (get args "operation")
+        summary (get args "summary")]
+    (if operation
+      (cond-> (str "Git " operation)
+        summary (str ": " summary))
+      "Preparing git operation")))
+
+(def definitions
+  {"git"
+   {:description (tools.util/read-tool-description "git")
+    :parameters {:type "object"
+                 :properties {"command" {:type "string"
+                                         :description "The full command line to execute, starting with `git` or `gh` (e.g. `git status`, `gh pr view 123`)."}
+                              "operation" {:type "string"
+                                           :description "The git operation being performed."
+                                           :enum ["status" "diff" "log" "add" "commit" "push"
+                                                  "branch" "checkout" "merge" "rebase" "stash"
+                                                  "pr_create" "pr_view" "pr_comment" "gh"]}
+                              "summary" {:type "string"
+                                         :description "Concise 2-3 word description of what is being done (e.g. \"staged changes\", \"all test files\")."}}
+                 :required ["command" "operation"]}
+    :handler #'git-command
+    :approval-keys-fn (fn [arguments] (shell-parser/approval-keys (get arguments "command")))
+    :summary-fn #'git-command-summary}})
+
+(defmethod tools.util/tool-call-destroy-resource! :eca__git [name resource-kwd resource]
+  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
+  (case resource-kwd
+    :process (p/destroy-tree resource)
+    (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
+                                                        :resource-kwd resource-kwd})))
+
+(def module
+  {:id :eca/git
+   :description "Run git commands."
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))})

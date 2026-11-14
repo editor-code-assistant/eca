@@ -6,10 +6,10 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
-   [eca.llm-providers.anthropic :as llm-providers.anthropic]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
-   [eca.llm-providers.openai :as llm-providers.openai]
-   [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
+   [eca.modules.providers.anthropic :as llm-providers.anthropic]
+   [eca.modules.providers.ollama :as llm-providers.ollama]
+   [eca.modules.providers.openai :as llm-providers.openai]
+   [eca.modules.providers.openai-chat :as llm-providers.openai-chat]
    [eca.secrets :as secrets]
    [eca.shared :as shared]
    [eca.test-helper :as h]
@@ -570,9 +570,9 @@
 
   (testing "openai tool-call replay strips internal top-level message fields before follow-up request"
     (let [seen-bodies* (atom [])]
-      (with-redefs [eca.llm-providers.openai/normalize-messages
+      (with-redefs [eca.modules.providers.openai/normalize-messages
                     (fn [messages _supports-image?] (vec messages))
-                    eca.llm-providers.openai/base-responses-request!
+                    eca.modules.providers.openai/base-responses-request!
                     (fn [{:keys [body on-stream]}]
                       (swap! seen-bodies* conj body)
                       (if (= 1 (count @seen-bodies*))

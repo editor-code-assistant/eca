@@ -4,16 +4,16 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.features.otel :as f.otel]
-   [eca.features.remote :as f.remote]
    [eca.handlers :as handlers]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
+   [eca.modules.otel :as f.otel]
+   [eca.modules.remote :as f.remote]
+   [eca.modules.remote.messenger :as remote.messenger]
+   [eca.modules.remote.server :as remote.server]
    [eca.nrepl :as nrepl]
-   [eca.remote.messenger :as remote.messenger]
-   [eca.remote.server :as remote.server]
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
    [jsonrpc4clj.server :as jsonrpc.server]
@@ -359,7 +359,7 @@
         ;; HTTP server can be started later (e.g. when local project config
         ;; enables it after initialize). Broadcasting to an empty set is a no-op.
         sse-connections* (atom #{})
-        ;; the eca/remote module's server (eca.features.remote) takes them from it
+        ;; the eca/remote module's server (eca.modules.remote) takes them from it
         messenger (remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
         components {:db* db*
                     :messenger messenger

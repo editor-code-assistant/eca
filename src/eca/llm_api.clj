@@ -5,26 +5,26 @@
    [eca.config :as config]
    [eca.features.prompt :as f.prompt]
    ;; the providers' multimethods (login, quota, errors) and modules
-   [eca.llm-providers.anthropic]
-   [eca.llm-providers.azure]
-   [eca.llm-providers.bedrock]
-   [eca.llm-providers.copilot]
-   [eca.llm-providers.deepseek]
-   [eca.llm-providers.errors :as llm-providers.errors]
-   [eca.llm-providers.google]
-   [eca.llm-providers.litellm]
-   [eca.llm-providers.lmstudio]
-   [eca.llm-providers.mistral]
-   [eca.llm-providers.moonshot]
-   [eca.llm-providers.ollama]
-   [eca.llm-providers.openai]
-   [eca.llm-providers.openai-chat]
-   [eca.llm-providers.openrouter]
-   [eca.llm-providers.z-ai]
+   [eca.llm-api.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
    [eca.modules :as modules]
+   [eca.modules.providers.anthropic]
+   [eca.modules.providers.azure]
+   [eca.modules.providers.bedrock]
+   [eca.modules.providers.copilot]
+   [eca.modules.providers.deepseek]
+   [eca.modules.providers.google]
+   [eca.modules.providers.litellm]
+   [eca.modules.providers.lmstudio]
+   [eca.modules.providers.mistral]
+   [eca.modules.providers.moonshot]
+   [eca.modules.providers.ollama]
+   [eca.modules.providers.openai]
+   [eca.modules.providers.openai-chat]
+   [eca.modules.providers.openrouter]
+   [eca.modules.providers.z-ai]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -260,7 +260,7 @@
 
 (defn ^:private chat-dialect
   "The chat-completions dialect of the endpoint that receives the request (see
-   `eca.llm-providers.openai-chat/transform-message`), or nil for the common one.
+   `eca.modules.providers.openai-chat/transform-message`), or nil for the common one.
    :mistral for Mistral's own API: the built-in provider (or one inheriting it),
    or any provider whose URL host is a subdomain of mistral.ai (api.mistral.ai,
    codestral.mistral.ai). Gateways serving Mistral models (OpenRouter, LiteLLM, ...)

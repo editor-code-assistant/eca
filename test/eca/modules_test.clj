@@ -3,9 +3,9 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.features.core :as f.core]
    [eca.modules :as modules]
    [eca.modules.built-in :as built-in]
+   [eca.modules.core :as f.core]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 

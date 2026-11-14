@@ -2,13 +2,13 @@
   (:require
    [clojure.string :as string]
    [eca.db :as db]
-   [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
    [eca.modules.events :as events]
+   [eca.modules.hooks :as f.hooks]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)

@@ -8,12 +8,12 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
-   [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.custom :as f.tools.custom]
-   [eca.features.tools.git :as f.tools.git]
-   [eca.features.tools.shell :as f.tools.shell]
    [eca.modules :as modules]
+   [eca.modules.hooks :as f.hooks]
+   [eca.modules.tools.custom-tools :as f.tools.custom]
+   [eca.modules.tools.git :as f.tools.git]
+   [eca.modules.tools.shell :as f.tools.shell]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 

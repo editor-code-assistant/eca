@@ -4,10 +4,10 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat.tool-calls :as tc]
-   [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.hooks :as f.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 

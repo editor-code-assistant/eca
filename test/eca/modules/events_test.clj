@@ -1,8 +1,8 @@
 (ns eca.modules.events-test
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.core :as f.core]
    [eca.modules :as modules]
+   [eca.modules.core :as f.core]
    [eca.modules.events :as events]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))

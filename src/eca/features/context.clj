@@ -5,9 +5,9 @@
    [clojure.string :as string]
    [eca.digest :as digest]
    [eca.features.index :as f.index]
-   [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
+   [eca.modules.mcp :as f.mcp]
    [eca.shared :as shared :refer [assoc-some]])
   (:import
    [java.util Base64]))

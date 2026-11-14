@@ -2,8 +2,8 @@
   (:require
    [eca.features.built-in-command :as built-in-command]
    [eca.features.prompt :as f.prompt]
-   [eca.features.skills :as f.skills]
    [eca.features.tools.util :as tools.util]
+   [eca.modules.skills :as f.skills]
    [eca.shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)

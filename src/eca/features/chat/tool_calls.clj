@@ -5,15 +5,15 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.agent :as f.tools.agent]
-   [eca.features.tools.mcp :as f.tools.mcp]
    [eca.features.tools.util :as tools.util]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.modules.events :as events]
+   [eca.modules.hooks :as f.hooks]
+   [eca.modules.mcp :as f.tools.mcp]
+   [eca.modules.subagents :as f.tools.agent]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)

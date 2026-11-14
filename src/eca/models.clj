@@ -7,10 +7,10 @@
    [eca.cache :as cache]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.modules.events :as events]
+   [eca.modules.providers.ollama :as llm-providers.ollama]
    [eca.shared :refer [assoc-some] :as shared]
    [hato.client :as http])
   (:import

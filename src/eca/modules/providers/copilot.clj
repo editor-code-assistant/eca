@@ -1,0 +1,412 @@
+(ns eca.modules.providers.copilot
+  (:require
+   [cheshire.core :as json]
+   [clojure.string :as string]
+   [eca.client-http :as client]
+   [eca.config :as config]
+   [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
+   [eca.llm-api.errors :as llm-providers.errors]
+   [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
+   [eca.messenger :as messenger]
+   [eca.shared :refer [multi-str]]
+   [hato.client :as http]))
+
+(set! *warn-on-reflection* true)
+
+(def ^:private default-client-id "Iv1.b507a08c87ecfe98")
+
+(def ^:private token-renew-max-attempts 2)
+
+(def ^:private token-renew-retry-delay-ms 250)
+
+(def ^:private token-renew-retry-statuses #{500 502 503 504})
+
+(defn ^:private github-base-url [provider-settings]
+  (or (get-in provider-settings [:auth :url])
+      "https://github.com"))
+
+(defn ^:private github-api-base-url [provider-settings]
+  (let [base (github-base-url provider-settings)]
+    (if (= base "https://github.com")
+      "https://api.github.com"
+      (str base "/api/v3"))))
+
+(defn ^:private copilot-client-id [provider-settings]
+  (or (get-in provider-settings [:auth :clientId])
+      default-client-id))
+
+(defn model-not-supported-error?
+  "True when a Copilot completion request failed with 400 model_not_supported:
+   the model id is unknown or the account's per-model policy is not enabled."
+  [{:keys [status body]}]
+  (and (= 400 status)
+       (string/includes? (if (string? body) body (pr-str body))
+                         "model_not_supported")))
+
+(defn enrich-model-not-supported-error
+  "Rewrites Copilot's cryptic 400 model_not_supported error with actionable
+   guidance: the /models catalog lists every model, but requests fail until
+   the account's per-model policy is enabled (via a client consent prompt;
+   there is no per-model toggle on the GitHub settings page anymore)."
+  [error-data model]
+  (if (model-not-supported-error? error-data)
+    (assoc error-data :message
+           (format (multi-str
+                    "GitHub Copilot rejected model '%s': it is not supported or not enabled for your account."
+                    "To enable it, use an ECA client that supports questions (ECA asks and enables it on retry) or enable it once via VS Code."
+                    "On Business/Enterprise plans an org admin must enable the model in the org's Copilot policies.")
+                   model))
+    error-data))
+
+(defn ^:private policy-api-headers [api-key]
+  (merge {"Authorization" (str "Bearer " api-key)
+          "Content-Type" "application/json"}
+         (llm-util/copilot-ide-headers)))
+
+(defn fetch-model-policy
+  "Live-fetches the Copilot /models catalog and returns the policy entry for
+   `model` as {:listed? bool :policy {:state .. :terms ..}}, or nil when the
+   catalog cannot be fetched."
+  [{:keys [api-url api-key]} model]
+  (try
+    (let [{:keys [status body]} (http/get (str api-url "/models")
+                                          {:headers (policy-api-headers api-key)
+                                           :throw-exceptions? false
+                                           :as :json
+                                           :http-client (client/merge-with-global-http-client {})})]
+      (if (= 200 status)
+        (let [entry (first (filter #(= model (:id %)) (:data body)))]
+          {:listed? (some? entry)
+           :policy (:policy entry)})
+        (do
+          (logger/warn "[COPILOT]" "Failed to fetch model policy, status:" status)
+          nil)))
+    (catch Exception e
+      (logger/warn "[COPILOT]" "Failed to fetch model policy:" (ex-message e))
+      nil)))
+
+(defn enable-model-policy!
+  "Enables the account's per-model policy for `model`, accepting the model
+   terms; the same call editor consent dialogs make. Returns {:enabled? true}
+   or {:enabled? false ...}."
+  [{:keys [api-url api-key]} model]
+  (try
+    (let [{:keys [status body]} (http/post (str api-url "/models/" model "/policy")
+                                           {:headers (policy-api-headers api-key)
+                                            :body (json/generate-string {:state "enabled"})
+                                            :throw-exceptions? false
+                                            :as :json
+                                            :http-client (client/merge-with-global-http-client {})})]
+      (if (and (number? status) (<= 200 status 299))
+        {:enabled? true}
+        {:enabled? false :status status :body body}))
+    (catch Exception e
+      {:enabled? false :error (ex-message e)})))
+
+(def ^:private enable-model-answer-label "Enable model")
+
+(def ^:private ask-to-enable-timeout-ms (* 5 60 1000))
+
+(defn ask-to-enable-model!
+  "Interactive consent to enable a Copilot per-model policy, mirroring the
+   editors' consent dialog: live-checks the policy state, asks the user via
+   chat/askQuestion and enables the policy on acceptance.
+   Returns {:result :enabled|:declined|:cancelled|:no-policy|:enable-failed}."
+  [{:keys [messenger chat-id auth model]}]
+  (let [{:keys [listed? policy] :as policy-check} (fetch-model-policy auth model)]
+    (if (or (nil? policy-check)
+            (not listed?)
+            (nil? policy)
+            (= "enabled" (:state policy)))
+      {:result :no-policy :listed? listed? :policy policy}
+      (let [question (multi-str
+                      (format "GitHub Copilot model '%s' is not enabled for your account." model)
+                      ""
+                      (str (:terms policy))
+                      ""
+                      "Enable it?")
+            response (deref (messenger/ask-question
+                             messenger
+                             {:chatId chat-id
+                              :question question
+                              :allowFreeform false
+                              :request-id (str (random-uuid))
+                              :options [{:label enable-model-answer-label
+                                         :description "Accept these terms and enable the model for your account"}
+                                        {:label "Cancel"
+                                         :description "Keep the model disabled"}]})
+                            ask-to-enable-timeout-ms
+                            {:cancelled true})]
+        (cond
+          (:cancelled response)
+          {:result :cancelled}
+
+          (= enable-model-answer-label (:answer response))
+          (let [{:keys [enabled?] :as enable-result} (enable-model-policy! auth model)
+                ;; The policy endpoint answers 200 but silently ignores models
+                ;; not included in the account's plan (e.g. premium models on
+                ;; Copilot Free), so verify the policy actually flipped.
+                verified-policy (when enabled? (fetch-model-policy auth model))]
+            (cond
+              (not enabled?)
+              (assoc enable-result :result :enable-failed)
+
+              (or (nil? verified-policy)
+                  (= "enabled" (get-in verified-policy [:policy :state])))
+              {:result :enabled}
+
+              :else
+              {:result :enable-rejected :policy (:policy verified-policy)}))
+
+          :else
+          {:result :declined})))))
+
+(defmethod llm-providers.errors/enrich-provider-error "github-copilot"
+  [{:keys [error-data model]}]
+  (enrich-model-not-supported-error error-data model))
+
+(defmethod llm-providers.errors/recoverable-error? "github-copilot"
+  [{:keys [error-data db]}]
+  (boolean
+   (and (model-not-supported-error? error-data)
+        (get-in db [:client-capabilities :code-assistant :chat-capabilities :ask-question]))))
+
+(defmethod llm-providers.errors/recover-error! "github-copilot"
+  [{:keys [provider model db messenger chat-id]}]
+  (let [auth (get-in db [:auth provider])]
+    (messenger/chat-content-received messenger
+                                     {:chat-id chat-id
+                                      :role :system
+                                      :content {:type :progress :state :running :text "Waiting model enable answer"}})
+    (let [{:keys [result] :as outcome} (ask-to-enable-model! {:messenger messenger
+                                                              :chat-id chat-id
+                                                              :auth auth
+                                                              :model model})]
+      (case result
+        :enabled
+        {:retry? true
+         :notice (format "\nModel '%s' enabled for your account, retrying...\n" model)
+         :retry-user-message "The model was just enabled for this account. Continue with the original request."}
+
+        (:declined :cancelled)
+        {:retry? false :notice (format "\nModel '%s' was not enabled." model)}
+
+        :enable-rejected
+        {:retry? false
+         :notice (format (str "\nGitHub accepted the request but did not enable model '%s':"
+                              " it is likely not included in your Copilot plan."
+                              " Select another model.")
+                         model)}
+
+        :enable-failed
+        {:retry? false
+         :notice (format "\nFailed to enable model '%s': %s"
+                         model
+                         (pr-str (select-keys outcome [:status :body :error])))}
+
+        ;; :no-policy or unknown: fall back to the enriched terminal error message
+        {:retry? false :notice nil}))))
+
+(defn ^:private auth-headers []
+  {"Content-Type" "application/json"
+   "Accept" "application/json"
+   "editor-plugin-version" "eca/*"
+   "editor-version" (str "eca/" (config/eca-version))})
+
+(defn ^:private oauth-url [provider-settings]
+  (let [device-url (str (github-base-url provider-settings) "/login/device/code")
+        {:keys [body]} (http/post
+                        device-url
+                        {:headers (auth-headers)
+                         :body (json/generate-string {:client_id (copilot-client-id provider-settings)
+                                                      :scope "read:user"})
+                         :http-client (client/merge-with-global-http-client {})
+                         :as :json})]
+    {:user-code (:user_code body)
+     :device-code (:device_code body)
+     :url (:verification_uri body)}))
+
+(defn ^:private oauth-access-token [provider-settings device-code]
+  (let [access-token-url (str (github-base-url provider-settings) "/login/oauth/access_token")
+        {:keys [status body]} (http/post
+                               access-token-url
+                               {:headers (auth-headers)
+                                :body (json/generate-string {:client_id (copilot-client-id provider-settings)
+                                                             :device_code device-code
+                                                             :grant_type "urn:ietf:params:oauth:grant-type:device_code"})
+                                :throw-exceptions? false
+                                :http-client (client/merge-with-global-http-client {})
+                                :as :json})]
+    (if (= 200 status)
+      (:access_token body)
+      (throw (ex-info (format "Github auth failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+(defn ^:private oauth-renew-token [provider-settings access-token]
+  (let [token-url (str (github-api-base-url provider-settings) "/copilot_internal/v2/token")
+        request-options {:headers (merge (auth-headers)
+                                         {"authorization" (str "token " access-token)})
+                         :throw-exceptions? false
+                         :http-client (client/merge-with-global-http-client {})
+                         :as :json}]
+    (loop [attempt 1]
+      (let [{:keys [status body]} (http/get token-url request-options)]
+        (cond
+          (:token body)
+          (cond-> {:api-key (:token body)
+                   :expires-at (:expires_at body)}
+            (get-in body [:endpoints :api]) (assoc :api-url (get-in body [:endpoints :api])))
+
+          (and (token-renew-retry-statuses status)
+               (< attempt token-renew-max-attempts))
+          (do
+            (Thread/sleep (long token-renew-retry-delay-ms))
+            (recur (inc attempt)))
+
+          :else
+          (throw (ex-info (format "Error on copilot login: %s" body)
+                          {:status status
+                           :body body})))))))
+
+(defmethod f.quota/fetch-quota "github-copilot" [{:keys [provider provider-auth config]}]
+  (let [url (str (github-api-base-url (get-in config [:providers provider])) "/copilot_internal/user")
+        {:keys [status body]} (http/get url
+                                        {:headers (merge (auth-headers)
+                                                         {"authorization" (str "token " (:access-token provider-auth))})
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout 10000})]
+    (if (= 200 status)
+      (f.quota/copilot-user->snapshot body)
+      (throw (ex-info (format "Copilot user endpoint returned status %s" status) {:status status})))))
+
+;; --- Settings-based login (providers/login flow) ---
+
+(defn ^:private poll-device-authorization!
+  "Polls GitHub's device-flow token endpoint in background until the user
+   authorizes in the browser, the login state changes (e.g. cancelled), or
+   `max-attempts` is reached. Calls `on-token` with the token data on success
+   or `on-timeout` when attempts are exhausted."
+  [provider provider-settings db* {:keys [interval-ms max-attempts on-token on-timeout]
+                                   :or {interval-ms 5000
+                                        max-attempts 180}}]
+  (future
+    (loop [attempts 0]
+      (Thread/sleep (long interval-ms))
+      (when (= :login/waiting-user-confirmation
+               (get-in @db* [:auth provider :step]))
+        (if (< attempts max-attempts)
+          (let [token-data (try
+                             (when-let [access-token (oauth-access-token
+                                                      provider-settings
+                                                      (get-in @db* [:auth provider :device-code]))]
+                               (assoc (oauth-renew-token provider-settings access-token)
+                                      :access-token access-token))
+                             (catch Exception e
+                               (logger/debug "[COPILOT]" "Device poll attempt" attempts ":" (ex-message e))
+                               nil))]
+            (if token-data
+              (try
+                (on-token token-data)
+                (catch Exception e
+                  (logger/warn "[COPILOT]" "Failed to complete device login:" (ex-message e))))
+              (recur (inc attempts))))
+          (on-timeout))))))
+
+(defmethod f.providers/start-login! ["github-copilot" "device"] [provider _ db* config messenger metrics]
+  (let [provider-settings (get-in config [:providers provider])
+        {:keys [user-code device-code url]} (oauth-url provider-settings)]
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
+                                          :device-code device-code})
+    (poll-device-authorization!
+     provider
+     provider-settings
+     db*
+     {:max-attempts 60
+      :on-token (fn [token-data]
+                  (swap! db* update-in [:auth provider] merge
+                         (assoc token-data :step :login/done))
+                  (f.providers/sync-and-notify! provider db* messenger metrics))
+      :on-timeout (fn [])})
+    {:action "device-code"
+     :url url
+     :code user-code
+     :message (format "Enter this code at the URL above. Make sure Copilot is enabled at %s/settings/copilot/features"
+                      (github-base-url provider-settings))}))
+
+;; --- Chat-based login (legacy /login command) ---
+
+(defn ^:private complete-chat-device-login!
+  "Finishes the chat-based device login once, guarding against the polling
+   future and a typed chat message completing it twice."
+  [{:keys [db* provider config send-msg!] :as ctx} token-data]
+  (when (= :login/waiting-user-confirmation (get-in @db* [:auth provider :step]))
+    (swap! db* update-in [:auth provider] merge (assoc token-data :step :login/done))
+    (f.login/login-done! ctx)
+    (let [github-url (github-base-url (get-in config [:providers provider]))]
+      (send-msg! (format "\nMake sure to enable the models you want to use at: [%s/settings/copilot/features](%s/settings/copilot/features)"
+                         github-url
+                         github-url)))))
+
+(defmethod f.login/login-step ["github-copilot" :login/start] [{:keys [db* chat-id provider config send-msg!] :as ctx}]
+  (let [provider-settings (get-in config [:providers provider])
+        {:keys [user-code device-code url]} (oauth-url provider-settings)
+        github-url (github-base-url provider-settings)]
+    (swap! db* assoc-in [:chats chat-id :login-provider] provider)
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
+                                          :device-code device-code})
+    (send-msg! (multi-str
+                (format "First, make sure you have Copilot enabled in your GitHub account: [%s/settings/copilot/features](%s/settings/copilot/features)"
+                        github-url
+                        github-url)
+                ""
+                (format "Then, open your browser at [%s](%s) and authenticate using the code:" url url)
+                ""
+                (format "`%s`" user-code)
+                ""
+                "ECA will complete the login automatically after you authorize, type 'cancel' anytime to abort."))
+    (poll-device-authorization!
+     provider
+     provider-settings
+     db*
+     {:on-token (fn [token-data] (complete-chat-device-login! ctx token-data))
+      :on-timeout (fn [] (send-msg! "GitHub authorization timed out. Type 'cancel' and start the login again."))})))
+
+(defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider config send-msg!] :as ctx}]
+  (let [provider-settings (get-in config [:providers provider])
+        token-data (try
+                     (when-let [access-token (oauth-access-token provider-settings (get-in @db* [:auth provider :device-code]))]
+                       (assoc (oauth-renew-token provider-settings access-token)
+                              :access-token access-token))
+                     (catch Exception _ nil))]
+    (if token-data
+      (complete-chat-device-login! ctx token-data)
+      (send-msg! "Waiting for the browser authorization to complete, type 'cancel' to abort."))))
+
+(defmethod f.login/login-step ["github-copilot" :login/renew-token] [{:keys [db* provider config] :as ctx}]
+  (let [provider-settings (get-in config [:providers provider])
+        access-token (get-in @db* [:auth provider :access-token])
+        token-data (oauth-renew-token provider-settings access-token)]
+    (swap! db* update-in [:auth provider] merge token-data)
+    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+
+(def module
+  {:id :eca/copilot
+   :description "GitHub Copilot models, with the account's own model list and quota."
+   ;; picks the Responses or the Chat Completions API by model
+   :requires #{:eca/api-openai-responses :eca/api-openai-chat}
+   :providers {"github-copilot" {:label "GitHub Copilot"
+                                 ;; the flow is the login-step and start-login! methods above
+                                 :login {:methods [{:key "device" :label "GitHub device flow"}]}}}
+   :config-defaults {:providers {"github-copilot" {:api "openai-chat"
+                                                   :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
+                                                   :key nil ;; not supported, requires login auth
+                                                   :requiresAuth? true
+                                                   ;; models come from the account's /models catalog after login;
+                                                   ;; a static entry here would bypass its plan filtering.
+                                                   :models {}}}}})

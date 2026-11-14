@@ -5,8 +5,8 @@
    [eca.config :as config]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
-   [eca.features.hooks :as f.hooks]
    [eca.features.tools :as f.tools]
+   [eca.modules.hooks :as f.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))

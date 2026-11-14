@@ -6,7 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
    [eca.features.chat.tool-calls :as tc]
-   [eca.features.hooks :as f.hooks]
+   [eca.modules.hooks :as f.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 

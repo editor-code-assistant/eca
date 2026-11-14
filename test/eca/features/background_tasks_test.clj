@@ -3,7 +3,7 @@
    [babashka.process :as p]
    [clojure.test :refer [deftest is testing use-fixtures]]
    [eca.features.background-tasks :as bg]
-   [eca.features.tools.background :as tools.bg]
+   [eca.modules.tools.shell.background :as tools.bg]
    [matcher-combinators.test :refer [match?]])
   (:import
    [java.io ByteArrayInputStream]))

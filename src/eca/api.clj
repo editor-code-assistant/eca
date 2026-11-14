@@ -532,7 +532,7 @@
   ([ctx command {:keys [cwd env input timeout-ms] :or {timeout-ms 60000}}]
    (let [config (config ctx)
          shell-config (get-in config [:toolCall :shellCommand])
-         opts ((requiring-resolve 'eca.features.tools.shell/before-exec)
+         opts ((requiring-resolve 'eca.modules.tools.shell/before-exec)
                (assoc ctx :config config)
                (cond-> {:cwd (or cwd (first (workspaces ctx)) (System/getProperty "user.home"))
                         :script (str command)
@@ -542,7 +542,7 @@
                  (:path shell-config) (assoc :shell-path (:path shell-config))
                  (:args shell-config) (assoc :shell-args (:args shell-config)))
                (shared/assoc-some {:source :module :timeout-ms timeout-ms} :module (:module-id ctx)))
-         proc ((requiring-resolve 'eca.features.tools.shell/start-shell-process!) opts)
+         proc ((requiring-resolve 'eca.modules.tools.shell/start-shell-process!) opts)
          result (try
                   (deref proc timeout-ms ::timeout)
                   (catch InterruptedException e

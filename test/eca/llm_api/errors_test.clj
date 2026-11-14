@@ -1,0 +1,787 @@
+(ns eca.llm-api.errors-test
+  (:require
+   [clojure.test :refer [deftest is testing]]
+   [eca.llm-api.errors :as llm-providers.errors]))
+
+(deftest provider-error-extension-defaults-test
+  (testing "providers without extensions keep errors untouched and non-recoverable"
+    (let [error-data {:message "boom" :status 500}]
+      (is (= error-data (llm-providers.errors/enrich-provider-error
+                         {:provider "unknown" :model "m" :error-data error-data})))
+      (is (false? (llm-providers.errors/recoverable-error?
+                   {:provider "unknown" :error-data error-data :db {}})))
+      (is (nil? (llm-providers.errors/recover-error!
+                 {:provider "unknown" :error-data error-data :db {}}))))))
+
+(deftest enrich-anthropic-provider-error-test
+  (let [body "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your rate limit\"},\"request_id\":\"req_123\"}"]
+    (testing "structured error body populates code, message and request-id, keeping raw body"
+      (is (= {:status 429
+              :body body
+              :message "Anthropic rate_limit_error: This request would exceed your rate limit"
+              :code "rate_limit_error"
+              :request-id "req_123"}
+             (llm-providers.errors/enrich-provider-error
+              {:provider "anthropic"
+               :model "m"
+               :error-data {:status 429
+                            :body body
+                            :message "Anthropic response status: 429 body: ..."}}))))
+
+    (testing "enriched error still classifies as rate-limited"
+      (is (= {:error/type :rate-limited}
+             (llm-providers.errors/classify-error
+              (llm-providers.errors/enrich-provider-error
+               {:provider "anthropic"
+                :model "m"
+                :error-data {:status 429
+                             :body body
+                             :message "Anthropic response status: 429 body: ..."}})))))
+
+    (testing "non-JSON body keeps error untouched"
+      (let [error-data {:status 502
+                        :body "<html>bad gateway</html>"
+                        :message "Anthropic response status: 502 body: <html>bad gateway</html>"}]
+        (is (= error-data (llm-providers.errors/enrich-provider-error
+                           {:provider "anthropic" :model "m" :error-data error-data})))))
+
+    (testing "missing body keeps error untouched"
+      (let [error-data {:message "Anthropic error response: something went wrong"}]
+        (is (= error-data (llm-providers.errors/enrich-provider-error
+                           {:provider "anthropic" :model "m" :error-data error-data})))))))
+
+(deftest classify-error-context-overflow-test
+  (testing "Anthropic prompt too long"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 273112 tokens > 200000 maximum\"}}"
+             :message "Anthropic response status: 400 body: ..."}))))
+
+  (testing "OpenAI context length exceeded"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"This model's maximum context length is 128000 tokens.\",\"type\":\"invalid_request_error\",\"code\":\"context_length_exceeded\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "generic too many tokens"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "too many tokens in the input"
+             :message "LLM response status: 400 body: too many tokens in the input"}))))
+
+  (testing "413 request too large"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 413
+             :body ""
+             :message "LLM response status: 413 body: "}))))
+
+  (testing "llama-server exceeds the available context size"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"code\":400,\"message\":\"request (68183 tokens) exceeds the available context size (65536 tokens), try increasing it\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":68183,\"n_ctx\":65536}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "llama.cpp structured code alone classifies as context overflow"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"code\":400,\"type\":\"exceed_context_size_error\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "llama-server older wording without a body (message-only)"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:message "the request exceeds the available context size, try increasing it"}))))
+
+  (testing "Azure token rate limit message is not mistaken for context overflow"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:message "Requests to the ChatCompletions_Create Operation under Azure OpenAI API version 2024-02-01 have exceeded token rate limit of your current OpenAI S0 pricing tier. Please retry after 6 seconds."}))))
+
+  (testing "message-only fallback for SSE stream errors"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:message "Anthropic error response: prompt is too long: 273112 tokens > 200000 maximum"})))))
+
+(deftest classify-error-invalid-image-test
+  (testing "OpenRouter/xAI image below minimum pixels"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"Provider returned error\",\"code\":400,\"metadata\":{\"raw\":\"{\\\"code\\\":\\\"invalid-argument\\\",\\\"error\\\":\\\"Image has 100 total pixels (10x10), which is below the minimum of 512 pixels.\\\"}\",\"provider_name\":\"xAI\"}}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "Anthropic image exceeds maximum size"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1.content.0.image.source.base64.data: image exceeds 5 MB maximum: 6291456 bytes > 5242880 bytes\"}}"
+             :message "Anthropic response status: 400 body: ..."}))))
+
+  (testing "unsupported image format"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"Unsupported image format\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "message-only fallback for SSE stream errors"
+    (is (= {:error/type :invalid-image}
+           (llm-providers.errors/classify-error
+            {:message "Anthropic error response: image exceeds 5 MB maximum"}))))
+
+  (testing "generic 400 stays unknown"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "{\"error\":{\"message\":\"Invalid request\"}}"
+             :message "LLM response status: 400 body: ..."}))))
+
+  (testing "not retryable (recovery happens via history sanitization instead)"
+    (is (not (llm-providers.errors/retryable?
+              {:status 400
+               :body "Image has 100 total pixels (10x10), which is below the minimum of 512 pixels."})))))
+
+(deftest classify-error-rate-limited-test
+  (testing "429 status"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429
+             :body "{\"error\":{\"message\":\"Rate limit exceeded\"}}"
+             :message "LLM response status: 429 body: ..."}))))
+
+  (testing "503 with overloaded_error in body"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 503
+             :body "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+             :message "Anthropic response status: 503 body: ..."}))))
+
+  (testing "rate limit pattern in any 5xx body"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 520
+             :body "{\"error\":{\"message\":\"Upstream rate limit exceeded\"}}"
+             :message "LLM response status: 520 body: ..."}))))
+
+  (testing "message-only fallback for rate limit"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:message "rate limit exceeded, please retry"})))))
+
+(deftest classify-error-quota-exhausted-test
+  (testing "OpenAI quota and billing codes in 429 response bodies are not transient rate limits"
+    (doseq [code ["usage_limit_reached" "insufficient_quota" "billing_hard_limit_reached"]]
+      (is (= {:error/type :quota-exhausted}
+             (llm-providers.errors/classify-error
+              {:status 429
+               :body {:error {:type code}}
+               :message "OpenAI response status: 429"}))
+          code)))
+
+  (testing "quota code in an unstructured stream error is not retried"
+    (let [error-data {:message "OpenAI error: insufficient_quota"}]
+      (is (= {:error/type :quota-exhausted}
+             (llm-providers.errors/classify-error error-data)))
+      (is (false? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "OpenAI Responses quota code is not retried"
+    (let [error-data {:error/source :openai-responses
+                      :code "usage_limit_reached"
+                      :message "Request failed"}]
+      (is (= {:error/type :quota-exhausted}
+             (llm-providers.errors/classify-error error-data)))
+      (is (false? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "ordinary rate_limit_exceeded remains retryable"
+    (let [error-data {:status 429
+                      :body {:error {:type "rate_limit_exceeded"}}
+                      :message "OpenAI response status: 429"}]
+      (is (= {:error/type :rate-limited}
+             (llm-providers.errors/classify-error error-data)))
+      (is (true? (llm-providers.errors/retryable? error-data))))))
+
+(deftest classify-error-auth-test
+  (testing "401 unauthorized"
+    (is (= {:error/type :auth}
+           (llm-providers.errors/classify-error
+            {:status 401
+             :body "Unauthorized"
+             :message "Anthropic response status: 401 body: Unauthorized"}))))
+
+  (testing "403 forbidden"
+    (is (= {:error/type :auth}
+           (llm-providers.errors/classify-error
+            {:status 403
+             :body "Forbidden"
+             :message "Anthropic response status: 403 body: Forbidden"})))))
+
+(deftest classify-error-overloaded-test
+  (testing "503 without rate-limit pattern"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:status 503
+             :body "Service temporarily unavailable"
+             :message "Anthropic response status: 503 body: Service temporarily unavailable"}))))
+
+  (testing "529 overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:status 529
+             :body ""
+             :message "Anthropic response status: 529 body: "}))))
+
+  (testing "502 bad gateway"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:status 502
+             :body "Bad Gateway"
+             :message "LLM response status: 502 body: Bad Gateway"}))))
+
+  (testing "any other 5xx, like gateway timeouts and Cloudflare's 520-524"
+    (doseq [status [501 504 520 521 522 523 524 599]]
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              {:status status
+               :body ""
+               :message (str "LLM response status: " status " body: ")}))
+          (str status)))))
+
+(deftest classify-error-network-test
+  (testing "DNS resolution failure is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.UnknownHostException. "litellm.company.com")
+             :message "DNS resolution failed: litellm.company.com"}))))
+
+  (testing "connection refused is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.ConnectException. "Connection refused")
+             :message "Could not connect: Connection refused"}))))
+
+  (testing "connect timeout is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.http.HttpConnectTimeoutException. "HTTP connect timed out")
+             :message "Connection timed out: HTTP connect timed out"}))))
+
+  (testing "socket timeout is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.SocketTimeoutException. "Read timed out")}))))
+
+  (testing "exception kind is found in the cause chain"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (java.io.IOException. "request failed"
+                                              (java.net.UnknownHostException. "litellm.company.com"))}))))
+
+  (testing "network errors are retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:exception (java.net.UnknownHostException. "litellm.company.com")})))
+    (is (true? (llm-providers.errors/retryable?
+                {:exception (java.net.http.HttpConnectTimeoutException. "HTTP connect timed out")}))))
+
+  (testing "TLS record-layer failures are network and retryable"
+    (let [error-data {:exception (javax.net.ssl.SSLException.
+                                 "(bad_record_mac) Received fatal alert: bad_record_mac")}]
+      (is (= {:error/type :network}
+             (llm-providers.errors/classify-error error-data)))
+      (is (true? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "TLS trust failures are not network nor retryable"
+    (let [pkix {:exception (javax.net.ssl.SSLHandshakeException.
+                            "PKIX path building failed: unable to find valid certification path")}]
+      (is (= {:error/type :unknown} (llm-providers.errors/classify-error pkix)))
+      (is (false? (llm-providers.errors/retryable? pkix)))))
+
+  (testing "custom retry rules take priority over network classification"
+    (is (= {:error/type :retryable-custom :error/label "VPN down"}
+           (llm-providers.errors/classify-error
+            {:exception (java.net.UnknownHostException. "litellm.company.com")
+             :message "DNS resolution failed: litellm.company.com"}
+            [{:errorPattern "DNS resolution failed" :label "VPN down"}])))))
+
+(deftest classify-openai-response-failed-test
+  (let [generic-message (str "An error occurred while processing your request. "
+                             "You can retry your request, or contact support if the error persists.")
+        responses-error {:error/source :openai-responses}]
+    (testing "structured server_error code is overloaded"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "server_error"
+                     :message "Request failed")))))
+
+    (testing "structured server_error type is overloaded"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :type "server_error"
+                     :message "Request failed")))))
+
+    (testing "structured server_is_overloaded code is overloaded"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "server_is_overloaded"
+                     :message "Our servers are currently overloaded. Please try again later.")))))
+
+    (testing "structured rate_limit_exceeded code is rate limited"
+      (is (= {:error/type :rate-limited}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "rate_limit_exceeded"
+                     :message "Request failed")))))
+
+    (testing "generic transient message is a fallback without structured fields"
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error
+              (assoc responses-error :message generic-message)))))
+
+    (testing "stream closed before completion is a premature stop"
+      (is (= {:error/type :premature-stop}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :message "stream disconnected before completion: stream closed before response.completed")))))
+
+    (testing "generic transient message is not applied to unmarked errors"
+      (is (= {:error/type :unknown}
+             (llm-providers.errors/classify-error
+              {:message generic-message}))))
+
+    (testing "unknown structured fields are authoritative over retry-looking messages"
+      (doseq [error-data [{:code "invalid_prompt" :message generic-message}
+                          {:code "invalid_prompt" :message "Internal server error"}
+                          {:type "invalid_request_error" :message "Rate limit exceeded"}
+                          {:code "invalid_prompt"
+                           :message "Request failed"
+                           :exception (Exception. "Connection error")}]]
+        (is (= {:error/type :unknown}
+               (llm-providers.errors/classify-error
+                (merge responses-error error-data))))))
+
+    (testing "custom retry rules still take priority over structured fields"
+      (is (= {:error/type :retryable-custom
+              :error/label "Temporary proxy failure"}
+             (llm-providers.errors/classify-error
+              (assoc responses-error
+                     :code "invalid_prompt"
+                     :message generic-message)
+              [{:errorPattern "processing your request"
+                :label "Temporary proxy failure"}]))))))
+
+(deftest classify-error-unknown-test
+  (testing "500 is classified as overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:status 500
+             :body "Internal server error"
+             :message "LLM response status: 500 body: Internal server error"}))))
+
+  (testing "no status, no matching message"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:message "Something went wrong"}))))
+
+  (testing "exception-only with no matching message"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "boom")}))))
+
+  (testing "exception with connection reset message is network"
+    (is (= {:error/type :network}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "Connection reset")}))))
+
+  (testing "exception with context overflow message"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "prompt is too long")}))))
+
+  (testing "remote host terminated the handshake is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "Remote host terminated the handshake"}))))
+
+  (testing "exception with handshake termination message"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "Remote host terminated the handshake")}))))
+
+  (testing "connection error message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "Connection error: java.nio.channels.UnresolvedAddressException"}))))
+
+  (testing "connection refused message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "Connection error: Connection refused"}))))
+
+  (testing "connection error is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "Connection error: java.nio.channels.UnresolvedAddressException"}))))
+
+  (testing "dropped connection message (#547) is overloaded and retryable"
+    (let [error-data {:message "Connection closed unexpectedly: closed. The server, a proxy or the network dropped the connection mid-request (common behind corporate proxies/VPNs with idle or streaming timeouts)."}]
+      (is (= {:error/type :overloaded}
+             (llm-providers.errors/classify-error error-data)))
+      (is (true? (llm-providers.errors/retryable? error-data)))))
+
+  (testing "EOF reached message is overloaded"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:message "EOF reached while reading"})))))
+
+(deftest context-overflow?-test
+  (testing "returns true for overflow errors"
+    (is (true? (llm-providers.errors/context-overflow?
+                {:status 400
+                 :body "prompt is too long: 273112 tokens > 200000 maximum"}))))
+
+  (testing "returns false for non-overflow errors"
+    (is (false? (llm-providers.errors/context-overflow?
+                 {:status 429
+                  :body "Rate limit exceeded"})))))
+
+(deftest classify-error-custom-retry-rules-test
+  (testing "matches by status code only"
+    (is (= {:error/type :retryable-custom :error/label "Proxy throttle"}
+           (llm-providers.errors/classify-error
+            {:status 418 :body "I'm a teapot" :message "status 418"}
+            [{:status 418 :label "Proxy throttle"}]))))
+
+  (testing "matches by error pattern only"
+    (is (= {:error/type :retryable-custom :error/label "Capacity exceeded"}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "server capacity exceeded, try again" :message "status 500"}
+            [{:errorPattern "capacity.*exceeded" :label "Capacity exceeded"}]))))
+
+  (testing "matches by both status and error pattern"
+    (is (= {:error/type :retryable-custom :error/label "Maintenance"}
+           (llm-providers.errors/classify-error
+            {:status 503 :body "scheduled maintenance window" :message "status 503"}
+            [{:status 503 :errorPattern "maintenance" :label "Maintenance"}]))))
+
+  (testing "does not match when status differs"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:status 400 :body "bad request" :message "status 400"}
+            [{:status 418 :label "Teapot"}]))))
+
+  (testing "does not match when error pattern does not match"
+    (is (= {:error/type :overloaded}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "internal error" :message "status 500"}
+            [{:errorPattern "capacity.*exceeded" :label "Capacity"}]))))
+
+  (testing "label is optional"
+    (is (= {:error/type :retryable-custom}
+           (llm-providers.errors/classify-error
+            {:status 418 :body "" :message "status 418"}
+            [{:status 418}]))))
+
+  (testing "first matching rule wins"
+    (is (= {:error/type :retryable-custom :error/label "First"}
+           (llm-providers.errors/classify-error
+            {:status 418 :body "" :message "status 418"}
+            [{:status 418 :label "First"}
+             {:status 418 :label "Second"}]))))
+
+  (testing "custom rules take priority over built-in classification"
+    (is (= {:error/type :retryable-custom :error/label "Custom 429"}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            [{:status 429 :label "Custom 429"}]))))
+
+  (testing "falls through to built-in when no custom rule matches"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            [{:status 418 :label "Teapot"}]))))
+
+  (testing "nil retry-rules falls through to built-in"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            nil))))
+
+  (testing "empty retry-rules falls through to built-in"
+    (is (= {:error/type :rate-limited}
+           (llm-providers.errors/classify-error
+            {:status 429 :body "Rate limit exceeded" :message "status 429"}
+            []))))
+
+  (testing "matches by error pattern against message"
+    (is (= {:error/type :retryable-custom :error/label "TLS handshake"}
+           (llm-providers.errors/classify-error
+            {:message "Remote host terminated the handshake"}
+            [{:errorPattern "terminated.*handshake" :label "TLS handshake"}]))))
+
+  (testing "error pattern matches against body"
+    (is (= {:error/type :retryable-custom :error/label "Custom"}
+           (llm-providers.errors/classify-error
+            {:status 500 :body "server capacity exceeded"}
+            [{:errorPattern "capacity.*exceeded" :label "Custom"}]))))
+
+  (testing "error pattern is case-insensitive"
+    (is (= {:error/type :retryable-custom}
+           (llm-providers.errors/classify-error
+            {:message "REMOTE HOST TERMINATED THE HANDSHAKE"}
+            [{:errorPattern "terminated.*handshake"}]))))
+
+  (testing "error pattern matches exception message"
+    (is (= {:error/type :retryable-custom :error/label "Connection error"}
+           (llm-providers.errors/classify-error
+            {:exception (Exception. "Remote host terminated the handshake")}
+            [{:errorPattern "terminated.*handshake" :label "Connection error"}]))))
+
+  (testing "matches by status and error pattern"
+    (is (= {:error/type :retryable-custom :error/label "Combo"}
+           (llm-providers.errors/classify-error
+            {:status 500 :message "connection reset"}
+            [{:status 500 :errorPattern "connection reset" :label "Combo"}]))))
+
+  (testing "does not match when error pattern does not match"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:message "Something went wrong"}
+            [{:errorPattern "terminated.*handshake"}]))))
+
+  (testing "does not match when status differs but error pattern matches"
+    (is (= {:error/type :unknown}
+           (llm-providers.errors/classify-error
+            {:status 400 :message "some weird error happened"}
+            [{:status 500 :errorPattern "terminated.*handshake"}])))))
+
+(deftest retryable?-test
+  (testing "429 rate-limited is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 429
+                 :body "{\"error\":{\"message\":\"Rate limit exceeded\"}}"
+                 :message "LLM response status: 429 body: ..."}))))
+
+  (testing "503 overloaded is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 503
+                 :body "Service temporarily unavailable"
+                 :message "Anthropic response status: 503 body: Service temporarily unavailable"}))))
+
+  (testing "529 overloaded is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 529
+                 :body ""
+                 :message "Anthropic response status: 529 body: "}))))
+
+  (testing "502 bad gateway is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 502
+                 :body "Bad Gateway"
+                 :message "LLM response status: 502 body: Bad Gateway"}))))
+
+  (testing "OpenRouter relaying an upstream provider's 520 is retryable"
+    (let [body "{\"error\":{\"message\":\"Provider returned error\",\"code\":520,\"metadata\":{\"raw\":\"error code: 520\\n\",\"provider_name\":\"Z.AI\",\"is_byok\":false}}}"]
+      (is (true? (llm-providers.errors/retryable?
+                  {:status 520
+                   :body body
+                   :message (str "LLM response status: 520 body: " body)})))))
+
+  (testing "other 4xx are not retryable"
+    (is (false? (llm-providers.errors/retryable?
+                 {:status 404
+                  :body "Not Found"
+                  :message "LLM response status: 404 body: Not Found"}))))
+
+  (testing "503 with overloaded_error pattern (rate-limited) is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 503
+                 :body "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
+                 :message "Anthropic response status: 503 body: ..."}))))
+
+  (testing "message-only rate limit is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "rate limit exceeded, please retry"}))))
+
+  (testing "context-overflow is not retryable"
+    (is (false? (llm-providers.errors/retryable?
+                 {:status 400
+                  :body "prompt is too long: 273112 tokens > 200000 maximum"}))))
+
+  (testing "auth error is not retryable"
+    (is (false? (llm-providers.errors/retryable?
+                 {:status 401
+                  :body "Unauthorized"}))))
+
+  (testing "unknown error is not retryable"
+    (is (false? (llm-providers.errors/retryable?
+                 {:message "Something went wrong"}))))
+
+  (testing "custom retry rule makes error retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:status 418 :body "I'm a teapot"}
+                [{:status 418 :label "Teapot"}]))))
+
+  (testing "non-matching custom rule does not affect retryability"
+    (is (false? (llm-providers.errors/retryable?
+                 {:message "Something went wrong"}
+                 [{:status 418 :label "Teapot"}]))))
+
+  (testing "handshake termination is retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "Remote host terminated the handshake"}))))
+
+  (testing "custom error pattern rule makes error retryable"
+    (is (true? (llm-providers.errors/retryable?
+                {:message "Remote host terminated the handshake"}
+                [{:errorPattern "terminated.*handshake" :label "TLS error"}])))))
+
+(defn ^:private instant-str [epoch-ms]
+  (str (java.time.Instant/ofEpochMilli epoch-ms)))
+
+(deftest rate-limit-wait-test
+  (let [now-ms 1000000000000]
+    (testing "retry-after delta seconds"
+      (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
+             (llm-providers.errors/rate-limit-wait {"retry-after" "7"} now-ms))))
+
+    (testing "retry-after HTTP-date"
+      (let [resets-at (+ now-ms 120000)
+            http-date (.format java.time.format.DateTimeFormatter/RFC_1123_DATE_TIME
+                               (.atZone (java.time.Instant/ofEpochMilli resets-at)
+                                        (java.time.ZoneId/of "GMT")))]
+        (is (= {:delay-ms 120000 :resets-at resets-at}
+               (llm-providers.errors/rate-limit-wait {"retry-after" http-date} now-ms)))))
+
+    (testing "anthropic unified reset in epoch seconds (subscription session limits)"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 3600)]
+        (is (= {:delay-ms 3600000 :resets-at (* reset-epoch-s 1000)}
+               (llm-providers.errors/rate-limit-wait
+                {"anthropic-ratelimit-unified-reset" (str reset-epoch-s)} now-ms)))))
+
+    (testing "anthropic unified reset already in epoch millis is kept as-is"
+      (is (= {:delay-ms 5000 :resets-at (+ now-ms 5000)}
+             (llm-providers.errors/rate-limit-wait
+              {"anthropic-ratelimit-unified-reset" (str (+ now-ms 5000))} now-ms))))
+
+    (testing "retry-after takes precedence over reset headers"
+      (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
+             (llm-providers.errors/rate-limit-wait
+              {"retry-after" "7"
+               "anthropic-ratelimit-unified-reset" (str (+ (quot now-ms 1000) 3600))} now-ms))))
+
+    (testing "RFC 3339 bucket resets: latest exhausted bucket wins"
+      (is (= {:delay-ms 60000 :resets-at (+ now-ms 60000)}
+             (llm-providers.errors/rate-limit-wait
+              {"anthropic-ratelimit-requests-reset" (instant-str (+ now-ms 30000))
+               "anthropic-ratelimit-requests-remaining" "100"
+               "anthropic-ratelimit-tokens-reset" (instant-str (+ now-ms 60000))
+               "anthropic-ratelimit-tokens-remaining" "0"} now-ms))))
+
+    (testing "RFC 3339 bucket resets: earliest future reset when none exhausted"
+      (is (= {:delay-ms 30000 :resets-at (+ now-ms 30000)}
+             (llm-providers.errors/rate-limit-wait
+              {"anthropic-ratelimit-requests-reset" (instant-str (+ now-ms 30000))
+               "anthropic-ratelimit-tokens-reset" (instant-str (+ now-ms 60000))} now-ms))))
+
+    (testing "openai duration-style bucket resets: exhausted bucket wins"
+      (is (= {:delay-ms 360000 :resets-at (+ now-ms 360000)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset-requests" "6m0s"
+               "x-ratelimit-remaining-requests" "0"
+               "x-ratelimit-reset-tokens" "1s"
+               "x-ratelimit-remaining-tokens" "5000"} now-ms))))
+
+    (testing "openai fractional and millis durations"
+      (is (= {:delay-ms 59903 :resets-at (+ now-ms 59903)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset-tokens" "59.903s"} now-ms)))
+      (is (= {:delay-ms 12 :resets-at (+ now-ms 12)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset-tokens" "12ms"} now-ms))))
+
+    (testing "epoch millis bucket reset (openrouter style)"
+      (is (= {:delay-ms 5000 :resets-at (+ now-ms 5000)}
+             (llm-providers.errors/rate-limit-wait
+              {"x-ratelimit-reset" (str (+ now-ms 5000))} now-ms))))
+
+    (testing "chatgpt codex usage-limit reset accepts raw and decoded response bodies"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 1800)
+            expected {:delay-ms 1800000 :resets-at (* reset-epoch-s 1000)}
+            headers {"x-codex-primary-used-percent" "100"
+                     "x-codex-primary-reset-at" (str (+ reset-epoch-s 3600))}]
+        (doseq [[label body]
+                [["raw JSON string"
+                  (str "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":" reset-epoch-s "}}")]
+                 ["keyword-keyed decoded map"
+                  {:error {:type "usage_limit_reached" :resets_at reset-epoch-s}}]
+                 ["string-keyed decoded map"
+                  {"error" {"type" "usage_limit_reached" "resets_at" reset-epoch-s}}]]]
+          (is (= expected
+                 (llm-providers.errors/rate-limit-wait headers body now-ms))
+              label))))
+
+    (testing "future retry-after takes precedence over chatgpt codex body reset"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 1800)
+            body {:error {:type "usage_limit_reached" :resets_at reset-epoch-s}}]
+        (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
+               (llm-providers.errors/rate-limit-wait
+                {"retry-after" "7"}
+                body
+                now-ms)))))
+
+    (testing "expired retry-after falls through to a future chatgpt codex body reset"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 1800)
+            body {:error {:type "usage_limit_reached" :resets_at reset-epoch-s}}
+            expired-http-date (.format java.time.format.DateTimeFormatter/RFC_1123_DATE_TIME
+                                       (.atZone (java.time.Instant/ofEpochMilli (- now-ms 60000))
+                                                (java.time.ZoneId/of "GMT")))]
+        (doseq [retry-after ["0" expired-http-date]]
+          (is (= {:delay-ms 1800000 :resets-at (* reset-epoch-s 1000)}
+                 (llm-providers.errors/rate-limit-wait
+                  {"retry-after" retry-after}
+                  body
+                  now-ms))))))
+
+    (testing "past chatgpt codex body reset falls through to a future lower-priority reset"
+      (let [past-reset-epoch-s (- (quot now-ms 1000) 60)
+            future-reset-epoch-s (+ (quot now-ms 1000) 30)]
+        (is (= {:delay-ms 30000 :resets-at (* future-reset-epoch-s 1000)}
+               (llm-providers.errors/rate-limit-wait
+                {"anthropic-ratelimit-unified-reset" (str future-reset-epoch-s)}
+                {:error {:type "usage_limit_reached" :resets_at past-reset-epoch-s}}
+                now-ms)))))
+
+    (testing "chatgpt codex quota-window headers are not retry instructions"
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 {"x-codex-primary-used-percent" "100"
+                  "x-codex-primary-reset-at" (str (+ (quot now-ms 1000) 3600))
+                  "x-codex-secondary-used-percent" "100"
+                  "x-codex-secondary-reset-at" (str (+ (quot now-ms 1000) 604800))}
+                 now-ms))))
+
+    (testing "past resets, malformed or absent reset data return nil"
+      (is (nil? (llm-providers.errors/rate-limit-wait {"retry-after" "0"} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait {"retry-after" "garbage"} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 {"anthropic-ratelimit-requests-reset" "not-a-date"} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 {"anthropic-ratelimit-requests-reset" (instant-str (- now-ms 30000))} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 nil
+                 "{\"error\":{\"type\":\"rate_limit_exceeded\",\"resets_at\":1000000060}}"
+                 now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait
+                 nil
+                 {:error {:type "usage_limit_reached"
+                          :resets_at (- (quot now-ms 1000) 60)}}
+                 now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait nil "not-json" now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait {} now-ms)))
+      (is (nil? (llm-providers.errors/rate-limit-wait nil now-ms))))))

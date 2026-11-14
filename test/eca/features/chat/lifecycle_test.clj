@@ -3,7 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [are deftest is testing]]
    [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.hooks :as f.hooks]
+   [eca.modules.hooks :as f.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 

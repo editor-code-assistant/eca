@@ -8,8 +8,8 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.commands :as f.commands]
-   [eca.features.hooks :as f.hooks]
    [eca.modules :as modules]
+   [eca.modules.hooks :as f.hooks]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))

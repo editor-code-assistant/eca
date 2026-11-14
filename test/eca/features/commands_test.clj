@@ -6,8 +6,8 @@
    [eca.db :as db]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.commands :as f.commands]
-   [eca.features.rules :as f.rules]
-   [eca.features.skills :as f.skills]
+   [eca.modules.rules :as f.rules]
+   [eca.modules.skills :as f.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))

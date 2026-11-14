@@ -202,7 +202,7 @@
    Dispatches on `[provider auth-type]`, using `:provider-base` (see
    `config/provider-base`) when present so inheriting providers get their
    parent's override. Implementations live in the provider
-   namespace (e.g. `eca.llm-providers.openai`) and return a map of
+   namespace (e.g. `eca.modules.providers.openai`) and return a map of
    model-id -> model-config in the same shape users put under
    `:providers <p> :models` (e.g. `{\"gpt-5.5\" {:limit {:context 272000}}}`),
    letting the generic catalog code apply them through the existing override

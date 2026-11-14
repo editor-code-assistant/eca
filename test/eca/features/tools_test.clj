@@ -4,10 +4,10 @@
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
-   [eca.features.rules :as f.rules]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.filesystem :as f.tools.filesystem]
-   [eca.features.tools.mcp :as f.mcp]
+   [eca.modules.mcp :as f.mcp]
+   [eca.modules.rules :as f.rules]
+   [eca.modules.tools.filesystem :as f.tools.filesystem]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))

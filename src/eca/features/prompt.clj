@@ -4,11 +4,11 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
-   [eca.features.skills :as f.skills]
-   [eca.features.tools.mcp :as f.mcp]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.mcp :as f.mcp]
+   [eca.modules.skills :as f.skills]
    [eca.shared :refer [multi-str] :as shared])
   (:import
    [java.util Map]))

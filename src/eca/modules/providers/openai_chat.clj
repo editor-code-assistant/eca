@@ -1,0 +1,846 @@
+(ns eca.modules.providers.openai-chat
+  (:require
+   [cheshire.core :as json]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
+   [eca.client-http :as client]
+   [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
+   [eca.modules.providers.variants :as variants]
+   [eca.shared :refer [assoc-some deep-merge join-api-url]]
+   [hato.client :as http]))
+
+(set! *warn-on-reflection* true)
+
+(def ^:private logger-tag "[OPENAI-CHAT]")
+
+(def ^:private chat-completions-path "/chat/completions")
+
+(defn ^:private new-internal-tool-call-id []
+  (str (random-uuid)))
+
+(defn ^:private parse-usage [usage]
+  (let [input-cache-read-tokens (-> usage :prompt_tokens_details :cached_tokens)]
+    {:input-tokens (if input-cache-read-tokens
+                     (- (:prompt_tokens usage) input-cache-read-tokens)
+                     (:prompt_tokens usage))
+     :output-tokens (:completion_tokens usage)
+     :input-cache-read-tokens input-cache-read-tokens}))
+
+(defn ^:private extract-content
+  "Extract text content from various message content formats.
+   Returns a string for text-only content, and an array only when images are present (multimodal)."
+  [content supports-image?]
+  (cond
+    ;; Legacy/fallback: handles system messages, error strings, or unexpected simple text content
+    (string? content)
+    (string/trim content)
+
+    (and (sequential? content)
+         (every? #(= "text" (name (:type %))) content))
+    (->> content (map :text) (remove nil?) (string/join "\n"))
+
+    (sequential? content)
+    (vec
+     (keep
+      #(case (name (:type %))
+
+         "text"
+         {:type "text"
+          :text (:text %)}
+
+         "image"
+         (when supports-image?
+           {:type "image_url"
+            :image_url {:url (format "data:%s;base64,%s"
+                                     (:media-type %)
+                                     (:base64 %))}})
+
+         %)
+      content))
+
+    :else
+    [{:type "text"
+      :text (str content)}]))
+
+(defn ^:private content-block-text
+  "Join the textual parts of a content-block field that may be a plain string
+   or a sequence of nested text chunks (e.g. Mistral's thinking chunk content)."
+  [v]
+  (cond
+    (string? v) v
+    (sequential? v) (->> v (keep :text) (string/join))))
+
+(defn ^:private split-stream-content
+  "Reasoning models on the chat-completions API (e.g. Mistral) may stream
+   `delta.content` (or return `message.content`) as a plain string OR as an
+   array of content blocks mixing visible text ({:type \"text\" :text ...})
+   and thinking chunks ({:type \"thinking\" :thinking <string|chunks> :closed bool}).
+   Returns {:text <string|nil> :thinking <string|nil>} so callers can route
+   visible text and reasoning separately instead of stringifying the raw EDN."
+  [content]
+  (cond
+    (string? content)
+    {:text content :thinking nil}
+
+    (sequential? content)
+    (reduce
+     (fn [acc block]
+       (case (some-> (:type block) name)
+         "text" (update acc :text str (:text block))
+         "thinking" (update acc :thinking str (content-block-text (:thinking block)))
+         acc))
+     {:text nil :thinking nil}
+     content)
+
+    :else
+    {:text nil :thinking nil}))
+
+(defn ^:private ->tools [tools]
+  (mapv (fn [tool]
+          {:type "function"
+           :function (-> (select-keys tool [:description :parameters])
+                         (assoc :name (:full-name tool)))})
+        tools))
+
+(defn ^:private response-body->result [{:keys [choices usage]} on-tools-called-wrapper]
+  (when (> (count choices) 1)
+    (throw (ex-info "Multiple choices in response!" {})))
+  (let [message (-> choices first :message)
+        tool-turn-id (when (seq (:tool_calls message)) (str (random-uuid)))
+        tools-to-call (->> (:tool_calls message)
+                           (map-indexed (fn [idx tool-call]
+                                          (cond-> (merge {:index idx
+                                                          ;; Provider-supplied tool_call_id is not safe to use as internal
+                                                          ;; identity (can be duplicated / contain spaces, etc).
+                                                          :id (new-internal-tool-call-id)
+                                                          :llm-tool-call-id (:id tool-call)
+                                                          :full-name (:name (:function tool-call))}
+                                                         ;; Invalid JSON marks the call with :arguments-error
+                                                         ;; for the chat to reject, as when streaming.
+                                                         (llm-util/parse-tool-call-arguments
+                                                          (:arguments (:function tool-call))))
+                                            tool-turn-id (assoc :tool-turn-id tool-turn-id)
+                                            ;; Preserve Google Gemini thought signatures
+                                            (get-in tool-call [:extra_content :google :thought_signature])
+                                            (assoc :external-id
+                                                   (get-in tool-call [:extra_content :google :thought_signature])))))
+                           vec)
+        ;; Mistral reasoning models return content as thinking + text chunks
+        {text :text thinking :thinking} (split-stream-content (:content message))
+        ;; DeepSeek returns reasoning_content, OpenAI o1 returns reasoning;
+        ;; Mistral thinking chunks count as delta reasoning, as when streaming
+        reasoning-content (or (:reasoning_content message)
+                              (not-empty thinking))]
+    {:usage (parse-usage usage)
+     :reason-id (str (random-uuid))
+     :tools-to-call tools-to-call
+     :call-tools-fn (fn [on-tools-called]
+                      (on-tools-called-wrapper tools-to-call on-tools-called nil))
+     :reason-text (or (:reasoning message)
+                      (:reasoning_text message)
+                      reasoning-content)
+     :reasoning-content reasoning-content
+     :output-text text}))
+
+(defn ^:private base-chat-request!
+  [{:keys [rid extra-headers body url-relative-path api-url api-key on-error on-stream on-response-headers
+           on-usage-updated on-tools-called-wrapper http-client cancelled? stream-idle-timeout-seconds]}]
+  (let [url (join-api-url api-url (or url-relative-path chat-completions-path))
+        extra-headers (if (fn? extra-headers)
+                        (extra-headers {:body body})
+                        extra-headers)
+        on-error (if on-stream
+                   on-error
+                   (fn [error-data]
+                     (llm-util/log-response logger-tag rid "response-error" error-data)
+                     {:error error-data}))
+        headers (client/merge-llm-headers
+                 (merge {"Authorization" (str "Bearer " api-key)
+                         "Content-Type" "application/json"}
+                        extra-headers))]
+    (llm-util/log-request logger-tag rid url body headers)
+    (try
+      (let [{:keys [status body] resp-headers :headers} (http/post
+                                                         url
+                                                         {:headers headers
+                                                          :body (json/generate-string body)
+                                                          :throw-exceptions? false
+                                                          :http-client (client/merge-with-global-http-client http-client)
+                                                          :as (if on-stream :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
+        (if (not= 200 status)
+          (let [body-str (if on-stream (slurp body) body)]
+            (logger/warn logger-tag rid "Unexpected response status: %s body: %s" status body-str)
+            (on-error {:message (format "LLM response status: %s body: %s" status body-str)
+                       :status status
+                       :body body-str
+                       :headers resp-headers}))
+          (if on-stream
+            (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))]
+              (try
+                (with-open [rdr (io/reader body)]
+                  ;; Usage is cumulative. Keep it outside reduce so a read failure
+                  ;; still reports the latest counts, once, before error handling.
+                  (let [last-usage* (atom nil)
+                        finish-reason (try
+                                        (reduce (fn [finish-reason [event data]]
+                                                  (set-reading-fn false)
+                                                  (touch-fn)
+                                                  (llm-util/log-response logger-tag rid event data)
+                                                  (when-let [usage (:usage data)]
+                                                    (reset! last-usage* (parse-usage usage)))
+                                                  (on-stream event data)
+                                                  (set-reading-fn true)
+                                                  (or (some :finish_reason (:choices data))
+                                                      finish-reason))
+                                                nil
+                                                ;; Final usage can follow finish_reason. Stop at [DONE]
+                                                ;; without waiting for the connection to close;
+                                                ;; normal EOF also ends streams that omit [DONE].
+                                                (llm-util/event-data-seq rdr :stop-on-done? true))
+                                        (finally
+                                          (set-reading-fn false)
+                                          (when-let [usage @last-usage*]
+                                            (on-usage-updated usage))))]
+                    ;; Usage must precede completion and synchronous tool rounds.
+                    ;; Never execute pending tools after a failed read.
+                    (on-stream "stream-end" {:finish-reason finish-reason})))
+                (catch java.io.IOException e
+                  (let [reason @reason*]
+                    (cond
+                      (= :cancelled reason)
+                      (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                      (= :idle-timeout reason)
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
+
+                      :else
+                      (throw e))))
+                (finally
+                  (stop-fn))))
+            (do
+              (llm-util/log-response logger-tag rid "full-response" body)
+              (response-body->result body on-tools-called-wrapper)))))
+      (catch Exception e
+        (on-error {:exception e
+                   :message (llm-util/connection-error-message e)})))))
+
+(defn ^:private replay-blocking-chunk?
+  "Whether a streamed chunk makes the current request unsafe to replay.
+   Text may be buffered for think-tag detection and nameless tool-call deltas
+   accumulate silently, so this inspects raw deltas instead of emitted callbacks.
+   Any chunk that changes parser state must block replay."
+  [event data]
+  (or (= "stream-end" event)
+      (boolean
+       (some (fn [{{:keys [content reasoning reasoning_content reasoning_text tool_calls]} :delta}]
+               (or (and (or (string? content) (sequential? content))
+                        (seq content))
+                   reasoning
+                   reasoning_content
+                   reasoning_text
+                   tool_calls))
+             (:choices data)))))
+
+(defn ^:private request-with-retry!
+  "Retries one exact post-tool request, never the tool execution that built it.
+   Retry decisions wait until the failed stream and its watchdog are closed."
+  [{:keys [on-error on-stream retry-request] :as request-opts}]
+  (letfn [(request! [attempt]
+            (let [replay-safe?* (atom true)
+                  error* (atom nil)]
+              (base-chat-request!
+               (assoc request-opts
+                      :on-error #(compare-and-set! error* nil %)
+                      :on-stream (fn [event data]
+                                   (when (replay-blocking-chunk? event data)
+                                     (reset! replay-safe?* false))
+                                   (on-stream event data))))
+              (when-let [error-data @error*]
+                (if (and retry-request
+                         (not (:silent? (ex-data (:exception error-data)))))
+                  (retry-request {:error-data error-data
+                                  :attempt attempt
+                                  :replay-safe? @replay-safe?*
+                                  :on-give-up on-error
+                                  :retry-fn request!})
+                  (on-error error-data)))))]
+    (request! 0)))
+
+(defn ^:private transform-message
+  "Transform a single ECA message to OpenAI format. Returns nil for unsupported roles.
+
+   For 'reason' messages:
+   - If :delta-reasoning? is set, emit as assistant message with reasoning_content field (DeepSeek-style),
+     or, when `dialect` is :mistral, as a `thinking` content chunk (#674)
+   - Otherwise, wrap the text in thinking tags (text-based reasoning fallback)
+
+   `dialect` names the vendor variant of the chat-completions format that the
+   target endpoint expects; nil is the common OpenAI-compatible one. Mistral
+   rejects any field outside its schema, so it gets no vendor extensions.
+
+   Defense-in-depth against #209: entries whose :content :api was tagged by
+   another provider (Anthropic signatures, OpenAI rs_*/encrypted_content,
+   toolu_*/call_* tool ids the chat-completions endpoint won't accept) are
+   dropped here. The primary safeguard is the central sanitizer in
+   eca.llm-api; this protects direct callers that bypass it."
+  [{:keys [role content] :as _msg} supports-image? think-tag-start think-tag-end & [dialect]]
+  (let [foreign-api? (let [origin (:api content)]
+                       (and origin (not= :openai-chat origin)))]
+    (case role
+      "tool_call" (when-not foreign-api?
+                    (let [tool-call-id (or (:llm-tool-call-id content) (:id content))]
+                      {:role "assistant"
+                       :tool_calls [(cond-> {:id       tool-call-id
+                                             :type     "function"
+                                             :function {:name      (:full-name content)
+                                                        :arguments (json/generate-string (or (:arguments content) {}))}}
+                                      ;; Preserve Google Gemini thought signatures if present
+                                      (and (:external-id content) (not= :mistral dialect))
+                                      (assoc-in [:extra_content :google :thought_signature]
+                                                (:external-id content)))]}))
+      ;; The chat-completions `tool` role can't carry image content, so when a
+      ;; tool result includes images (and the model supports image input) we
+      ;; emit the `tool` text message followed by a synthetic `user` message
+      ;; with `image_url` blocks (tagged `:tool-image?` for reordering). Mirrors
+      ;; the `openai-responses` round-trip (eca.modules.providers.openai/normalize-messages
+      ;; `tool_call_output` branch) and `anthropic`.
+      "tool_call_output" (when-not foreign-api?
+                           (let [tool-msg {:role "tool"
+                                           :tool_call_id (or (:llm-tool-call-id content) (:id content))
+                                           :content (llm-util/stringfy-tool-result content)}
+                                 image-contents (when supports-image?
+                                                  (seq (filter #(= :image (:type %))
+                                                               (-> content :output :contents))))]
+                             (if image-contents
+                               [tool-msg
+                                {:role "user"
+                                 :tool-image? true
+                                 :content (mapv (fn [img]
+                                                  {:type "image_url"
+                                                   :image_url {:url (format "data:%s;base64,%s"
+                                                                            (or (:media-type img) "image/png")
+                                                                            (:base64 img))}})
+                                                image-contents)}]
+                               tool-msg)))
+      "user" {:role "user"
+              :content (extract-content content supports-image?)}
+      "reason" (when-not foreign-api?
+                 (cond
+                   ;; Fallback: wrap in thinking tags for models that use text-based reasoning
+                   (not (:delta-reasoning? content))
+                   {:role "assistant"
+                    :content (str think-tag-start (:text content) think-tag-end)}
+
+                   ;; Mistral rejects reasoning_content; it takes reasoning back as a
+                   ;; `thinking` content chunk, merged with the turn's text/tool_calls (#674)
+                   (= :mistral dialect)
+                   (when-not (string/blank? (:text content))
+                     {:role "assistant"
+                      :content [{:type "thinking"
+                                 :thinking [{:type "text" :text (:text content)}]
+                                 :closed true}]})
+
+                   ;; DeepSeek-style: reasoning_content must be passed back to API
+                   :else
+                   {:role "assistant"
+                    :content ""
+                    :reasoning_content (:text content)}))
+      "assistant" {:role "assistant"
+                   :content (extract-content content supports-image?)}
+      "system" {:role "system"
+                :content (extract-content content supports-image?)}
+      nil)))
+
+(defn ^:private merge-assistant-messages
+  "Merge two assistant messages into one.
+   Concatenates contents and tool_calls, and preserves reasoning_content."
+  [prev msg]
+  (let [prev-content (:content prev)
+        msg-content (:content msg)
+        blank-string? (fn [s] (and (string? s) (string/blank? s)))
+        combined-content (cond
+                           (nil? prev-content)
+                           msg-content
+
+                           (nil? msg-content)
+                           prev-content
+
+                           (blank-string? prev-content)
+                           msg-content
+
+                           (blank-string? msg-content)
+                           prev-content
+
+                           (and (string? prev-content) (string? msg-content))
+                           (if (or (string/ends-with? prev-content "\n")
+                                   (string/starts-with? msg-content "\n"))
+                             (str prev-content msg-content)
+                             (str prev-content "\n" msg-content))
+
+                           (and (sequential? prev-content) (sequential? msg-content))
+                           (vec (concat prev-content msg-content))
+
+                           :else
+                           (let [as-seq (fn [c] (if (sequential? c) c [{:type "text" :text (str c)}]))]
+                             (vec (concat (as-seq prev-content) (as-seq msg-content)))))]
+    (cond-> {:role "assistant"
+             :content (or combined-content "")}
+      (or (:reasoning_content prev) (:reasoning_content msg))
+      (assoc :reasoning_content (str (:reasoning_content prev) (:reasoning_content msg)))
+
+      (or (:tool_calls prev) (:tool_calls msg))
+      (assoc :tool_calls (vec (concat (:tool_calls prev)
+                                      (:tool_calls msg)))))))
+
+(defn ^:private merge-adjacent-assistants
+  "Merge all adjacent assistant messages.
+   This is required by many OpenAI-compatible APIs (including DeepSeek)
+   which do not allow multiple consecutive assistant messages."
+  [messages]
+  (reduce
+   (fn [acc msg]
+     (let [prev (peek acc)]
+       (if (and (= "assistant" (:role prev))
+                (= "assistant" (:role msg)))
+         (conj (pop acc) (merge-assistant-messages prev msg))
+         (conj acc msg))))
+   []
+   messages))
+
+(defn ^:private valid-message?
+  "Check if a message should be included in the final output."
+  [{:keys [role content tool_calls reasoning_content] :as _msg}]
+  (or (= role "tool") ; Never remove tool messages
+      (seq tool_calls) ; Keep messages with tool calls
+      (seq reasoning_content) ; Keep messages with reasoning_content (DeepSeek)
+      (and (string? content)
+           (not (string/blank? content)))
+      (sequential? content)))
+
+(defn ^:private reorder-tool-turn
+  "Reorder messages: all tool_calls first (by index), then outputs (matching call order)."
+  [turn]
+  (let [{calls "tool_call" outputs "tool_call_output"} (group-by :role turn)
+        sorted-calls (sort-by #(get-in % [:content :index] Long/MAX_VALUE) calls)
+        call-id->pos (into {} (map-indexed (fn [i m] [(get-in m [:content :id]) i]) sorted-calls))]
+    (concat sorted-calls (sort-by #(call-id->pos (get-in % [:content :id])) outputs))))
+
+(defn ^:private group-parallel-tool-calls
+  "Groups tool_calls before their outputs, respecting tool-turn boundaries."
+  [messages]
+  (let [tool-msg? #(contains? #{"tool_call" "tool_call_output"} (:role %))]
+    (->> messages
+         (partition-by tool-msg?)
+         (mapcat (fn [group]
+                   (if-not (tool-msg? (first group))
+                     group
+                     ;; Reorder within the same tool-turn to avoid merging sequential
+                     ;; tool-call steps into a single parallel tool_calls turn.
+                     (let [turn-id #(get-in % [:content :tool-turn-id])]
+                       (->> (if (some turn-id group)
+                              (partition-by turn-id group)
+                              [group])
+                            (mapcat reorder-tool-turn)))))))))
+
+(defn ^:private reorder-tool-result-images
+  "OpenAI chat-completions requires every `tool` message to immediately follow
+   the assistant `tool_calls` message. Synthetic user image messages emitted for
+   tool results (tagged `:tool-image?`) are moved after the contiguous run of
+   tool messages and merged into a single user message, so parallel tool calls
+   returning images stay valid."
+  [messages]
+  (->> messages
+       (partition-by #(or (= "tool" (:role %)) (:tool-image? %)))
+       (mapcat (fn [group]
+                 (if (some #(= "tool" (:role %)) group)
+                   (let [{tools true imgs false} (group-by #(= "tool" (:role %)) group)]
+                     (cond-> (vec tools)
+                       (seq imgs) (conj {:role "user"
+                                         :content (vec (mapcat :content imgs))})))
+                   group)))))
+
+(defn ^:private normalize-messages
+  "Converts ECA message format to OpenAI API format (also used by compatible providers).
+
+   Key transformations:
+   - Groups parallel tool calls (tool_call messages) before their outputs
+   - Transforms each ECA message to API format (tool_call -> assistant with tool_calls, etc.)
+   - A single entry may expand into multiple messages (tool_call_output carrying
+     images -> tool message + synthetic user image message); these are flattened
+     and the image messages reordered after the tool run
+   - Merges adjacent assistant messages (required by OpenAI/DeepSeek APIs)
+   - Filters out invalid/empty messages
+
+   The pipeline: group tool calls -> transform -> flatten -> reorder tool images
+   -> merge adjacent assistants -> filter valid"
+  [messages supports-image? think-tag-start think-tag-end & [dialect]]
+  (->> messages
+       group-parallel-tool-calls
+       (map #(transform-message % supports-image? think-tag-start think-tag-end dialect))
+       (remove nil?)
+       (mapcat #(if (vector? %) % [%]))
+       reorder-tool-result-images
+       merge-adjacent-assistants
+       (filter valid-message?)))
+
+(defn ^:private execute-accumulated-tools!
+  [tool-calls* on-tools-called-wrapper on-tools-called handle-response]
+  (let [all-accumulated (->> (vals @tool-calls*)
+                             ;; The accumulator is a map; ensure deterministic tool execution order.
+                             ;; :index comes from OpenAI API, :stream-order is fallback for providers without it.
+                             (sort-by #(or (:index %) (:stream-order %) 0)))
+        ;; Calls with invalid JSON arguments are kept, marked with :arguments-error:
+        ;; the chat rejects them with the error as their result, so the LLM can retry.
+        completed-tools (->> all-accumulated
+                             (filter #(every? % [:id :full-name :arguments-text]))
+                             (map (fn [{:keys [arguments-text] :as tool-call}]
+                                    (merge tool-call (llm-util/parse-tool-call-arguments arguments-text)))))]
+    (when (seq completed-tools)
+      (let [tool-turn-id (str (random-uuid))
+            tools-with-turn-id (mapv #(assoc % :tool-turn-id tool-turn-id) completed-tools)]
+        (on-tools-called-wrapper tools-with-turn-id on-tools-called handle-response)
+        tools-with-turn-id))))
+
+(defn ^:private process-text-think-aware
+  "Incremental parser that splits streamed content into user text and thinking blocks.
+   - Maintains a rolling buffer across chunks to handle tags that may be split across chunks
+   - Outside thinking: emit user text up to <think> and keep a small tail to detect split tags
+   - Inside thinking: emit reasoning up to </think> and keep a small tail to detect split tags
+   - When a tag boundary is found, open/close the reasoning block accordingly
+
+   Uses a combined reasoning-state* atom with keys: :id, :type, :content, :buffer"
+  [text reasoning-state* think-tag-start think-tag-end on-message-received on-reason]
+  (let [start-len (count think-tag-start)
+        end-len (count think-tag-end)
+        ;; Keep a small tail to detect tags split across chunk boundaries.
+        ;; Invariant: buffer length is bounded by max(start-tail, end-tail) so it cannot grow unbounded.
+        start-tail (max 0 (dec start-len))
+        end-tail (max 0 (dec end-len))
+        emit-text! (fn [^String s]
+                     (when (pos? (count s))
+                       (on-message-received {:type :text :text s})))
+        emit-think! (fn [^String s id]
+                      (when (and (pos? (count s)) id)
+                        (on-reason {:status :thinking :id id :text s})))]
+    (when (and (string? text) (seq text))
+      ;; Add new text to buffer
+      (swap! reasoning-state* update :buffer str text)
+      (loop []
+        (let [state        @reasoning-state*
+              ^String buf  (:buffer state)
+              current-type (:type state)
+              current-id   (:id state)]
+          (if (= current-type :tag)
+            ;; Inside a thinking block; look for end tag
+            (let [idx (.indexOf buf ^String think-tag-end)]
+              (if (>= idx 0)
+                (let [before (.substring buf 0 idx)
+                      after  (.substring buf (+ idx end-len))]
+                  (when current-id (emit-think! before current-id))
+                  (swap! reasoning-state* assoc :buffer after)
+                  ;; Finish thinking block
+                  (when current-id
+                    (on-reason {:status :finished :id current-id}))
+                  (swap! reasoning-state* assoc :type nil :id nil)
+                  (recur))
+                (let [emit-len (max 0 (- (count buf) end-tail))]
+                  (when (pos? emit-len)
+                    (when current-id (emit-think! (.substring buf 0 emit-len) current-id))
+                    (swap! reasoning-state* assoc :buffer (.substring buf emit-len))))))
+            ;; Outside a thinking block; look for start tag
+            (let [idx (.indexOf buf ^String think-tag-start)]
+              (if (>= idx 0)
+                (let [before (.substring buf 0 idx)
+                      after  (.substring buf (+ idx start-len))]
+                  (emit-text! before)
+                  ;; Start thinking block
+                  (let [new-id (str (random-uuid))]
+                    (swap! reasoning-state* assoc
+                           :id new-id
+                           :type :tag
+                           :buffer after)
+                    (on-reason {:status :started :id new-id})
+                    (recur)))
+                (let [emit-len (max 0 (- (count buf) start-tail))]
+                  (when (pos? emit-len)
+                    (emit-text! (.substring buf 0 emit-len))
+                    (swap! reasoning-state* assoc :buffer (.substring buf emit-len))))))))))))
+
+(defn ^:private finish-reasoning!
+  "Finish the current reasoning block if present and reset the state.
+   Call this after flushing buffered chunks when streaming."
+  [reasoning-state* on-reason]
+  (let [state @reasoning-state*]
+    (when (and (:type state) (:id state))
+      (on-reason {:status :finished
+                  :id (:id state)
+                  :delta-reasoning? (= (:type state) :delta)}))
+    (reset! reasoning-state* {:id nil :type nil :content "" :buffer ""})))
+
+(defn ^:private prune-history
+  "Discard reasoning messages from history based on reasoning-history mode.
+
+   Parameters:
+   - messages: the conversation history
+   - reasoning-history: controls reasoning retention
+     - :all  - preserve all reasoning in history (safe default)
+     - :turn - preserve reasoning only in the current turn (after last user message)
+     - :off  - discard all reasoning messages"
+  [messages reasoning-history]
+  (case reasoning-history
+    :all messages
+    :off (filterv #(not= "reason" (:role %)) messages)
+    :turn (if-let [last-user-idx (llm-util/find-last-user-msg-idx messages)]
+            (->> messages
+                 (keep-indexed (fn [i m]
+                                 (when-not (and (= "reason" (:role m))
+                                                (< i last-user-idx))
+                                   m)))
+                 vec)
+            messages)
+    messages))
+
+(defn chat-completion!
+  "Primary entry point for OpenAI chat completions with streaming support.
+
+   Handles the full conversation flow including tool calls, streaming responses,
+   and message normalization. Supports both single and parallel tool execution.
+   Compatible with OpenRouter and other OpenAI-compatible providers.
+
+   `:dialect :mistral` sends history in Mistral's format: past delta reasoning
+   as `thinking` content chunks, and no vendor extensions (see `transform-message`)."
+  [{:keys [model user-messages instructions temperature api-key api-url url-relative-path
+           max-output-tokens past-messages tools extra-payload extra-headers supports-image?
+           think-tag-start think-tag-end reasoning-history dialect http-client cancelled?
+           stream-idle-timeout-seconds]}
+   {:keys [on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
+           on-response-headers retry-request] :as callbacks}]
+  (let [think-tag-start (or think-tag-start "<think>")
+        think-tag-end (or think-tag-end "</think>")
+        stream? (boolean callbacks)
+        system-messages (when instructions [{:role "system" :content instructions}])
+        ;; Pipeline: prune history -> normalize -> merge adjacent assistants -> filter
+        all-messages (prune-history (vec (concat past-messages user-messages)) reasoning-history)
+        messages (vec (concat
+                       system-messages
+                       (normalize-messages all-messages supports-image? think-tag-start think-tag-end dialect)))
+
+        body (deep-merge
+              (assoc-some
+               {:model model
+                :messages messages
+                :stream stream?
+                :max_completion_tokens (or max-output-tokens 32000)}
+               :temperature temperature
+               :tools (when (seq tools) (->tools tools))
+               ;; Required by the OpenAI streaming spec to receive a final
+               ;; chunk with `usage`. Strict OpenAI-compat servers (e.g. Gemini
+               ;; via `/v1beta/openai`) omit usage without this flag.
+               :stream_options (when stream? {:include_usage true}))
+              extra-payload)
+
+        ;; Atom to accumulate tool call data from streaming chunks.
+        ;; OpenAI streams tool call arguments across multiple chunks, so we need to
+        ;; accumulate partial JSON strings before parsing them. Keys are tool call
+        ;; indices (fallback: IDs) to keep chunks grouped for the active response.
+        tool-calls* (atom {})
+
+        ;; Reasoning state machine:
+        ;; - :type nil   = not in reasoning block
+        ;; - :type :tag  = inside <think>...</think> tags (text-based reasoning)
+        ;; - :type :delta = receiving reasoning_content deltas (DeepSeek/OpenAI o1 style)
+        ;; :content accumulates reasoning_content for echo back; :buffer holds partial text for tag detection
+        reasoning-state* (atom {:id nil
+                                :type nil
+                                :content ""
+                                :buffer ""})
+        flush-content-buffer (fn []
+                               (let [state @reasoning-state*
+                                     buf (:buffer state)]
+                                 (when (pos? (count buf))
+                                   (if (= (:type state) :tag)
+                                     (when (:id state)
+                                       (on-reason {:status :thinking :id (:id state) :text buf}))
+                                     (on-message-received {:type :text :text buf}))
+                                   (swap! reasoning-state* assoc :buffer ""))))
+        close-reasoning! (fn []
+                           (flush-content-buffer)
+                           (finish-reasoning! reasoning-state* on-reason))
+        wrapped-on-error (fn [error-data]
+                           (close-reasoning!)
+                           (on-error error-data))
+        start-delta-reasoning (fn []
+                                (let [new-reason-id (str (random-uuid))]
+                                  (swap! reasoning-state* assoc
+                                         :id new-reason-id
+                                         :type :delta
+                                         :content ""
+                                         :buffer "")
+                                  (on-reason {:status :started :id new-reason-id})))
+        find-existing-tool-key (fn [tool-calls index id]
+                                 ;; Find existing tool call by id match, or by index when delta has no id
+                                 (some (fn [[k v]] (when (or (some-> id (= (:llm-tool-call-id v)))
+                                                             (and (nil? id)
+                                                                  (some-> index (= (:index v)))))
+                                                     k))
+                                       tool-calls))
+        on-tools-called-wrapper (fn on-tools-called-wrapper [tools-to-call on-tools-called handle-response]
+                                  (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tools-to-call)]
+                                    (let [new-messages (message-sanitize/sanitize-outbound-messages new-messages)
+                                          pruned-messages (prune-history new-messages reasoning-history)
+                                          new-messages-list (vec (concat
+                                                                  system-messages
+                                                                  (normalize-messages pruned-messages supports-image? think-tag-start think-tag-end dialect)))
+                                          request-opts {:rid (llm-util/gen-rid)
+                                                        :body (assoc-some body
+                                                                          :messages new-messages-list
+                                                                          :tools (when (seq tools) (->tools tools)))
+                                                        :on-tools-called-wrapper on-tools-called-wrapper
+                                                        :extra-headers extra-headers
+                                                        :http-client http-client
+                                                        :api-url api-url
+                                                        :api-key (or fresh-api-key api-key)
+                                                        :url-relative-path url-relative-path
+                                                        :cancelled? cancelled?
+                                                        :stream-idle-timeout-seconds stream-idle-timeout-seconds
+                                                        :on-error wrapped-on-error
+                                                        :on-response-headers on-response-headers
+                                                        :on-usage-updated on-usage-updated}]
+                                      (reset! tool-calls* {})
+                                      (if stream?
+                                        (request-with-retry!
+                                         (assoc request-opts
+                                                :retry-request retry-request
+                                                :on-stream (fn [event data] (handle-response event data tool-calls*))))
+                                        (base-chat-request! request-opts)))))
+
+        handle-response (fn handle-response [event data tool-calls*]
+                          (if (= event "stream-end")
+                            (let [had-tool-calls? (seq @tool-calls*)]
+                              (close-reasoning!)
+                              (if had-tool-calls?
+                                (when (nil? (execute-accumulated-tools! tool-calls* on-tools-called-wrapper on-tools-called handle-response))
+                                  ;; No complete tool call (e.g. one without a name): finish so the UI does not hang.
+                                  (on-message-received {:type :finish :finish-reason "stop"}))
+                                (when-let [finish-reason (:finish-reason data)]
+                                  (when (not= finish-reason "tool_calls")
+                                    (on-message-received {:type :finish :finish-reason finish-reason})))))
+                            (when (seq (:choices data))
+                              (doseq [choice (:choices data)]
+                                (let [delta (:delta choice)
+                                      finish-reason (:finish_reason choice)]
+                                  ;; Content may be a plain string or, for reasoning models on the
+                                  ;; chat-completions API (e.g. Mistral), an array of content blocks
+                                  ;; mixing visible text and thinking chunks. Split them so thinking is
+                                  ;; routed to reasoning instead of being stringified into chat text.
+                                  (let [{text-content :text block-thinking :thinking} (split-stream-content (:content delta))
+                                        ;; o1/DeepSeek expose reasoning via dedicated fields; Mistral via thinking blocks.
+                                        reasoning-text (or (:reasoning delta)
+                                                           (:reasoning_content delta)
+                                                           (:reasoning_text delta)
+                                                           (not-empty block-thinking))
+                                        process-text! #(when (seq text-content)
+                                                         (process-text-think-aware text-content reasoning-state* think-tag-start think-tag-end on-message-received on-reason))
+                                        ;; Inside <think> tags the content is reasoning too, so it keeps its place.
+                                        in-think-tag? (= :tag (:type @reasoning-state*))]
+                                    (when in-think-tag?
+                                      (process-text!))
+
+                                    ;; A chunk can carry reasoning and text together (e.g. DeepSeek at the
+                                    ;; reasoning/text boundary): emit its reasoning first, then its text.
+                                    (when (seq reasoning-text)
+                                      (when-not (= (:type @reasoning-state*) :delta)
+                                        (close-reasoning!)
+                                        (start-delta-reasoning))
+                                      (on-reason {:status :thinking
+                                                  :id (:id @reasoning-state*)
+                                                  :text reasoning-text}))
+
+                                    (when (and (= (:type @reasoning-state*) :delta)
+                                               (or (seq text-content) (nil? reasoning-text)))
+                                      (close-reasoning!))
+
+                                    (when-not in-think-tag?
+                                      (process-text!)))
+
+                                  ;; Process tool calls if present
+                                  (when (:tool_calls delta)
+                                    ;; Flush any leftover buffered content before finishing
+                                    (flush-content-buffer)
+                                    (doseq [tool-call (:tool_calls delta)]
+                                      (let [{:keys [index function extra_content]} tool-call
+                                            ;; Normalize empty-string id to nil: some providers (e.g. DashScope/Qwen Cloud)
+                                            ;; send `id: ""` in subsequent chunks instead of omitting the field.
+                                            id (not-empty (:id tool-call))
+                                            {name :name args :arguments} function
+                                            ;; Extract Google Gemini thought signature if present
+                                            thought-signature (get-in extra_content [:google :thought_signature])
+                                            existing-key (find-existing-tool-key @tool-calls* index id)
+                                            existing (when existing-key (get @tool-calls* existing-key))
+                                            ;; Prefer id over index - Gemini sends all parallel tool calls with index=0
+                                            tool-key (or existing-key id index)]
+                                        (if (nil? tool-key)
+                                          (logger/warn logger-tag "Received tool_call delta without index/id; ignoring"
+                                                       {:tool-call tool-call})
+                                          (do
+                                            (swap! tool-calls*
+                                                   (fn [tool-calls]
+                                                     (let [existing (get tool-calls tool-key)
+                                                           created? (nil? existing)
+                                                           tool-call (cond-> (or existing {:index index})
+                                                                       ;; Providers may omit tool_calls[].index; preserve
+                                                                       ;; stream arrival order for a stable UX fallback.
+                                                                       created? (assoc :stream-order (count tool-calls))
+                                                                       created? (assoc :id (new-internal-tool-call-id))
+                                                                       (some? index) (assoc :index index)
+                                                                       (and id (nil? (:llm-tool-call-id existing))) (assoc :llm-tool-call-id id)
+                                                                       (and name (nil? (:full-name existing))) (assoc :full-name name)
+                                                                       args (update :arguments-text (fnil str "") args)
+                                                                       ;; Store thought signature for Google Gemini
+                                                                       thought-signature (assoc :external-id thought-signature))]
+                                                       (assoc tool-calls tool-key tool-call))))
+                                            (when-let [updated-tool-call (get @tool-calls* tool-key)]
+                                              ;; Streaming tool_calls may split metadata (id/name) and arguments across deltas.
+                                              ;; Emit prepare once we can correlate the call (id + full-name), on first id or args deltas,
+                                              ;; so :tool-prepare always precedes :tool-run in the tool-call state machine.
+                                              (when (and (:id updated-tool-call)
+                                                         (:full-name updated-tool-call)
+                                                         (or (nil? (:id existing)) args))
+                                                (on-prepare-tool-call
+                                                 (assoc updated-tool-call
+                                                        :arguments-text (or args ""))))))))))
+                                  ;; Flush content now, but defer :finish until stream-end
+                                  ;; so final usage is recorded before the chat is saved.
+                                  (when finish-reason
+                                    (close-reasoning!)))))))
+        rid (llm-util/gen-rid)]
+    (base-chat-request!
+     {:rid rid
+      :body body
+      :extra-headers extra-headers
+      :api-url api-url
+      :api-key api-key
+      :http-client http-client
+      :url-relative-path url-relative-path
+      :tool-calls* tool-calls*
+      :on-tools-called-wrapper on-tools-called-wrapper
+      :cancelled? cancelled?
+      :stream-idle-timeout-seconds stream-idle-timeout-seconds
+      :on-error wrapped-on-error
+      :on-response-headers on-response-headers
+      :on-usage-updated on-usage-updated
+      :on-stream (when stream?
+                   (fn [event data] (handle-response event data tool-calls*)))})))
+
+(def api-module
+  {:id :eca/api-openai-chat
+   :description "The OpenAI Chat Completions API, which OpenAI-compatible providers speak."
+   :apis {"openai-chat" {:handler (fn [_ctx request callbacks] (chat-completion! request callbacks))}}
+   :config-defaults {:variantsByModel (merge variants/openai-chat variants/any-api)}})
