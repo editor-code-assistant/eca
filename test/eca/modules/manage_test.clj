@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.features.commands :as f.commands]
    [eca.modules :as modules]
    [eca.modules.skills :as f.skills]
    [eca.test-helper :as h]
@@ -21,12 +22,15 @@
     (is (match? [{:name "eca-info" :module :eca/manage :body var?}
                  {:name "eca-manage" :module :eca/manage :body var?}]
                 (f.skills/all {:pureConfig true} []))))
-  (testing "they don't depend on eca/create"
-    (is (= ["eca-info" "eca-manage"]
-           (map :name (f.skills/all {:pureConfig true :modules {:eca/create {:enabled false}}} [])))))
-  (testing "turning eca/manage off drops them; it needs eca/skills"
-    (is (empty? (f.skills/all {:pureConfig true :modules {:eca/manage {:enabled false}}} [])))
-    (is (not (modules/active? {:modules {:eca/skills {:enabled false}}} :eca/manage)))))
+  (testing "turning eca/manage off drops them"
+    (is (empty? (f.skills/all {:pureConfig true :modules {:eca/manage {:enabled false}}} [])))))
+
+(deftest commands-test
+  (testing "/init and /skill-create come from eca/manage"
+    (is (= :eca/manage (:id (:entry (#'f.commands/find-module-command "init" {})))))
+    (is (= :eca/manage (:id (:entry (#'f.commands/find-module-command "skill-create" {}))))))
+  (testing "eca/manage stays on without eca/skills, for its commands"
+    (is (modules/active? {:modules {:eca/skills {:enabled false}}} :eca/manage))))
 
 (deftest skill-tool-test
   (testing "the skill tool builds eca-info's body with all skills"

@@ -11,7 +11,6 @@
    [eca.modules.approval :as approval]
    [eca.modules.compact-as-summary :as compact-as-summary]
    [eca.modules.core :as core]
-   [eca.modules.create :as create]
    [eca.modules.custom-commands :as custom-commands]
    [eca.modules.hooks :as hooks]
    [eca.modules.manage :as manage]
@@ -70,7 +69,6 @@
    subagent-general/module
    ;; skills, rules, tool search
    skills/module
-   manage/module
    rules/module
    tool-search/module
    ;; MCP
@@ -83,7 +81,7 @@
    ;; chat behavior
    approval/module
    compact-as-summary/module
-   create/module
+   manage/module
    ;; editor features
    repo-map/module
    ;; APIs, each in its provider's namespace

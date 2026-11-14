@@ -19,7 +19,7 @@
     (is (every? #(= :native (:type %)) (take 34 (f.commands/all-commands (h/db) {})))))
   (testing "disabling a module removes its commands"
     (let [names (set (command-names {:modules {:eca/plugins {:enabled false}
-                                               :eca/create {:enabled false}}}))]
+                                               :eca/manage {:enabled false}}}))]
       (is (not (contains? names "plugins")))
       (is (not (contains? names "plugin-install")))
       (is (not (contains? names "init")))

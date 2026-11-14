@@ -1,15 +1,18 @@
 (ns eca.modules.manage
-  "The `:eca/manage` module: two skills about ECA itself, `eca-info`, a
-   report of the running ECA to debug it, and `eca-manage`, how to change
-   ECA, from its config to modules, following its docs. Their bodies are
-   built when the model loads them, from the live db and config."
+  "The `:eca/manage` module: setting up, debugging and changing ECA itself.
+   Commands: `/init` writes AGENTS.md, `/skill-create` a skill. Skills:
+   `eca-info`, a report of the running ECA to debug it, and `eca-manage`,
+   how to change ECA, from its config to modules, following its docs; their
+   bodies are built when the model loads them, from the live db and config."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.prompt :as f.prompt]
    [eca.llm-util :as llm-util]
    [eca.modules :as modules]
+   [eca.modules.skills :as f.skills]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -18,6 +21,8 @@
    [java.time.format DateTimeFormatter]))
 
 (set! *warn-on-reflection* true)
+
+;; --- Skills: eca-info's report, eca-manage's text
 
 (defn ^:private format-expires-at [^long expires-at]
   (let [instant (Instant/ofEpochSecond expires-at)
@@ -240,11 +245,50 @@
    ""
    (this-eca-section config)))
 
+;; --- Commands
+
+(defn ^:private init-prompt [all-tools agent-name db config]
+  (shared/safe-selmer-render
+   (f.prompt/get-config-prompt :init agent-name config)
+   (f.prompt/->base-selmer-ctx all-tools db)
+   "init-prompt"))
+
+(defn ^:private skill-create-prompt [skill-name user-prompt all-tools agent-name db config]
+  (shared/safe-selmer-render
+   (f.prompt/get-config-prompt :skillCreate agent-name config)
+   (merge
+    (f.prompt/->base-selmer-ctx all-tools db)
+    {:skillFilePath (str (fs/file (f.skills/global-skills-dir) skill-name "SKILL.md"))
+     :skillName skill-name
+     :userPrompt user-prompt})
+   "skill-create-prompt"))
+
+(defn ^:private init-command [{:keys [chat-id db* config agent all-tools]} _args]
+  {:type :send-prompt
+   :on-finished-side-effect (fn []
+                              (swap! db* assoc-in [:chats chat-id :messages] []))
+   :prompt (init-prompt all-tools agent @db* config)})
+
+(defn ^:private skill-create-command [{:keys [db* config agent all-tools]} {args :argv}]
+  (let [skill-name (first args)
+        user-prompt (second args)]
+    {:type :send-prompt
+     :prompt (skill-create-prompt skill-name user-prompt all-tools agent @db* config)}))
+
 (def module
   {:id :eca/manage
-   :description "Skills about ECA itself: eca-info, to debug it, and eca-manage, to change it."
-   :requires #{:eca/skills}
-   ;; each :body gets the skill tool's ctx plus :skills, all skills
+   :description "Set up, debug and change ECA: /init, /skill-create, and the eca-info and eca-manage skills."
+   :config-spec {:prompts {:init {:type :string :default "${classpath:prompts/init.md}"}
+                           :skillCreate {:type :string :default "${classpath:prompts/skill_create.md}"}}}
+   :commands {"init" {:description "Create/update the AGENTS.md file teaching LLM about the project"
+                      :arguments []
+                      :handler #'init-command}
+              "skill-create" {:description "Create a skill considering a user request"
+                              :arguments [{:name "name" :description "The skill name" :required true}
+                                          {:name "prompt" :description "What to consider as this skill content" :required true}]
+                              :handler #'skill-create-command}}
+   ;; eca/skills lists them, when active; each :body gets the skill tool's
+   ;; ctx plus :skills, all skills
    :skills [{:name "eca-info"
              :description (str "Inspect running ECA for self-debug: versions, "
                                "client, default model, providers/auth, MCP servers "
