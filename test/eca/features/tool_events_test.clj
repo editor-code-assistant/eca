@@ -203,8 +203,9 @@
              (shell/before-exec (ctx) {:cwd "/tmp" :file "/tmp/it's.sh"} {:source :hook})))
       (is (match? [{:command "bash '/tmp/it'\\''s.sh'"}] @events*)))))
 
-(deftest shell-tool-before-exec-test
-  (when-not h/windows?
+;; needs a POSIX shell; on Windows the test doesn't exist (one without assertions fails)
+(when-not h/windows?
+  (deftest shell-tool-before-exec-test
     (let [shell-command (get-in m.shell/definitions ["shell_command" :handler])
           tool-ctx {:db (h/db) :config (h/config) :chat-id "chat-1"
                     :call-state-fn (constantly {:status :executing})

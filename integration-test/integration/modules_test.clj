@@ -135,7 +135,7 @@
       (is (pos-int? port)))
 
     (testing "a client evaluates code through it, with eca.api on the live session"
-      (is (match? {:value ":active" :out "hi\n"}
+      (is (match? {:value ":active" :out (str "hi" (System/lineSeparator))}
                   (nrepl-eval port (str "(require '[eca.api :as eca] '[eca.api.dev :as dev])"
                                         "(println \"hi\")"
                                         "(eca/notify! (dev/ctx) \"Hello from the REPL\")"

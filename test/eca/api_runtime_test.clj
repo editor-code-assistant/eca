@@ -86,8 +86,9 @@
     (testing "ids that aren't file names are made safe"
       (is (string/ends-with? (str (modules.data/chat-dir (h/db) :acme/x "../../etc")) "_.._etc")))))
 
-(deftest shell-test
-  (when-not h/windows?
+;; needs a POSIX shell; on Windows the test doesn't exist (one without assertions fails)
+(when-not h/windows?
+  (deftest shell-test
     (testing "runs a command and waits for it"
       (is (= {:exit 0 :out "hi\n" :err ""} (eca/shell! (ctx) "echo hi"))))
     (testing "env, input and cwd"

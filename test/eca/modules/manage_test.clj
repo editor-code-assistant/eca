@@ -52,7 +52,8 @@
     (try
       (let [config {:pureConfig true}
             skill (skill-named config "eca-manage")
-            body ((:body skill) {:db {} :config config :skills [skill]})]
+            ;; its text is a resource: CRLF in a Windows checkout
+            body (string/replace ((:body skill) {:db {} :config config :skills [skill]}) "\r\n" "\n")]
         (is (string/starts-with? body "# Changing ECA\n"))
         (is (string/includes? body "https://eca.dev/config.json"))
         (is (string/includes? body (str "- Version: " (config/eca-version) ".")))

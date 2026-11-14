@@ -106,7 +106,7 @@
       (let [conn (connect! port)]
         (testing "it evaluates code in the modules' SCI context"
           (is (= {:value "3" :out "" :err ""} (eval! conn "(+ 1 2)")))
-          (is (match? {:value "true" :out "hi\n"}
+          (is (match? {:value "true" :out (str "hi" (System/lineSeparator))}
                       (eval! conn (str "(require '[eca.api.dev :as dev])"
                                        "(println \"hi\")"
                                        "(boolean (some #(= :eca/repl (:id %)) (dev/modules)))")))))
