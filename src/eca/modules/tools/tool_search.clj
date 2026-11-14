@@ -13,8 +13,6 @@
 
 (def tool-name "search_tools")
 
-(def tool-full-name (str "eca__" tool-name))
-
 (def ^:private default-max-results 10)
 (def ^:private max-max-results 50)
 

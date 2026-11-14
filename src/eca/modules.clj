@@ -33,11 +33,9 @@
 
 (def ^:private logger-tag "[MODULES]")
 
-(def api-version
-  "The module API version this ECA implements."
-  1)
-
-(def ^:private supported-api-versions #{1})
+(def ^:private supported-api-versions
+  "The module API versions this ECA implements (a module's `:api`)."
+  #{1})
 
 (def built-in-priority -100)
 (def external-priority 0)
@@ -625,12 +623,6 @@
   "The value `:start` returned for module `id`."
   [id]
   (get-in @registry* [:state id]))
-
-(defn swap-state!
-  "Swaps module `id`'s state."
-  [id f & args]
-  (get-in (swap! registry* (fn [registry] (apply update-in registry [:state id] f args)))
-          [:state id]))
 
 (defn running
   "The modules whose `:start` ran, in start order: [{:entry :spec-values}]."
