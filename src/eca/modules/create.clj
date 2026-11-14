@@ -1,6 +1,6 @@
 (ns eca.modules.create
-  "The `:eca/create` module: helps the user set up and change ECA, with
-   `/init` (AGENTS.md), `/skill-create` and the built-in `eca-manage` skill."
+  "The `:eca/create` module: helps the user set up ECA, with `/init`
+   (AGENTS.md) and `/skill-create`."
   (:require
    [babashka.fs :as fs]
    [eca.features.prompt :as f.prompt]
@@ -39,7 +39,7 @@
 
 (def module
   {:id :eca/create
-   :description "Help the user set up and change ECA: AGENTS.md, skills, and the eca-manage skill."
+   :description "Help the user set up ECA: AGENTS.md and new skills."
    :config-spec {:prompts {:init {:type :string :default "${classpath:prompts/init.md}"}
                            :skillCreate {:type :string :default "${classpath:prompts/skill_create.md}"}}}
    :commands {"init" {:description "Create/update the AGENTS.md file teaching LLM about the project"

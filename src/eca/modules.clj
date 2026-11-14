@@ -54,9 +54,9 @@
     :config-spec :start :stop :tools :prefix :commands :system-prompts
     :providers :apis :config-defaults :event-handlers :defines})
 
-(def ^:private built-in-only-keys #{:rpc :agents})
+(def ^:private built-in-only-keys #{:rpc :agents :skills})
 
-(def ^:private later-keys #{:activation :strategies :skills :rules :contexts :capabilities :ui})
+(def ^:private later-keys #{:activation :strategies :rules :contexts :capabilities :ui})
 
 ;; --- Registry
 
@@ -150,6 +150,23 @@
       (and (some? (:description command)) (not (string? (:description command)))) (conj ":description must be a string")
       (and (some? (:arguments command)) (not (sequential? (:arguments command)))) (conj ":arguments must be a vector"))))
 
+(defn ^:private skill-problems [skill]
+  (if-not (map? skill)
+    ["must be a map"]
+    (cond-> []
+      (not (and (string? (:name skill)) (not (string/blank? (:name skill))))) (conj ":name must be a non-blank string")
+      (not (string? (:description skill))) (conj ":description must be a string")
+      (not (or (string? (:body skill)) (fn-like? (:body skill)))) (conj ":body must be a string or a function"))))
+
+(defn ^:private skills-problems [skills]
+  (cond
+    (nil? skills) []
+    (not (sequential? skills)) [":skills must be a vector of skills"]
+    :else (vec (mapcat (fn [skill]
+                         (map #(format ":skills %s: %s" (pr-str (when (map? skill) (:name skill))) %)
+                              (skill-problems skill)))
+                       skills))))
+
 (defn ^:private handler-spec-problems [spec]
   (letfn [(one [h]
             (cond
@@ -235,6 +252,7 @@
                     [":config-defaults must be a map or a function"])
                   (when (and (some? (:agents module)) (not (fn-like? (:agents module))))
                     [":agents must be a function"])
+                  (skills-problems (:skills module))
                   (map-of-problems ":event-handlers" event-handlers qualified-kw? "a qualified keyword" handler-spec-problems)
                   (defines-problems (:defines module))
                   (when (and (not built-in?) (some built-in-only-keys ks))

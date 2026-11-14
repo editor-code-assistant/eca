@@ -142,6 +142,15 @@
       (finally
         (fs/delete-tree tmp-dir)))))
 
+(deftest module-skill-command-test
+  (testing "a skill whose body is a function asks the model to load it, also with arguments"
+    (with-redefs [f.skills/all (constantly [{:name "report" :body (fn [_ctx] "Report") :module :eca/test}])]
+      (let [ctx (assoc (command-context "chat-1") :config {:pureConfig true})]
+        (is (= {:type :send-prompt :prompt "Load skill: report"}
+               (f.commands/handle-command! "report" [] ctx)))
+        (is (= {:type :send-prompt :prompt "Load skill: report"}
+               (f.commands/handle-command! "report" ["now"] ctx)))))))
+
 (deftest substitute-args-test
   (testing "replaces $ARGS with all args joined"
     (is (= "Review https://github.com/org/repo/pull/1"

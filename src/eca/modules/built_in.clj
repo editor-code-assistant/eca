@@ -14,6 +14,7 @@
    [eca.modules.create :as create]
    [eca.modules.custom-commands :as custom-commands]
    [eca.modules.hooks :as hooks]
+   [eca.modules.manage :as manage]
    [eca.modules.mcp :as mcp]
    [eca.modules.otel :as otel]
    [eca.modules.plugins :as plugins]
@@ -69,6 +70,7 @@
    subagent-general/module
    ;; skills, rules, tool search
    skills/module
+   manage/module
    rules/module
    tool-search/module
    ;; MCP

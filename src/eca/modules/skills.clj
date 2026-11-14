@@ -1,8 +1,9 @@
 (ns eca.modules.skills
   "The `:eca/skills` module: skills, `SKILL.md` folders from the config, the
-   workspaces, ~/.config/eca/skills, ~/.agents/skills, plugins and ECA itself.
-   The system prompt lists their names and descriptions; the model loads one
-   with the `skill` tool, and the user with its command."
+   workspaces, ~/.config/eca/skills, ~/.agents/skills and plugins, and the
+   skills active modules ship in `:skills`. The system prompt lists their
+   names and descriptions; the model loads one with the `skill` tool, and the
+   user with its command."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
@@ -11,7 +12,7 @@
    [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
-   [eca.modules.skills.builtin :as skills.builtin]
+   [eca.modules :as modules]
    [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
@@ -109,10 +110,20 @@
            {:seen #{} :skills []}
            skills)))
 
+(defn ^:private module-skills
+  "The skills the active modules under `config` ship in `:skills`, each with
+   its `:module`. A `:body` may be a function, called when the skill is
+   loaded."
+  [config]
+  (for [[entry skills] (modules/contributions config :skills)
+        {:keys [body] :as skill} skills]
+    (cond-> (assoc skill :module (:id entry))
+      (string? body) (assoc :arguments (shared/extract-args-from-content body)))))
+
 (defn all
   "Returns all available skills, one per name. When names clash, the first
    source wins: configured paths, workspace (.eca/skills then .agents/skills),
-   global (~/.config/eca/skills then ~/.agents/skills), plugins, built-ins."
+   global (~/.config/eca/skills then ~/.agents/skills), plugins, modules."
   [config roots]
   (distinct-by-name
    (concat (config-skills config roots)
@@ -120,21 +131,28 @@
            (when-not (:pureConfig config)
              (global-skills))
            (plugin-skills (:pluginSkillDirs config))
-           (skills.builtin/all config))))
+           (module-skills config))))
 
 ;; --- The skill tool and the module
 
+(defn ^:private skill-body
+  "A skill's Markdown body. When a module's skill has a function as `:body`,
+   it's called with the tool's `ctx` plus `:skills`, as that module."
+  [{:keys [body module]} ctx all-skills]
+  (if (modules/fn-like? body)
+    (body (modules/module-ctx (assoc ctx :skills all-skills)
+                              (modules/active-entry (:config ctx) module)))
+    body))
+
 (defn ^:private skill
-  [arguments {:keys [db config agent]}]
+  [arguments {:keys [db config] :as ctx}]
   (let [skill-name (get arguments "name")
         all-skills (all config (:workspace-folders db))
         skill (first (filter
                       #(= skill-name (:name %))
                       all-skills))]
     (if skill
-      (let [body (if-let [handler (:handler-fn skill)]
-                   (handler {:db db :config config :skills all-skills :agent agent})
-                   (:body skill))]
+      (let [body (skill-body skill ctx all-skills)]
         {:error false
          :contents [{:type :text
                      :text (format (multi-str "**Skill**: %s"

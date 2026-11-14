@@ -1,7 +1,6 @@
 (ns eca.modules.skills-test
   (:require
    [babashka.fs :as fs]
-   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.modules :as modules]
@@ -71,10 +70,10 @@
         (spit (fs/file skill-dir "SKILL.md") "---\nname: configured\ndescription: Configured skill\n---\nConfigured body")
         (spit (fs/file skills-dir "ignored.md") "Ignored")
         (let [config {:pureConfig true :skills [{:path (str skills-dir)}]}
-              ;; Exclude built-in skills (identified by :handler-fn) so this
-              ;; test stays focused on configured on-disk skills.
+              ;; Exclude the skills modules ship (they have a :module) so
+              ;; this test stays focused on configured on-disk skills.
               result (->> (f.skills/all config [])
-                          (remove :handler-fn)
+                          (remove :module)
                           vec)]
           (is (= ["configured"] (mapv :name result)))
           (is (= ["Configured skill"] (mapv :description result))))
@@ -182,13 +181,7 @@
         (is (match?
              (m/embeds [{:name "old"
                          :description "Legacy"}])
-             (f.skills/all config []))))))
-
-  (testing "eca-info built-in skill is always available"
-    (is (match?
-         (m/embeds [{:name "eca-info"
-                     :handler-fn fn?}])
-         (f.skills/all {:pureConfig true} [])))))
+             (f.skills/all config [])))))))
 
 (defn ^:private write-skill! [skills-dir skill-name description]
   (let [skill-dir (fs/file skills-dir skill-name)]
@@ -198,7 +191,7 @@
 
 (defn ^:private on-disk-skills
   "Calls `setup!` with a temp home and workspace dir, then returns the
-   [name description] of each non built-in skill found by `f.skills/all`."
+   [name description] of each skill on disk found by `f.skills/all`."
   [config setup!]
   (let [tmp-dir (fs/create-temp-dir)
         home (fs/file tmp-dir "home")
@@ -210,7 +203,7 @@
       (with-redefs [config/get-env (constantly nil)
                     config/user-home (constantly (str home))]
         (->> (f.skills/all config [{:uri (shared/filename->uri (str workspace))}])
-             (remove :handler-fn)
+             (remove :module)
              (mapv (juxt :name :description))))
       (finally
         (fs/delete-tree tmp-dir)))))
@@ -273,86 +266,34 @@
         (finally
           (fs/delete-tree plugin-dir))))))
 
-(deftest eca-manage-skill-test
-  (testing "it's listed while eca/create is active"
-    (is (match? (m/embeds [{:name "eca-manage" :handler-fn fn?}])
-                (f.skills/all {:pureConfig true} [])))
-    (is (not-any? #(= "eca-manage" (:name %))
-                  (f.skills/all {:pureConfig true :modules {:eca/create {:enabled false}}} []))))
-  (testing "its body points to ECA's docs, and tells this ECA's version and modules"
-    (modules/add-external! "/tmp/mods/hello.clj" {:id :acme/hello} {:kind :global :rank 3})
-    (modules/add-external! "/tmp/mods/broken.clj" nil {:kind :global :rank 3 :error "Boom (broken.clj:3:1)"})
-    (try
-      (let [config {:pureConfig true}
-            skill (->> (f.skills/all config []) (filter #(= "eca-manage" (:name %))) first)
-            body ((:handler-fn skill) {:db {} :config config :skills [skill]})]
-        (is (string/starts-with? body "# Changing ECA\n"))
-        (is (string/includes? body "https://eca.dev/config.json"))
-        (is (string/includes? body (str "- Version: " (config/eca-version) ".")))
-        (is (re-find #"- Built-in modules, active: .*`eca/create`" body))
-        (is (re-find #"- Built-in modules, not active: .*`eca/repl`" body))
-        (is (string/includes? body "  - `acme/hello` (active, from `/tmp/mods/hello.clj`)"))
-        (is (string/includes? body "  - `broken.clj` (failed, from `/tmp/mods/broken.clj`): Failed to load: Boom (broken.clj:3:1)"))
-        (is (< (count body) 5000))
-        (testing "it names every page of docs/config, and only those"
-          (let [linked (map second (re-seq #"https://eca\.dev/config/([a-z-]+)/" body))
-                also (some->> (re-find #"Also (.+), at `https://eca\.dev/config/<page>/`" body)
-                              second
-                              (re-seq #"`([a-z-]+)`")
-                              (map second))
-                pages (map #(string/replace (fs/file-name %) #"\.md$" "") (fs/glob "docs/config" "*.md"))]
-            (is (seq linked))
-            (is (= (set pages) (set (concat linked also))))
-            (is (apply distinct? (concat linked also))))))
-      (finally
-        (modules/reset-registry!)))))
-
-(deftest eca-info-handler-test
-  (testing "eca-info handler returns a markdown report with expected sections"
-    (let [skill (->> (f.skills/all {:pureConfig true} [])
-                     (filter #(= "eca-info" (:name %)))
-                     first)
-          body ((:handler-fn skill)
-                {:db {:client-info {:name "test-client" :version "1.0"}
-                      :workspace-folders []
-                      :auth {}
-                      :models {}
-                      :mcp-clients {}}
-                 :config {}
-                 :skills [skill]})]
-      (is (string? body))
-      (is (string/includes? body "# ECA Self-Debug Report"))
-      (is (string/includes? body "## Versions"))
-      (is (string/includes? body "## Server process"))
-      (is (string/includes? body "## Workspaces"))
-      (is (string/includes? body "## Models"))
-      (is (string/includes? body "## Logged providers"))
-      (is (string/includes? body "## MCP servers"))
-      (is (string/includes? body "## Skills"))
-      (is (string/includes? body "## Subagents"))
-      (is (string/includes? body "## Credential files"))
-      (is (string/includes? body "test-client 1.0"))))
-
-  (testing "eca-info lists only subagents visible to the current primary agent"
-    (let [config {:pureConfig true
-                  :agent {"explorer" {:mode "subagent"
-                                      :description "Unrestricted"}
-                          "duel-worker" {:mode "subagent"
-                                         :description "Private"
-                                         :spawnableBy "duel"}}}
-          skill (->> (f.skills/all config [])
-                     (filter #(= "eca-info" (:name %)))
-                     first)
-          body-for (fn [agent]
-                     ((:handler-fn skill)
-                      {:db {:workspace-folders []
-                            :auth {}
-                            :models {}
-                            :mcp-clients {}}
-                       :config config
-                       :skills [skill]
-                       :agent agent}))]
-      (is (string/includes? (body-for "duel") "duel-worker"))
-      (is (not (string/includes? (body-for "code") "duel-worker")))
-      (is (not (string/includes? (body-for nil) "duel-worker")))
-      (is (string/includes? (body-for "code") "explorer")))))
+(deftest module-skills-test
+  (let [test-module {:id :eca/test-skills
+                     :skills [{:name "static" :description "A static skill" :body "Review $ARGS"}
+                              {:name "computed" :description "A computed skill"
+                               :body (fn [{:keys [module-id agent skills]}]
+                                       (str "Built by " module-id " for " agent ", with " (count skills) " skills"))}]}
+        tool-ctx {:db {:workspace-folders []} :config {:pureConfig true} :agent "code"}]
+    (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with :eca/skills) test-module))]
+      (testing "a module's skills are listed with its id; a string body gets its arguments"
+        (is (match? [{:name "static" :module :eca/test-skills :arguments [{:name "arg1"}]}
+                     {:name "computed" :module :eca/test-skills}]
+                    (f.skills/all {:pureConfig true} []))))
+      (testing "a skill on disk with the same name wins"
+        (let [tmp-dir (fs/create-temp-dir)]
+          (try
+            (write-skill! tmp-dir "static" "From disk")
+            (is (match? [{:name "static" :description "From disk" :dir string?}
+                         {:name "computed" :module :eca/test-skills}]
+                        (f.skills/all {:pureConfig true :skills [{:path (str tmp-dir)}]} [])))
+            (finally
+              (fs/delete-tree tmp-dir)))))
+      (testing "the skill tool returns a string body as is"
+        (is (match? {:error false
+                     :contents [{:type :text :text #"\*\*Base directory\*\*: \(built-in\)\n\nReview \$ARGS$"}]}
+                    (#'f.skills/skill {"name" "static"} tool-ctx))))
+      (testing "and calls a function body as its module, with all skills"
+        (is (match? {:error false
+                     :contents [{:type :text :text #"\n\nBuilt by :eca/test-skills for code, with 2 skills$"}]}
+                    (#'f.skills/skill {"name" "computed"} tool-ctx))))
+      (testing "turning the module off drops its skills"
+        (is (empty? (f.skills/all {:pureConfig true :modules {:eca/test-skills {:enabled false}}} [])))))))

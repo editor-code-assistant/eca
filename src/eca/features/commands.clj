@@ -922,10 +922,10 @@
       (if-let [skill (first (filter #(= command (:name %)) skills))]
         {:type :send-prompt
          :prompt (cond
-                   ;; Built-in skills compute their body lazily via the
-                   ;; `eca__skill` tool; the slash form just nudges the LLM
-                   ;; to load it.
-                   (:handler-fn skill)
+                   ;; a module's skill may build its body when loaded, via
+                   ;; the `eca__skill` tool; the slash form just nudges the
+                   ;; LLM to load it.
+                   (modules/fn-like? (:body skill))
                    (str "Load skill: " (:name skill))
 
                    (seq args)

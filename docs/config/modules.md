@@ -36,6 +36,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/subagent-general`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/subagents/subagent_general.clj) | The general subagent: research and multi-step tasks. |
     | **Skills, rules and MCP** | |
     | [`eca/skills`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/skills.clj) | Skills: `SKILL.md` folders the model loads when it needs them. |
+    | [`eca/manage`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/manage.clj) | The `eca-info` and `eca-manage` skills, to debug and change ECA itself. |
     | [`eca/rules`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rules.clj) | Rules: global, project and path-scoped. |
     | [`eca/mcp`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/mcp.clj) | MCP servers: their tools, prompts, resources and instructions. |
     | [`eca/tool-search`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/tools/tool_search.clj) | Hides MCP tools behind `search_tools` when there are too many. |
@@ -48,7 +49,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/approval.clj) | Tool approval from the `toolCall.approval` rules. |
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
     | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj) | A map of the repository, for the `repoMap` context. |
-    | [`eca/create`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/create.clj) | `/init`, `/skill-create` and the `eca-manage` skill. |
+    | [`eca/create`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/create.clj) | `/init` and `/skill-create`. |
     | **LLM APIs** | |
     | [`eca/api-anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj) | The Anthropic Messages API. |
     | [`eca/api-openai-responses`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/openai.clj) | The OpenAI Responses API. |

@@ -1,9 +1,8 @@
-(ns eca.modules.skills.builtin
-  "Built-in skills shipped with ECA itself.
-
-  Unlike on-disk skills, built-in skills compute their body lazily at
-  invocation time so they can include live runtime info (db / config).
-  Each entry exposes :name, :description and :handler-fn instead of :body."
+(ns eca.modules.manage
+  "The `:eca/manage` module: two skills about ECA itself, `eca-info`, a
+   report of the running ECA to debug it, and `eca-manage`, how to change
+   ECA, from its config to modules, following its docs. Their bodies are
+   built when the model loads them, from the live db and config."
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
@@ -113,9 +112,9 @@
    (if (seq skills)
      (->> skills
           (sort-by :name)
-          (map (fn [{:keys [name description dir handler-fn plugin]}]
+          (map (fn [{:keys [name description dir module plugin]}]
                  (let [source (cond
-                                handler-fn "built-in"
+                                module (str "module:" (symbol module))
                                 plugin (str "plugin:" plugin)
                                 dir dir
                                 :else "?")]
@@ -241,27 +240,18 @@
    ""
    (this-eca-section config)))
 
-(def ^:private eca-info-skill
-  {:name "eca-info"
-   :description (str "Inspect running ECA for self-debug: versions, "
-                     "client, default model, providers/auth, MCP servers "
-                     "(status/tools), skills, subagents, env vars, "
-                     "credential files.")
-   :handler-fn eca-info-body})
-
-(def ^:private eca-manage-skill
-  {:name "eca-manage"
-   :description (str "Change ECA itself: its config, models, tool approval, agents, skills, rules, commands, "
-                     "hooks, MCP servers, plugins or modules, following ECA's docs.")
-   :handler-fn eca-manage-body})
-
-(defn all
-  "Returns the list of built-in skills under `config`: `eca-manage` only
-   while the `:eca/create` module is active.
-
-  Each skill has :name, :description and :handler-fn (a function of
-  {:keys [db config skills agent]} returning the markdown body).
-  Built-in skills compute their body lazily; they have no :body or :dir."
-  [config]
-  (cond-> [eca-info-skill]
-    (modules/active? config :eca/create) (conj eca-manage-skill)))
+(def module
+  {:id :eca/manage
+   :description "Skills about ECA itself: eca-info, to debug it, and eca-manage, to change it."
+   :requires #{:eca/skills}
+   ;; each :body gets the skill tool's ctx plus :skills, all skills
+   :skills [{:name "eca-info"
+             :description (str "Inspect running ECA for self-debug: versions, "
+                               "client, default model, providers/auth, MCP servers "
+                               "(status/tools), skills, subagents, env vars, "
+                               "credential files.")
+             :body #'eca-info-body}
+            {:name "eca-manage"
+             :description (str "Change ECA itself: its config, models, tool approval, agents, skills, rules, commands, "
+                               "hooks, MCP servers, plugins or modules, following ECA's docs.")
+             :body #'eca-manage-body}]})
