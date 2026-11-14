@@ -1,0 +1,1004 @@
+(ns eca.modules.providers.anthropic
+  "The `:eca/anthropic` module. Claude models from Anthropic: a Max
+   subscription, a Console key or a pasted key. And the `:eca/api-anthropic`
+   module. The Anthropic Messages API."
+  (:require
+   [cheshire.core :as json]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
+   [eca.client-http :as client]
+   [eca.config :as config]
+   [eca.features.login :as f.login]
+   [eca.features.providers :as f.providers]
+   [eca.features.quota :as f.quota]
+   [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
+   [eca.modules.providers.variants :as m.variants]
+   [eca.oauth :as oauth]
+   [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
+   [hato.client :as http]
+   [ring.util.codec :as ring.util]))
+
+(set! *warn-on-reflection* true)
+
+(def ^:private logger-tag "[ANTHROPIC]")
+
+(def ^:private messages-path "/v1/messages")
+
+(defn ^:private any-assistant-message-without-thinking-previously?
+  "If there is a assistant message, which has no previous any role message with thinking content, returns true."
+  [messages]
+  (loop [msgs messages
+         seen-thinking? false]
+    (if-let [msg (first msgs)]
+      (let [is-assistant? (= "assistant" (:role msg))
+            has-thinking? (and (vector? (:content msg))
+                               (some #(= "thinking" (:type %)) (:content msg)))]
+        (cond
+          ;; If this is an assistant message and we haven't seen thinking before, return true
+          (and is-assistant? (not seen-thinking?) (not has-thinking?))
+          true
+
+          ;; If this message has thinking content, mark it as seen
+          has-thinking?
+          (recur (rest msgs) true)
+
+          ;; Otherwise continue
+          :else
+          (recur (rest msgs) seen-thinking?)))
+      ;; No assistant message found without previous thinking
+      false)))
+
+(defn ^:private fix-non-thinking-assistant-messages [messages]
+  (if (any-assistant-message-without-thinking-previously? messages)
+    ;; Anthropic doesn't like assistant messages without thinking blocks,
+    ;; we force to be a user one when this happens
+    ;; (MCP prompts that return assistant messages as initial step like clojureMCP)
+    ;; https://clojurians.slack.com/archives/C093426FPUG/p1757622242502969
+    (mapv (fn [{:keys [role content] :as msg}]
+            (if (= "assistant" role)
+              {:role "user"
+               :content content}
+              msg))
+          messages)
+    messages))
+
+(def ^:private schema-combinators
+  "Rejected by Anthropic at the top level of a tool input_schema, in hint preference order."
+  [:oneOf :anyOf :allOf])
+
+(def ^:private flattened-schema-kept-keys
+  [:$defs :definitions :$schema :additionalProperties :description :title])
+
+(defn ^:private schema-branches [schema combinator]
+  (let [branches (get schema combinator)]
+    (when (sequential? branches)
+      (filter map? branches))))
+
+(defn ^:private required-params [schema]
+  (let [required (:required schema)]
+    (when (sequential? required)
+      (filter string? required))))
+
+(defn ^:private combinator-branch-summary
+  "Names a combinator branch by its required params, or else by its properties."
+  [branch]
+  (let [required (required-params branch)
+        properties (:properties branch)]
+    (cond
+      (seq required) (string/join ", " required)
+      (and (map? properties) (seq properties)) (string/join ", " (map name (keys properties))))))
+
+(defn ^:private combinator-hint
+  "Plain text version of the oneOf/anyOf constraint lost when flattening the schema."
+  [schema combinators]
+  (when-let [combinator (some #{:oneOf :anyOf} combinators)]
+    (let [quantifier (if (= :oneOf combinator) "exactly one of" "at least one of")
+          groups (->> (schema-branches schema combinator)
+                      (keep combinator-branch-summary)
+                      distinct
+                      (map #(str "(" % ")")))]
+      (if (seq groups)
+        (format "Input constraint: provide parameters for %s: %s." quantifier (string/join " or " groups))
+        (format "Input constraint: provide parameters for %s the documented parameter groups." quantifier)))))
+
+(defn ^:private flatten-schema-combinators
+  "Anthropic rejects a tool input_schema with oneOf/anyOf/allOf at the top level,
+   failing the whole request. Like Claude Code, flattens them: branch properties are
+   merged into the top level and branch required params are only kept for allOf.
+   Returns the schema and, for oneOf/anyOf, a hint describing the lost constraint."
+  [schema]
+  (let [combinators (when (map? schema)
+                      (filterv #(contains? schema %) schema-combinators))]
+    (if (empty? combinators)
+      {:schema schema}
+      (let [properties (reduce (fn [acc [k v]]
+                                 (cond-> acc (not (contains? acc k)) (assoc k v)))
+                               (if (map? (:properties schema)) (:properties schema) {})
+                               (->> combinators
+                                    (mapcat #(schema-branches schema %))
+                                    (map :properties)
+                                    (filter map?)
+                                    (mapcat seq)))
+            required (->> (schema-branches schema :allOf)
+                          (mapcat required-params)
+                          (concat (required-params schema))
+                          distinct
+                          vec)]
+        {:schema (merge (cond-> {:type "object" :properties properties}
+                          (seq required) (assoc :required required))
+                        (select-keys schema flattened-schema-kept-keys))
+         :hint (combinator-hint schema combinators)}))))
+
+(defn ^:private ->tools [tools web-search]
+  (cond->
+   (mapv (fn [tool]
+           (let [{:keys [schema hint]} (flatten-schema-combinators (:parameters tool))]
+             {:description (if hint
+                             (string/join "\n\n" (remove string/blank? [(:description tool) hint]))
+                             (:description tool))
+              :input_schema schema
+              :name (:full-name tool)}))
+         tools)
+    web-search (conj {:type "web_search_20250305"
+                      :name "web_search"
+                      :max_uses 10})))
+
+(defn ^:private cache-control-value
+  "Returns the cache_control map based on cache retention config and API URL.
+   Only applies 1-hour TTL when hitting the direct Anthropic API."
+  [api-url cache-retention]
+  (if (and (= "long" cache-retention)
+           (or (nil? api-url)
+               (string/includes? api-url "api.anthropic.com")))
+    {:type "ephemeral" :ttl "1h"}
+    {:type "ephemeral"}))
+
+(defn ^:private add-cache-to-last-tool
+  "Adds cache_control to the last tool in the tools array, ensuring
+   the full tools list is part of the cached prefix."
+  [tools cache-control]
+  (if (seq tools)
+    (shared/update-last
+     (vec tools)
+     (fn [tool] (assoc tool :cache_control cache-control)))
+    tools))
+
+(defn ^:private base-request! [{:keys [rid body api-url api-key auth-type url-relative-path content-block* on-error on-stream on-response-headers http-client extra-headers cancelled? stream-idle-timeout-seconds]}]
+  (let [url (join-api-url api-url (or url-relative-path messages-path))
+        reason-id* (atom (str (random-uuid)))
+        oauth? (= :auth/oauth auth-type)
+        extra-headers (if (fn? extra-headers)
+                        (extra-headers {:body body})
+                        extra-headers)
+        headers (client/merge-llm-headers
+                 (merge
+                  (assoc-some
+                   {"anthropic-version" "2023-06-01"
+                    "Content-Type" "application/json"
+                    ;; Keep SSE uncompressed so it streams token-by-token (see :decompress-body below).
+                    "accept-encoding" "identity"}
+                   "x-api-key" (when-not oauth? api-key)
+                   "Authorization" (when oauth? (str "Bearer " api-key))
+                   "anthropic-beta" (when oauth? "oauth-2025-04-20"))
+                  extra-headers))
+        response* (atom nil)
+        on-error (if on-stream
+                   on-error
+                   (fn [error-data]
+                     (llm-util/log-response logger-tag rid "response-error" body)
+                     (reset! response* error-data)))]
+    (llm-util/log-request logger-tag rid url body headers)
+    (try
+      (let [{:keys [status body] resp-headers :headers} (http/post
+                                                         url
+                                                         {:headers headers
+                                                          :body (json/generate-string body)
+                                                          :throw-exceptions? false
+                                                          :decompress-body false
+                                                          :http-client (client/merge-with-global-http-client http-client)
+                                                          :as (if on-stream :stream :json)})]
+        (when on-response-headers
+          (on-response-headers resp-headers))
+        (if (not= 200 status)
+          (let [body-str (if on-stream (slurp body) body)]
+            (logger/warn logger-tag "Unexpected response status: %s body: %s" status body-str)
+            (on-error {:message (format "Anthropic response status: %s body: %s" status body-str)
+                       :status status
+                       :body body-str
+                       :headers resp-headers}))
+          (if on-stream
+            (let [{:keys [touch-fn set-reading-fn stop-fn reason*]}
+                  (llm-util/start-stream-watchdog! body cancelled?
+                                                   (when stream-idle-timeout-seconds
+                                                     {:idle-timeout-ms (* 1000 stream-idle-timeout-seconds)}))
+                  completed?* (atom false)]
+              (try
+                (with-open [rdr (io/reader body)]
+                  (doseq [[event data] (llm-util/event-data-seq rdr)]
+                    (set-reading-fn false)
+                    ;; Pings keep coming every 15s while a stalled generation sends
+                    ;; nothing else, so they must not reset the idle timer.
+                    (when-not (= "ping" event)
+                      (touch-fn))
+                    (llm-util/log-response logger-tag rid event data)
+                    (on-stream event data content-block* reason-id*)
+                    (set-reading-fn true)
+                    (when (= "message_stop" event)
+                      (reset! completed?* true))))
+                (when-not (or @completed?* (cancelled?))
+                  (logger/warn logger-tag "Stream ended without message_stop, retrying")
+                  (on-error {:message "Stream ended without completion signal"
+                             :error/type :premature-stop}))
+                (catch clojure.lang.ExceptionInfo e
+                  (if (= :premature-stop (:error/type (ex-data e)))
+                    (do
+                      (logger/warn logger-tag "Stream ended with empty response, retrying")
+                      (on-error (merge {:message (ex-message e)} (ex-data e))))
+                    (throw e)))
+                (catch java.io.IOException e
+                  (let [reason @reason*]
+                    (cond
+                      (= :cancelled reason)
+                      (throw (ex-info "Stream cancelled" {:silent? true}))
+
+                      (= :idle-timeout reason)
+                      (on-error (llm-util/idle-timeout-error stream-idle-timeout-seconds e))
+
+                      :else
+                      (on-error {:exception e
+                                 :message (llm-util/connection-error-message e)}))))
+                (finally
+                  (stop-fn))))
+            (do
+              (llm-util/log-response logger-tag rid "response" body)
+              (reset! response*
+                      {:output-text (:text (last (:content body)))})))))
+      (catch Exception e
+        (on-error {:exception e
+                   :message (llm-util/connection-error-message e)})))
+    @response*))
+
+(def ^:private transient-stream-error-types
+  "Anthropic SSE `error` event types equivalent to transient 5xx statuses."
+  #{"api_error" "overloaded_error" "timeout_error"})
+
+(defn ^:private request-with-retry!
+  "Retries one exact post-tool request, never the tool execution that built it.
+   Defer retry decisions until the failed stream and its watchdog are closed."
+  [{:keys [on-error make-on-stream retry-request] :as request-opts}]
+  (letfn [(request! [attempt]
+            (let [replay-safe?* (atom true)
+                  error* (atom nil)
+                  capture-error! #(compare-and-set! error* nil %)
+                  on-stream (make-on-stream capture-error!)]
+              (base-request!
+               (assoc request-opts
+                      :content-block* (atom nil)
+                      :on-error capture-error!
+                      :on-stream (fn [event data & args]
+                                   ;; Only bookkeeping and errors are safe to replay. Mark before
+                                   ;; dispatch, including tool preparation and completion callbacks.
+                                   (when-not (contains? #{"message_start" "ping" "error"} event)
+                                     (reset! replay-safe?* false))
+                                   (apply on-stream event data args)
+                                   (when-let [error @error*]
+                                     ;; Stop parsing after an SSE error. The first error wins over
+                                     ;; this unwind signal or any later reader/cleanup exception.
+                                     (throw (ex-info "Stream request failed" {} (:exception error)))))))
+              (when-let [error-data @error*]
+                (if retry-request
+                  (retry-request {:error-data error-data
+                                  :attempt attempt
+                                  :replay-safe? @replay-safe?*
+                                  :on-give-up on-error
+                                  :retry-fn request!})
+                  (on-error error-data)))))]
+    (request! 0)))
+
+(defn ^:private normalize-messages [past-messages supports-image?]
+  (keep (fn [{:keys [role content] :as msg}]
+          ;; Defense-in-depth against #209: entries whose :content :api was
+          ;; tagged by a different provider (toolu_*/call_*, OpenAI rs_*/
+          ;; encrypted_content, Anthropic signatures) are unsafe to forward to
+          ;; Anthropic. The primary safeguard is the central sanitizer in
+          ;; eca.llm-api/sanitize-past-messages-for-api; this check protects
+          ;; direct callers that bypass it.
+          (let [foreign-api? (let [origin (:api content)]
+                               (and origin (not= :anthropic origin)))]
+            (case role
+              "tool_call" (when-not foreign-api?
+                            {:role "assistant"
+                             :content [{:type "tool_use"
+                                        :id (:id content)
+                                        :name (:full-name content)
+                                        :input (or (:arguments content) {})}]})
+
+              "tool_call_output"
+              ;; Anthropic's tool_result `content` field accepts a list of
+              ;; mixed text + image blocks natively, so when the tool returned
+              ;; image content and the model supports image input, emit a
+              ;; single tool_result whose content is the textual portion plus
+              ;; one image block per image. Falls back to the legacy text-only
+              ;; string shape when there are no images or the model is not
+              ;; multimodal (preserves prior behavior).
+              (when-not foreign-api?
+                (let [contents (-> content :output :contents)
+                      image-contents (when supports-image?
+                                       (seq (filter #(= :image (:type %)) contents)))
+                      text (llm-util/stringfy-tool-result content)]
+                  {:role "user"
+                   :content [{:type "tool_result"
+                              :tool_use_id (:id content)
+                              :content (if image-contents
+                                         (into [{:type "text" :text text}]
+                                               (map (fn [img]
+                                                      {:type "image"
+                                                       :source {:type "base64"
+                                                                :media_type (or (:media-type img) "image/png")
+                                                                :data (:base64 img)}}))
+                                               image-contents)
+                                         text)}]}))
+
+              ;; OpenAI-emitted image_generation_call history entries are
+              ;; replayed for Anthropic as user-role image blocks (Anthropic
+              ;; doesn't have an analogous tool, but it accepts inline base64
+              ;; images, so the model can still see prior generations).
+              "image_generation_call" (when supports-image?
+                                        {:role "user"
+                                         :content [{:type "image"
+                                                    :source {:data (:base64 content)
+                                                             :media_type (:media-type content)
+                                                             :type "base64"}}]})
+              "reason"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [(if (:redacted? content)
+                             {:type "redacted_thinking"
+                              :data (:data content)}
+                             {:type "thinking"
+                              :signature (:external-id content)
+                              :thinking (or (:text content) "")})]})
+
+              "server_tool_use"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [{:type "server_tool_use"
+                            :id (:id content)
+                            :name (:name content)
+                            :input (or (:input content) {})}]})
+
+              "server_tool_result"
+              (when-not foreign-api?
+                {:role "assistant"
+                 :content [{:type "web_search_tool_result"
+                            :tool_use_id (:tool-use-id content)
+                            :content (:raw-content content)}]})
+
+            (-> msg
+                (update :content (fn [c]
+                                   (if (string? c)
+                                     (string/trim c)
+                                     (vec
+                                      (keep #(when-let [t (:type %)]
+                                               (case (name t)
+
+                                                 "text"
+                                                 (update % :text string/trim)
+
+                                                 "image"
+                                                 (when supports-image?
+                                                   {:type "image"
+                                                    :source {:data (:base64 %)
+                                                             :media_type (:media-type %)
+                                                             :type "base64"}})
+
+                                                 %))
+                                            c)))))))))
+        past-messages))
+
+(defn ^:private group-parallel-tool-calls
+  "Reorder messages so that within each group of consecutive tool_call/tool_call_output
+   messages, all tool_calls come before all tool_call_outputs. This ensures that after
+   normalization, adjacent assistant tool_use blocks merge into one message with all
+   corresponding tool_results following together."
+  [messages]
+  (let [tool-msg? #(contains? #{"tool_call" "tool_call_output"} (:role %))]
+    (->> messages
+         (partition-by tool-msg?)
+         (mapcat (fn [group]
+                   (if-not (tool-msg? (first group))
+                     group
+                     (let [{calls "tool_call" outputs "tool_call_output"} (group-by :role group)
+                           call-id->pos (into {} (map-indexed (fn [i m] [(get-in m [:content :id]) i]) calls))]
+                       (concat calls (sort-by #(call-id->pos (get-in % [:content :id])) outputs)))))))))
+
+(defn ^:private merge-adjacent-assistants
+  "Merge consecutive assistant messages into a single message.
+   This is required when thinking blocks precede tool_use blocks -
+   they must be in the same assistant message for Anthropic-compatible APIs
+   (like Kimi) that require reasoning_content alongside tool calls."
+  [messages]
+  (reduce
+   (fn [acc msg]
+     (let [prev (peek acc)]
+       (if (and (= "assistant" (:role prev))
+                (= "assistant" (:role msg)))
+         ;; Merge: combine content arrays
+         (let [prev-content (:content prev)
+               msg-content (:content msg)
+               combined (cond
+                          (and (vector? prev-content) (vector? msg-content))
+                          (vec (concat prev-content msg-content))
+
+                          (vector? prev-content)
+                          (conj prev-content {:type "text" :text (str msg-content)})
+
+                          (vector? msg-content)
+                          (into [{:type "text" :text (str prev-content)}] msg-content)
+
+                          :else
+                          [{:type "text" :text (str prev-content "\n" msg-content)}])]
+           (conj (pop acc) {:role "assistant" :content combined}))
+         (conj acc msg))))
+   []
+   messages))
+
+(defn ^:private merge-adjacent-tool-results
+  "Merge consecutive user messages that contain only tool_result blocks into a single
+   user message. Anthropic requires all tool_results for a batch of tool_use blocks
+   to appear in one user message immediately after the assistant message."
+  [messages]
+  (reduce
+   (fn [acc msg]
+     (let [prev (peek acc)]
+       (if (and (= "user" (:role prev))
+                (= "user" (:role msg))
+                (vector? (:content prev))
+                (vector? (:content msg))
+                (every? #(= "tool_result" (:type %)) (:content prev))
+                (every? #(= "tool_result" (:type %)) (:content msg)))
+         (conj (pop acc) {:role "user" :content (vec (concat (:content prev) (:content msg)))})
+         (conj acc msg))))
+   []
+   messages))
+
+(defn ^:private add-cache-to-last-message [messages cache-control]
+  ;; TODO add cache_control to last non thinking message
+  (shared/update-last
+   (vec messages)
+   (fn [message]
+     (let [content (get-in message [:content])]
+       (if (string? content)
+         (assoc-in message [:content] [{:type :text
+                                        :text content
+                                        :cache_control cache-control}])
+         (assoc-in message [:content (dec (count content)) :cache_control] cache-control))))))
+
+(defn ^:private finalize-messages
+  "Adds the trailing cache breakpoint and, when `mid-system?`, appends the
+   volatile `dynamic` instructions as a `role: \"system\"` entry after the last
+   (user) turn. The cache breakpoint stays on the last real user/tool turn so
+   the volatile system entry is left uncached and the stable history prefix
+   keeps being cached across turns instead of being invalidated whenever
+   `dynamic` changes."
+  [messages cache-control mid-system? dynamic]
+  (let [cached (add-cache-to-last-message messages cache-control)]
+    (if mid-system?
+      (conj cached {:role "system"
+                    :content [{:type "text" :text dynamic}]})
+      cached)))
+
+(defn ^:private max-tokens-input-overflow?
+  "Heuristic: when stop_reason is 'max_tokens' but output was barely
+   produced relative to the requested cap, the underlying cause is
+   almost certainly input-side context overflow rather than a genuine
+   output cap. Some Anthropic-compatible providers (e.g. Z.AI) signal
+   context overflow this way instead of returning HTTP 400."
+  [usage requested-max-tokens]
+  (let [output-tokens (or (:output_tokens usage) 0)]
+    (and (>= requested-max-tokens 4000)
+         (< output-tokens (quot requested-max-tokens 2)))))
+
+(defn ^:private normalize-stop-reason
+  "Some Anthropic-compatible providers report stop_reason 'end_turn' (or the
+   OpenAI-ism 'stop') even when the response contains complete tool_use blocks,
+   which would silently drop the tool calls. Coerce to 'tool_use' in that case.
+   'max_tokens' is never coerced since a truncated tool call is genuinely
+   incomplete."
+  [stop-reason content-blocks]
+  (if (and (contains? #{"end_turn" "stop"} stop-reason)
+           (some #(= "tool_use" (:type %)) (vals content-blocks)))
+    (do
+      (logger/warn logger-tag (format "Provider reported stop_reason '%s' with pending tool calls, coercing to 'tool_use'" stop-reason))
+      "tool_use")
+    stop-reason))
+
+(defn ^:private start-or-delta-tokens
+  "Prefers the count reported at message_start, which reflects the context sent,
+   over the message_delta one, which is cumulative across server tool sub-requests
+   (web search) and inflates the context counter (#307).
+   Falls back to the message_delta count when message_start reported it as missing
+   or zero, as anthropic-compatible endpoints like Z.AI do (#604)."
+  [start-tokens delta-tokens]
+  (if (and start-tokens (pos? start-tokens))
+    start-tokens
+    (or delta-tokens start-tokens)))
+
+(defn chat!
+  [{:keys [model user-messages instructions max-output-tokens
+           api-url api-key auth-type url-relative-path reason? past-messages
+           tools web-search mid-conversation-system? extra-payload extra-headers supports-image? http-client cancelled?
+           stream-idle-timeout-seconds cache-retention]}
+   {:keys [on-message-received on-error on-reason on-prepare-tool-call on-tools-called on-usage-updated on-server-web-search
+           on-response-headers retry-request] :as callbacks}]
+  (let [messages (-> (concat past-messages (fix-non-thinking-assistant-messages user-messages))
+                     group-parallel-tool-calls
+                     (normalize-messages supports-image?)
+                     merge-adjacent-assistants
+                     merge-adjacent-tool-results)
+        stream? (boolean callbacks)
+        cache-control (cache-control-value api-url cache-retention)
+        {:keys [static dynamic]} (if (map? instructions)
+                                    instructions
+                                    {:static instructions :dynamic nil})
+        ;; Opus 4.8+ accepts `role: system` entries inside the messages array.
+        ;; When supported, the volatile dynamic instructions move out of the
+        ;; cached :system prefix into a trailing system message, so a changing
+        ;; dynamic block no longer invalidates the cached conversation history.
+        mid-system? (and mid-conversation-system?
+                         (not (string/blank? dynamic))
+                         (= "user" (:role (last messages))))
+        ;; Send the Claude Code identity block only with subscription (OAuth)
+        ;; tokens. With an API key, Anthropic rejects a request carrying it
+        ;; with "credit balance is too low", even when the key has credits.
+        system-blocks (cond-> []
+                        (= :auth/oauth auth-type)
+                        (conj {:type "text" :text "You are Claude Code, Anthropic's official CLI for Claude."})
+
+                        :always
+                        (conj {:type "text" :text static :cache_control cache-control})
+
+                        (and (not (string/blank? dynamic)) (not mid-system?))
+                        (conj {:type "text" :text dynamic :cache_control cache-control}))
+        body (merge
+              (assoc-some
+               {:model model
+                :messages (finalize-messages messages cache-control mid-system? dynamic)
+                :max_tokens (or max-output-tokens 32000)
+                :stream stream?
+                :tools (add-cache-to-last-tool (->tools tools web-search) cache-control)
+                :system system-blocks}
+               :thinking (when reason?
+                           {:type "enabled" :budget_tokens 2048}))
+              extra-payload)
+        make-on-stream
+        (fn make-on-stream [on-error]
+          ;; Each HTTP attempt owns its parser state, including while parent
+          ;; streams remain suspended inside on-tools-called continuations.
+          (let [context-usage* (atom nil)
+                has-content?* (atom false)
+                has-stop-reason?* (atom false)]
+            (fn [event data content-block* reason-id*]
+              (case event
+              "message_start" (do
+                                (reset! has-content?* false)
+                                (reset! has-stop-reason?* false)
+                                (let [usage (-> data :message :usage)]
+                                  (reset! context-usage*
+                                          {:input-tokens (or (:input_tokens usage) 0)
+                                           :cache-creation-input-tokens (or (:cache_creation_input_tokens usage) 0)
+                                           :cache-read-input-tokens (or (:cache_read_input_tokens usage) 0)})))
+              "content_block_start" (case (-> data :content_block :type)
+                                      "thinking" (let [new-id (str (random-uuid))]
+                                                   (reset! reason-id* new-id)
+                                                   (on-reason {:status :started
+                                                               :id new-id})
+                                                   (swap! content-block* assoc (:index data) (:content_block data)))
+                                      "redacted_thinking" (let [new-id (str (random-uuid))]
+                                                            (reset! reason-id* new-id)
+                                                            (on-reason {:status :started
+                                                                        :id new-id
+                                                                        :redacted? true
+                                                                        :data (-> data :content_block :data)})
+                                                            (swap! content-block* assoc (:index data) (:content_block data)))
+                                      "tool_use" (do
+                                                   (reset! has-content?* true)
+                                                   (on-prepare-tool-call {:full-name (-> data :content_block :name)
+                                                                          :id (-> data :content_block :id)
+                                                                          :arguments-text ""})
+                                                   (swap! content-block* assoc (:index data) (:content_block data)))
+                                      "server_tool_use" (let [content-block (:content_block data)]
+                                                          (reset! has-content?* true)
+                                                          (swap! content-block* assoc (:index data) content-block)
+                                                          (on-server-web-search {:status :started
+                                                                                  :id (:id content-block)
+                                                                                  :name (:name content-block)
+                                                                                  :input (:input content-block)}))
+                                      "web_search_tool_result" (let [content-block (:content_block data)
+                                                                     results (keep (fn [{:keys [type title url]}]
+                                                                                     (when (= "web_search_result" type)
+                                                                                       {:title title :url url}))
+                                                                                   (:content content-block))]
+                                                                 (on-server-web-search {:status :finished
+                                                                                        :id (:tool_use_id content-block)
+                                                                                        :output results
+                                                                                        :raw-content (:content content-block)}))
+                                      nil)
+              "content_block_delta" (case (-> data :delta :type)
+                                      "text_delta" (do
+                                                     (reset! has-content?* true)
+                                                     (on-message-received {:type :text
+                                                                           :text (-> data :delta :text)}))
+                                      "input_json_delta" (let [text (-> data :delta :partial_json)
+                                                               _ (swap! content-block* update-in [(:index data) :input-json] str text)
+                                                               content-block (get @content-block* (:index data))]
+                                                           (when (= "tool_use" (:type content-block))
+                                                             (on-prepare-tool-call {:full-name (:name content-block)
+                                                                                    :id (:id content-block)
+                                                                                    :arguments-text text})))
+                                      "citations_delta" (case (-> data :delta :citation :type)
+                                                          "web_search_result_location" (on-message-received
+                                                                                        {:type :url
+                                                                                         :title (-> data :delta :citation :title)
+                                                                                         :url (-> data :delta :citation :url)})
+                                                          nil)
+                                      "thinking_delta" (on-reason {:status :thinking
+                                                                   :id @reason-id*
+                                                                   :text (-> data :delta :thinking)})
+                                      "signature_delta" (on-reason {:status :finished
+                                                                    :external-id (-> data :delta :signature)
+                                                                    :id @reason-id*})
+                                      nil)
+              "content_block_stop" (when-let [content-block (get @content-block* (:index data))]
+                                    (case (:type content-block)
+                                      "redacted_thinking" (on-reason {:status :finished
+                                                                      :id @reason-id*})
+                                      "server_tool_use" (let [input (when-let [json-str (:input-json content-block)]
+                                                                      (json/parse-string json-str))]
+                                                          (on-server-web-search {:status :input-ready
+                                                                                 :id (:id content-block)
+                                                                                 :name (:name content-block)
+                                                                                 :input (or input (:input content-block) {})}))
+                                      nil))
+              "message_delta" (do
+                                (when (-> data :delta :stop_reason)
+                                  (reset! has-stop-reason?* true))
+                                (when-let [usage (and (-> data :delta :stop_reason)
+                                                      (:usage data))]
+                                  (let [ctx @context-usage*]
+                                    (on-usage-updated {:input-tokens (start-or-delta-tokens (:input-tokens ctx) (:input_tokens usage))
+                                                       :input-cache-creation-tokens (start-or-delta-tokens (:cache-creation-input-tokens ctx) (:cache_creation_input_tokens usage))
+                                                       :input-cache-read-tokens (start-or-delta-tokens (:cache-read-input-tokens ctx) (:cache_read_input_tokens usage))
+                                                       :output-tokens (:output_tokens usage)})))
+                                (case (normalize-stop-reason (-> data :delta :stop_reason) @content-block*)
+                                  "tool_use" (let [tool-calls (keep
+                                                               (fn [content-block]
+                                                                 (when (= "tool_use" (:type content-block))
+                                                                   (merge {:id (:id content-block)
+                                                                           :full-name (:name content-block)}
+                                                                          (llm-util/parse-tool-call-arguments (:input-json content-block)))))
+                                                               (vals @content-block*))]
+                                               (when-let [{:keys [new-messages tools fresh-api-key]} (on-tools-called tool-calls)]
+                                                 (let [messages (-> new-messages
+                                                                    message-sanitize/sanitize-outbound-messages
+                                                                    group-parallel-tool-calls
+                                                                    (normalize-messages supports-image?)
+                                                                    merge-adjacent-assistants
+                                                                    merge-adjacent-tool-results
+                                                                    (finalize-messages cache-control mid-system? dynamic))]
+                                                   (reset! content-block* {})
+                                                   (request-with-retry!
+                                                    {:rid (llm-util/gen-rid)
+                                                     :body (assoc body
+                                                                  :messages messages
+                                                                  :tools (->tools tools web-search))
+                                                     :api-url api-url
+                                                     :api-key (or fresh-api-key api-key)
+                                                     :http-client http-client
+                                                     :extra-headers extra-headers
+                                                     :auth-type auth-type
+                                                     :url-relative-path url-relative-path
+                                                     :content-block* (atom nil)
+                                                     :cancelled? cancelled?
+                                                     :on-error on-error
+                                                     :on-response-headers on-response-headers
+                                                     :make-on-stream make-on-stream
+                                                     :retry-request retry-request
+                                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds}))))
+                                  "end_turn" (if @has-content?*
+                                               (do
+                                                 (reset! content-block* {})
+                                                 (on-message-received {:type :finish
+                                                                       :finish-reason (-> data :delta :stop_reason)}))
+                                               (throw (ex-info "Stream ended with empty response"
+                                                               {:error/type :premature-stop})))
+                                  "max_tokens" (let [usage (:usage data)
+                                                     requested-max-tokens (or max-output-tokens 32000)]
+                                                 (if (max-tokens-input-overflow? usage requested-max-tokens)
+                                                   (on-error {:error/type :context-overflow
+                                                              :message (format "Context overflow detected (input_tokens=%d, output_tokens=%d, max_tokens=%d)"
+                                                                               (or (:input_tokens usage) 0)
+                                                                               (or (:output_tokens usage) 0)
+                                                                               requested-max-tokens)})
+                                                   (on-message-received {:type :limit-reached
+                                                                         :tokens usage})))
+                                  "refusal" (let [stop-details (-> data :delta :stop_details)]
+                                              (reset! content-block* {})
+                                              (on-message-received {:type :refusal
+                                                                    :category (:category stop-details)
+                                                                    :explanation (:explanation stop-details)}))
+                                  nil))
+              "message_stop" (when-not @has-stop-reason?*
+                               (if @has-content?*
+                                 (on-message-received {:type :finish
+                                                       :finish-reason "end_turn"
+                                                       :premature? true})
+                                 (throw (ex-info "Stream ended without completion"
+                                                 {:error/type :premature-stop}))))
+              "error" (on-error (cond-> {:message (format "\nAnthropic error response: %s" (:error data))}
+                                  (contains? transient-stream-error-types (-> data :error :type))
+                                  (assoc :error/type :overloaded)))
+              nil))))]
+    (base-request!
+     {:rid (llm-util/gen-rid)
+      :body body
+      :api-url api-url
+      :api-key api-key
+      :http-client http-client
+      :extra-headers extra-headers
+      :auth-type auth-type
+      :url-relative-path url-relative-path
+      :content-block* (atom nil)
+      :cancelled? cancelled?
+      :on-error on-error
+      :on-response-headers on-response-headers
+      :on-stream (when stream? (make-on-stream on-error))
+      :stream-idle-timeout-seconds stream-idle-timeout-seconds})))
+
+(def ^:private oauth-usage-url "https://api.anthropic.com/api/oauth/usage")
+
+(defmethod f.quota/fetch-quota "anthropic" [{:keys [provider-auth]}]
+  (let [{:keys [status body]} (http/get oauth-usage-url
+                                        {:headers {"Authorization" (str "Bearer " (:api-key provider-auth))
+                                                   "anthropic-beta" "oauth-2025-04-20"}
+                                         :throw-exceptions? false
+                                         :as :json
+                                         :http-client (client/merge-with-global-http-client {})
+                                         :timeout 10000})]
+    (if (= 200 status)
+      (f.quota/anthropic-usage->snapshot body)
+      (throw (ex-info (format "Anthropic usage endpoint returned status %s" status) {:status status})))))
+
+(def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
+
+(defn ^:private oauth-url [mode]
+  (let [url (str (if (= :console mode) "https://console.anthropic.com" "https://claude.ai") "/oauth/authorize")
+        {:keys [challenge verifier]} (oauth/generate-pkce)]
+    {:verifier verifier
+     :url (str url "?" (ring.util/form-encode {:code true
+                                               :client_id client-id
+                                               :response_type "code"
+                                               :redirect_uri "https://console.anthropic.com/oauth/code/callback"
+                                               :scope "org:create_api_key user:profile user:inference"
+                                               :code_challenge challenge
+                                               :code_challenge_method "S256"
+                                               :state verifier}))}))
+
+(def ^:private oauth-token-url
+  "https://console.anthropic.com/v1/oauth/token")
+
+(defn ^:private oauth-authorize [code verifier]
+  (let [[code state] (string/split code #"#")
+        url oauth-token-url
+        body {:grant_type "authorization_code"
+              :code code
+              :state state
+              :client_id client-id
+              :redirect_uri "https://console.anthropic.com/oauth/code/callback"
+              :code_verifier verifier}
+        {:keys [status body]} (http/post
+                               url
+                               {:headers {"Content-Type" "application/json"}
+                                :body (json/generate-string body)
+                                :http-client (client/merge-with-global-http-client {})
+                                :as :json})]
+    (if (= 200 status)
+      {:refresh-token (:refresh_token body)
+       :access-token (:access_token body)
+       :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
+      (throw (ex-info (format "Anthropic token exchange failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+(defn ^:private oauth-refresh [refresh-token]
+  (let [url oauth-token-url
+        body {:grant_type "refresh_token"
+              :refresh_token refresh-token
+              :client_id client-id}
+        {:keys [status body]} (http/post
+                               url
+                               {:headers {"Content-Type" "application/json"}
+                                :body (json/generate-string body)
+                                :throw-exceptions? false
+                                :http-client (client/merge-with-global-http-client {})
+                                :as :json})]
+    (if (= 200 status)
+      {:refresh-token (:refresh_token body)
+       :access-token (:access_token body)
+       :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
+      (throw (ex-info (format "Anthropic refresh token failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+(def ^:private create-api-key-url
+  "https://api.anthropic.com/api/oauth/claude_cli/create_api_key")
+
+(defn ^:private create-api-key [access-token]
+  (let [url create-api-key-url
+        {:keys [status body]} (http/post
+                               url
+                               {:headers {"Authorization" (str "Bearer " access-token)
+                                          "Content-Type" "application/x-www-form-urlencoded"
+                                          "Accept" "application/json, text/plain, */*"}
+                                :http-client (client/merge-with-global-http-client {})
+                                :as :json})]
+    (if (= 200 status)
+      (let [raw-key (:raw_key body)]
+        (when-not (string/blank? raw-key)
+          raw-key))
+      (throw (ex-info (format "Anthropic create API token failed: %s" (pr-str body))
+                      {:status status
+                       :body body})))))
+
+;; --- Settings-based login (providers/login flow) ---
+
+(defmethod f.providers/start-login! ["anthropic" "max"] [provider _ db* _config _messenger _metrics]
+  (let [{:keys [verifier url]} (oauth-url :max)]
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :max
+                                          :verifier verifier})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser, then paste the authorization code"
+     :fields [{:key "code" :label "Authorization code" :type "text"}]}))
+
+(defmethod f.providers/start-login! ["anthropic" "console"] [provider _ db* _config _messenger _metrics]
+  (let [{:keys [verifier url]} (oauth-url :console)]
+    (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                          :mode :console
+                                          :verifier verifier})
+    {:action "authorize"
+     :url url
+     :message "Complete authentication in your browser, then paste the authorization code"
+     :fields [{:key "code" :label "Authorization code" :type "text"}]}))
+
+(defmethod f.providers/complete-oauth-code! "anthropic" [provider data db* _config messenger metrics]
+  (let [code (:code data)
+        {:keys [mode verifier]} (get-in @db* [:auth provider])]
+    (case mode
+      :console
+      (let [{:keys [access-token]} (oauth-authorize code verifier)
+            raw-key (create-api-key access-token)]
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/token
+                                                     :api-key raw-key}))
+      :max
+      (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize code verifier)]
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/oauth
+                                                     :refresh-token refresh-token
+                                                     :api-key access-token
+                                                     :expires-at expires-at})))
+    (f.providers/sync-and-notify! provider db* messenger metrics)
+    {:action "done"}))
+
+;; --- Chat-based login (legacy /login command) ---
+
+(defmethod f.login/login-step ["anthropic" :login/start] [{:keys [db* chat-id provider send-msg! ask!]}]
+  (swap! db* assoc-in [:chats chat-id :login-provider] provider)
+  (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
+  (if ask!
+    (ask! {:question "Select the Anthropic login method:"
+           :options [{:label "max" :description "Claude Pro/Max (for claude.ai accounts, subscription)"}
+                     {:label "console" :description "Automatically create API Key and use it (non subscription)"}
+                     {:label "manual" :description "Manually enter API Key (non subscriptions)"}]})
+    (send-msg! (multi-str "Now, inform the login method:"
+                          ""
+                          "- max: Claude Pro/Max (for claude.ai accounts, subscription)"
+                          "- console: Automatically create API Key and use it (non subscription)"
+                          "- manual: Manually enter API Key (non subscriptions)"))))
+
+(defmethod f.login/login-step ["anthropic" :login/waiting-login-method] [{:keys [db* input provider send-msg!]}]
+  (case input
+    "max"
+    (let [{:keys [verifier url]} (oauth-url :max)]
+      (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                            :mode :max
+                                            :verifier verifier})
+      (send-msg! (format "Open your browser at: [Anthropic login](%s)\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
+                         url)))
+    "console"
+    (let [{:keys [verifier url]} (oauth-url :console)]
+      (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
+                                            :mode :console
+                                            :verifier verifier})
+      (send-msg! (format "Open your browser at: [Anthropic login](%s)\n\nAuthenticate at Anthropic, then paste the code generated in the chat and send it to continue the authentication."
+                         url)))
+    "manual"
+    (do
+      (swap! db* assoc-in [:auth provider] {:step :login/waiting-api-key
+                                            :mode :manual})
+      (send-msg! "Paste your Anthropic API Key"))
+    (send-msg! (format "Unknown login method '%s'. Inform one of the options: max, console, manual" input))))
+
+(defmethod f.login/login-step ["anthropic" :login/waiting-provider-code] [{:keys [db* input provider] :as ctx}]
+  (let [provider-code input
+        {:keys [mode verifier]} (get-in @db* [:auth provider])]
+    (case mode
+      :console
+      (let [{:keys [access-token]} (oauth-authorize provider-code verifier)
+            api-key (create-api-key access-token)]
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/token
+                                                     :api-key api-key})
+        (f.login/login-done! ctx))
+      :max
+      (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize provider-code verifier)]
+        (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                     :type :auth/oauth
+                                                     :refresh-token refresh-token
+                                                     :api-key access-token
+                                                     :expires-at expires-at})
+        (f.login/login-done! ctx)))))
+
+(defmethod f.login/login-step ["anthropic" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
+  (if (string/starts-with? input "sk-")
+    (do
+      (config/update-global-config! {:providers {provider {:key input}}})
+      (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
+      (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
+      (f.login/login-done! ctx))
+    (send-msg! "Invalid API key, it should start with 'sk-'")))
+
+(defmethod f.login/login-step ["anthropic" :login/renew-token] [{:keys [db* provider] :as ctx}]
+  (let [{:keys [refresh-token]} (get-in @db* [:auth provider])
+        {:keys [refresh-token access-token expires-at]} (oauth-refresh refresh-token)]
+    (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                 :type :auth/oauth
+                                                 :refresh-token refresh-token
+                                                 :api-key access-token
+                                                 :expires-at expires-at})
+    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+
+(def api-module
+  {:id :eca/api-anthropic
+   :description "The Anthropic Messages API."
+   :apis {"anthropic" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :config-defaults {:variantsByModel (merge m.variants/anthropic-messages m.variants/any-api)}})
+
+(def module
+  {:id :eca/anthropic
+   :description "Claude models from Anthropic: a Max subscription, a Console key or a pasted key."
+   :requires #{:eca/api-anthropic}
+   :providers {"anthropic" {:label "Anthropic"
+                            ;; the flows are the login-step and start-login! methods above
+                            :login {:methods [{:key "max" :label "Max (subscription via OAuth)"}
+                                              {:key "console" :label "Console (API key via OAuth)"}
+                                              {:key "manual" :label "Manual (paste API key)"}]}}}
+   :config-defaults {:providers {"anthropic" {:api "anthropic"
+                                              :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
+                                              :key "${env:ANTHROPIC_API_KEY}"
+                                              :requiresAuth? true
+                                              :models {"claude-sonnet-4-6" {}
+                                                       "claude-sonnet-5" {}
+                                                       "claude-opus-4-6" {}
+                                                       "claude-opus-4-7" {}
+                                                       "claude-opus-4-8" {}
+                                                       "claude-opus-5" {}
+                                                       "claude-opus-5-5" {}
+                                                       "claude-fable-5" {}
+                                                       "claude-fable-5-1" {}
+                                                       "claude-mythos-5" {}
+                                                       "claude-mythos-5-1" {}}}}}})

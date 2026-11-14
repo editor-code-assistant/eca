@@ -7,9 +7,10 @@
    [eca.cache :as cache]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :refer [assoc-some] :as shared]
    [hato.client :as http])
   (:import
@@ -894,6 +895,35 @@
         (and alias-model (contains? models alias-model)) alias-model
         (contains? models model-id) model-id))))
 
+(defn ^:private run-resolve-event
+  "Runs the `:models/resolve` event on the model list, full model name →
+   capabilities: modules may change it, e.g. to add virtual models."
+  [config db* models]
+  (let [event (events/emit! {:config config :db* db*} :models/resolve {:models models})
+        changed (:models event)]
+    (cond
+      (identical? models changed) models
+      (map? changed) changed
+      :else (do (logger/warn logger-tag "Ignoring the :models a :models/resolve handler set" {:value changed})
+                models))))
+
+(defn ^:private provider-listed-models
+  "The models providers list themselves, e.g. the ones pulled into Ollama:
+   from each active provider declaring a `:models-fn`, which gets the
+   provider's `:api-url` and returns `[{:model :tools :reason?}]`. Keyed by
+   full model name, with the provider's `models` config applied."
+  [config]
+  (into {}
+        (for [[_entry providers] (modules/contributions config :providers)
+              [provider {:keys [models-fn]}] providers
+              :when models-fn
+              :let [models-config (get-in config [:providers provider :models])]
+              {:keys [model] :as provider-model} (models-fn {:api-url (llm-util/provider-api-url provider config)})]
+          [(str provider "/" model)
+           (merge-capabilities
+            (select-keys provider-model [:tools :reason?])
+            (config-overrides->capabilities (get models-config model)))])))
+
 (defn sync-models! [db* config on-models-updated]
   (let [models-dev-data (models-dev)
         known-models (all models-dev-data)
@@ -903,27 +933,10 @@
                               known-models
                               config
                               models)
-        ollama-api-url (llm-util/provider-api-url "ollama" config)
-        ollama-models (mapv
-                       (fn [{:keys [model] :as ollama-model}]
-                         (let [capabilities (llm-providers.ollama/model-capabilities {:api-url ollama-api-url :model model})]
-                           (assoc ollama-model
-                                  :tools (boolean (some #(= % "tools") capabilities))
-                                  :reason? (boolean (some #(= % "thinking") capabilities)))))
-                       (llm-providers.ollama/list-models {:api-url ollama-api-url}))
-        ollama-models-config (get-in config [:providers "ollama" :models])
-        local-models (reduce
-                      (fn [models {:keys [model] :as ollama-model}]
-                        (assoc models
-                               (str config/ollama-model-prefix model)
-                               (merge-capabilities
-                                (select-keys ollama-model [:tools :reason?])
-                                (config-overrides->capabilities (get ollama-models-config model)))))
-                      {}
-                      ollama-models)
+        local-models (provider-listed-models config)
         authenticated-models (into {}
                                    (filter #(auth-valid? (first %) db config) all-supported-models))
-        all-models (merge authenticated-models local-models)]
+        all-models (run-resolve-event config db* (merge authenticated-models local-models))]
     (swap! db* assoc :models all-models)
     (on-models-updated all-models)))
 

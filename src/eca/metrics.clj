@@ -24,6 +24,32 @@
   (start! [_])
   (count! [_ _ _ _]))
 
+(defrecord SwitchableMetrics [impl*]
+  IMetrics
+  ;; an implementation starts when it's switched to (`switch!`)
+  (start! [_])
+  (count! [_ name value attrs] (count! @impl* name value attrs)))
+
+(defn ->switchable
+  "Metrics that count with `impl` until `switch!` changes it, e.g. when the
+   `:eca/otel` module turns on or off."
+  [impl]
+  (->SwitchableMetrics (atom impl)))
+
+(defn switch!
+  "Makes `metrics`, if switchable, count with `impl`, already started."
+  [metrics impl]
+  (when (instance? SwitchableMetrics metrics)
+    (reset! (:impl* metrics) impl))
+  nil)
+
+(defn current
+  "What `metrics` counts with."
+  [metrics]
+  (if (instance? SwitchableMetrics metrics)
+    @(:impl* metrics)
+    metrics))
+
 (defn default-attrs []
   (merge extra-base-metrics
          {:hostname (shared/hostname)

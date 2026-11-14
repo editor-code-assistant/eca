@@ -6,8 +6,8 @@
    [eca.db :as db]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.commands :as f.commands]
-   [eca.features.rules :as f.rules]
-   [eca.features.skills :as f.skills]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -50,43 +50,6 @@
                               :text #(and (string/includes? % "Compaction failed: the model did not submit a summary")
                                           (string/includes? % "The conversation was not compacted."))}}]
                   (:chat-content-received (h/messages)))))))
-
-(deftest subagents-msg-parent-visibility-test
-  (let [config {:agent {"explorer" {:mode "subagent"
-                                     :description "Unrestricted explorer"}
-                        "duel-worker" {:mode "subagent"
-                                       :description "Private duel worker"
-                                       :spawnableBy "duel"}
-                        "dual-role" {:mode ["primary" "subagent"]
-                                     :description "Private dual-role agent"
-                                     :spawnableBy ["duel"]}
-                        "primary-only" {:mode "primary"
-                                        :description "Primary only"}}}]
-    (testing "/subagents includes unrestricted and authorized restricted agents"
-      (let [message (#'f.commands/subagents-msg config "duel")]
-        (is (string/includes? message "explorer"))
-        (is (string/includes? message "duel-worker"))
-        (is (string/includes? message "dual-role"))
-        (is (not (string/includes? message "primary-only")))))
-
-    (testing "/subagents hides restricted agents from other or missing parents"
-      (doseq [parent-agent-name ["code" nil]]
-        (let [message (#'f.commands/subagents-msg config parent-agent-name)]
-          (is (string/includes? message "explorer"))
-          (is (not (string/includes? message "duel-worker")))
-          (is (not (string/includes? message "dual-role"))))))
-
-    (testing "/subagents dispatch passes the current primary agent"
-      (let [db* (atom {:workspace-folders []})
-            result (f.commands/handle-command! "subagents" []
-                                               {:chat-id "chat-1"
-                                                :db* db*
-                                                :config (assoc config :pureConfig true)
-                                                :messenger (h/messenger)
-                                                :agent "duel"})
-            message (get-in result [:chats "chat-1" :messages 0 :content 0 :text])]
-        (is (string/includes? message "duel-worker"))
-        (is (string/includes? message "dual-role"))))))
 
 (deftest prompt-show-text-test
   (testing "uses compact section headings and omits the /prompt-show command itself"
@@ -166,7 +129,7 @@
       (let [context-file (fs/file tmp-dir "example.clj")
             context-path (str (fs/canonicalize context-file))]
         (spit context-file "(def answer 42)")
-        (with-redefs [f.skills/all (constantly [{:name "review"
+        (with-redefs [m.skills/all (constantly [{:name "review"
                                                  :body "Review $1"}])]
           (let [result (f.commands/handle-command! "review"
                                                    [(str "@" context-path)]
@@ -178,6 +141,15 @@
                                   (str "<file path=\"" context-path "\">(def answer 42)</file>"))))))
       (finally
         (fs/delete-tree tmp-dir)))))
+
+(deftest module-skill-command-test
+  (testing "a skill whose body is a function asks the model to load it, also with arguments"
+    (with-redefs [m.skills/all (constantly [{:name "report" :body (fn [_ctx] "Report") :module :eca/test}])]
+      (let [ctx (assoc (command-context "chat-1") :config {:pureConfig true})]
+        (is (= {:type :send-prompt :prompt "Load skill: report"}
+               (f.commands/handle-command! "report" [] ctx)))
+        (is (= {:type :send-prompt :prompt "Load skill: report"}
+               (f.commands/handle-command! "report" ["now"] ctx)))))))
 
 (deftest substitute-args-test
   (testing "replaces $ARGS with all args joined"
@@ -219,132 +191,6 @@
   (testing "named placeholders without a provided arg render empty"
     (is (= "Weather for Paris in "
            (#'f.commands/substitute-args "Weather for {{city}} in {{units}}" ["Paris"])))))
-
-(deftest config-commands-plugin-prefix-test
-  (let [tmp-dir (fs/create-temp-dir)]
-    (try
-      (testing "plugin commands get prefixed with plugin name"
-        (let [cmd-file (fs/file tmp-dir "deploy.md")]
-          (spit cmd-file "Plugin command body")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file) :plugin "ui"}]}
-                result (vec (#'f.commands/custom-commands config []))]
-            (is (= 1 (count result)))
-            (is (= "ui:deploy" (:name (first result))))
-            (is (= "ui" (:plugin (first result)))))))
-
-      (testing "plugin command with same name as plugin drops the prefix"
-        (let [cmd-file (fs/file tmp-dir "tdd.md")]
-          (spit cmd-file "TDD body")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file) :plugin "tdd"}]}
-                result (vec (#'f.commands/custom-commands config []))]
-            (is (= 1 (count result)))
-            (is (= "tdd" (:name (first result))))
-            (is (= "tdd" (:plugin (first result)))))))
-
-      (testing "user-config commands without a plugin stay unprefixed"
-        (let [cmd-file (fs/file tmp-dir "plain.md")]
-          (spit cmd-file "Plain body")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (vec (#'f.commands/custom-commands config []))]
-            (is (= 1 (count result)))
-            (is (= "plain" (:name (first result))))
-            (is (not (contains? (first result) :plugin))))))
-
-      (testing "user-config command directories load markdown files recursively"
-        (let [cmd-dir (fs/file tmp-dir "commands")
-              nested-dir (fs/file cmd-dir "nested")]
-          (fs/create-dirs nested-dir)
-          (spit (fs/file cmd-dir "review.md") "Review body")
-          (spit (fs/file nested-dir "ship.md") "Ship body")
-          (spit (fs/file nested-dir "ignore.txt") "Ignored")
-          (let [config {:pureConfig true :commands [{:path (str cmd-dir)}]}
-                result (vec (#'f.commands/custom-commands config []))]
-            (is (= #{"review" "ship"} (set (map :name result))))
-            (is (= #{"Review body" "Ship body"} (set (map :content result)))))))
-
-      (finally
-        (fs/delete-tree tmp-dir)))))
-
-(deftest command-arguments-test
-  (let [tmp-dir (fs/create-temp-dir)]
-    (try
-      (testing "command with $ARG1 placeholder detects arguments"
-        (let [cmd-file (fs/file tmp-dir "greet.md")]
-          (spit cmd-file "Greet $ARG1!")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (vec (#'f.commands/custom-commands config []))]
-            (is (= 1 (count result)))
-            (is (= "greet" (:name (first result))))
-            (is (= [{:name "arg1" :required true}]
-                   (:arguments (first result)))))))
-
-      (testing "command without placeholders has empty arguments"
-        (let [cmd-file (fs/file tmp-dir "simple.md")]
-          (spit cmd-file "Simple body")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (vec (#'f.commands/custom-commands config []))]
-            (is (= [] (:arguments (first result)))))))
-
-      (finally
-        (fs/delete-tree tmp-dir)))))
-
-(deftest command-frontmatter-test
-  (let [tmp-dir (fs/create-temp-dir)]
-    (try
-      (testing "frontmatter description and named arguments are parsed"
-        (let [cmd-file (fs/file tmp-dir "weather.md")]
-          (spit cmd-file (string/join "\n"
-                                      ["---"
-                                       "description: Generate a weather report"
-                                       "arguments:"
-                                       "  - name: city"
-                                       "    description: City to report on"
-                                       "    required: true"
-                                       "  - name: units"
-                                       "    description: metric or imperial"
-                                       "    required: false"
-                                       "---"
-                                       "Weather for {{city}} using {{units}} units."]))
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (first (#'f.commands/custom-commands config []))]
-            (is (= "weather" (:name result)))
-            (is (= "Generate a weather report" (:description result)))
-            (is (= "Weather for {{city}} using {{units}} units." (:content result)))
-            (is (= [{:name "city" :description "City to report on" :required true}
-                    {:name "units" :description "metric or imperial" :required false}]
-                   (:arguments result))))))
-
-      (testing "frontmatter arguments enrich positional args by index"
-        (let [cmd-file (fs/file tmp-dir "pos.md")]
-          (spit cmd-file (string/join "\n"
-                                      ["---"
-                                       "arguments:"
-                                       "  - name: city"
-                                       "    description: City name"
-                                       "---"
-                                       "Weather for $1"]))
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (first (#'f.commands/custom-commands config []))]
-            (is (= [{:name "city" :description "City name" :required true}]
-                   (:arguments result))))))
-
-      (testing "command without frontmatter still loads with positional args"
-        (let [cmd-file (fs/file tmp-dir "plain.md")]
-          (spit cmd-file "Hello $ARG1")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}
-                result (first (#'f.commands/custom-commands config []))]
-            (is (nil? (:description result)))
-            (is (= "Hello $ARG1" (:content result)))
-            (is (= [{:name "arg1" :required true}] (:arguments result))))))
-
-      (testing "command mixing positional and named placeholders is skipped"
-        (let [cmd-file (fs/file tmp-dir "bad.md")]
-          (spit cmd-file "Use $1 and {{city}}")
-          (let [config {:pureConfig true :commands [{:path (str cmd-file)}]}]
-            (is (empty? (#'f.commands/custom-commands config []))))))
-
-      (finally
-        (fs/delete-tree tmp-dir)))))
 
 (deftest custom-command-description-fallback-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -865,7 +711,7 @@
 
 (deftest rules-command-test
   (testing "/rules shows static and path-scoped rules separately with filter metadata"
-    (with-redefs [f.rules/all-rules (fn [_config _roots agent full-model]
+    (with-redefs [m.rules/all-rules (fn [_config _roots agent full-model]
                                       (is (= "code" agent))
                                       (is (= "anthropic/claude-sonnet-4-20250514" full-model))
                                       {:static [{:name "coding-style.md"
@@ -908,7 +754,7 @@
         (is (not (string/includes? text "Content preview: Run formatter before saving."))))))
 
   (testing "/rules falls back to all when filters are omitted in rule metadata"
-    (with-redefs [f.rules/all-rules (fn [& _]
+    (with-redefs [m.rules/all-rules (fn [& _]
                                       {:static [{:name "global.md"
                                                  :scope :global
                                                  :path "/home/user/.config/eca/rules/global.md"
@@ -933,7 +779,7 @@
         (is (string/includes? text "Model filter: all")))))
 
   (testing "/rules hides path-scoped rules when fetch_rule is unavailable"
-    (with-redefs [f.rules/all-rules (constantly {:static []
+    (with-redefs [m.rules/all-rules (constantly {:static []
                                                  :path-scoped [{:name "format.md"
                                                                 :scope :project
                                                                 :path "/repo/.eca/rules/format.md"
@@ -957,7 +803,7 @@
         (is (= "No rules available for the current agent and model." text)))))
 
   (testing "/rules reports when there are no available rules"
-    (with-redefs [f.rules/all-rules (constantly {:static [] :path-scoped []})]
+    (with-redefs [m.rules/all-rules (constantly {:static [] :path-scoped []})]
       (let [result (#'f.commands/handle-command! "rules"
                                                  []
                                                  {:chat-id "chat-1"
@@ -1020,56 +866,6 @@
       (is (= 10 (count result)))
       (is (= {:name "arg1" :required true} (first result)))
       (is (= {:name "arg10" :required true} (last result))))))
-
-(deftest hooks-msg-test
-  (testing "no hooks configured shows the empty message"
-    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
-           (#'f.commands/hooks-msg {:hooks {}}))))
-
-  (testing "a hook with no actions is treated as no hooks"
-    (is (= "No hooks configured. Add hooks to your config under the `hooks` key."
-           (#'f.commands/hooks-msg {:hooks {"empty" {:type "preToolCall" :actions []}}}))))
-
-  (testing "description is rendered after the hook name"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"guard" {:type "preToolCall"
-                                 :description "blocks dangerous tools"
-                                 :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "`guard`"))
-      (is (string/includes? out "— blocks dangerous tools"))))
-
-  (testing "invisible hooks render the hidden marker"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"silent" {:type "preToolCall"
-                                  :visible false
-                                  :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "*(hidden)*"))))
-
-  (testing "visible hooks (default) do not render the hidden marker"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"loud" {:type "preToolCall"
-                                :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (not (string/includes? out "*(hidden)*")))))
-
-  (testing "a string matcher is rendered verbatim"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"m" {:type "preToolCall"
-                             :matcher "read_file"
-                             :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "matcher: `read_file`"))))
-
-  (testing "a map matcher is rendered as JSON"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"m" {:type "preToolCall"
-                             :matcher {:tool_name "read_file"}
-                             :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "matcher: `{\"tool_name\":\"read_file\"}`"))))
-
-  (testing "plugin-prefixed hook names are rendered"
-    (let [out (#'f.commands/hooks-msg
-               {:hooks {"my-plugin::guard" {:type "preToolCall"
-                                            :actions [{:type "shell" :shell "exit 0"}]}}})]
-      (is (string/includes? out "`my-plugin::guard`")))))
 
 (deftest context-usage-text-test
   (let [text (#'f.commands/context-usage-text

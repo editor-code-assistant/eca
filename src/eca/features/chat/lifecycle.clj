@@ -2,10 +2,13 @@
   (:require
    [clojure.string :as string]
    [eca.db :as db]
-   [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules :as modules]
+   [eca.modules.events :as events]
+   [eca.modules.hooks :as m.hooks]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -43,17 +46,25 @@
                (< tokens-left context-limit))
       tokens-left)))
 
+(defn compaction-module-active?
+  "Whether `:eca/compact-as-summary`, which owns compaction, is active: without
+   it ECA never compacts on its own."
+  [config]
+  (modules/active? config :eca/compact-as-summary))
+
 (defn auto-compact-threshold
   "Effective auto-compaction threshold as a percentage of `context-limit`, as
    sent to clients: derived from `autoCompactTokensLeft` when applicable,
    otherwise `autoCompactPercentage`. nil when auto-compact is disabled."
   [config agent-name context-limit]
-  (if-let [tokens-left (auto-compact-tokens-left config agent-name context-limit)]
-    (double (* 100 (/ (- context-limit tokens-left) context-limit)))
-    (auto-compact-percentage config agent-name)))
+  (when (compaction-module-active? config)
+    (if-let [tokens-left (auto-compact-tokens-left config agent-name context-limit)]
+      (double (* 100 (/ (- context-limit tokens-left) context-limit)))
+      (auto-compact-percentage config agent-name))))
 
 (defn auto-compact? [chat-id agent-name full-model config db]
-  (when (and (not (get-in db [:chats chat-id :compacting?]))
+  (when (and (compaction-module-active? config)
+             (not (get-in db [:chats chat-id :compacting?]))
              (not (get-in db [:chats chat-id :auto-compacting?])))
     (let [{:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
           context-limit (:context limit)]
@@ -155,6 +166,116 @@
           (flush-reason-group! chat-ctx))
         (send-content-raw! chat-ctx role content))))
 
+(defn chat-event
+  "A core chat event: `m` with the chat's `:chat-id`, `:agent`, `:model`,
+   `:variant` and, for a subagent, `:parent-chat-id`."
+  [{:keys [chat-id agent full-model variant parent-chat-id db*]} m]
+  (let [chat (some-> db* deref (get-in [:chats chat-id]))]
+    (assoc-some m
+                :chat-id chat-id
+                :agent (or agent (:agent chat))
+                :model (or full-model (:model chat))
+                :variant (or variant (:variant chat))
+                :parent-chat-id (or parent-chat-id (:parent-chat-id chat)))))
+
+(defn emit-messages-added!
+  "Tells modules about `messages` added to the chat's history
+   (`:chat/message-added`)."
+  [chat-ctx messages]
+  (doseq [message messages]
+    (events/emit! chat-ctx :chat/message-added (chat-event chat-ctx {:message message}))))
+
+(def ^:private request-changes
+  "The keys of a request `:llm/before-request` handlers may change, and what
+   their values must be."
+  [[:past-messages sequential?]
+   [:user-messages sequential?]
+   [:instructions #(or (string? %) (map? %))]
+   [:tools sequential?]])
+
+(defn before-llm-request
+  "Runs the `:llm/before-request` event for the chat's next LLM request and
+   returns `request` with the modules' changes. `request` holds what the
+   model will see: `:past-messages`, `:user-messages` (new user messages,
+   not in the history yet), `:instructions` and `:tools`. The history
+   doesn't change. Without handlers, `request` is returned as is."
+  [{:keys [db* chat-id full-model config] :as chat-ctx} {:keys [user-messages] :as request}]
+  (if-not (seq (events/handlers config :llm/before-request))
+    request
+    (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
+      (let [db @db*
+            history (get-in db [:chats chat-id :messages] [])
+            since-checkpoint (into (shared/messages-after-last-compact-marker history) user-messages)
+            {:keys [session-tokens limit]} (shared/usage-sumary chat-id full-model db)
+            context-limit (:context limit)
+            sent (assoc request :model full-model)
+            event (events/emit! chat-ctx :llm/before-request
+                                (chat-event chat-ctx
+                                            (assoc-some {:request sent
+                                                         :history history
+                                                         :since-checkpoint since-checkpoint
+                                                         :turn (subvec since-checkpoint
+                                                                       (or (llm-util/find-last-user-msg-idx since-checkpoint) 0))}
+                                                        :budget (when (and (number? session-tokens) (number? context-limit))
+                                                                  (max 0 (- context-limit session-tokens))))))
+            changed (:request event)]
+        (cond
+          (identical? sent changed)
+          request
+
+          (not (map? changed))
+          (do (logger/warn logger-tag "Ignoring the :request a :llm/before-request handler set" {:value changed})
+              request)
+
+          :else
+          (do
+            (when (not= full-model (:model changed))
+              (logger/warn logger-tag "Ignoring the :model a :llm/before-request handler set: not supported yet"
+                           {:model (:model changed)}))
+            (reduce (fn [request [k valid?]]
+                      (let [v (get changed k)]
+                        (cond
+                          (identical? v (get request k)) request
+                          (valid? v) (assoc request k v)
+                          :else (do (logger/warn logger-tag (format "Ignoring the %s a :llm/before-request handler set" k)
+                                                 {:value v})
+                                    request))))
+                    request
+                    request-changes)))))))
+
+(defn request-failed-answer
+  "Asks modules what to do about a failed LLM request of the chat
+   (`:llm/request-failed`): returns the first answer with `:retry` or
+   `:compact`, or nil, when ECA handles the failure as before."
+  [{:keys [config] :as chat-ctx} request error]
+  (when (seq (events/handlers config :llm/request-failed))
+    (let [answer (events/emit! chat-ctx :llm/request-failed (chat-event chat-ctx {:request request :error error}))]
+      (when (and (map? answer) (or (:retry answer) (:compact answer)))
+        answer))))
+
+(defn ^:private module-name [module-id]
+  (if module-id (str (symbol module-id)) "?"))
+
+(defn turn-stopped-by-module-message
+  "User-facing message when a module's event handler stops the turn."
+  [module-id stop-reason]
+  (if (shared/not-blank stop-reason)
+    (str "Turn stopped by module '" (module-name module-id) "': " stop-reason)
+    (str "Turn stopped by module '" (module-name module-id) "'.")))
+
+(defn send-turn-stopped-by-module!
+  [chat-ctx module-id reason]
+  (send-content! chat-ctx :system
+                 {:type :text
+                  :text (turn-stopped-by-module-message module-id reason)}))
+
+(defn request-blocked-by-module-message
+  "User-facing message when a module's event handler blocks the request."
+  [module-id reason]
+  (if (shared/not-blank reason)
+    (str "Request blocked by module '" (module-name module-id) "': " reason)
+    (str "Request blocked by module '" (module-name module-id) "'.")))
+
 (defn hook-system-text
   "User-facing standalone message attributed to a hook by name.
    Ends with a blank line so the message renders as its own paragraph and never
@@ -192,6 +313,14 @@
   (if (shared/not-blank hook-name)
     (str "Compaction blocked by hook '" hook-name "'.")
     "Compaction blocked by hook."))
+
+(defn compaction-blocked-by-module-message
+  "User-facing message when a module's `:chat/before-compact` handler blocks
+   a compaction without stopping the turn."
+  [module-id reason]
+  (if (shared/not-blank reason)
+    (str "Compaction blocked by module '" (module-name module-id) "': " reason)
+    (str "Compaction blocked by module '" (module-name module-id) "'.")))
 
 (defn ^:private format-hook-output
   "Format the hook execution block's text: 'Hook executed' (or raw plain-text
@@ -260,7 +389,7 @@
 
 (defn ^:private compact-hook-data
   [db chat-ctx trigger extra]
-  (merge (f.hooks/chat-hook-data db chat-ctx)
+  (merge (m.hooks/chat-hook-data db chat-ctx)
          {:triggered trigger}
          extra))
 
@@ -285,7 +414,7 @@
   [acc result]
   (let [parsed (:parsed result)
         success? (zero? (:exit result))
-        exit-code-2? (= f.hooks/hook-rejection-exit-code (:exit result))
+        exit-code-2? (= m.hooks/hook-rejection-exit-code (:exit result))
         stop-turn-result? (and success? (false? (get parsed "continue" true)))]
     (cond
       ;; continue:false blocks compaction and stops the turn (with optional stopReason).
@@ -316,7 +445,7 @@
                            :hook-name nil
                            :stop-turn? false})
         db @db*]
-    (f.hooks/trigger-if-matches!
+    (m.hooks/trigger-if-matches!
      :preCompact
      (compact-hook-data db chat-ctx trigger
                         {:custom-instructions (or custom-instructions "")})
@@ -390,7 +519,7 @@
                            :stop-reason nil
                            :stop-hook-name nil
                            :additional-contexts []})]
-    (f.hooks/trigger-if-matches!
+    (m.hooks/trigger-if-matches!
      :postCompact
      (compact-hook-data db chat-ctx trigger
                         {:compact-summary (or compact-summary "")})
@@ -415,16 +544,115 @@
                :stop-hook-name stop-hook-name}
         (seq additional-contexts) (assoc :additional-contexts additional-contexts)))))
 
+(defn ^:private compact-event-trigger
+  "The trigger compaction events report: `:manual`, `:auto`, or the chat
+   ctx's `:compact-trigger` (`:overflow` when the request was too long for
+   the model). Shell hooks keep \"manual\" and \"auto\"."
+  [chat-ctx trigger]
+  (if (= "manual" trigger) :manual (or (:compact-trigger chat-ctx) :auto)))
+
+(defn run-pre-compact!
+  "Runs the `:chat/before-compact` event, then the preCompact shell hooks,
+   modules first (4.17). Returns `run-pre-compact-hooks!`'s result plus
+   `:instructions`, which modules may replace. A module's `:block` skips the
+   compaction and its `:stop` ends the turn too; then no hook runs, and
+   `:module` names it."
+  [chat-ctx trigger instructions]
+  (let [event (events/emit! chat-ctx :chat/before-compact
+                            (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
+                                                  :instructions (shared/not-blank instructions)}))
+        module (::events/ended-by event)
+        instructions (if (string? (:instructions event)) (:instructions event) instructions)]
+    (cond
+      (contains? event :stop)
+      {:blocked? true :stop-turn? true :reason (shared/not-blank (:stop event)) :module module
+       :instructions instructions}
+
+      (:block event)
+      {:blocked? true :stop-turn? false :reason (shared/not-blank (:block event)) :module module
+       :instructions instructions}
+
+      :else
+      (assoc (run-pre-compact-hooks! chat-ctx trigger instructions) :instructions instructions))))
+
+(defn compaction-handled?
+  "Whether something can compact the chat: `:eca/compact-as-summary` is
+   active, or a module handles `:chat/compact`."
+  [config]
+  (or (compaction-module-active? config)
+      (boolean (seq (events/handlers config :chat/compact)))))
+
+(defn compact-with-module!
+  "Emits `:chat/compact`, when a module handles it: the first module that
+   answers does the compaction, instead of `:eca/compact-as-summary`. Returns
+   its answer, `{:status :done or :failed, :resume? .., :message ..}`, plus
+   `:checkpoint?`, whether it wrote a checkpoint; nil when none answered."
+  [{:keys [db* chat-id config] :as chat-ctx} trigger instructions]
+  (when (seq (events/handlers config :chat/compact))
+    (let [before (count (get-in @db* [:chats chat-id :messages]))
+          answer (events/emit! chat-ctx :chat/compact
+                               (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
+                                                     :instructions (shared/not-blank instructions)}))]
+      (when answer
+        (let [answer (if (map? answer) answer {})]
+          (assoc answer
+                 :status (if (= :failed (:status answer)) :failed :done)
+                 :checkpoint? (boolean (some #(= "compact_marker" (:role %))
+                                             (drop before (get-in @db* [:chats chat-id :messages]))))))))))
+
+(defn ^:private last-checkpoint
+  "The chat's last checkpoint, `{:marker .. :messages [..]}`: its last
+   compact_marker and the messages after it; nil when it has none."
+  [messages]
+  (let [messages (vec messages)]
+    (when-let [idx (llm-util/find-last-msg-idx #(= "compact_marker" (:role %)) messages)]
+      {:marker (messages idx) :messages (subvec messages (inc idx))})))
+
+(defn run-after-compact!
+  "After a compaction wrote its checkpoint: runs the `:chat/after-compact`
+   event, then the postCompact shell hooks, modules first (4.17). A module's
+   context goes on the summary, before the hooks'; its `:stop` ends the turn,
+   and then no hook runs. Returns `run-post-compact-hooks!`'s result, or
+   `{:stop-turn? true :stop-reason .. :stop-module ..}`."
+  [{:keys [db* chat-id] :as chat-ctx} trigger compact-summary]
+  (let [event (events/emit! chat-ctx :chat/after-compact
+                            (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
+                                                  :checkpoint (last-checkpoint (get-in @db* [:chats chat-id :messages]))}))]
+    (when-let [context (shared/not-blank (:additional-context event))]
+      (append-post-compact-contexts! db* chat-id [{:hook-name "modules" :content context}]))
+    (if (contains? event :stop)
+      {:stop-turn? true :stop-reason (shared/not-blank (:stop event)) :stop-module (::events/ended-by event)}
+      (run-post-compact-hooks! chat-ctx trigger compact-summary))))
+
+(defn finish-module-compaction!
+  "After a module answered `:chat/compact`: shows its `:message` and, when it
+   wrote a checkpoint, runs `run-after-compact!` with the checkpoint's text
+   as the summary hooks get. Returns `{:compacted? :stop-turn? :stop-reason
+   :stop-hook-name :stop-module}`."
+  [{:keys [db* chat-id] :as chat-ctx} trigger {:keys [status message checkpoint?]}]
+  (when-let [message (or (shared/not-blank message)
+                         (when (= :failed status) "Compaction failed. The conversation was not compacted."))]
+    (send-content! chat-ctx :system {:type :text :text message}))
+  (if (and (= :done status) checkpoint?)
+    (let [summary (->> (:messages (last-checkpoint (get-in @db* [:chats chat-id :messages])))
+                       (mapcat (fn [{:keys [content]}] (if (string? content) [content] (keep :text content))))
+                       (string/join "\n"))]
+      (assoc (run-after-compact! chat-ctx trigger summary) :compacted? true))
+    {:compacted? (= :done status)}))
+
 (defn complete-compact!
-  "Apply ECA's compact side effects, then run postCompact hooks (which
-   internally append any returned additionalContext to the compact summary)."
+  "Apply ECA's compact side effects, then the `:chat/after-compact` event and
+   the postCompact hooks (which internally append any returned
+   additionalContext to the compact summary)."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (let [{:keys [compact-done? last-summary]} (get-in @db* [:chats chat-id])]
     (if (and compact-done? (string? last-summary))
       (do
         (swap! db* update-in [:chats chat-id] dissoc :compact-done?)
         (shared/compact-side-effect! chat-ctx (= "auto" trigger))
-        (assoc (run-post-compact-hooks! chat-ctx trigger last-summary)
+        (when-let [{:keys [marker messages]} (last-checkpoint (get-in @db* [:chats chat-id :messages]))]
+          (emit-messages-added! chat-ctx (cons marker messages)))
+        (assoc (run-after-compact! chat-ctx trigger last-summary)
                :compacted? true))
       (do
         (swap! db* update-in [:chats chat-id]
@@ -435,7 +663,45 @@
         {:compacted? false
          :stop-after-finish? true}))))
 
-(defn ^:private run-post-request-hooks!
+(defn ^:private checkpoint-message
+  "A message given to `write-checkpoint!` as the history keeps it, or nil
+   when it isn't one: a map with a `:role` and `:content`, a string content
+   becoming a text content."
+  [message now]
+  (when (and (map? message) (string? (:role message)) (some? (:content message)))
+    (cond-> (assoc message :created-at now)
+      (string? (:content message)) (assoc :content [{:type :text :text (:content message)}]))))
+
+(defn write-checkpoint!
+  "Appends a checkpoint to the chat's history, as a compaction does: a
+   compact_marker with `:module`, `:label` and `:data`, then `messages`. The
+   model sees only what comes after it. The chat's usage resets, the
+   contexts sent before it are sent again, and the client shows `:label`."
+  [{:keys [db* chat-id messenger] :as chat-ctx} {:keys [module label data messages]}]
+  (let [now (System/currentTimeMillis)
+        label (shared/not-blank label)
+        marker {:role "compact_marker"
+                :content (assoc-some {} :module module :label label :data data)
+                :created-at now}
+        kept (into [] (keep #(checkpoint-message % now)) messages)
+        appended (into [marker] kept)]
+    (when (not= (count kept) (count messages))
+      (logger/warn logger-tag "Ignoring checkpoint messages without a :role and :content" {:module module}))
+    (swap! db* update-in [:chats chat-id]
+           #(-> %
+                (update :messages (fnil into []) appended)
+                (dissoc :usage :validated-path-rules :last-editor-state :sent-attached-contexts)))
+    (emit-messages-added! chat-ctx appended)
+    (messenger/chat-content-received messenger {:chat-id chat-id
+                                                :role :system
+                                                :content {:type :text :text (or label "Compacted chat")}})
+    (when-let [usage (shared/usage-sumary chat-id (get-in @db* [:chats chat-id :model]) @db*)]
+      (messenger/chat-content-received messenger {:chat-id chat-id
+                                                  :role :system
+                                                  :content (merge {:type :usage} usage)}))
+    nil))
+
+(defn ^:private run-post-request-shell-hooks!
   "Run postRequest (for primary chats) and subagentPostRequest (for subagents) hooks.
    Returns {:follow-up-text string-or-nil :stop-turn? boolean
             :stop-reason string-or-nil :stop-hook-name string-or-nil}.
@@ -445,14 +711,14 @@
    exit 2 makes stderr LLM-visible payload. This is because these hooks run
    after the prompt finished, so exit 2 cannot 'block' the request; instead it
    contributes a continuation instruction."
-  [{:keys [db* config chat-id response] :as chat-ctx}]
+  [chat-ctx db* config chat-id response]
   (let [db @db*
         results* (atom [])
         subagent? (some? (get-in db [:chats chat-id :subagent]))
         follow-up-active? (get-in db [:chats chat-id :follow-up-active?])
         ;; follow-up-active is always sent as a boolean (documented contract),
         ;; so hook authors can rely on the key being present as true or false.
-        base-hook-data (assoc-some (f.hooks/chat-hook-data db chat-ctx)
+        base-hook-data (assoc-some (m.hooks/chat-hook-data db chat-ctx)
                                    :response response
                                    :follow-up-active (boolean follow-up-active?))
         cb {:on-before-action (partial notify-before-hook-action! chat-ctx)
@@ -461,12 +727,12 @@
                                (swap! results* conj result))}
         ;; postRequest is primary-only. Subagent chats use subagentPostRequest.
         _ (if subagent?
-            (f.hooks/trigger-if-matches! :subagentPostRequest
+            (m.hooks/trigger-if-matches! :subagentPostRequest
                                          (assoc base-hook-data :parent-chat-id (db/parent-chat-id db chat-id))
                                          cb
                                          db
                                          config)
-            (f.hooks/trigger-if-matches! :postRequest base-hook-data cb db config))
+            (m.hooks/trigger-if-matches! :postRequest base-hook-data cb db config))
         hook-results @results*
         follow-ups (->> hook-results
                         (keep (fn [{:keys [parsed exit raw-error]}]
@@ -474,12 +740,12 @@
                                   (zero? exit)
                                   (shared/not-blank (get parsed "followUp"))
 
-                                  (= f.hooks/hook-rejection-exit-code exit)
+                                  (= m.hooks/hook-rejection-exit-code exit)
                                   (shared/not-blank raw-error))))
                         seq)
         follow-up-text (some->> follow-ups (string/join "\n\n"))
         stop-result (some (fn [{:keys [parsed name] :as result}]
-                            (when (f.hooks/successful-continue-false? result)
+                            (when (m.hooks/successful-continue-false? result)
                               {:stop-reason (shared/not-blank (get parsed "stopReason"))
                                :stop-hook-name name}))
                           hook-results)]
@@ -487,6 +753,23 @@
      :stop-turn? (boolean stop-result)
      :stop-reason (:stop-reason stop-result)
      :stop-hook-name (:stop-hook-name stop-result)}))
+
+(defn ^:private run-post-request-hooks!
+  "Runs the `:chat/after-request` event, then the postRequest shell hooks
+   (`run-post-request-shell-hooks!`), modules first, as their handlers run
+   before `:eca/hooks`' (4.17). A module's `:follow-up` comes before the
+   hooks' ones; its `:stop` ends the turn without running them. Returns the
+   hooks' result, with `:stop-module` when a module stopped the turn."
+  [{:keys [db* config chat-id response] :as chat-ctx}]
+  (let [event (events/emit! chat-ctx :chat/after-request (chat-event chat-ctx {:response response}))]
+    (if (contains? event :stop)
+      {:follow-up-text nil
+       :stop-turn? true
+       :stop-reason (:stop event)
+       :stop-module (::events/ended-by event)}
+      (let [result (run-post-request-shell-hooks! chat-ctx db* config chat-id response)
+            follow-ups (remove nil? [(shared/not-blank (:follow-up event)) (:follow-up-text result)])]
+        (assoc result :follow-up-text (some->> (seq follow-ups) (string/join "\n\n")))))))
 
 (defn ^:private chat-status-payload
   "Build the aggregate chatStatusChanged hook payload from a db snapshot."
@@ -527,26 +810,40 @@
    Dedup state is stored at [:chats chat-id :last-status-payload]. Missing chats
    are ignored."
   [{:keys [db* chat-id config] :as chat-ctx}]
-  (when (some #(= :chatStatusChanged (keyword (:type %))) (vals (:hooks config)))
-    (let [path [:chats chat-id :last-status-payload]
-          ;; Compute inside the swap so the stored payload matches the db snapshot.
-          [old-db new-db] (swap-vals! db* (fn [db]
-                                            (if (get-in db [:chats chat-id])
-                                              (assoc-in db path (chat-status-payload db chat-id))
-                                              db)))
-          payload (get-in new-db path)]
-      (when (and (get-in new-db [:chats chat-id])
-                 (not= (get-in old-db path) payload))
-        (f.hooks/trigger-if-matches!
-         :chatStatusChanged
-         (merge (f.hooks/chat-hook-data new-db chat-ctx)
-                (when (get-in new-db [:chats chat-id :subagent])
-                  {:parent-chat-id (db/parent-chat-id new-db chat-id)})
-                (dissoc payload :chat-id))
-         ;; No action callbacks: advisory hooks do not render in the chat UI.
-         {}
-         new-db
-         config)))))
+  (let [hooks? (some #(= :chatStatusChanged (keyword (:type %))) (vals (m.hooks/active-hooks config)))
+        handlers? (seq (events/handlers config :chat/status-changed))]
+    (when (or hooks? handlers?)
+      (let [path [:chats chat-id :last-status-payload]
+            ;; Compute inside the swap so the stored payload matches the db snapshot.
+            [old-db new-db] (swap-vals! db* (fn [db]
+                                              (if (get-in db [:chats chat-id])
+                                                (assoc-in db path (chat-status-payload db chat-id))
+                                                db)))
+            payload (get-in new-db path)]
+        (when (and (get-in new-db [:chats chat-id])
+                   (not= (get-in old-db path) payload))
+          (let [parent-chat-id (when (get-in new-db [:chats chat-id :subagent])
+                                 (db/parent-chat-id new-db chat-id))]
+            (when handlers?
+              (events/emit! chat-ctx :chat/status-changed
+                            (assoc-some {:chat-id chat-id
+                                         :status (:status payload)
+                                         :pending-approval-ids (:pending-approval-tool-call-ids payload)
+                                         :pending-question-ids (:pending-question-tool-call-ids payload)
+                                         :running-tool-ids (:running-tool-call-ids payload)}
+                                        :waiting-reason (:waiting-reason payload)
+                                        :parent-chat-id parent-chat-id)))
+            (when hooks?
+              (m.hooks/trigger-if-matches!
+               :chatStatusChanged
+               (merge (m.hooks/chat-hook-data new-db chat-ctx)
+                      (when parent-chat-id
+                        {:parent-chat-id parent-chat-id})
+                      (dissoc payload :chat-id))
+               ;; No action callbacks: advisory hooks do not render in the chat UI.
+               {}
+               new-db
+               config))))))))
 
 (defn ^:private finished-error
   "The error that ended the turn (a provider or network error, a context
@@ -569,13 +866,12 @@
   (when-not (get-in @db* [:chats chat-id :created-at])
     (swap! db* assoc-in [:chats chat-id :created-at] (System/currentTimeMillis))))
 
-(defn record-unsent-user-messages!
-  "User messages only reach the chat history once the LLM starts responding.
-   Adds the ones of a turn that ended (stopped, failed or superseded) before
-   that, so the next prompt and a resumed chat still have them."
+(defn ^:private record-unsent-user-messages*
+  "Moves the turn's unsent user messages to the history; returns the db
+   before and after."
   [db* chat-id]
   (when (get-in @db* [:chats chat-id :unsent-user-messages])
-    (swap! db* update-in [:chats chat-id]
+    (swap-vals! db* update-in [:chats chat-id]
            (fn [{:keys [unsent-user-messages messages] :as chat}]
              (let [{:keys [content-id sent-attached-contexts] user-messages :messages} unsent-user-messages
                    record? (and (seq user-messages)
@@ -589,6 +885,21 @@
                  ;; The attached contexts in these messages reach the history too. #683
                  (and record? sent-attached-contexts)
                  (assoc :sent-attached-contexts sent-attached-contexts)))))))
+
+(defn record-unsent-user-messages!
+  "User messages only reach the chat history once the LLM starts responding.
+   Adds the ones of a turn that ended (stopped, failed or superseded) before
+   that, so the next prompt and a resumed chat still have them. With
+   `chat-ctx`, modules hear of them (`:chat/message-added`)."
+  ([db* chat-id] (record-unsent-user-messages! db* chat-id nil))
+  ([db* chat-id chat-ctx]
+   (let [[old-db new-db] (record-unsent-user-messages* db* chat-id)
+         added (when new-db
+                 (drop (count (get-in old-db [:chats chat-id :messages]))
+                       (get-in new-db [:chats chat-id :messages])))]
+     (when (and chat-ctx (seq added))
+       (emit-messages-added! chat-ctx added))
+     nil)))
 
 (defn ^:private dispatch-finish-callbacks!
   "Dispatch finish-flow callbacks. `on-finished-side-effect` always runs first
@@ -624,20 +935,22 @@
     (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
       (flush-reason-group! chat-ctx)
       (let [auto-compacting? (get-in @db* [:chats chat-id :auto-compacting?])
-            {:keys [follow-up-text stop-turn? stop-reason stop-hook-name]}
+            {:keys [follow-up-text stop-turn? stop-reason stop-hook-name stop-module]}
             (when (and (not auto-compacting?) (not skip-post-request-hooks?))
               (run-post-request-hooks! chat-ctx))
             stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
           (swap! db* update-in [:chats chat-id] dissoc :steer-message)
-          (record-unsent-user-messages! db* chat-id)
+          (record-unsent-user-messages! db* chat-id chat-ctx)
           (apply-status-transition! chat-ctx status))
         ;; A postRequest hook that returned continue:false stops the turn and
         ;; cancels followUp; surface the reason to the user (prefixed with the
         ;; hook name), consistent with the other turn-stopping hooks.
         (when stop-turn?
-          (send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+          (if stop-module
+            (send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+            (send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
         (dispatch-finish-callbacks! chat-ctx {:follow-up-text follow-up-text
                                               :stop-turn? stop-turn?
                                               :stopping? stopping?})

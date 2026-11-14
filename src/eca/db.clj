@@ -8,6 +8,7 @@
    [eca.digest :as digest]
    [eca.logger :as logger]
    [eca.metrics :as metrics]
+   [eca.modules.data :as modules.data]
    [eca.shared :as shared])
   (:import
    [java.io OutputStream RandomAccessFile]
@@ -101,6 +102,15 @@
                         :parent-chat-id :string
                         :startup-context :string
                         :prompt-cache ::any-map
+                        ;; each module's state in the chat (eca.api/swap-chat-state!),
+                        ;; plain data saved with the chat and copied by forks
+                        :modules {:<module-id> ::any}
+                        ;; added by modules for the next request (eca.api/add-context!)
+                        :module-contexts [{:module :string :content :string}]
+                        ;; a compaction a module asked for (eca.api/request-compaction!), run
+                        ;; before the next LLM request; none after one was blocked in a prompt
+                        :compaction-request {:module :keyword :trigger :keyword :instructions :string}
+                        :compaction-blocked-prompt-id :uuid
                         ;; Context-area files/repoMap already delivered in the
                         ;; user message history: context key -> content sha-256. #683
                         :sent-attached-contexts {"<context-key>" :string}
@@ -533,7 +543,9 @@
   ;; and chats that hit a provider error before any token arrived. Cleanup of
   ;; stale chats is handled by cleanup-old-chats! instead.
   (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
-      (dissoc :tool-calls :last-status-payload :unsent-user-messages :remembered-approvals :reason-group)
+      (dissoc :tool-calls :last-status-payload :unsent-user-messages :remembered-approvals :reason-group
+              ;; for the running session only: a compaction a module asked for
+              :compaction-request :compaction-blocked-prompt-id)
       (assoc :id chat-id)))
 
 (defn ^:private read-chat-file
@@ -927,7 +939,12 @@
         (let [db @db*
               workspaces (db-workspaces db)]
           (doseq [chat-id removed-ids]
-            (delete-chat-file! workspaces chat-id))
+            (delete-chat-file! workspaces chat-id)
+            ;; and the modules' files for it (eca.api/data-dir)
+            (try
+              (modules.data/delete-chat-dirs! db chat-id)
+              (catch Exception e
+                (logger/warn logger-tag "Could not delete the modules' files of chat" chat-id (ex-message e)))))
           (update-chats-index! db metrics))))))
 
 (def ^:private workspaces-hash-length 8)

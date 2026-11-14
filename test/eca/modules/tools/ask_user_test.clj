@@ -1,0 +1,236 @@
+(ns eca.modules.tools.ask-user-test
+  (:require
+   [clojure.test :refer [deftest is testing]]
+   [eca.modules.tools.ask-user :as m.ask-user]
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]]))
+
+(h/reset-components-before-test)
+
+(defn- call-ask-user [arguments & [{:keys [messenger config chat-id tool-call-id db* trust]
+                                     :or {tool-call-id "test-tool-call-id"}}]]
+  ((get-in m.ask-user/definitions ["ask_user" :handler])
+   arguments
+   {:messenger (or messenger (h/messenger))
+    :config (or config (h/config))
+    :chat-id (or chat-id "test-chat-id")
+    :tool-call-id tool-call-id
+    :db* db*
+    :trust trust}))
+
+(deftest ask-user-option-selected-test
+  (testing "User selects a predefined option"
+    (reset! (:ask-question-response* (h/messenger))
+            {:answer "React" :cancelled false})
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "User answered: React"}]}
+         (call-ask-user {"question" "Which framework?"
+                         "options" [{"label" "React" "description" "Component-based"}
+                                    {"label" "Vue" "description" "Progressive"}]})))))
+
+(deftest ask-user-freeform-answer-test
+  (testing "User types a freeform answer"
+    (reset! (:ask-question-response* (h/messenger))
+            {:answer "I'd prefer Svelte actually" :cancelled false})
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "User answered: I'd prefer Svelte actually"}]}
+         (call-ask-user {"question" "Which framework?"
+                         "options" [{"label" "React"}]})))))
+
+(deftest ask-user-open-ended-test
+  (testing "Open-ended question with no options"
+    (reset! (:ask-question-response* (h/messenger))
+            {:answer "A todo list app" :cancelled false})
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "User answered: A todo list app"}]}
+         (call-ask-user {"question" "What kind of app would you like to build?"})))))
+
+(deftest ask-user-cancelled-test
+  (testing "User cancels the question"
+    (reset! (:ask-question-response* (h/messenger))
+            {:answer nil :cancelled true})
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "User cancelled the question."}]}
+         (call-ask-user {"question" "Which framework?"})))))
+
+(deftest ask-user-trust-mode-timeout-test
+  (let [config {:toolCall {:askUser {:trustModeTimeoutSeconds 300}}}
+        answer {:answer "yes" :cancelled false}
+        returning (fn [result]
+                    (h/stub-messenger {:ask-question (constantly result)}))
+        ;; Records each wait and cancel. The timed wait returns the answer only
+        ;; when answered? is true.
+        pending (fn [events* & {:keys [answered?]}]
+                  (reify
+                    clojure.lang.IDeref
+                    (deref [_] (swap! events* conj :untimed) answer)
+                    clojure.lang.IBlockingDeref
+                    (deref [_ _ms timeout-value]
+                      (swap! events* conj :timed)
+                      (if answered? answer timeout-value))
+                    java.util.concurrent.Future
+                    (cancel [_ _] (swap! events* conj :cancel) true)))]
+    (testing "trust on: no answer in time continues and cancels the request"
+      (let [events* (atom [])]
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text "The user did not answer within 300 seconds. Continue with your best judgment and state the assumptions you made."}]}
+             (call-ask-user {"question" "Which DB?"}
+                            {:messenger (returning (pending events*)) :config config :trust true})))
+        (is (= [:timed :cancel] @events*))))
+    (testing "trust on: an answer in time is returned without a cancel"
+      (let [events* (atom [])]
+        (is (match?
+             {:error false
+              :contents [{:type :text :text "User answered: yes"}]}
+             (call-ask-user {"question" "Which DB?"}
+                            {:messenger (returning (pending events* :answered? true)) :config config :trust true})))
+        (is (= [:timed] @events*))))
+    (testing "trust off: waits without timeout"
+      (let [events* (atom [])]
+        (call-ask-user {"question" "Which DB?"}
+                       {:messenger (returning (pending events*)) :config config :trust false})
+        (is (= [:untimed] @events*))))
+    (testing "trust on without the setting: waits without timeout"
+      (let [events* (atom [])]
+        (call-ask-user {"question" "Which DB?"}
+                       {:messenger (returning (pending events*)) :config {} :trust true})
+        (is (= [:untimed] @events*))))))
+
+(deftest ask-user-missing-question-test
+  (testing "Missing question parameter"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text #"INVALID_ARGS.*question.*required"}]}
+         (call-ask-user {}))))
+  (testing "Blank question parameter"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text #"INVALID_ARGS.*question.*required"}]}
+         (call-ask-user {"question" "  "})))))
+
+(deftest ask-user-error-test
+  (testing "Exception during ask-question"
+    (reset! (:ask-question-response* (h/messenger))
+            (Exception. "connection lost"))
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Error asking user question."}]}
+         (call-ask-user {"question" "Which framework?"})))))
+
+(deftest ask-user-enabled-fn-test
+  (testing "Tool is enabled when client capability is set"
+    (let [enabled-fn (get-in m.ask-user/definitions ["ask_user" :enabled-fn])]
+      (is (true? (enabled-fn {:db {:client-capabilities {:code-assistant {:chat-capabilities {:ask-question true}}}}})))
+      (is (nil? (enabled-fn {:db {:client-capabilities {:code-assistant {:chat-capabilities {}}}}})))
+      (is (nil? (enabled-fn {:db {:client-capabilities {}}}))))))
+
+(deftest ask-user-passes-tool-call-id-test
+  (testing "toolCallId is included in params sent to messenger"
+    (let [captured-params (atom nil)]
+      (call-ask-user {"question" "Proceed?"}
+                     {:messenger (h/stub-messenger
+                                  {:ask-question (fn [params]
+                                                   (reset! captured-params params)
+                                                   (future {:answer "yes" :cancelled false}))})
+                      :tool-call-id "tc-42"})
+      (is (= "tc-42" (:toolCallId @captured-params)))))
+  (testing "toolCallId is absent when tool-call-id is nil"
+    (let [captured-params (atom nil)]
+      (call-ask-user {"question" "Proceed?"}
+                     {:messenger (h/stub-messenger
+                                  {:ask-question (fn [params]
+                                                   (reset! captured-params params)
+                                                   (future {:answer "yes" :cancelled false}))})
+                      :tool-call-id nil})
+      (is (nil? (:toolCallId @captured-params))))))
+
+(deftest ask-user-allow-freeform-test
+  (testing "allowFreeform defaults to true"
+    (let [captured-params (atom nil)]
+      (call-ask-user {"question" "Pick one"}
+                     {:messenger (h/stub-messenger
+                                  {:ask-question (fn [params]
+                                                   (reset! captured-params params)
+                                                   (future {:answer "A" :cancelled false}))})})
+      (is (true? (:allowFreeform @captured-params)))))
+  (testing "allowFreeform false is passed through"
+    (let [captured-params (atom nil)]
+      (call-ask-user {"question" "Pick one" "allowFreeform" false}
+                     {:messenger (h/stub-messenger
+                                  {:ask-question (fn [params]
+                                                   (reset! captured-params params)
+                                                   (future {:answer "A" :cancelled false}))})})
+      (is (false? (:allowFreeform @captured-params))))))
+
+(deftest ask-user-normalizes-options-test
+  (letfn [(captured-options [arguments]
+            (let [captured (atom nil)]
+              (call-ask-user arguments
+                             {:messenger (h/stub-messenger
+                                          {:ask-question (fn [params]
+                                                           (reset! captured params)
+                                                           (future {:answer "x" :cancelled false}))})})
+              (:options @captured)))]
+    (testing "array of objects becomes label/description maps"
+      (is (= [{:label "A" :description "first"} {:label "B"}]
+             (captured-options {"question" "Pick"
+                                "options" [{"label" "A" "description" "first"}
+                                           {"label" "B"}]}))))
+    (testing "array of plain strings becomes label maps"
+      (is (= [{:label "A"} {:label "B"}]
+             (captured-options {"question" "Pick" "options" ["A" "B"]}))))
+    (testing "a JSON-encoded options string is recovered"
+      (is (= [{:label "A" :description "first"}]
+             (captured-options {"question" "Pick"
+                                "options" "[{\"label\": \"A\", \"description\": \"first\"}]"}))))
+    (testing "a malformed (non-JSON) options string is dropped"
+      (is (nil? (captured-options {"question" "Pick"
+                                   "options" "<parameter name=\"label\">A</parameter>"}))))
+    (testing "invalid entries are filtered, valid ones kept in order"
+      (is (= [{:label "Good"} {:label "Plain"}]
+             (captured-options {"question" "Pick"
+                                "options" [{"label" "Good"} {"description" "no label"} "" "Plain"]}))))))
+
+(deftest ask-user-stores-request-id-in-db-test
+  (testing "ask-question-request-id is written to tool-call state in db*"
+    (let [db* (atom {:chats {"c1" {:tool-calls {"tc-1" {:status :executing}}}}})
+          captured-params (atom nil)
+          fake-messenger (h/stub-messenger
+                          {:ask-question (fn [params]
+                                           (reset! captured-params params)
+                                           (future {:answer "yes" :cancelled false}))})]
+      (call-ask-user {"question" "Ready?"}
+                     {:messenger fake-messenger
+                      :db* db*
+                      :chat-id "c1"
+                      :tool-call-id "tc-1"})
+      (let [stored-id (get-in @db* [:chats "c1" :tool-calls "tc-1" :ask-question-request-id])]
+        (is (string? stored-id) "ask-question-request-id should be stored in db*")
+        (is (= stored-id (:request-id @captured-params))
+            ":request-id in messenger params should match db* stored id")))))
+
+(deftest ask-user-summary-fn-test
+  (testing "Summary shows Q: prefix with question"
+    (let [summary-fn (get-in m.ask-user/definitions ["ask_user" :summary-fn])]
+      (is (= "Q: Short question?" (summary-fn {:args {"question" "Short question?"}})))
+      (is (= "Q: This is a very long question that exceeds th..."
+             (summary-fn {:args {"question" "This is a very long question that exceeds the fifty character limit"}})))))
+  (testing "Summary strips newlines from question"
+    (let [summary-fn (get-in m.ask-user/definitions ["ask_user" :summary-fn])]
+      (is (= "Q: First line second line" (summary-fn {:args {"question" "First line\nsecond line"}})))))
+  (testing "Summary shows preparing when question not yet available"
+    (let [summary-fn (get-in m.ask-user/definitions ["ask_user" :summary-fn])]
+      (is (= "Preparing question" (summary-fn {:args {}}))))))

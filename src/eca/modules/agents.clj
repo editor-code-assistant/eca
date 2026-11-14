@@ -1,0 +1,327 @@
+(ns eca.modules.agents
+  "The `:eca/agents` module: agents from the config and from Markdown files,
+   and choosing one for each chat (`defaultAgent`, `/agent`). Markdown agents
+   have YAML frontmatter and their body is the system prompt; they're read from
+   ~/.config/eca/agents/*.md and .eca/agents/*.md, in Claude Code / OpenCode's
+   format. The agents ECA ships are modules of their own, under
+   `eca.modules.agents` and `eca.modules.subagents`."
+  (:require
+   [babashka.fs :as fs]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
+   [eca.config :as config]
+   [eca.features.prompt :as f.prompt]
+   [eca.interpolation :as interpolation]
+   [eca.logger :as logger]
+   [eca.shared :as shared]))
+
+(set! *warn-on-reflection* true)
+
+(def ^:private logger-tag "[AGENTS-MD]")
+
+(def ^:private tool-arg-name
+  "Maps tool names to the argument name used for regex pattern matching in argsMatchers.
+   Only tools that support pattern-based approval need an entry here."
+  {"eca__shell_command" "command"})
+
+(defn ^:private parse-tool-entry
+  "Parses a tool entry string into [tool-name config].
+   Plain names like 'eca__read_file' -> ['eca__read_file' {}]
+   Pattern entries like 'eca__shell_command(npm run .*)' -> ['eca__shell_command' {:argsMatchers {'command' ['npm run .*']}}]"
+  [entry]
+  (let [s (str entry)]
+    (if-let [[_ tool-name pattern] (re-matches #"(.+?)\((.+)\)" s)]
+      (if-let [arg-name (get tool-arg-name tool-name)]
+        [tool-name {:argsMatchers {arg-name [pattern]}}]
+        (do (logger/warn logger-tag (format "Tool '%s' has pattern '%s' but no arg-name mapping in tool-arg-name; pattern will be ignored" tool-name pattern))
+            [tool-name {}]))
+      [s {}])))
+
+(defn ^:private tools-list->approval-map
+  [tool-entries]
+  (when (seq tool-entries)
+    (reduce
+     (fn [acc entry]
+       (let [[tool-name config] (parse-tool-entry entry)]
+         (if (contains? acc tool-name)
+           ;; Merge argsMatchers patterns for repeated tool entries
+           (update-in acc [tool-name :argsMatchers]
+                      (fn [existing new-matchers]
+                        (merge-with into existing new-matchers))
+                      (:argsMatchers config))
+           (assoc acc tool-name config))))
+     {}
+     tool-entries)))
+
+(defn ^:private normalize-tools
+  "Coerces the YAML `tools:` value into the map form ECA expects.
+   - Map form is returned as-is (ECA convention: byDefault/allow/ask/deny).
+   - Sequential form (Claude convention: a flat list of allowed tool names)
+     is normalized to {byDefault ask, allow <list>}.
+   - Any other shape (string, number, malformed) is treated as absent."
+  [tools]
+  (cond
+    (map? tools) tools
+    (sequential? tools) {"byDefault" "ask" "allow" (vec tools)}
+    :else nil))
+
+(defn ^:private normalize-agent-id
+  [agent-id]
+  (when (string? agent-id)
+    (let [normalized (-> agent-id string/trim string/lower-case)]
+      (when-not (string/blank? normalized)
+        normalized))))
+
+(defn ^:private normalize-agent-variant
+  [variant]
+  (when (string? variant)
+    (not-empty (string/trim variant))))
+
+(defn ^:private normalize-spawnable-by
+  [spawnable-by]
+  (cond
+    (nil? spawnable-by) nil
+    (string? spawnable-by) (or (normalize-agent-id spawnable-by)
+                               (do
+                                 (logger/warn logger-tag "Ignoring blank spawnableBy agent id")
+                                 nil))
+    (coll? spawnable-by) (some->> spawnable-by
+                                  (keep (fn [agent-id]
+                                          (or (normalize-agent-id agent-id)
+                                              (logger/warn logger-tag (format "Ignoring malformed spawnableBy agent id: %s" (pr-str agent-id))))))
+                                  distinct
+                                  vec
+                                  not-empty)
+    :else (do
+            (logger/warn logger-tag (format "Ignoring malformed spawnableBy value: %s" (pr-str spawnable-by)))
+            nil)))
+
+(defn ^:private normalize-tool-patterns
+  "Coerces a YAML tool pattern list (`disabledTools:`, `mcpToolSearch:` entries)
+   into a vector of strings.
+   Accepts a single string or a list of strings; other shapes are ignored."
+  [config-key patterns]
+  (cond
+    (nil? patterns) nil
+    (string? patterns) (when-not (string/blank? patterns)
+                         [patterns])
+    (sequential? patterns) (some->> patterns
+                                    (keep (fn [entry]
+                                            (let [s (str entry)]
+                                              (when-not (string/blank? s) s))))
+                                    vec
+                                    not-empty)
+    :else (do
+            (logger/warn logger-tag (format "Ignoring malformed %s value: %s" config-key (pr-str patterns)))
+            nil)))
+
+(defn ^:private normalize-mcp-tool-search
+  "Coerces the YAML `mcpToolSearch:` value into the map form ECA expects.
+   - Map form mirrors the config: {deferAllWhenTotalTokensExceedPercentOfContext N
+     includePattern [...] excludePattern [...]}.
+     Nested YAML keys arrive as strings, so both string and keyword keys are read.
+   - A bare string or list is shorthand for `includePattern`, since deferring
+     tools without excluding any is the common case.
+   - Any other shape (number, boolean, malformed) is treated as absent."
+  [mcp-tool-search]
+  (when (some? mcp-tool-search)
+    (let [defer-all-key :deferAllWhenTotalTokensExceedPercentOfContext
+          as-map (if (map? mcp-tool-search)
+                   mcp-tool-search
+                   {"includePattern" mcp-tool-search})
+          has-entry? (fn [k] (or (contains? as-map (name k)) (contains? as-map k)))
+          entry (fn [k] (or (get as-map (name k)) (get as-map k)))
+          include (normalize-tool-patterns "mcpToolSearch.includePattern" (entry :includePattern))
+          exclude (normalize-tool-patterns "mcpToolSearch.excludePattern" (entry :excludePattern))
+          ;; Present but not a number (notably an explicit null) leaves it unlimited.
+          defer-all-percent (when-let [v (entry defer-all-key)]
+                              (when (number? v) v))]
+      (not-empty
+       (cond-> {}
+         (has-entry? defer-all-key) (assoc defer-all-key defer-all-percent)
+         include (assoc :includePattern include)
+         exclude (assoc :excludePattern exclude))))))
+
+(defn ^:private normalize-timeout-seconds
+  "Coerces the YAML `timeoutSeconds:` value into a positive long, ignoring malformed values."
+  [timeout-seconds]
+  (cond
+    (nil? timeout-seconds) nil
+    (and (number? timeout-seconds) (pos? timeout-seconds)) (long timeout-seconds)
+    :else (do
+            (logger/warn logger-tag (format "Ignoring malformed timeoutSeconds value: %s" (pr-str timeout-seconds)))
+            nil)))
+
+(defn ^:private md->agent-config
+  [{:keys [description mode model variant maxSteps steps timeoutSeconds tools body inherit spawnableBy
+           disabledTools mcpToolSearch]}]
+  (let [agent-variant (normalize-agent-variant variant)
+        max-steps (or maxSteps steps)
+        timeout-seconds (normalize-timeout-seconds timeoutSeconds)
+        tools-map (normalize-tools tools)
+        spawnable-by (normalize-spawnable-by spawnableBy)
+        disabled-tools (normalize-tool-patterns "disabledTools" disabledTools)
+        mcp-tool-search (normalize-mcp-tool-search mcpToolSearch)]
+    (cond-> {}
+      inherit (assoc :inherit (str inherit))
+      description (assoc :description description)
+      spawnable-by (assoc :spawnableBy spawnable-by)
+      disabled-tools (assoc :disabledTools disabled-tools)
+      mcp-tool-search (assoc :mcpToolSearch mcp-tool-search)
+      mode (assoc :mode (if (sequential? mode)
+                          (mapv str mode)
+                          (str mode)))
+      model (assoc :defaultModel (str model))
+      agent-variant (assoc :variant agent-variant)
+      max-steps (assoc :maxSteps (long max-steps))
+      timeout-seconds (assoc :timeoutSeconds timeout-seconds)
+      (seq body) (assoc :systemPrompt body)
+      tools-map (assoc :toolCall
+                       (cond-> {:approval {}}
+                         (get tools-map "byDefault")
+                         (assoc-in [:approval :byDefault] (get tools-map "byDefault"))
+
+                         (get tools-map "allow")
+                         (assoc-in [:approval :allow] (tools-list->approval-map (get tools-map "allow")))
+
+                         (get tools-map "deny")
+                         (assoc-in [:approval :deny] (tools-list->approval-map (get tools-map "deny")))
+
+                         (get tools-map "ask")
+                         (assoc-in [:approval :ask] (tools-list->approval-map (get tools-map "ask"))))))))
+
+(defn ^:private agent-name-from-frontmatter
+  "Returns the agent id from YAML frontmatter `name:` when present and non-blank,
+   trimmed and lowercased. Returns nil otherwise."
+  [parsed]
+  (when-let [n (:name parsed)]
+    (normalize-agent-id (str n))))
+
+(defn ^:private agent-name-from-filename
+  "Returns the agent id derived from a markdown filename by stripping all
+   extensions (everything from the first `.` onward) and lowercasing.
+   Example: `architect.agent.md` -> `architect`."
+  [md-file]
+  (-> (fs/file-name md-file)
+      str
+      (string/split #"\." 2)
+      first
+      string/lower-case))
+
+(defn agent-md-file->agent
+  [md-file]
+  (try
+    (let [content (slurp (str md-file))
+          content (interpolation/replace-dynamic-strings content (fs/parent md-file) nil)
+          parsed (shared/parse-md content)
+          agent-name (or (agent-name-from-frontmatter parsed)
+                         (agent-name-from-filename md-file))
+          agent-config (md->agent-config parsed)]
+      (when (seq agent-config)
+        [agent-name agent-config]))
+    (catch Exception e
+      (logger/warn logger-tag (format "Error parsing agent file '%s': %s" (str md-file) (.getMessage e)))
+      nil)))
+
+(defn ^:private global-md-agents
+  []
+  (let [agents-dir (io/file (shared/global-config-dir) "agents")]
+    (when (fs/exists? agents-dir)
+      (keep agent-md-file->agent
+            (fs/glob agents-dir "*.md" {:follow-links true})))))
+
+(defn ^:private local-md-agents
+  [roots]
+  (->> roots
+       (mapcat (fn [{:keys [uri]}]
+                 (let [agents-dir (fs/file (shared/uri->filename uri) ".eca" "agents")]
+                   (when (fs/exists? agents-dir)
+                     (fs/glob agents-dir "*.md" {:follow-links true})))))
+       (keep agent-md-file->agent)))
+
+(defn all-md-agents
+  "Discovers all markdown-defined agents from global and local directories.
+   Returns a map of {agent-name agent-config} suitable for merging into config :agent.
+   Local agents override global agents of the same name."
+  [roots]
+  (into {}
+        (concat (global-md-agents)
+                (local-md-agents roots))))
+
+(defn ^:private agent-command
+  [{:keys [chat-id db* config messenger agent] :as ctx} {args :argv}]
+  (let [selected-agent (first args)
+        available-agents (sort (config/primary-agent-names config))
+        current-agent (or (get-in @db* [:chats chat-id :agent]) agent)]
+    (cond
+      (string/blank? selected-agent)
+      (if (seq available-agents)
+        (shared/multi-str (str "Current agent: `" current-agent "`")
+                          ""
+                          "Available agents:"
+                          (string/join "\n" (map #(str "- `" % "`") available-agents))
+                          ""
+                          "Run `/agent <agent-name>` to switch chat agent.")
+        "No primary agents are available.")
+
+      (not (some #{selected-agent} available-agents))
+      (shared/multi-str (str "Unknown agent: `" selected-agent "`")
+                        ""
+                        (when (seq available-agents)
+                          (str "Available agents:\n"
+                               (string/join "\n" (map #(str "- `" % "`") available-agents)))))
+
+      :else
+      (do
+        ;; Reuse the client-selection handler so command selection
+        ;; persists per-chat, preserves existing model/variant policy,
+        ;; and refreshes tools exactly like a client-side agent change.
+        ((requiring-resolve 'eca.handlers/chat-selected-agent-changed)
+         (select-keys ctx [:db* :messenger :config :metrics])
+         {:chat-id chat-id :agent selected-agent})
+        ;; Unlike a client-side change, the client doesn't know
+        ;; about this one and would revert it on its next prompt.
+        (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
+        (str "Selected agent: `" selected-agent "`.")))))
+
+(defn ^:private prompt-section
+  "`:eca/agent-prompt`: the agent's own prompt, else `prompts.chat`."
+  [{:keys [agent config chat-id db selmer-ctx]}]
+  [(string/trimr
+    (shared/safe-selmer-render (f.prompt/eca-chat-prompt agent config chat-id db)
+                               selmer-ctx "chat-prompt"))
+   ""])
+
+(def module
+  {:id :eca/agents
+   :description "Agents from config and Markdown files, and choosing one for each chat."
+   :config-spec {:defaultAgent {:type :string}                     ; :eca/agent-code sets it to "code"
+                 :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
+   ;; Markdown agents (~/.config/eca/agents, .eca/agents), under the config's own agents
+   :agents (fn [{:keys [db]}] (all-md-agents (:workspace-folders db)))
+   :system-prompts [{:id :eca/agent-prompt :content #'prompt-section}]   ; the agent's own prompt, else prompts.chat
+   :commands {"agent" {:description "Select agent for current chat (Ex: /agent plan)"
+                       :arguments [{:name "agent-name"}]
+                       :handler #'agent-command}}})
+
+(def read-only-shell-commands
+  "`argsMatchers` of the shell commands read-only agents may run without
+   asking."
+  ["pwd"
+   "git\\s+diff(\\s+.*)?"
+   "git\\s+log(\\s+.*)?"
+   "git\\s+show(\\s+.*)?"
+   "find(\\s+.*)?"
+   "ls(\\s+.*)?"])
+
+(def dangerous-commands-regexes
+  "`argsMatchers` of the shell commands read-only agents must not run, e.g.
+   output redirection, in-place edits or git writes."
+  [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
+   ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
+   ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
+   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
+   ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
+   ".*npm\\s+install.*",                                                                 ;; npm install
+   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
+   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*"])

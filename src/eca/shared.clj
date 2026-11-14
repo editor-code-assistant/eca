@@ -317,7 +317,7 @@
 
 (defn multi-str [& strings] (string/join "\n" (remove nil? (flatten strings))))
 
-(defn ^:private format-cost
+(defn format-cost
   "USD cost with 2 decimals, or with 2 significant digits below one cent
    (e.g. 0.0012) so cheap models don't show 0.00."
   [cost]
@@ -326,7 +326,10 @@
       (.toPlainString (.stripTrailingZeros rounded))
       (format "%.2f" (double cost)))))
 
-(defn tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities]
+(defn tokens->raw-cost
+  "USD cost of the tokens at the model's prices, as a number, or nil when the
+   model has no prices."
+  [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities]
   (when-let [{:keys [input-token-cost output-token-cost
                      input-cache-creation-token-cost input-cache-read-token-cost]} model-capabilities]
     (when (and input-token-cost output-token-cost)
@@ -337,8 +340,13 @@
             input-cost (if (and input-cache-read-tokens input-cache-read-token-cost)
                          (+ input-cost (* input-cache-read-tokens input-cache-read-token-cost))
                          input-cost)]
-        (format-cost (+ input-cost
-                        (* output-tokens output-token-cost)))))))
+        (+ input-cost
+           (* output-tokens output-token-cost))))))
+
+(defn tokens->cost [input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens model-capabilities]
+  (some-> (tokens->raw-cost input-tokens input-cache-creation-tokens input-cache-read-tokens output-tokens
+                            model-capabilities)
+          format-cost))
 
 (defn tokens-per-second
   "Output tokens per second as an integer. Returns nil when the token count or
@@ -567,9 +575,12 @@
                 :free-tokens (when limit (max 0 (- limit used)))
                 :context-limit limit)))
 
-(defn map->camel-cased-map [m]
+(defn map->camel-cased-map
+  "`m` with its keyword keys camel-cased, at every level. Qualified keywords,
+   like module ids (`:acme/jira` in `modules`), stay as they are."
+  [m]
   (let [f (fn [[k v]]
-            (if (keyword? k)
+            (if (simple-keyword? k)
               [(csk/->camelCase k) v]
               [k v]))]
     (walk/postwalk (fn [x]

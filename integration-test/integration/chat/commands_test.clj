@@ -60,7 +60,9 @@
                        {:name "plugin-uninstall"
                         :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
                        {:name "hooks" :arguments []}
-                       {:name "eca-info" :arguments nil}]}
+                       {:name "modules" :arguments [{:name "action"} {:name "module-id"}]}
+                       {:name "eca-info" :arguments nil}
+                       {:name "eca-manage" :arguments nil}]}
            resp))))
 
   (testing "We query specific commands"
@@ -80,7 +82,9 @@
                        {:name "remote" :arguments []}
                        {:name "config" :arguments []}
                        {:name "subagents" :arguments []}
-                       {:name "plugins" :arguments []}]}
+                       {:name "plugins" :arguments []}
+                       ;; its description has "config"
+                       {:name "eca-manage" :arguments nil}]}
            resp))))
 
   (testing "We send a built-in command"

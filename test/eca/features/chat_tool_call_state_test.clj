@@ -6,7 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat :as f.chat]
    [eca.features.chat.tool-calls :as tc]
-   [eca.features.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -734,7 +734,7 @@
                                               :arguments {}
                                               :manual-approval true}))]
       (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running})
-      (with-redefs [f.hooks/run-shell-cmd
+      (with-redefs [m.hooks/run-shell-cmd
                     (fn [{:keys [input]}]
                       (swap! hook-inputs* conj (json/parse-string input true))
                       {:exit 0 :out nil :err nil})]

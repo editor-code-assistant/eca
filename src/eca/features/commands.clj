@@ -1,8 +1,5 @@
 (ns eca.features.commands
   (:require
-   [babashka.fs :as fs]
-   [cheshire.core :as json]
-   [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
@@ -12,21 +9,19 @@
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.context :as f.context]
-   [eca.features.index :as f.index]
    [eca.features.login :as f.login]
-   [eca.features.plugins :as f.plugins]
+   [eca.features.modules :as f.modules]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
-   [eca.features.rules :as f.rules]
-   [eca.features.skills :as f.skills]
-   [eca.features.tools.mcp :as f.mcp]
-   [eca.features.tools.util :as tools.util]
-   [eca.interpolation :as interpolation]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules :as modules]
+   [eca.modules.custom-commands :as m.custom-commands]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.skills :as m.skills]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -88,7 +83,8 @@
                          :last-api (:last-api chat)
                          :messages (drop-dangling-tool-calls (vec (:messages chat)))
                          :prompt-finished? true}
-                        (select-keys chat extra-copied-keys))
+                        ;; the modules' chat state goes with the chat
+                        (select-keys chat (conj (vec extra-copied-keys) :modules)))
         messages (:messages new-chat)
         page (history/server-created-page @db* messages)]
     (swap! db* assoc-in [:chats new-id] new-chat)
@@ -100,246 +96,88 @@
     {:chat new-chat
      :replay-messages (if page (:messages page) messages)}))
 
-(defn ^:private normalize-command-name [f]
-  (string/lower-case (fs/strip-ext (fs/file-name f))))
+(def ^:private built-in-command-order
+  "The order in which clients list the built-in commands."
+  ["init" "login" "model" "agent" "skills" "skill-create" "costs" "quota" "context" "approvals"
+   "forget-approvals" "compact" "fork" "btw" "resume" "chats" "delete-chat" "export" "import" "remote"
+   "config" "doctor" "debug-chat" "repo-map-show" "rules" "prompt-show" "sync-system-prompt" "subagents"
+   "plugins" "plugin-install" "plugin-update" "plugin-uninstall" "hooks" "modules"])
 
-(defn ^:private markdown-file? [file]
-  (and (not (fs/directory? file))
-       (string/ends-with? (string/lower-case (str file)) ".md")))
+(defn ^:private module-commands
+  "The active modules' commands, in the order clients list them: the built-in
+   ones in `built-in-command-order`, then the others in module start order,
+   the ones modules register while they run last. Each is
+   `{:name :full-id :entry :command}`. `:name` is the command name, or its
+   full id `<prefix>:<name>` when several modules have that name; the first
+   module keeps a full id."
+  [config]
+  (let [order (zipmap built-in-command-order (range))
+        commands (->> (concat (for [[entry module-commands] (modules/contributions config :commands)
+                                    [command-name command] module-commands]
+                                [entry command-name command])
+                              (modules/registrations config :commands))
+                      (map (fn [[entry command-name command]]
+                             {:name command-name
+                              :full-id (str (modules/prefix entry) ":" command-name)
+                              :entry entry
+                              :command command}))
+                      (reduce (fn [{:keys [seen] :as acc} {:keys [full-id entry] :as command}]
+                                (if (contains? seen full-id)
+                                  (do (logger/warn "[commands]" (format "Module %s has a command %s, like another module; ignoring it"
+                                                                      (:id entry) full-id))
+                                      acc)
+                                  (-> acc
+                                      (update :seen conj full-id)
+                                      (update :commands conj command))))
+                              {:seen #{} :commands []})
+                      :commands)
+        name-counts (frequencies (map :name commands))]
+    (->> commands
+         (map #(cond-> % (> (name-counts (:name %)) 1) (assoc :name (:full-id %))))
+         (sort-by #(get order (:name %) Integer/MAX_VALUE)))))
 
-(defn ^:private configured-command-files [path]
-  (cond
-    (not (fs/exists? path)) []
-    (fs/directory? path) (filter markdown-file? (fs/glob path "**" {:follow-links true}))
-    :else [path]))
+(defn ^:private find-module-command
+  "The module command typed as `command-name`: its name or its full id."
+  [command-name config]
+  (some #(when (or (= command-name (:name %)) (= command-name (:full-id %))) %)
+        (module-commands config)))
 
-(defn ^:private normalize-frontmatter-arg [a]
-  (when (map? a)
-    (let [g (fn [k] (if (contains? a k) (get a k) (get a (keyword k))))]
-      (cond-> {}
-        (some? (g "name")) (assoc :name (str (g "name")))
-        (some? (g "description")) (assoc :description (str (g "description")))
-        (some? (g "required")) (assoc :required (boolean (g "required")))))))
-
-(defn ^:private merge-command-args
-  "Enriches detected args (the source of truth for order/names) with metadata
-   from the frontmatter `arguments` list. Named args match by name; positional
-   args (arg1, arg2, ...) match by index, letting frontmatter rename them."
-  [detected frontmatter-args named?]
-  (let [fm (mapv normalize-frontmatter-arg frontmatter-args)]
-    (vec (map-indexed
-          (fn [idx arg]
-            (let [fm-match (if named?
-                             (first (filter #(= (:name %) (:name arg)) fm))
-                             (nth fm idx nil))]
-              (merge arg fm-match)))
-          detected))))
-
-(defn ^:private command-file->command [type file opts]
-  (try
-    (let [base (normalize-command-name file)
-          raw (interpolation/replace-dynamic-strings (slurp (str file)) (str (fs/parent file)) nil)
-          {:keys [description body] fm-args :arguments} (shared/parse-md raw)
-          body (or body raw)
-          named? (boolean (seq (shared/named-arg-names body)))
-          detected (shared/extract-args-from-content body)]
-      (cond-> {:name (if-let [plugin (:plugin opts)]
-                       (shared/prefixed-name plugin base)
-                       base)
-               :path (str (fs/canonicalize file))
-               :type type
-               :content body
-               :arguments (merge-command-args detected fm-args named?)}
-        description (assoc :description description)
-        (:plugin opts) (assoc :plugin (:plugin opts))))
-    (catch Exception e
-      (logger/warn "[commands]" (format "Error parsing command file '%s': %s" (str file) (ex-message e)))
-      nil)))
-
-(defn ^:private global-file-commands []
-  (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
-                            (io/file (config/user-home) ".config"))
-        commands-dir (io/file xdg-config-home "eca" "commands")]
-    (keep #(command-file->command :user-global-file % {})
-          (configured-command-files commands-dir))))
-
-(defn ^:private local-file-commands [roots]
-  (->> roots
-       (mapcat (fn [{:keys [uri]}]
-                 (configured-command-files (fs/file (shared/uri->filename uri) ".eca" "commands"))))
-       (keep #(command-file->command :user-local-file % {}))))
-
-(defn ^:private config-commands [config roots]
-  (->> (get config :commands)
-       (mapcat
-        (fn [{:keys [path plugin]}]
-          (let [path (str (fs/expand-home path))
-                opts (cond-> {}
-                       plugin (assoc :plugin plugin))]
-            (->> (if (fs/absolute? path)
-                   (configured-command-files path)
-                   (mapcat (fn [{:keys [uri]}]
-                             (configured-command-files (fs/file (shared/uri->filename uri) path)))
-                           roots))
-                 (keep #(command-file->command :user-config % opts))))))))
-
-(defn ^:private custom-commands [config roots]
-  (concat (config-commands config roots)
-          (when-not (:pureConfig config)
-            (global-file-commands))
-          (local-file-commands roots)))
+(defn find-command
+  "The command `command-name` names, as `all-commands` lists it, also when
+   typed by its full id (e.g. `eca:compact`); nil when no module has it."
+  [command-name config]
+  (when-let [{:keys [name entry command]} (find-module-command command-name config)]
+    {:name name
+     :type (if (:built-in? entry) :native :module)
+     :description (:description command)
+     :arguments (or (:arguments command) [])}))
 
 (defn all-commands [db config]
-  (let [mcp-prompts (->> (f.mcp/all-prompts db)
+  (let [mcp-prompts (->> (when (modules/active? config :eca/mcp) (m.mcp/all-prompts db))
                          (mapv #(-> %
                                     (assoc :name (str (:server %) ":" (:name %))
                                            :type :mcpPrompt)
                                     (dissoc :server))))
-        eca-commands [{:name "init"
-                       :type :native
-                       :description "Create/update the AGENTS.md file teaching LLM about the project"
-                       :arguments []}
-                      {:name "login"
-                       :type :native
-                       :description "Log into a provider (Ex: /login github-copilot)"
-                       :arguments [{:name "provider-id"}]}
-                      {:name "model"
-                       :type :native
-                       :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
-                       :arguments [{:name "full-model"}]}
-                      {:name "agent"
-                       :type :native
-                       :description "Select agent for current chat (Ex: /agent plan)"
-                       :arguments [{:name "agent-name"}]}
-                      {:name "skills"
-                       :type :native
-                       :description "List available skills"
-                       :arguments []}
-                      {:name "skill-create"
-                       :type :native
-                       :description "Create a skill considering a user request"
-                       :arguments [{:name "name" :description "The skill name" :required true}
-                                   {:name "prompt" :description "What to consider as this skill content" :required true}]}
-                      {:name "costs"
-                       :type :native
-                       :description "Total costs of the current chat session."
-                       :arguments []}
-                      {:name "quota"
-                       :type :native
-                       :description "Subscription quota usage and reset times (Claude Pro/Max, ChatGPT, GitHub Copilot)."
-                       :arguments []}
-                      {:name "context"
-                       :type :native
-                       :description "Context window usage breakdown for the current chat."
-                       :arguments []}
-                      {:name "approvals"
-                       :type :native
-                       :description "List tool call approvals remembered in the current chat via approve & remember."
-                       :arguments []}
-                      {:name "forget-approvals"
-                       :type :native
-                       :description "Forget tool call approvals remembered in the current chat, so those calls ask for approval again."
-                       :arguments []}
-                      {:name "compact"
-                       :type :native
-                       :description "Summarize the chat so far cleaning previous chat history to reduce context."
-                       :arguments [{:name "additional-input"}]}
-                      {:name "fork"
-                       :type :native
-                       :description "Fork current chat into a new chat with the same history and settings."
-                       :arguments []}
-                      {:name "btw"
-                       :type :native
-                       :description "Ask a side question in a forked chat, keeping this chat history clean (Ex: /btw how does X work?)"
-                       :arguments [{:name "prompt" :required true}]}
-                      {:name "resume"
-                       :type :native
-                       :description "Resume the specified chat-id. Blank to list chats or 'latest'."
-                       :arguments [{:name "chat-id"}]}
-                      {:name "chats"
-                       :type :native
-                       :description "List chats from all workspaces to find where a chat lives (Ex: /chats, /chats <title-filter>)"
-                       :arguments [{:name "title-filter"}]}
-                      {:name "delete-chat"
-                       :type :native
-                       :description "Permanently delete the current chat or a chat-id from the /resume list, asking confirmation. (Ex: /delete-chat, /delete-chat 2)"
-                       :arguments [{:name "chat-id"}]}
-                      {:name "export"
-                       :type :native
-                       :description "Export the current chat to a file or directory to transfer/import it elsewhere. Ex: /export /tmp/chat.edn or /export ."
-                       :arguments [{:name "filepath"}]}
-                      {:name "import"
-                       :type :native
-                       :description "Import a chat from a file as a new resumable chat. Ex: /import /tmp/chat.edn"
-                       :arguments [{:name "filepath"}]}
-                      {:name "remote"
-                       :type :native
-                       :description "Show remote server connection details."
-                       :arguments []}
-                      {:name "config"
-                       :type :native
-                       :description "Show ECA config for troubleshooting."
-                       :arguments []}
-                      {:name "doctor"
-                       :type :native
-                       :description "Check ECA details for troubleshooting."
-                       :arguments []}
-                      {:name "debug-chat"
-                       :type :native
-                       :description "Dump the current chat (obfuscated) to a file for debugging. Ex: /debug-chat /tmp/out.edn"
-                       :arguments [{:name "filepath"}]}
-                      {:name "repo-map-show"
-                       :type :native
-                       :description "Actual repoMap of current session."
-                       :arguments []}
-                      {:name "rules"
-                       :type :native
-                       :description "List available rules and their filtering metadata (agent, model, paths)."
-                       :arguments []}
-                      {:name "prompt-show"
-                       :type :native
-                       :description "Prompt sent to LLM as system instructions."
-                       :arguments [{:name "optional-prompt"}]}
-                      {:name "sync-system-prompt"
-                       :type :native
-                       :description "Re-sync the system prompt (AGENTS.md, rules, skills) on the next message, invalidating the chat prompt cache."
-                       :arguments []}
-                      {:name "subagents"
-                       :type :native
-                       :description "List available subagents and their configuration."
-                       :arguments []}
-                      {:name "plugins"
-                       :type :native
-                       :description "List available plugins from configured marketplaces."
-                       :arguments []}
-                      {:name "plugin-install"
-                       :type :native
-                       :description "Install a plugin (e.g. /plugin-install my-plugin or /plugin-install my-plugin@marketplace)"
-                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
-                      {:name "plugin-update"
-                       :type :native
-                       :description "Update a marketplace's pinned version for the next restart (all its plugins)."
-                       :arguments [{:name "marketplace" :description "Configured marketplace source name" :required true}]}
-                      {:name "plugin-uninstall"
-                       :type :native
-                       :description "Uninstall a plugin (e.g. /plugin-uninstall my-plugin@marketplace)"
-                       :arguments [{:name "plugin" :description "Plugin name or plugin@marketplace" :required true}]}
-                      {:name "hooks"
-                       :type :native
-                       :description "List active hooks grouped by type."
-                       :arguments []}]
-        custom-cmds (map (fn [custom]
-                           {:name (:name custom)
-                            :type :custom-prompt
-                            :description (or (:description custom) (:path custom))
-                            :arguments (:arguments custom)})
-                         (custom-commands config (:workspace-folders db)))
-        skills-cmds (->> (f.skills/all config (:workspace-folders db))
-                         (mapv (fn [skill]
-                                 {:name (:name skill)
-                                  :type :skill
-                                  :description (:description skill)
-                                  :arguments (:arguments skill)})))]
+        eca-commands (map (fn [{:keys [name entry command]}]
+                            {:name name
+                             :type (if (:built-in? entry) :native :module)
+                             :description (:description command)
+                             :arguments (or (:arguments command) [])})
+                          (module-commands config))
+        custom-cmds (when (modules/active? config :eca/custom-commands)
+                      (map (fn [custom]
+                             {:name (:name custom)
+                              :type :custom-prompt
+                              :description (or (:description custom) (:path custom))
+                              :arguments (:arguments custom)})
+                           (m.custom-commands/all config (:workspace-folders db))))
+        skills-cmds (when (modules/active? config :eca/skills)
+                      (->> (m.skills/all config (:workspace-folders db))
+                           (mapv (fn [skill]
+                                   {:name (:name skill)
+                                    :type :skill
+                                    :description (:description skill)
+                                    :arguments (:arguments skill)}))))]
     (concat mcp-prompts
             eca-commands
             skills-cmds
@@ -381,95 +219,16 @@
      {:type :text :text contexts-str}]
     prompt))
 
-(defn ^:private format-tool-permissions [{:keys [toolCall]}]
-  (when-let [approval (:approval toolCall)]
-    (let [by-default (:byDefault approval)
-          allow-tools (keys (:allow approval))
-          deny-tools (keys (:deny approval))
-          ask-tools (keys (:ask approval))
-          parts (cond-> []
-                  by-default (conj (str "  Default: " by-default))
-                  (seq allow-tools) (conj (str "  Allow: " (string/join ", " (sort allow-tools))))
-                  (seq ask-tools) (conj (str "  Ask: " (string/join ", " (sort ask-tools))))
-                  (seq deny-tools) (conj (str "  Deny: " (string/join ", " (sort deny-tools)))))]
-      (when (seq parts)
-        (string/join "\n" parts)))))
-
-(defn ^:private subagents-msg [config parent-agent-name]
-  (let [subagents (->> (config/available-subagents config parent-agent-name)
-                       (sort-by first))]
-    (if (empty? subagents)
-      "No subagents configured, double check your configuration via json or markdown."
-      (reduce
-       (fn [s [agent-name agent-config]]
-         (let [desc (:description agent-config)
-               model (:defaultModel agent-config)
-               steps (:maxSteps agent-config)
-               timeout (:timeoutSeconds agent-config)
-               permissions (format-tool-permissions agent-config)]
-           (str s "- **" agent-name "**"
-                (when desc (str ": " desc))
-                "\n"
-                (when model (str "  Model: " model "\n"))
-                (when steps (str "  Max steps: " steps "\n"))
-                (when timeout (str "  Timeout: " timeout "s\n"))
-                (when permissions (str "  Tool permissions:\n" permissions "\n"))
-                "\n")))
-       "Subagents available:\n\n"
-       subagents))))
-
-(def ^:private no-remembered-approvals-msg
-  "No tool call approvals remembered in this chat.")
-
-(defn ^:private remembered-approvals-lines
-  "One markdown line per remembered tool, listing its remembered command keys
-   for granular tools (e.g. shell commands)."
-  [approvals]
-  (for [[full-name {:keys [remembered-command-keys]}] (sort-by key approvals)]
-    (str "- `" full-name "`: "
-         (if (seq remembered-command-keys)
-           (string/join ", " (map #(str "`" % "`") (sort remembered-command-keys)))
-           "all calls"))))
-
-(def ^:private hook-type-order
-  "Display order for hook types in /hooks output."
-  ["sessionStart" "sessionEnd" "chatStart" "chatEnd" "chatStatusChanged" "subagentStart"
-   "preRequest" "postRequest" "subagentPostRequest" "preToolCall" "postToolCall"
-   "preCompact" "postCompact"])
-
-(defn ^:private hooks-msg [config]
-  (let [hooks-map (:hooks config)
-        hooks-by-type (->> hooks-map
-                           (keep (fn [[hook-name hook]]
-                                   (when (seq (:actions hook))
-                                     {:name (name hook-name)
-                                      :type (:type hook)
-                                      :description (:description hook)
-                                      :visible (:visible hook true)
-                                      :matcher (:matcher hook)})))
-                           (group-by :type))
-        known (set hook-type-order)
-        display-order (concat hook-type-order (sort (remove known (keys hooks-by-type))))]
-    (if (empty? hooks-by-type)
-      "No hooks configured. Add hooks to your config under the `hooks` key."
-      (reduce
-       (fn [s hook-type]
-         (if-let [hooks (seq (get hooks-by-type hook-type))]
-           (str s "**" hook-type "**\n"
-                (reduce
-                 (fn [s2 {:keys [name description visible matcher]}]
-                   (str s2 "- `" name "`"
-                        (when description (str " — " description))
-                        (when-not visible " *(hidden)*")
-                        (when (some? matcher)
-                          (str " matcher: `" (if (string? matcher) matcher (json/generate-string matcher)) "`"))
-                        "\n"))
-                 ""
-                 (sort-by :name hooks))
-                "\n")
-           s))
-       "Hooks active:\n\n"
-       display-order))))
+(defn module-usage-lines
+  "`/costs` lines for the LLM calls modules made (`eca.api/complete!`), by
+   module, or nil when there were none."
+  [module-usage]
+  (when (seq module-usage)
+    (cons "\nModules' own LLM calls, not in the totals above:"
+          (for [[id {:keys [calls input-tokens output-tokens cost]}] (sort-by (comp str key) module-usage)]
+            (str "- `" (symbol id) "`: " calls (if (= 1 calls) " call, " " calls, ")
+                 input-tokens " input tokens, " output-tokens " output tokens"
+                 (when cost (str ", $" (shared/format-cost cost))))))))
 
 (defn ^:private format-expires-at [^long expires-at]
   (let [instant (Instant/ofEpochSecond expires-at)
@@ -544,35 +303,13 @@
                                 (str "\n    " (:suggestion file-info)))))
                        ""
                        existing-files))
-                 "Credential files: None found"))))
-
-(defn ^:private rules-msg [config roots agent full-model all-tools]
-  (let [{static :static path-scoped :path-scoped} (f.rules/all-rules config roots agent full-model)
-        visible-path-scoped (when (tools.util/tool-available? all-tools "eca__fetch_rule")
-                              path-scoped)
-        format-content-preview (fn [content]
-                                 (let [content (or content "")
-                                       preview (subs content 0 (min 120 (count content)))]
-                                   (str preview (when (> (count content) 120) "..."))))
-        format-rule (fn [{rule-name :name :keys [scope path agents models paths content]} include-content?]
-                      (str "### " rule-name " (" (some-> scope name) ")\n"
-                           "Source: " path "\n"
-                           "Agent filter: " (if agents (string/join ", " agents) "all") "\n"
-                           "Model filter: " (if models (string/join ", " models) "all") "\n"
-                           (when paths
-                             (str "Path filter: " (string/join ", " paths) "\n"))
-                           (when include-content?
-                             (str "Content preview: " (format-content-preview content) "\n"))
-                           "\n"))]
-    (if (or (seq static) (seq visible-path-scoped))
-      (str
-       (when (seq static)
-         (str "Static rules (full content is included directly in the system prompt):\n\n"
-              (reduce (fn [s rule] (str s (format-rule rule true))) "" static)))
-       (when (seq visible-path-scoped)
-         (str "Path-scoped rules (only a catalog is included in the system prompt; load full content with fetch_rule using the rule id and target path):\n\n"
-              (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
-      "No rules available for the current agent and model.")))
+                 "Credential files: None found")
+               ""
+               (str "Active modules: " (f.modules/active-ids-text config))
+               (when-let [unknown (seq (f.modules/unknown-config-keys config))]
+                 (f.modules/unknown-config-keys-text unknown))
+               (when-let [problems (seq (f.modules/config-problems config))]
+                 (str "Config problems:\n" (string/join "\n" (map #(str "  " %) problems)))))))
 
 (defn ^:private fmt-tokens
   "Formats a token count compactly (e.g. 5300 -> \"5.3k\")."
@@ -707,36 +444,65 @@
      ""
      "_Tool schemas are sent separately and are not included in this text dump._")))
 
-(defn handle-command! [command args {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx}]
-  (let [db @db*
-        custom-cmds (custom-commands config (:workspace-folders db))
-        skills (f.skills/all config (:workspace-folders db))]
+(defn run-built-in!
+  "Runs the built-in command `command`, which a built-in module declares (see
+   `eca.features.built-in-command`). The typed arguments are in `:argv`."
+  [command {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx} {args :argv}]
+  (let [db @db*]
     (case command
-      "init" {:type :send-prompt
-              :on-finished-side-effect (fn []
-                                         (swap! db* assoc-in [:chats chat-id :messages] []))
-              :prompt (f.prompt/init-prompt all-tools agent db config)}
       "compact" (let [custom-instructions (string/join " " args)
-                      {:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx "manual" custom-instructions)]
-                  (if blocked?
+                      no-compaction {:type :chat-messages
+                                     :chats {chat-id {:messages [{:role "system"
+                                                                  :content [{:type :text
+                                                                             :text "No compaction module handled this chat."}]}]}}}
+                      send-stopped! (fn [{:keys [stop-module stop-hook-name stop-reason]}]
+                                      (if stop-module
+                                        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+                                        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
+                      {:keys [blocked? reason hook-name stop-turn? module instructions]}
+                      (when (lifecycle/compaction-handled? config)
+                        (lifecycle/run-pre-compact! chat-ctx "manual" custom-instructions))
+                      ;; a module may compact the chat instead of :eca/compact-as-summary
+                      answer (when (and (lifecycle/compaction-handled? config) (not blocked?))
+                               (lifecycle/compact-with-module! chat-ctx "manual" instructions))]
+                  (cond
+                    ;; :eca/compact-as-summary owns compaction; disabled, only a module compacts
+                    (not (lifecycle/compaction-handled? config))
+                    no-compaction
+
+                    blocked?
                     (do
                       ;; continue:false stops the turn; exit 2 blocks compaction only.
                       (if stop-turn?
-                        (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
-                        (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)}))
+                        (send-stopped! {:stop-module module :stop-hook-name hook-name :stop-reason reason})
+                        (lifecycle/send-content! chat-ctx :system {:type :text
+                                                                   :text (if module
+                                                                           (lifecycle/compaction-blocked-by-module-message module reason)
+                                                                           (lifecycle/compaction-blocked-by-hook-message hook-name))}))
                       {:type :new-chat-status :status :idle})
+
+                    answer
+                    (let [{:keys [stop-turn?] :as result} (lifecycle/finish-module-compaction! chat-ctx "manual" answer)]
+                      (when stop-turn?
+                        (send-stopped! result))
+                      {:type :new-chat-status :status :idle})
+
+                    (not (lifecycle/compaction-module-active? config))
+                    no-compaction
+
+                    :else
                     (do
                       (swap! db* update-in [:chats chat-id]
                              #(-> %
                                   (dissoc :last-summary :compact-done?)
                                   (assoc :compacting? true)))
                       {:type :send-prompt
-                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]}
+                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
                                                        (lifecycle/complete-compact! chat-ctx "manual")]
                                                    (when stop-turn?
-                                                     (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+                                                     (send-stopped! result))
                                                    {:stop-after-finish? (or stop-turn? (not compacted?))})
-                       :prompt (f.prompt/compact-prompt custom-instructions all-tools agent config db)})))
+                       :prompt (f.prompt/compact-prompt instructions all-tools agent config db)})))
       "login" (do
                 (messenger/chat-content-received
                  messenger
@@ -798,46 +564,6 @@
                     (chat-message
                      (multi-str (str "Selected model: `" selected-model "`")
                                 "Using model defaults.")))))
-      "agent" (let [selected-agent (first args)
-                    available-agents (sort (config/primary-agent-names config))
-                    current-agent (or (get-in db [:chats chat-id :agent]) agent)
-                    chat-message (fn [text]
-                                   {:type :chat-messages
-                                    :chats {chat-id {:messages [{:role "system"
-                                                                 :content [{:type :text
-                                                                            :text text}]}]}}})]
-                (cond
-                  (string/blank? selected-agent)
-                  (if (seq available-agents)
-                    (chat-message
-                     (multi-str (str "Current agent: `" current-agent "`")
-                                ""
-                                "Available agents:"
-                                (string/join "\n" (map #(str "- `" % "`") available-agents))
-                                ""
-                                "Run `/agent <agent-name>` to switch chat agent."))
-                    (chat-message "No primary agents are available."))
-
-                  (not (some #{selected-agent} available-agents))
-                  (chat-message
-                   (multi-str (str "Unknown agent: `" selected-agent "`")
-                              ""
-                              (when (seq available-agents)
-                                (str "Available agents:\n"
-                                     (string/join "\n" (map #(str "- `" % "`") available-agents))))))
-
-                  :else
-                  (do
-                    ;; Reuse the client-selection handler so command selection
-                    ;; persists per-chat, preserves existing model/variant policy,
-                    ;; and refreshes tools exactly like a client-side agent change.
-                    ((requiring-resolve 'eca.handlers/chat-selected-agent-changed)
-                     (select-keys chat-ctx [:db* :messenger :config :metrics])
-                     {:chat-id chat-id :agent selected-agent})
-                    ;; Unlike a client-side change, the client doesn't know
-                    ;; about this one and would revert it on its next prompt.
-                    (config/notify-selected-agent-changed! selected-agent db* messenger chat-id)
-                    (chat-message (str "Selected agent: `" selected-agent "`.")))))
       "fork" (let [chat (get-in db [:chats chat-id])
                    {{new-id :id new-title :title} :chat new-messages :replay-messages}
                    (fork-chat! chat (fork-title (:title chat)) [] chat-ctx)]
@@ -1042,7 +768,8 @@
                                     (str "Total output tokens: " total-output-tokens)
                                     (str "Total cost: $" (shared/tokens->cost total-input-tokens total-input-cache-creation-tokens total-input-cache-read-tokens total-output-tokens model-capabilities)
                                          (when subscription?
-                                           " (API pricing estimate, subscription logins are not billed per token, see /quota)")))]
+                                           " (API pricing estimate, subscription logins are not billed per token, see /quota)"))
+                                    (module-usage-lines (get-in db [:chats chat-id :module-usage])))]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "quota" (let [providers (f.quota/subscription-providers db config)]
@@ -1057,25 +784,6 @@
                  :chats {chat-id {:messages [{:role "system"
                                               :content [{:type :text
                                                          :text (f.quota/quota-text @db* providers)}]}]}}})
-      "approvals" (let [approvals (db/remembered-approvals db chat-id)
-                        text (if (empty? approvals)
-                               no-remembered-approvals-msg
-                               (multi-str "Tool call approvals remembered in this chat:"
-                                          ""
-                                          (remembered-approvals-lines approvals)
-                                          ""
-                                          "Run `/forget-approvals` to forget them."))]
-                    {:type :chat-messages
-                     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
-      "forget-approvals" (let [[old-db] (swap-vals! db* db/update-remembered-approvals chat-id (constantly nil))
-                               approvals (db/remembered-approvals old-db chat-id)
-                               text (if (empty? approvals)
-                                      no-remembered-approvals-msg
-                                      (multi-str "Forgot the tool call approvals remembered in this chat:"
-                                                 ""
-                                                 (remembered-approvals-lines approvals)))]
-                           {:type :chat-messages
-                            :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}})
       "sync-system-prompt" (do
                              (swap! db* update-in [:chats chat-id] dissoc :prompt-cache)
                              {:type :chat-messages
@@ -1103,25 +811,14 @@
                    :chats {chat-id {:messages [{:role "system"
                                                 :content [{:type :text
                                                            :text (context-usage-text full-model breakdown compact-percentage)}]}]}}})
-      "skills" (let [skills (f.skills/all config (:workspace-folders db))
-                     msg (reduce
-                          (fn [s {:keys [name description]}]
-                            (str s "- " name ": " description "\n"))
-                          "Skills available:\n\n"
-                          skills)]
-                 {:type :chat-messages
-                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "skill-create" (let [skill-name (first args)
-                           user-prompt (second args)]
-                       {:type :send-prompt
-                        :prompt (f.prompt/skill-create-prompt skill-name user-prompt all-tools agent db config)})
       "remote" (let [connect-url (:remote-connect-url db)
                      host (:remote-host db)
                      token (:remote-token db)
                      private? (:remote-private-host? db)
                      text (cond
                             (not connect-url)
-                            "Remote server is not enabled. Set `remote.enabled: true` in your ECA config to start it."
+                            (str "Remote server is not enabled. Set `remote.enabled: true` in your ECA config to start it, "
+                                 "or turn on its module for this session: `/modules enable eca/remote`.")
 
                             private?
                             (multi-str "## 🌐 Remote Server"
@@ -1201,93 +898,76 @@
                                            :messages (concat [{:role "system" :content [{:type :text :text summary}]}]
                                                              (:messages imported-chat))}
                               chat-id {:messages [{:role "system" :content [{:type :text :text (str "Imported chat to: " (or (:title imported-chat) imported-id))}]}]}}})))
-      "repo-map-show" {:type :chat-messages
-                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (f.index/repo-map db config {:as-string? true})}]}]}}}
-      "rules" (let [roots (:workspace-folders db)
-                    msg (rules-msg config roots agent full-model all-tools)]
-                {:type :chat-messages
-                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
       "prompt-show" {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system"
                                                   :content [{:type :text
                                                              :text (prompt-show-text instructions user-messages)}]}]}}}
-      "subagents" (let [msg (subagents-msg config agent)]
-                    {:type :chat-messages
-                     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "plugins" (let [{:keys [plugins error]}
-                      (try
-                        {:plugins (f.plugins/list-marketplace-plugins (:plugins config))}
-                        (catch Exception e {:error (ex-message e)}))
-                      msg (cond
-                            error (str "Could not list plugins: " error)
-                            (seq plugins)
-                            (let [by-source (group-by :source-name plugins)]
-                              (multi-str (reduce-kv
-                                          (fn [s source-name source-plugins]
-                                            (let [{:keys [source-url commit]} (first source-plugins)]
-                                              (str s "**" source-name "** (`" source-url "`)\n"
-                                                   (if commit
-                                                     (str "Pinned commit: `" commit "`\n")
-                                                     "Local development source (unpinned)\n")
-                                                   (reduce
-                                                    (fn [s2 {:keys [name description installed?]}]
-                                                      (str s2 "- "
-                                                           (when installed? "✅ ")
-                                                           name "@" source-name
-                                                           (when description (str " — " description))
-                                                           "\n"))
-                                                    ""
-                                                    source-plugins)
-                                                   "\n")))
-                                          "Plugins available:\n\n"
-                                          by-source)
-                                         "Use `/plugin-install <name@marketplace>` to install a plugin."
-                                         "Use `/plugin-update <marketplace>` to update its pinned version, then restart ECA."))
-                            :else "No plugins found. Check your configured marketplaces under the `plugins` key.")]
+      "modules" (let [msg (f.modules/handle! args chat-ctx)]
                   {:type :chat-messages
                    :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
-      "plugin-install" (let [plugin-input (first args)
-                             result (if (string/blank? plugin-input)
-                                      {:status :error
-                                       :message "Usage: `/plugin-install <plugin-name>` or `/plugin-install <plugin-name@marketplace>`"}
-                                      (f.plugins/install-plugin! (:plugins config) plugin-input))]
-                         {:type :chat-messages
-                          :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
-      "plugin-update" (let [source-name (first args)
-                            result (if (or (not= 1 (count args)) (string/blank? source-name))
-                                     {:status :error
-                                      :message "Usage: `/plugin-update <marketplace>`. Updates all plugins from that source on the next restart."}
-                                     (f.plugins/update-source! (:plugins config) source-name))]
-                        {:type :chat-messages
-                         :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
-      "plugin-uninstall" (let [plugin-input (first args)
-                               result (if (string/blank? plugin-input)
-                                        {:status :error
-                                         :message "Usage: `/plugin-uninstall <plugin-name>` or `/plugin-uninstall <plugin-name@marketplace>`"}
-                                        (f.plugins/uninstall-plugin! (:plugins config) plugin-input))]
-                           {:type :chat-messages
-                            :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (:message result)}]}]}}})
-      "hooks" (let [msg (hooks-msg config)]
-                {:type :chat-messages
-                 :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
 
-      ;; else check if a custom command or skill
-      (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
+      (throw (ex-info (str "Unknown built-in command: " command) {:command command})))))
+
+(defn ^:private custom-or-skill-command
+  "A custom command or a skill typed as a command."
+  [command args {:keys [db* config]}]
+  (let [db @db*
+        custom-cmds (when (modules/active? config :eca/custom-commands)
+                      (m.custom-commands/all config (:workspace-folders db)))
+        skills (when (modules/active? config :eca/skills)
+                 (m.skills/all config (:workspace-folders db)))]
+    (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
+      {:type :send-prompt
+       :prompt (add-file-context custom-command-prompt args db)}
+      (if-let [skill (first (filter #(= command (:name %)) skills))]
         {:type :send-prompt
-         :prompt (add-file-context custom-command-prompt args db)}
-        (if-let [skill (first (filter #(= command (:name %)) skills))]
-          {:type :send-prompt
-           :prompt (cond
-                     ;; Built-in skills compute their body lazily via the
-                     ;; `eca__skill` tool; the slash form just nudges the LLM
-                     ;; to load it.
-                     (:handler-fn skill)
-                     (str "Load skill: " (:name skill))
+         :prompt (cond
+                   ;; a module's skill may build its body when loaded, via
+                   ;; the `eca__skill` tool; the slash form just nudges the
+                   ;; LLM to load it.
+                   (modules/fn-like? (:body skill))
+                   (str "Load skill: " (:name skill))
 
-                     (seq args)
-                     (add-file-context (substitute-args (:body skill) args) args db)
+                   (seq args)
+                   (add-file-context (substitute-args (:body skill) args) args db)
 
-                     :else
-                     (str "Load skill: " (:name skill)))}
-          {:type :text
-           :text (str "Unknown command: " command)})))))
+                   :else
+                   (str "Load skill: " (:name skill)))}
+        {:type :text
+         :text (str "Unknown command: " command)}))))
+
+(defn ^:private command-args
+  "A module command's `args`: its declared arguments by name, `:raw`, the text
+   after the command, and `:argv`, the typed arguments."
+  [{:keys [arguments]} argv message]
+  (merge (zipmap (map (comp keyword :name) arguments) argv)
+         {:argv (vec argv)
+          :raw (or (some-> message (string/replace-first #"^\s*/\S+\s*" "") string/trim)
+                   (string/join " " argv))}))
+
+(defn ^:private command-result
+  "A module command's result as chat.clj handles it. A string is shown as a
+   system message, `{:prompt ..}` sent as the user's message and nil does
+   nothing more; built-in commands may return typed results."
+  [result entry chat-id]
+  (cond
+    (string? result) {:type :chat-messages
+                      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text result}]}]}}}
+    (and (:built-in? entry) (map? result) (:type result)) result
+    (and (map? result) (contains? result :prompt)) {:type :send-prompt :prompt (:prompt result)}
+    :else {:type :new-chat-status :status :idle}))
+
+(defn handle-command!
+  "Runs the command typed as `/command args`: a module's command, else a
+   custom command or a skill."
+  [command args {:keys [chat-id config message] :as chat-ctx}]
+  (if-let [{:keys [entry] module-command :command} (find-module-command command config)]
+    (let [ctx (modules/module-ctx chat-ctx entry)
+          args (command-args module-command args message)
+          handler (:handler module-command)]
+      (command-result (if (:built-in? entry)
+                        (handler ctx args)
+                        (modules/invoke ctx entry (str "command " command) {} handler ctx args))
+                      entry
+                      chat-id))
+    (custom-or-skill-command command args chat-ctx)))

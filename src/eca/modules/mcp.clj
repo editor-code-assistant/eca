@@ -1,0 +1,1436 @@
+(ns eca.modules.mcp
+  "The `:eca/mcp` module. MCP servers: their tools, prompts, resources and
+   instructions."
+  (:require
+   [cheshire.core :as json]
+   [cheshire.factory :as json.factory]
+   [clojure.java.browse :as browse]
+   [clojure.java.io :as io]
+   [clojure.string :as string]
+   [eca.cache :as cache]
+   [eca.config :as config]
+   [eca.db :as db]
+   [eca.diff :as diff]
+   [eca.features.prompt :as f.prompt]
+   [eca.features.tools.util :as tools.util]
+   [eca.logger :as logger]
+   [eca.network :as network]
+   [eca.oauth :as oauth]
+   [eca.shared :as shared :refer [multi-str]]
+   [plumcp.core.api.capability :as pcap]
+   [plumcp.core.api.entity-gen :as peg]
+   [plumcp.core.api.entity-support :as pes]
+   [plumcp.core.api.mcp-client :as pmc]
+   [plumcp.core.client.client-support :as pcs]
+   [plumcp.core.client.http-client-transport :as phct]
+   [plumcp.core.client.stdio-client-transport :as psct]
+   [plumcp.core.protocol :as pp]
+   [plumcp.core.schema.schema-defs :as psd]
+   [plumcp.core.support.http-client :as phc]
+   [rewrite-json.core :as rj])
+  (:import
+   [java.io IOException]))
+
+(set! *warn-on-reflection* true)
+
+;; TODO create tests for this ns
+
+(def ^:private logger-tag "[MCP]")
+
+(defn ^:private traffic-log
+  "Log MCP traffic message at DEBUG level with direction arrow."
+  [direction msg]
+  (logger/debug logger-tag (str direction " " msg)))
+
+(def ^:private mcp-traffic-logger
+  "Routes plumcp MCP traffic through ECA's Logback logger at DEBUG level.
+   Visible with --log-level debug, suppressed at default INFO."
+  (reify pp/ITrafficLogger
+    (log-http-request [_ req]
+      (traffic-log "-->" (format "HTTP %s %s" (-> req :request-method name .toUpperCase) (or (:uri req) "?"))))
+    (log-http-response [_ resp]
+      (traffic-log "<--" (format "HTTP %d" (:status resp))))
+    (log-http-failure [_ failure]
+      (traffic-log "<--" (str "HTTP failure: " failure)))
+    (log-incoming-jsonrpc-request [_ req]
+      (traffic-log "<--" (format "request %s %s" (or (:id req) "#") (:method req))))
+    (log-outgoing-jsonrpc-request [_ req]
+      (traffic-log "-->" (format "request %s %s" (or (:id req) "#") (:method req))))
+    (log-incoming-jsonrpc-success [_ id result]
+      (traffic-log "<--" (format "success %s %s" (or id "#") result)))
+    (log-outgoing-jsonrpc-success [_ id result]
+      (traffic-log "-->" (format "success %s %s" (or id "#") result)))
+    (log-incoming-jsonrpc-failure [_ id error]
+      (traffic-log "<--" (format "error %s code=%d" (or id "#") (get-in error [:error :code]))))
+    (log-outgoing-jsonrpc-failure [_ id error]
+      (traffic-log "-->" (format "error %s code=%d" (or id "#") (get-in error [:error :code]))))
+    (log-incoming-jsonrpc-notification [_ notif]
+      (traffic-log "<--" (str "notification " (:method notif))))
+    (log-outgoing-jsonrpc-notification [_ notif]
+      (traffic-log "-->" (str "notification " (:method notif))))
+    (log-mcpcall-failure [_ error]
+      (traffic-log "<--" (str "call failure: " error)))
+    (log-mcp-sse-message [_ msg]
+      (traffic-log "<--" (str "SSE " msg)))))
+
+(def ^:private init-threads*
+  "Tracks in-flight MCP server initialization threads (server-name → Thread)
+   so they can be interrupted during shutdown."
+  (atom {}))
+
+(defn ^:private register-init-thread! [server-name ^Thread thread]
+  (swap! init-threads* assoc server-name thread))
+
+(defn ^:private deregister-init-thread! [server-name]
+  (swap! init-threads* dissoc server-name))
+
+(defn ^:private interrupt-init-threads!
+  "Interrupt all in-flight init threads to unblock stuck startups."
+  []
+  (doseq [[server-name ^Thread thread] @init-threads*]
+    (logger/info logger-tag (format "Interrupting init thread for server '%s'" server-name))
+    (.interrupt thread))
+  (reset! init-threads* {}))
+
+(defmacro ^:private with-init-thread
+  "Registers the current thread in `init-threads*` for the given server name,
+  executes body, and deregisters in a finally block. Allows `stop-server!` and
+  `shutdown!` to interrupt in-progress initializations."
+  [server-name & body]
+  `(let [name# ~server-name]
+     (register-init-thread! name# (Thread/currentThread))
+     (try
+       ~@body
+       (finally
+         (deregister-init-thread! name#)))))
+
+(def ^:private env-var-regex
+  #"\$(\w+)|\$\{([^}]+)\}")
+
+(defn ^:private replace-env-vars [s]
+  (let [env (System/getenv)]
+    (string/replace s
+                    env-var-regex
+                    (fn [[_ var1 var2]]
+                      (or (get env (or var1 var2))
+                          (str "$" var1)
+                          (str "${" var2 "}"))))))
+
+(defn ^:private mcp-auth-key
+  "Derive the `:mcp-auth` storage key for a server.
+
+  Tokens are namespaced so distinct projects don't clobber each other while
+  still sharing by default. Controlled by the server's `:authScope`:
+  - nil / \"global\" (default): bare server name, so a single token is shared
+    across every project (and back-compat with previously stored tokens).
+  - \"workspace\": scoped to the current workspace folder set.
+  - any other value: a named bucket shared across every project that uses it.
+
+  The value is resolved like any other config string, so the full
+  dynamic-string interpolation (`${env:...}`, `${file:...}`, `${cmd:...}`, ...)
+  already ran at config-load time; `replace-env-vars` here additionally expands
+  bare `$VAR` forms, matching how `url`/`headers` are treated.
+
+  The server name always prefixes the composite key so two different servers
+  never share a token even under the same scope label."
+  [server-name server-config db]
+  (let [scope (some-> (:authScope server-config) replace-env-vars string/trim not-empty)]
+    (cond
+      (or (nil? scope) (= "global" scope))
+      server-name
+
+      (= "workspace" scope)
+      (str (name server-name) "#ws:"
+           (cache/workspaces-hash (:workspace-folders db) shared/uri->filename))
+
+      :else
+      (str (name server-name) "#scope:" scope))))
+
+(defn ^:private with-serialized-sends
+  "Wraps a client transport so concurrent messages are written to the server one at a time."
+  [transport]
+  (let [lock (Object.)]
+    (reify pp/IClientTransport
+      (client-transport-info [_] (pp/client-transport-info transport))
+      (start-client-transport [_ on-message] (pp/start-client-transport transport on-message))
+      (stop-client-transport! [_ force?] (pp/stop-client-transport! transport force?))
+      ;; The stdio transport writes the JSON and the newline separately, so
+      ;; unsynchronized concurrent sends can interleave and break framing.
+      (send-message-to-server [_ message] (locking lock (pp/send-message-to-server transport message)))
+      (upon-handshake-success [_ success] (pp/upon-handshake-success transport success)))))
+
+(defn ^:private ->transport [server-name server-config workspaces db*]
+  (if (:url server-config)
+    ;; HTTP Streamable transport
+    (let [needs-reinit?* (atom false)
+          url (replace-env-vars (:url server-config))
+          config-headers (:headers server-config)
+          ssl-ctx network/*ssl-context*
+          rm (fn [request]
+               (-> request
+                   (assoc :timeout-millis 30000)
+                   (update :headers merge
+                           (into {} (map (fn [[k v]]
+                                           [(name k) (replace-env-vars (str v))]))
+                                 config-headers))
+                   (update :headers merge
+                           (when-let [access-token (get-in @db* [:mcp-auth (mcp-auth-key server-name server-config @db*) :access-token])]
+                             {"Authorization" (str "Bearer " access-token)}))))
+          hc (phc/make-http-client url (cond-> {:request-middleware rm
+                                                :timeout-millis 10000}
+                                         ssl-ctx (assoc :ssl-context ssl-ctx)))]
+      (when (string/includes? url "/sse")
+        (logger/warn logger-tag (format "SSE transport is no longer supported for server '%s'. Using Streamable HTTP instead. Consider updating the URL." server-name)))
+      (logger/info logger-tag (format "Creating HTTP transport for server '%s' at %s" server-name url))
+      {:transport (phct/make-streamable-http-transport hc)
+       :http-client hc
+       :needs-reinit?* needs-reinit?*})
+
+    ;; STDIO transport
+    (let [{:keys [command args env]} server-config
+          work-dir (or (some-> workspaces
+                               first
+                               :uri
+                               shared/uri->filename)
+                       (config/user-home))]
+      {:transport (with-serialized-sends
+                    (psct/run-command
+                     {:command-tokens (into [(replace-env-vars command)]
+                                            (map replace-env-vars)
+                                            (or args []))
+                      :dir work-dir
+                      :env (when env (update-keys env name))
+                      :on-stderr-text (fn [msg]
+                                        (logger/info logger-tag (format "[%s] %s" server-name msg)))}))
+       :needs-reinit?* nil})))
+
+(defn ^:private non-blocking-handler
+  "Wraps a notification handler so it runs on a separate thread.
+  Prevents STDIO transport deadlock where the reader thread blocks on a
+  synchronous fetch request inside a notification handler, making it
+  unable to read incoming responses."
+  [f]
+  (pcs/wrap-initialized-check
+   (fn [jsonrpc-notification]
+     (future (f jsonrpc-notification)))))
+
+(defonce ^:private progress-listeners* (atom {}))
+
+(defn ^:private on-progress-notification
+  "Passes a server progress notification's params to the listener registered for its progress token."
+  [jsonrpc-notification]
+  (let [params (:params jsonrpc-notification)]
+    (when-let [listener (get @progress-listeners* (:progressToken params))]
+      (listener params))))
+
+(defn ^:private ->client [name transport init-timeout workspaces
+                          {:keys [on-tools-change pending-tools-refresh* heartbeat-seconds]}]
+  (let [tools-consumer (fn [tools]
+                         (logger/info logger-tag
+                                      (format "[%s] Tools list changed, received %d tools"
+                                              name (count tools)))
+                         (on-tools-change tools))
+        client (pmc/make-mcp-client
+                {:info (pes/make-info "ECA" (config/eca-version) "Editor Code Assistant")
+                 :client-transport transport
+                 :heartbeat-seconds (or heartbeat-seconds 0)
+                 :primitives {:roots (mapv #(pcap/make-root-item (:uri %)
+                                                                 {:name (:name %)})
+                                           workspaces)}
+                 :traffic-logger mcp-traffic-logger
+                 :notification-handlers
+                 {;; Uses custom wrapping instead of non-blocking-handler to coordinate
+                  ;; a promise that await-pending-tools-refresh can block on.
+                  psd/method-notifications-tools-list_changed
+                  (pcs/wrap-initialized-check
+                   (fn [jsonrpc-notification]
+                     (let [p (promise)]
+                       (when pending-tools-refresh*
+                         (reset! pending-tools-refresh* p))
+                       (future
+                         (try
+                           (pcs/fetch-tools jsonrpc-notification
+                                            {:on-tools tools-consumer})
+                           (catch Exception e
+                             (logger/error logger-tag
+                                           (format "[%s] Failed to refresh tools after list_changed: %s"
+                                                   name (.getMessage ^Throwable e))))
+                           (finally
+                             (when pending-tools-refresh*
+                               (compare-and-set! pending-tools-refresh* p nil))
+                             (deliver p true)))))))
+
+                  psd/method-notifications-resources-list_changed
+                  (non-blocking-handler
+                   (fn [notification]
+                     (pcs/fetch-resources notification)))
+
+                  psd/method-notifications-prompts-list_changed
+                  (non-blocking-handler
+                   (fn [notification]
+                     (pcs/fetch-prompts notification)))
+
+                  psd/method-notifications-progress
+                  on-progress-notification
+
+                  psd/method-notifications-message
+                  (fn [params]
+                    (logger/info logger-tag
+                                 (format "[MCP-%s] %s" name (:data params))))}
+                 :print-banner? false})]
+    (pmc/initialize-and-notify! client
+                                {:timeout-millis (* 1000 init-timeout)})
+    client))
+
+(defn ^:private ->server [mcp-name server-config status db]
+  {:name (name mcp-name)
+   :command (:command server-config)
+   :args (:args server-config)
+   :url (:url server-config)
+   :tools (get-in db [:mcp-clients mcp-name :tools])
+   :prompts (get-in db [:mcp-clients mcp-name :prompts])
+   :resources (get-in db [:mcp-clients mcp-name :resources])
+   :instructions (get-in db [:mcp-clients mcp-name :instructions])
+   :has-auth (boolean (get-in db [:mcp-auth (mcp-auth-key mcp-name server-config db) :access-token]))
+   :disabled (boolean (:disabled server-config))
+   :status status})
+
+(defn ^:private ->content [content-client]
+  (case (:type content-client)
+    "text" {:type :text
+            :text (:text content-client)}
+    "image" {:type :image
+             :media-type (:mimeType content-client)
+             :base64 (:data content-client)}
+    "resource" (let [resource (:resource content-client)]
+                 (cond
+                   (:text resource) {:type :text
+                                     :text (:text resource)}
+                   (:blob resource) {:type :text
+                                     :text (format "[Binary resource: %s]"
+                                                   (:uri resource))}
+                   :else nil))
+    (do (logger/warn logger-tag (format "Unsupported MCP content type: %s"
+                                        (:type content-client)))
+        nil)))
+
+(defn ^:private ->resource-content [resource-content-client]
+  (let [uri (:uri resource-content-client)]
+    (cond
+      (:text resource-content-client)
+      {:type :text :uri uri :text (:text resource-content-client)}
+
+      (:blob resource-content-client)
+      {:type :text :uri uri :text (format "[Binary resource: %s]" uri)}
+
+      :else nil)))
+
+(defn ^:private tool->internal
+  "Adapt plumcp tool map to ECA's internal tool shape.
+
+  Per the MCP spec, tool `description` is optional; some servers omit it. We
+  normalize a missing/empty description here so providers that require a
+  non-null string (e.g. Anthropic) don't reject the request."
+  [tool]
+  {:name (:name tool)
+   :description (or (not-empty (:description tool))
+                    (not-empty (:title tool))
+                    (str "MCP tool: " (:name tool)))
+   :parameters (:inputSchema tool)})
+
+(defn ^:private format-jsonrpc-error
+  "Format a JSON-RPC error map into a readable string for logging."
+  [jsonrpc-error]
+  (let [code (:code jsonrpc-error)
+        message (:message jsonrpc-error)
+        data (:data jsonrpc-error)
+        http-status (:plumcp.core/http-status jsonrpc-error)]
+    (cond-> ""
+      http-status (str "http=" http-status " ")
+      code (str "code=" code)
+      message (str (when code " ") "message=" message)
+      data (str " data=" (pr-str data))
+      (and (nil? code) (nil? message)) (str (pr-str jsonrpc-error)))))
+
+(defn ^:private on-list-error [kind]
+  (fn [_id jsonrpc-error]
+    (logger/warn logger-tag (format "Could not list %s: %s" kind (format-jsonrpc-error jsonrpc-error)))
+    []))
+
+(defn ^:private on-list-timeout [kind]
+  (fn [_id _timeout-value]
+    (logger/warn logger-tag (format "Timeout waiting server response listing %s" kind))
+    []))
+
+(defn ^:private list-options [kind timeout-ms]
+  {:on-error (on-list-error kind)
+   :timeout-millis timeout-ms
+   :timeout-value ::list-timeout
+   :on-timeout (on-list-timeout kind)})
+
+(defn ^:private list-server-tools [client timeout-ms]
+  (if (get-in (pmc/get-initialize-result client) [:capabilities :tools])
+    (or (some->> (pmc/list-tools client (list-options "tools" timeout-ms))
+                 (mapv tool->internal))
+        [])
+    []))
+
+(defn ^:private list-server-prompts [client timeout-ms]
+  (if (get-in (pmc/get-initialize-result client) [:capabilities :prompts])
+    (or (pmc/list-prompts client (list-options "prompts" timeout-ms))
+        [])
+    []))
+
+(defn ^:private list-server-resources [client timeout-ms]
+  (if (get-in (pmc/get-initialize-result client) [:capabilities :resources])
+    (or (pmc/list-resources client (list-options "resources" timeout-ms))
+        [])
+    []))
+
+(defn ^:private initialize-mcp-oauth
+  [oauth-info
+   server-name
+   db*
+   server-config
+   {:keys [on-server-updated]}]
+  (logger/info logger-tag (format "MCP server '%s' requires authentication" server-name))
+  (swap! db* assoc-in [:mcp-clients server-name] {:status :requires-auth
+                                                  :oauth-info oauth-info})
+  (on-server-updated (->server server-name server-config :requires-auth @db*)))
+
+(defn ^:private token-expired?
+  "Check if the token is expired or will expire in the next 60 seconds."
+  [expires-at]
+  (when expires-at
+    (< expires-at (+ (quot (System/currentTimeMillis) 1000) 60))))
+
+(defn ^:private try-refresh-token!
+  "Attempt to refresh an MCP server's OAuth token.
+   Returns true if refresh succeeded, false otherwise."
+  [name db* url metrics {:keys [clientId clientSecret oauthPort clientName] :as server-config}]
+  (let [auth-key (mcp-auth-key name server-config @db*)
+        mcp-auth (get-in @db* [:mcp-auth auth-key])
+        {:keys [refresh-token]} mcp-auth
+        ;; Reuse the client the refresh token was minted under instead of running
+        ;; Dynamic Client Registration again. Servers with non-idempotent DCR (e.g.
+        ;; RunLayer) issue a new client_id per registration, which would orphan the
+        ;; refresh token. Configured values still take precedence over persisted ones.
+        client-id (or (some-> clientId replace-env-vars) (:client-id mcp-auth))
+        client-secret (or (some-> clientSecret replace-env-vars) (:client-secret mcp-auth))]
+    (when refresh-token
+      (logger/info logger-tag (format "Attempting to refresh token for MCP server '%s'" name))
+      (when-let [oauth-info (oauth/oauth-info (replace-env-vars url)
+                                              client-id
+                                              client-secret
+                                              oauthPort
+                                              (some-> clientName replace-env-vars))]
+        (when-let [new-tokens (oauth/refresh-token!
+                               (:token-endpoint oauth-info)
+                               (:client-id oauth-info)
+                               refresh-token
+                               :client-secret (:client-secret oauth-info)
+                               :resource (:resource oauth-info))]
+          (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
+          (swap! db* assoc-in [:mcp-auth auth-key]
+                 (merge mcp-auth new-tokens))
+          (db/update-global-cache! @db* metrics)
+          true)))))
+
+(def ^:private max-init-retries 3)
+
+(defn ^:private transient-transport-error?
+  "Checks if the exception (or its root cause) is a transient transport error
+   that warrants a retry. This covers infrastructure issues like load balancers
+   or proxies closing connections, network interruptions, and connection resets."
+  [^Exception e]
+  (letfn [(transient-io-msg? [^String msg]
+            (or (string/includes? msg "chunked transfer encoding")
+                (string/includes? msg "EOF reached while reading")
+                (string/includes? msg "Connection reset")
+                (string/includes? msg "Connection refused")
+                (string/includes? msg "Broken pipe")
+                (string/includes? msg "Read timed out")))]
+    (or (and (instance? IOException e)
+             (when-let [msg (.getMessage e)]
+               (transient-io-msg? msg)))
+        (when-let [cause (.getCause e)]
+          (and (instance? IOException cause)
+               (when-let [msg (.getMessage cause)]
+                 (transient-io-msg? msg)))))))
+
+(defn ^:private initialize-server! [name db* config metrics on-server-updated]
+  (let [db @db*
+        server-config (get-in config [:mcpServers name])]
+    (on-server-updated (->server name server-config :starting db))
+    (try
+      (when (Thread/interrupted)
+        (throw (InterruptedException. "Init cancelled")))
+      (let [workspaces (:workspace-folders @db*)
+            url (:url server-config)
+            ;; Skip OAuth entirely if Authorization header is configured
+            has-static-auth? (some-> server-config :headers :Authorization some?)
+            mcp-auth (get-in @db* [:mcp-auth (mcp-auth-key name server-config @db*)])
+            ;; Invalidate cached credentials when base URL changed (ignore query params)
+            mcp-auth (when (= (oauth/url-without-query url)
+                              (oauth/url-without-query (:url mcp-auth))) mcp-auth)
+            has-token? (some? (:access-token mcp-auth))
+            token-expired? (token-expired? (:expires-at mcp-auth))
+            ;; Try to refresh if token exists but is expired
+            refresh-succeeded? (when (and has-token? token-expired?)
+                                 (try-refresh-token! name db* url metrics server-config))
+            ;; Only get oauth-info if we don't have a token or refresh failed, and no static auth header
+            needs-oauth? (and (not has-static-auth?)
+                              (or (not has-token?)
+                                  (and token-expired? (not refresh-succeeded?))))
+            oauth-info (when (and url needs-oauth?)
+                         (oauth/oauth-info (replace-env-vars url)
+                                           (some-> (:clientId server-config) replace-env-vars)
+                                           (some-> (:clientSecret server-config) replace-env-vars)
+                                           (:oauthPort server-config)
+                                           (some-> (:clientName server-config) replace-env-vars)))]
+        (if oauth-info
+          (initialize-mcp-oauth oauth-info
+                                name
+                                db*
+                                server-config
+                                {:on-server-updated on-server-updated})
+          (let [init-timeout (:mcpTimeoutSeconds config)
+                list-timeout-ms (* 1000 init-timeout)
+                pending-tools-refresh* (atom nil)
+                on-tools-change (fn [tools]
+                                  (let [tools (mapv tool->internal tools)]
+                                    (swap! db* assoc-in [:mcp-clients name :tools] tools)
+                                    (on-server-updated (->server name server-config :running @db*))))]
+            (loop [attempt 1]
+              (let [{:keys [transport http-client needs-reinit?*]} (->transport name server-config workspaces db*)
+                    result (try
+                             (let [client (->client name transport init-timeout workspaces
+                                                    {:on-tools-change on-tools-change
+                                                     :pending-tools-refresh* pending-tools-refresh*
+                                                     ;; keep-alive pings only for remote servers, where idle
+                                                     ;; connections can be dropped by proxies/load balancers
+                                                     :heartbeat-seconds (when url (:mcpKeepAliveSeconds config))})
+                                   init-result (pmc/get-initialize-result client)
+                                   _ (when-not init-result
+                                       (throw (ex-info "MCP initialize returned no result"
+                                                       {:server name})))
+                                   version (get-in init-result [:serverInfo :version])]
+                               (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
+                                                                                :status :starting
+                                                                                :needs-reinit?* needs-reinit?*
+                                                                                :pending-tools-refresh* pending-tools-refresh*}
+                                                                         http-client (assoc :http-client http-client)))
+                               (swap! db* assoc-in [:mcp-clients name :version] version)
+                               (swap! db* assoc-in [:mcp-clients name :instructions] (:instructions init-result))
+                               (swap! db* assoc-in [:mcp-clients name :tools] (list-server-tools client list-timeout-ms))
+                               (if (and needs-reinit?* @needs-reinit?*)
+                                 (do (try (pp/stop-client-transport! transport false) (catch Exception _))
+                                     (if (< attempt max-init-retries)
+                                       (do (logger/warn logger-tag
+                                                        (format "MCP server '%s' transport error during initialization (attempt %d/%d), retrying"
+                                                                name attempt max-init-retries))
+                                           (try-refresh-token! name db* url metrics server-config)
+                                           :retry)
+                                       (do (logger/error logger-tag (format "MCP server '%s' transport error during initialization" name))
+                                           (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                                           (on-server-updated (->server name server-config :failed @db*))
+                                           :failed)))
+                                 (do (swap! db* assoc-in [:mcp-clients name :status] :running)
+                                     (on-server-updated (->server name server-config :running @db*))
+                                     (logger/info logger-tag (format "Started MCP server %s" name))
+                                     ;; Fetch after flipping to running: servers may take long or never
+                                     ;; answer these list requests, and they should not gate the status.
+                                     (let [prompts (list-server-prompts client list-timeout-ms)
+                                           resources (list-server-resources client list-timeout-ms)]
+                                       (swap! db* assoc-in [:mcp-clients name :prompts] prompts)
+                                       (swap! db* assoc-in [:mcp-clients name :resources] resources)
+                                       ;; Notify again only when something actually arrived, avoiding
+                                       ;; a redundant duplicate notification for servers without them.
+                                       (when (or (seq prompts) (seq resources))
+                                         (on-server-updated (->server name server-config :running @db*))))
+                                     :ok)))
+                             (catch Exception e
+                               (try (pp/stop-client-transport! transport false) (catch Exception _))
+                               (if (and (transient-transport-error? e) (< attempt max-init-retries))
+                                 (do
+                                   (logger/warn logger-tag (format "Transient HTTP error initializing MCP server %s (attempt %d/%d), retrying: %s"
+                                                                   name attempt max-init-retries
+                                                                   (some-> e .getCause .getMessage)))
+                                   :retry)
+                                 (do
+                                   (let [cause (.getCause e)
+                                         cause-message (cond
+                                                         (and cause (instance? java.util.concurrent.TimeoutException cause))
+                                                         (format "Timeout of %s secs waiting for server start" init-timeout)
+
+                                                         cause
+                                                         (.getMessage cause)
+
+                                                         :else
+                                                         (.getMessage e))]
+                                     (logger/error logger-tag (format "Could not initialize MCP server %s: %s" name cause-message)))
+                                   (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                                   (on-server-updated (->server name server-config :failed db))
+                                   :failed))))]
+                (when (= result :retry)
+                  (Thread/sleep 1000)
+                  (recur (inc attempt))))))))
+      (catch InterruptedException _
+        (logger/info logger-tag (format "Initialization of MCP server %s was interrupted" name))
+        (swap! db* assoc-in [:mcp-clients name :status] :failed)
+        (on-server-updated (->server name server-config :failed @db*)))
+      (catch Exception e
+        (logger/error logger-tag (format "Unexpected error initializing MCP server %s: %s" name (.getMessage e)))
+        (swap! db* assoc-in [:mcp-clients name :status] :failed)
+        (on-server-updated (->server name server-config :failed @db*))))))
+
+(defn ^:private start-single-server-async!
+  "Spawn a daemon init thread for a single MCP server. Used by both initial
+   startup and runtime add-server!."
+  [server-name db* config metrics on-server-updated]
+  (let [t (Thread.
+           (fn []
+             (with-init-thread server-name
+               (initialize-server! server-name db* config metrics on-server-updated))))]
+    (.setName t (str "mcp-init-" server-name))
+    (.setDaemon t true)
+    (.start t)))
+
+(defn initialize-servers-async! [{:keys [on-server-updated]} db* config metrics]
+  (let [db @db*]
+    (doseq [[name-kwd server-config] (:mcpServers config)]
+      (let [server-name (name name-kwd)]
+        (when-not (get-in db [:mcp-clients server-name])
+          (if (get server-config :disabled false)
+            (on-server-updated (->server server-name server-config :disabled db))
+            (start-single-server-async! server-name db* config metrics on-server-updated)))))))
+
+(def ^:private disconnect-timeout-ms 3000)
+
+(defn stop-server! [name db* config {:keys [on-server-updated]}]
+  (when-let [^Thread init-thread (get @init-threads* name)]
+    (logger/info logger-tag (format "Interrupting in-progress init thread for server '%s'" name))
+    (.interrupt init-thread)
+    (deregister-init-thread! name))
+  (when-let [{:keys [client http-client]} (get-in @db* [:mcp-clients name])]
+    (let [server-config (get-in config [:mcpServers name])]
+      (swap! db* assoc-in [:mcp-clients name :status] :stopping)
+      (on-server-updated (->server name server-config :stopping @db*))
+      (let [f (future (try (pmc/disconnect! client) (catch Exception _ nil)))]
+        (when-not (deref f disconnect-timeout-ms nil)
+          (logger/warn logger-tag (format "Timeout disconnecting MCP server %s, forcing transport stop" name))
+          ;; Fire-and-forget: pp/stop! can block indefinitely on HttpClient.close()
+          ;; awaiting internal thread termination, so we must not block the caller.
+          (future
+            (if http-client
+              (try (pp/stop! http-client) (catch Exception _))
+              (try (pp/stop-client-transport! (pcs/?transport client) false) (catch Exception _))))))
+      (swap! db* assoc-in [:mcp-clients name :status] :stopped)
+      (on-server-updated (->server name server-config :stopped @db*))
+      (swap! db* update :mcp-clients dissoc name)
+      (logger/info logger-tag (format "Stopped MCP server %s" name)))))
+
+(defn start-server! [name db* config metrics {:keys [on-server-updated]}]
+  (when-let [server-config (get-in config [:mcpServers name])]
+    (when (get server-config :disabled false)
+      (logger/info logger-tag (format "Starting MCP server %s from manual request despite :disabled=true" name)))
+    (with-init-thread name
+      (initialize-server! name db* config metrics on-server-updated))))
+
+(defn ^:private open-browser! [^String url]
+  (try
+    (if shared/windows-os?
+      (let [^java.util.List cmd ["cmd" "/c" "start" "" url]]
+        (-> (ProcessBuilder. cmd)
+            (.start)))
+      (browse/browse-url url))
+    (catch Exception e
+      (logger/error logger-tag (str "Failed to open browser: " (.getMessage e))))))
+
+(defn connect-server!
+  "Initiate OAuth authorization for an MCP server that requires auth.
+   Starts the local OAuth callback server and returns the authorization URL."
+  [name db* config metrics {:keys [on-server-updated]}]
+  (let [server-config (get-in config [:mcpServers name])
+        {:keys [oauth-info]} (get-in @db* [:mcp-clients name])]
+    (when (and server-config oauth-info)
+      (let [{:keys [authorization-endpoint callback-port ssl?]} oauth-info]
+        (swap! db* assoc-in [:mcp-clients name :status] :starting)
+        (on-server-updated (->server name server-config :starting @db*))
+        (oauth/start-oauth-server!
+         {:port callback-port
+          :ssl? ssl?
+          ;; Callbacks run on a background thread after the OAuth HTML page has been
+          ;; flushed to the browser, so synchronous stop-oauth-server! is safe here.
+          :on-success (fn [{:keys [code]}]
+                        (let [{:keys [access-token refresh-token expires-at]} (oauth/authorize-token! oauth-info code)
+                              auth-key (mcp-auth-key name server-config @db*)]
+                          ;; Persist the client identity the tokens were minted under so refreshes
+                          ;; reuse it. Servers with non-idempotent Dynamic Client Registration (e.g.
+                          ;; RunLayer) issue a new client_id per registration; without this, a later
+                          ;; refresh would re-register and orphan the refresh token.
+                          (swap! db* assoc-in [:mcp-auth auth-key] (cond-> {:type :auth/oauth
+                                                                            :url (:url server-config)
+                                                                            :refresh-token refresh-token
+                                                                            :access-token access-token
+                                                                            :expires-at expires-at
+                                                                            :client-id (:client-id oauth-info)}
+                                                                     (:client-secret oauth-info)
+                                                                     (assoc :client-secret (:client-secret oauth-info)))))
+                        (oauth/stop-oauth-server! callback-port)
+                        (db/update-global-cache! @db* metrics)
+                        (initialize-server! name db* config metrics on-server-updated))
+          :on-error (fn [error]
+                      (oauth/stop-oauth-server! callback-port)
+                      (logger/error logger-tag error)
+                      (swap! db* assoc-in [:mcp-clients name :status] :failed)
+                      (on-server-updated (->server name server-config :failed @db*)))})
+        (open-browser! authorization-endpoint)))))
+
+(defn ^:private restart-server!
+  "Stop the server if running, then re-initialize it on the current thread."
+  [name db* config metrics on-server-updated]
+  (when (get-in @db* [:mcp-clients name :client])
+    (stop-server! name db* config {:on-server-updated on-server-updated}))
+  (with-init-thread name
+    (initialize-server! name db* config metrics on-server-updated)))
+
+(defn restart-server-async!
+  "Spawn a daemon thread that stops the server (if running) and re-initializes
+   it. Used by reconciliation when an MCP server's config changed out-of-band."
+  [server-name db* config metrics on-server-updated]
+  (let [t (Thread.
+           (fn []
+             ;; stop runs outside with-init-thread because stop-server! interrupts
+             ;; any thread registered in init-threads* for this name.
+             (when (get-in @db* [:mcp-clients server-name :client])
+               (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+             (with-init-thread server-name
+               (initialize-server! server-name db* config metrics on-server-updated))))]
+    (.setName t (str "mcp-restart-" server-name))
+    (.setDaemon t true)
+    (.start t)))
+
+(defn reconcile-servers!
+  "Diff `:mcpServers` in `prev-config` vs `new-config` and apply lifecycle ops:
+   - added (in new, not in old): start async (or emit disabled status)
+   - removed (in old, not in new): stop + emit serverRemoved
+   - changed (config differs): restart async
+
+   No-op on the first tick (prev-config nil) since `initialize-servers-async!`
+   handles the initial start. Respects `:pureConfig`."
+  [prev-config new-config db* metrics {:keys [on-server-updated on-server-removed]}]
+  (when (and prev-config (not (:pureConfig new-config)))
+    (let [old (or (:mcpServers prev-config) {})
+          new (or (:mcpServers new-config) {})
+          old-keys (set (keys old))
+          new-keys (set (keys new))
+          removed (remove new-keys old-keys)
+          added (remove old-keys new-keys)
+          changed (filter (fn [k] (not= (get old k) (get new k)))
+                          (filter new-keys old-keys))]
+      (doseq [k removed]
+        (let [server-name (name k)]
+          (logger/info logger-tag (format "Reconcile: removing server '%s'" server-name))
+          (future
+            (try
+              (when (get-in @db* [:mcp-clients server-name :client])
+                (stop-server! server-name db* prev-config {:on-server-updated on-server-updated}))
+              (swap! db* update :mcp-auth dissoc (mcp-auth-key server-name (get old k) @db*))
+              (when on-server-removed
+                (on-server-removed {:name server-name}))
+              (catch Exception e
+                (logger/error logger-tag (format "Reconcile remove failed for '%s': %s"
+                                                 server-name (.getMessage e))))))))
+      (doseq [k added]
+        (let [server-name (name k)
+              server-config (get new k)]
+          (logger/info logger-tag (format "Reconcile: adding server '%s'" server-name))
+          (if (get server-config :disabled false)
+            (on-server-updated (->server server-name server-config :disabled @db*))
+            (start-single-server-async! server-name db* new-config metrics on-server-updated))))
+      (doseq [k changed]
+        (let [server-name (name k)]
+          (logger/info logger-tag (format "Reconcile: restarting server '%s' (config changed)" server-name))
+          (restart-server-async! server-name db* new-config metrics on-server-updated))))))
+
+(defn logout-server!
+  "Logout from an MCP server by clearing stored OAuth credentials and restarting it."
+  [name db* config metrics {:keys [on-server-updated]}]
+  (when-let [server-config (get-in config [:mcpServers name])]
+    (swap! db* update :mcp-auth dissoc (mcp-auth-key name server-config @db*))
+    (db/update-global-cache! @db* metrics)
+    (restart-server! name db* config metrics on-server-updated)))
+
+(defn ^:private parse-json-with-comments [^String s]
+  (binding [json.factory/*json-factory* (json.factory/make-json-factory {:allow-comments true})]
+    (json/parse-string s)))
+
+(defn ^:private find-server-config-source
+  "Returns {:source :local :workspace-root-uri uri} or {:source :global}
+   indicating where the MCP server `server-name` is defined.
+   Checks local workspace configs first (highest priority), then global."
+  [server-name db]
+  (let [roots (:workspace-folders db)]
+    (or (some (fn [{:keys [uri]}]
+                (let [config-file (io/file (shared/uri->filename uri) ".eca" "config.json")]
+                  (when (.exists ^java.io.File config-file)
+                    (let [local-config (parse-json-with-comments (slurp config-file))]
+                      (when (get-in local-config ["mcpServers" server-name])
+                        {:source :local :workspace-root-uri uri})))))
+              roots)
+        (let [global-file (config/global-config-file)]
+          (when (.exists global-file)
+            (let [global-config (parse-json-with-comments (slurp global-file))]
+              (when (get-in global-config ["mcpServers" server-name])
+                {:source :global}))))
+        {:source :global})))
+
+(defn ^:private update-config-file!
+  "Apply rewrite-json edits to a config file, preserving comments and formatting.
+   `edit-fn` receives a parsed rj root node and returns the modified root."
+  [^java.io.File config-file edit-fn]
+  (let [raw (if (.exists config-file) (slurp config-file) "{}")
+        root (edit-fn (rj/parse-string raw))]
+    (io/make-parents config-file)
+    (spit config-file (rj/to-string root))))
+
+(defn ^:private walk-server-leaves
+  "Walks an MCP server-config map and returns a seq of [string-path-vec value] pairs,
+   stringifying keyword keys. Vectors (e.g. :args) are treated as leaves so they
+   serialize as JSON arrays."
+  ([m] (walk-server-leaves [] m))
+  ([prefix m]
+   (reduce-kv
+    (fn [acc k v]
+      (let [path (conj prefix (if (keyword? k) (name k) (str k)))]
+        (if (and (map? v) (seq v))
+          (into acc (walk-server-leaves path v))
+          (conj acc [path v]))))
+    []
+    m)))
+
+(defn ^:private rj-assoc-server-entry
+  "Replace the `mcpServers[server-name]` subtree in a rewrite-json root with
+   the contents of `server-config`. Dissocs the existing entry first so stale
+   keys (e.g. :url after switching to stdio) do not leak in."
+  [root server-name server-config]
+  (reduce (fn [r [leaf-path v]]
+            (rj/assoc-in r (into ["mcpServers" server-name] leaf-path) v))
+          (rj/dissoc-in root ["mcpServers" server-name])
+          (walk-server-leaves server-config)))
+
+(defn ^:private resolve-config-file [server-name db]
+  (let [{:keys [source workspace-root-uri]} (find-server-config-source server-name db)]
+    (if (= source :local)
+      (io/file (shared/uri->filename workspace-root-uri) ".eca" "config.json")
+      (config/global-config-file))))
+
+(defn ^:private resolve-target-config-file
+  "Resolve the config file for a NEW server (no existing source to look up).
+   scope is :global (default) or :workspace (workspace-uri required)."
+  [scope workspace-uri db]
+  (case scope
+    :workspace (if workspace-uri
+                 (let [roots (:workspace-folders db)
+                       uris (into #{} (map :uri) roots)]
+                   (when-not (contains? uris workspace-uri)
+                     (throw (ex-info (format "workspaceUri '%s' is not an open workspace root" workspace-uri)
+                                     {:workspace-uri workspace-uri
+                                      :workspace-roots (vec uris)})))
+                   (io/file (shared/uri->filename workspace-uri) ".eca" "config.json"))
+                 (throw (ex-info ":workspace scope requires :workspace-uri"
+                                 {:scope scope})))
+    (config/global-config-file)))
+
+(defn update-server!
+  "Update an MCP server's config fields (command/args/env/url/headers), persist
+   to the correct config file preserving comments and formatting, clear the
+   config cache, then restart.
+
+   `server-fields` is a partial map of fields to override. Fields not present
+   are preserved from the existing entry EXCEPT when the transport flips:
+   switching to HTTP (by supplying :url) strips :command/:args/:env, and
+   switching to stdio (by supplying :command or :args) strips :url/:headers."
+  [server-name server-fields db* config metrics {:keys [on-server-updated]}]
+  (let [db @db*
+        current-server-config (get-in config [:mcpServers server-name])
+        switching-to-http?  (some? (:url server-fields))
+        switching-to-stdio? (or (some? (:command server-fields))
+                                (some? (:args server-fields)))
+        stripped-keys (cond
+                        switching-to-http?  [:command :args :env]
+                        switching-to-stdio? [:url :headers]
+                        :else [])
+        new-server-config (-> (apply dissoc current-server-config stripped-keys)
+                              (merge server-fields))
+        config-file (resolve-config-file server-name db)]
+    (update-config-file! config-file
+                         #(rj-assoc-server-entry % server-name new-server-config))
+    (config/clear-cache!)
+    (let [fresh-config (config/all @db*)]
+      (restart-server! server-name db* fresh-config metrics on-server-updated))))
+
+(defn disable-server!
+  "Disable an MCP server: persist disabled=true in config, stop if running, notify."
+  [server-name db* config {:keys [on-server-updated]}]
+  (let [db @db*
+        config-file (resolve-config-file server-name db)
+        server-config (get-in config [:mcpServers server-name])]
+    (update-config-file! config-file
+                         #(rj/assoc-in % ["mcpServers" server-name "disabled"] true))
+    (config/clear-cache!)
+    (when (get-in db [:mcp-clients server-name :client])
+      (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+    (on-server-updated (->server server-name (assoc server-config :disabled true) :disabled @db*))))
+
+(defn enable-server!
+  "Enable an MCP server: remove disabled from config, start the server, notify."
+  [server-name db* metrics {:keys [on-server-updated]}]
+  (let [db @db*
+        config-file (resolve-config-file server-name db)]
+    (update-config-file! config-file
+                         #(rj/dissoc-in % ["mcpServers" server-name "disabled"]))
+    (config/clear-cache!)
+    (let [fresh-config (config/all @db*)]
+      (start-server! server-name db* fresh-config metrics {:on-server-updated on-server-updated}))))
+
+(defn ^:private normalize-new-server-config
+  "Coerce incoming map (from JSON-RPC) into the shape stored in :mcpServers.
+   Keyword-izes top-level keys and nested :env/:headers keys so internal
+   code paths (->transport, start-server!) work uniformly after config/all
+   is re-read."
+  [server-config]
+  (letfn [(kw-map [m] (into {} (map (fn [[k v]] [(keyword (name k)) v])) m))]
+    (cond-> (kw-map server-config)
+      (:env server-config)     (update :env kw-map)
+      (:headers server-config) (update :headers kw-map))))
+
+(defn add-server!
+  "Add a new MCP server definition: validate, persist to the chosen config file
+   preserving comments, clear the config cache, then start the server async
+   (unless :disabled true, in which case only emit the disabled status).
+
+   `server-config` is the wire-shape entry map. Accepted fields:
+     stdio:  :command, :args, :env, :disabled
+     HTTP:   :url, :headers, :clientId, :clientSecret, :oauthPort, :disabled
+
+   `opts`:
+     :scope         :global (default) or :workspace
+     :workspace-uri required when :scope = :workspace"
+  [server-name server-config {:keys [scope workspace-uri]} db* config metrics
+   {:keys [on-server-updated]}]
+  (when (string/blank? server-name)
+    (throw (ex-info "MCP server name must be non-blank" {})))
+  (when (get-in config [:mcpServers server-name])
+    (throw (ex-info (format "MCP server '%s' already exists" server-name)
+                    {:server-name server-name})))
+  (let [normalized (normalize-new-server-config server-config)
+        has-command? (some? (:command normalized))
+        has-url?     (some? (:url normalized))]
+    (when (and has-command? has-url?)
+      (throw (ex-info "MCP server entry must not specify both :command and :url"
+                      {:server-name server-name})))
+    (when-not (or has-command? has-url?)
+      (throw (ex-info "MCP server entry must specify :command (stdio) or :url (HTTP)"
+                      {:server-name server-name})))
+    (let [scope (or scope :global)
+          config-file (resolve-target-config-file scope workspace-uri @db*)]
+      (update-config-file! config-file
+                           #(rj-assoc-server-entry % server-name normalized))
+      (config/clear-cache!)
+      (let [fresh-config (config/all @db*)
+            fresh-server-config (get-in fresh-config [:mcpServers server-name])]
+        (if (get fresh-server-config :disabled false)
+          (do (on-server-updated (->server server-name fresh-server-config :disabled @db*))
+              (->server server-name fresh-server-config :disabled @db*))
+          (do (start-single-server-async! server-name db* fresh-config metrics on-server-updated)
+              (->server server-name fresh-server-config :starting @db*)))))))
+
+(defn remove-server!
+  "Remove an MCP server: stop if running, dissoc from the config file
+   preserving comments, clear cache, clear any stored OAuth tokens, and
+   fire on-server-removed."
+  [server-name db* config {:keys [on-server-updated on-server-removed]}]
+  (when-not (get-in config [:mcpServers server-name])
+    (throw (ex-info (format "MCP server '%s' does not exist" server-name)
+                    {:server-name server-name})))
+  (let [db @db*
+        server-config (get-in config [:mcpServers server-name])
+        config-file (resolve-config-file server-name db)]
+    (when (get-in db [:mcp-clients server-name :client])
+      (stop-server! server-name db* config {:on-server-updated on-server-updated}))
+    (swap! db* update :mcp-auth dissoc (mcp-auth-key server-name server-config db))
+    (update-config-file! config-file
+                         #(rj/dissoc-in % ["mcpServers" server-name]))
+    (config/clear-cache!)
+    (on-server-removed {:name server-name})
+    {:name server-name :removed true}))
+
+(defn all-tools [db]
+  (into []
+        (mapcat (fn [[name {:keys [tools version]}]]
+                  (map #(assoc % :server {:name name
+                                          :version version}) tools)))
+        (:mcp-clients db)))
+
+(defn await-pending-tools-refresh
+  "Waits for any pending tool list refreshes to complete, with a timeout.
+   Call before reading tools from db* to ensure dynamically loaded tools
+   are available after a tools/list_changed notification.
+   The pending-tools-refresh* atoms are set by the tools/list_changed
+   notification handler and cleared when the refresh completes.
+   Uses a shared deadline so multiple pending servers don't multiply the wait."
+  [db timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+    (doseq [[_ {:keys [pending-tools-refresh*]}] (:mcp-clients db)]
+      (when-let [p (and pending-tools-refresh* @pending-tools-refresh*)]
+        (let [remaining (- deadline (System/currentTimeMillis))]
+          (when (pos? remaining)
+            (deref p remaining nil)))))))
+
+(defn ^:private reinitialize-server!
+  "Re-initialize an MCP server after a transport error (HTTP 401/403/5xx).
+   Stops the old transport without attempting disconnect (the session is already
+   gone server-side), then runs a fresh initialize-server! cycle.
+   Proactively attempts a token refresh first: a server-side token rejection can
+   arrive before our local expiry clock predicts it, so forcing a refresh here
+   heals the session without falling back to a full browser re-auth. No-op when
+   there is no stored refresh token (e.g. static-auth servers)."
+  [server-name old-client db* config metrics]
+  (logger/info logger-tag (format "Re-initializing MCP server '%s'" server-name))
+  (try (pp/stop-client-transport! (pcs/?transport old-client) false) (catch Exception _))
+  (swap! db* update :mcp-clients dissoc server-name)
+  (let [server-config (get-in config [:mcpServers server-name])]
+    (when-let [url (:url server-config)]
+      (try-refresh-token! server-name db* url metrics server-config)))
+  (initialize-server! server-name db* config metrics (constantly nil)))
+
+(def ^:private tool-call-timeout-ms 120000)
+(def ^:private liveness-ping-timeout-ms 5000)
+
+(defn ^:private tool-call-error [msg]
+  {:error true
+   :contents [{:type :text :text msg}]})
+
+(defn ^:private connection-dead?
+  "Probes the server with a short JSON-RPC ping to distinguish a dead
+   connection (e.g. pooled HTTP connections silently dropped after machine
+   suspend or long idle) from a genuinely slow tool call. Any response,
+   even an error one, means the connection is alive; only silence or a
+   transport exception means it is dead."
+  [mcp-client]
+  (let [result (try
+                 (pmc/ping mcp-client {:timeout-millis liveness-ping-timeout-ms
+                                       :timeout-value ::ping-timeout
+                                       :on-timeout (fn [_id timeout-value] timeout-value)
+                                       :on-error (fn [_id _jsonrpc-error] ::ping-error-response)})
+                 (catch Exception _ ::ping-failed))]
+    (contains? #{::ping-timeout ::ping-failed} result)))
+
+(defn ^:private reinit-worthy-http-status?
+  "HTTP status codes that indicate the session/auth is broken and the server
+   connection should be re-initialized (e.g. expired token, expired session,
+   server error). 404 is the Streamable HTTP spec signal for an expired
+   session id."
+  [status]
+  (or (= 401 (long status))
+      (= 403 (long status))
+      (= 404 (long status))
+      (<= 500 (long status))))
+
+(defn ^:private auth-error-message?
+  "Heuristic for auth/session failures that some servers (e.g. RunLayer) surface
+   as a JSON-RPC error without an HTTP status. Kept narrow to avoid treating
+   ordinary tool errors as auth failures."
+  [msg]
+  (when (string? msg)
+    (let [m (string/lower-case msg)]
+      (or (string/includes? m "unauthorized")
+          (string/includes? m "authentication")
+          (string/includes? m "authorization")
+          (string/includes? m "invalid token")
+          (string/includes? m "invalid_token")
+          (string/includes? m "access token")
+          (string/includes? m "token expired")
+          (string/includes? m "session expired")
+          (string/includes? m "401")
+          (string/includes? m "403")))))
+
+(defn ^:private request-tool-call
+  "Sends a tools/call request and returns the JSON-RPC response, or
+   ::call-timeout when no response or progress notification arrives within
+   `tool-call-timeout-ms`. A timed-out request is cancelled on the server.
+   `request-opts`:
+   - `:chat-id`, when given, is sent as `_meta.sessionId` so the server can
+     keep per-chat state.
+   - `:on-progress`, when given, receives each progress report as
+     {:progress :total :message}."
+  [mcp-client name arguments {:keys [chat-id on-progress]}]
+  (let [progress-token (str (random-uuid))
+        ;; plumcp drops a caller-supplied _meta, so its fields are set directly.
+        request (-> (peg/make-call-tool-request name arguments)
+                    (assoc-in [:params :_meta :progressToken] progress-token)
+                    ;; MCP has no standard per-call session id; like other clients we
+                    ;; send our own, the chat id hooks get as chat_id. #696
+                    (cond-> chat-id (assoc-in [:params :_meta :sessionId] chat-id)))
+        request-id (:id request)
+        response* (promise)
+        last-activity-ms* (atom (System/currentTimeMillis))]
+    (swap! progress-listeners* assoc progress-token
+           (fn [{:keys [progress total message] :as params}]
+             (reset! last-activity-ms* (System/currentTimeMillis))
+             (logger/debug logger-tag
+                           (format "Tool '%s' progress: %s%s%s"
+                                   name progress
+                                   (if total (str "/" total) "")
+                                   (if message (str " " message) "")))
+             (when on-progress
+               (try
+                 (on-progress (select-keys params [:progress :total :message]))
+                 (catch Exception e
+                   (logger/warn logger-tag (format "Failed to report progress of tool '%s': %s"
+                                                   name (.getMessage e))))))))
+    (try
+      (try
+        (pcs/send-request-to-server mcp-client request #(deliver response* %))
+        (catch Exception e
+          (pcs/remove-pending-client-request! (pcs/get-client-cache-atom mcp-client) request-id)
+          (throw e)))
+      (loop []
+        (let [remaining-ms (- (+ @last-activity-ms* tool-call-timeout-ms)
+                              (System/currentTimeMillis))
+              response (if (pos? remaining-ms)
+                         (deref response* remaining-ms ::waiting)
+                         ::call-timeout)]
+          (cond
+            (= ::waiting response) (recur)
+
+            (= ::call-timeout response)
+            (do (try (pmc/cancel-sent-request mcp-client request-id {:reason "Timed out"})
+                     (catch Exception e
+                       (logger/debug logger-tag (format "Failed to cancel timed-out tool call '%s': %s"
+                                                        name (.getMessage e)))))
+                ::call-timeout)
+
+            :else response)))
+      (finally
+        (swap! progress-listeners* dissoc progress-token)))))
+
+(defn ^:private do-call-tool
+  "Execute a tool call, timing out when the server sends neither a response
+   nor a progress notification for `tool-call-timeout-ms`.
+   All non-200 HTTP errors are returned as JSON-RPC errors by plumcp with
+   :plumcp.core/http-status on the error map.
+   A timeout is followed by a short liveness ping: a silent server means the
+   connection is stale (e.g. after machine suspend) and gets flagged for
+   re-initialization. `request-opts` are passed to `request-tool-call`."
+  [mcp-client name arguments needs-reinit?* request-opts]
+  (let [error-msg* (atom nil)
+        call-opts {:on-error (fn [_id jsonrpc-error]
+                               (let [msg (or (:message jsonrpc-error) "Unknown JSON-RPC error")
+                                     http-status (:plumcp.core/http-status jsonrpc-error)]
+                                 (logger/warn logger-tag "Error calling tool:" (format-jsonrpc-error jsonrpc-error))
+                                 (reset! error-msg* msg)
+                                 (when (and needs-reinit?*
+                                            (or (and http-status (reinit-worthy-http-status? http-status))
+                                                ;; Some servers (e.g. RunLayer) report an expired session
+                                                ;; as a JSON-RPC error without an HTTP status.
+                                                (and (nil? http-status) (auth-error-message? msg))))
+                                   (logger/warn logger-tag
+                                                (format "Auth/transport error (%s), flagging for re-initialization"
+                                                        (if http-status (str "HTTP " http-status) "no HTTP status")))
+                                   (reset! needs-reinit?* true)))
+                               nil)}
+        result (try
+                 (let [response (request-tool-call mcp-client name arguments request-opts)]
+                   (if (= ::call-timeout response)
+                     response
+                     (pcs/on-jsonrpc-response response "call-tool" call-opts)))
+                 (catch Exception e
+                   (if (transient-transport-error? e)
+                     (do (logger/warn logger-tag (format "Transient transport error, retrying tool call: %s" (.getMessage e)))
+                         ::retry)
+                     (do (logger/warn logger-tag (format "Error during tool call: %s" (or (.getMessage e) (.getName (class e)))))
+                         {::error-msg (or (.getMessage e) (.getName (class e)))}))))]
+    (cond
+      (= ::retry result)
+      nil
+
+      (= ::call-timeout result)
+      (let [timeout-s (quot tool-call-timeout-ms 1000)]
+        (if (and needs-reinit?* (connection-dead? mcp-client))
+          (do (logger/warn logger-tag
+                           (format "Tool call '%s' timed out after %ss without response or progress and server does not answer pings, flagging for re-initialization" name timeout-s))
+              (reset! needs-reinit?* true)
+              (tool-call-error (format "MCP tool call timed out after %ss without response or progress: connection looks stale, re-initializing server" timeout-s)))
+          (tool-call-error (format "MCP tool call timed out after %ss without response or progress" timeout-s))))
+
+      (::error-msg result)
+      (tool-call-error (format "MCP server error: %s" (::error-msg result)))
+
+      (map? result)
+      {:error (:isError result)
+       :contents (into [] (keep ->content) (:content result))}
+
+      :else
+      (tool-call-error (or @error-msg* "MCP server returned empty response")))))
+
+(defn ^:private reinit-and-call-tool! [server-name mcp-client db* config metrics name arguments request-opts]
+  (reinitialize-server! server-name mcp-client db* config metrics)
+  (if-let [new-client (get-in @db* [:mcp-clients server-name :client])]
+    (do-call-tool new-client name arguments nil request-opts)
+    (tool-call-error (format "Failed to re-initialize MCP server '%s'" server-name))))
+
+(defn ^:private refresh-expired-auth!
+  "Refresh a locally-expired OAuth token before a tool call so we don't send a
+   doomed request. A successful refresh updates db* (the request middleware
+   picks it up). Returns true when a full reinit is needed instead (no/failed
+   refresh)."
+  [server-name db* config metrics]
+  (let [db @db*
+        server-config (get-in config [:mcpServers server-name])
+        url (:url server-config)
+        mcp-auth (get-in db [:mcp-auth (mcp-auth-key server-name server-config db)])]
+    (when (and url
+               (:access-token mcp-auth)
+               (token-expired? (:expires-at mcp-auth)))
+      (logger/info logger-tag
+                   (format "MCP server '%s' OAuth token expired, refreshing before tool call" server-name))
+      (not (try-refresh-token! server-name db* url metrics server-config)))))
+
+(defn call-tool!
+  "Calls an MCP server tool. `chat-id`, when given, is sent to the server as
+   `_meta.sessionId`. `on-progress`, when given, receives each progress
+   report the server sends for the call as {:progress :total :message}."
+  [server-name name arguments {:keys [db db* config metrics] :as ctx}]
+  (if-let [[mcp-client needs-reinit?*]
+           (when-let [{:keys [client tools needs-reinit?*]} (get-in db [:mcp-clients server-name])]
+             (when (some #(= name (:name %)) tools)
+               [client needs-reinit?*]))]
+    (let [request-opts (select-keys ctx [:chat-id :on-progress])]
+      (if (and needs-reinit?* db* config metrics
+               (or @needs-reinit?*
+                   (refresh-expired-auth! server-name db* config metrics)))
+        ;; Flagged, or expired token couldn't be refreshed — reinit before the call
+        (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments request-opts)
+        (let [result (do-call-tool mcp-client name arguments needs-reinit?* request-opts)]
+          (cond
+            ;; nil = transient transport error, retry once
+            (nil? result)
+            (do-call-tool mcp-client name arguments needs-reinit?* request-opts)
+
+            ;; Flagged during the call (e.g. HTTP 401/403/5xx) — reinit and retry
+            (and (:error result) needs-reinit?* @needs-reinit?* db* config metrics)
+            (reinit-and-call-tool! server-name mcp-client db* config metrics name arguments request-opts)
+
+            :else result))))
+    (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
+
+(defn all-prompts [db]
+  (into []
+        (mapcat (fn [[server-name {:keys [prompts]}]]
+                  (mapv #(assoc % :server (name server-name)) prompts)))
+        (:mcp-clients db)))
+
+(defn all-resources [db]
+  (into []
+        (mapcat (fn [[server-name {:keys [resources]}]]
+                  (mapv #(assoc % :server (name server-name)) resources)))
+        (:mcp-clients db)))
+
+(defn ^:private fetch-prompt [name arguments db]
+  (if-let [mcp-client (->> (vals (:mcp-clients db))
+                           (keep (fn [{:keys [client prompts]}]
+                                   (when (some #(= name (:name %)) prompts)
+                                     client)))
+                           first)]
+    (let [error* (atom nil)
+          prompt (->> {:on-error (fn [_id jsonrpc-error]
+                                   (logger/warn logger-tag "Error getting prompt:" (format-jsonrpc-error jsonrpc-error))
+                                   (reset! error* (format-jsonrpc-error jsonrpc-error)))}
+                      (pmc/get-prompt mcp-client name arguments))]
+      (if-let [error @error*]
+        {:error-message (str "MCP error getting prompt: " error)}
+        (when prompt
+          {:description (:description prompt)
+           :messages (mapv (fn [each-message]
+                             {:role (string/lower-case (:role each-message))
+                              :content [(->content (:content each-message))]})
+                           (:messages prompt))})))
+    {:error-message (format "Prompt '%s' not found in any connected MCP server" name)}))
+
+(defn get-prompt!
+  "Gets the MCP prompt `name` with `arguments` from the server that has it:
+   `{:description :messages}`, or `{:error-message ..}`."
+  [name arguments db]
+  (logger/info logger-tag (format "Calling prompt '%s' with args '%s'" name arguments))
+  (try
+    (let [result (fetch-prompt name arguments db)]
+      (logger/debug logger-tag "Prompt result: " result)
+      result)
+    (catch Exception e
+      (logger/warn logger-tag (format "Error calling prompt %s: %s" name e))
+      {:error-message (str "Error calling prompt: " (.getMessage e))})))
+
+(defn get-resource! [uri db]
+  (when-let [mcp-client (->> (vals (:mcp-clients db))
+                             (keep (fn [{:keys [client resources]}]
+                                     (when (some #(= uri (:uri %)) resources)
+                                       client)))
+                             first)]
+    (when-let [resource (->> {:on-error (fn [_id jsonrpc-error]
+                                          (logger/warn logger-tag "Error reading resource:" (format-jsonrpc-error jsonrpc-error)))}
+                             (pmc/read-resource mcp-client uri))]
+      {:contents (mapv ->resource-content (:contents resource))})))
+
+(defn shutdown!
+  "Shutdown MCP servers: interrupts in-flight init threads and disconnects
+   running clients in parallel with a total 5s timeout.
+   HTTP clients are force-stopped (skipping the slow DELETE handshake),
+   while stdio clients go through graceful disconnect with a timeout fallback."
+  [db*]
+  ;; 1. Interrupt any servers still initializing so they unblock promptly
+  (interrupt-init-threads!)
+  ;; 2. Disconnect running clients in parallel via daemon threads
+  (try
+    (let [clients (vals (:mcp-clients @db*))
+          latch (java.util.concurrent.CountDownLatch. (count clients))
+          threads (doall
+                   (map (fn [{:keys [client http-client]}]
+                          (doto (Thread.
+                                 (fn []
+                                   (try
+                                     (if http-client
+                                         ;; HTTP: force-stop (the DELETE in disconnect! always
+                                         ;; times out because the server is slow to respond)
+                                       (pp/stop! http-client)
+                                         ;; stdio: graceful disconnect
+                                       (pmc/disconnect! client))
+                                     (catch Exception _)
+                                     (finally
+                                       (.countDown latch)))))
+                            (.setDaemon true)
+                            (.start)))
+                        clients))]
+      (when-not (.await latch disconnect-timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+        (logger/warn logger-tag "Some MCP servers did not disconnect within timeout, forcing stop")
+        (doseq [^Thread t threads]
+          (.interrupt t))))
+    (catch Exception _ nil))
+  (swap! db* assoc :mcp-clients {}))
+
+(defn ^:private mcp-instructions-section [db]
+  (let [servers-with-instructions
+        (->> (:mcp-clients db)
+             (keep (fn [[server-name {:keys [status instructions]}]]
+                     (when (and (= :running status)
+                                (not (string/blank? instructions)))
+                       {:name (name server-name)
+                        :instructions instructions})))
+             seq)]
+    (when servers-with-instructions
+      (multi-str
+       "## MCP Server Instructions"
+       ""
+       (format "<mcp-server-instructions%s>" (f.prompt/attr-str {:description "Instructions from running MCP servers."}))
+       (->> servers-with-instructions
+            (map (fn [{:keys [name instructions]}]
+                   (multi-str
+                    (format "<mcp-server-instruction%s>" (f.prompt/attr-str {:name name}))
+                    instructions
+                    "</mcp-server-instruction>")))
+            (string/join "\n\n"))
+       "</mcp-server-instructions>"))))
+
+(defn mcp-resources-section
+  "`:eca/mcp-resources`: the MCP resources attached to the chat."
+  [{:keys [refined-contexts]}]
+  (let [resources (filter #(= :mcpResource (:type %)) refined-contexts)]
+    (when (seq resources)
+      ["## MCP Resources"
+       ""
+       (f.prompt/contexts-str resources nil nil
+                              {:description "Resources from connected MCP servers."})
+       ""])))
+
+(defn mcp-instructions-prompt-section
+  "`:eca/mcp-instructions`: the running MCP servers' instructions."
+  [{:keys [db]}]
+  (mcp-instructions-section db))
+
+;; --- Tool call details of the clojure-mcp server's editing tools: the diffs they
+;; make
+
+(defn ^:private clojure-edit-details-before-invocation [name args server {:keys [db chat-id ask-approval?]} new-file?]
+  (when (not= "0.1.0" (:version server))
+    (when ask-approval?
+      (let [path (get args "file_path")
+            {:keys [error contents]} (call-tool! (:name server) name (assoc args "dry_run" "new-source")
+                                                 {:db db :chat-id chat-id})]
+        (when-not error
+          (when-let [new-source (some->> contents (filter #(= :text (:type %))) first :text)]
+            (let [{:keys [added removed diff]} (diff/diff (if new-file?
+                                                            ""
+                                                            (slurp path))
+                                                          new-source
+                                                          path)]
+              {:type :fileChange
+               :path path
+               :linesAdded added
+               :linesRemoved removed
+               :diff diff})))))))
+
+(defmethod tools.util/tool-call-details-before-invocation :clojure_edit [name args server ctx]
+  (clojure-edit-details-before-invocation name args server ctx false))
+
+(defmethod tools.util/tool-call-details-before-invocation :clojure_edit_replace_sexp [name args server ctx]
+  (clojure-edit-details-before-invocation name args server ctx false))
+
+(defmethod tools.util/tool-call-details-before-invocation :file_edit [name args server ctx]
+  (clojure-edit-details-before-invocation name args server ctx false))
+
+(defmethod tools.util/tool-call-details-before-invocation :file_write [name args server ctx]
+  (clojure-edit-details-before-invocation name args server ctx true))
+
+(defmethod tools.util/tool-call-details-after-invocation :clojure_edit [_name arguments details result ctx]
+  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
+
+(defmethod tools.util/tool-call-details-after-invocation :clojure_edit_replace_sexp [_name arguments details result ctx]
+  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
+
+(defmethod tools.util/tool-call-details-after-invocation :file_edit [_name arguments _details result _ctx]
+  (when-not (:error result)
+    (when-let [diff (some->> result :contents (filter #(= :text (:type %))) first :text)]
+      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
+        {:type :fileChange
+         :path (get arguments "file_path")
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
+(defmethod tools.util/tool-call-details-after-invocation :file_write [_name arguments _details result _ctx]
+  (when-not (:error result)
+    (when-let [diff (some->> result :contents
+                             (filter #(= :text (:type %)))
+                             first :text
+                             (string/split-lines)
+                             (drop 2)
+                             (string/join "\n"))]
+      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
+        {:type :fileChange
+         :path (get arguments "file_path")
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
+(def module
+  {:id :eca/mcp
+   :description "MCP servers: their tools, prompts, resources and instructions."
+   ;; servers start after the session starts and follow config changes, as before;
+   ;; while the module is inactive no server runs and their tools and prompts are hidden
+   :config-spec {:mcpServers {:type :map :default {}}
+                 :mcpTimeoutSeconds {:type :number :default 60}
+                 :mcpKeepAliveSeconds {:type :number :default 30}}
+   :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
+                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]})

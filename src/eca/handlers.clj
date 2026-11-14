@@ -6,18 +6,23 @@
    [eca.features.background-tasks :as f.background-tasks]
    [eca.features.chat :as f.chat]
    [eca.features.completion :as f.completion]
-   [eca.features.hooks :as f.hooks]
    [eca.features.login :as f.login]
-   [eca.features.plugins :as f.plugins]
+   [eca.features.modules :as f.modules]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
    [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.mcp :as f.mcp]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
+   [eca.modules :as modules]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.plugins :as m.plugins]
+   [eca.modules.remote :as m.remote]
+   [eca.modules.events :as events]
+   [eca.modules.loader :as loader]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -123,7 +128,41 @@
   (hash (update-vals (:providers config)
                      #(cond-> % (map? %) (update :key (comp boolean not-empty))))))
 
-(defn initialized [{:keys [db* messenger config metrics start-remote-server!] :as components}]
+(defn ^:private notify-module-load-errors!
+  "Tells the user about the external modules that failed to load."
+  [messenger changes]
+  (doseq [{:keys [path error]} changes
+          :when error]
+    (try
+      (messenger/showMessage messenger {:type :warning
+                                        :message (format "ECA module %s failed to load: %s" path error)})
+      (catch Exception _))))
+
+(defn ^:private warn-unknown-config-keys!
+  "Tells the user about root config keys neither ECA nor a module knows, when
+   one appears that wasn't there before: config.json's schema accepts any root
+   key, for modules' keys, so ECA flags typos itself."
+  [db* messenger config]
+  (try
+    (let [unknown (f.modules/unknown-config-keys config)
+          previous (set (:unknown-config-keys @db*))]
+      (when (seq (remove previous unknown))
+        (let [text (f.modules/unknown-config-keys-text unknown)]
+          (logger/warn "[CONFIG]" text)
+          (messenger/showMessage messenger {:type :warning :message text})))
+      (swap! db* assoc :unknown-config-keys unknown))
+    (catch Exception e
+      (logger/warn "[CONFIG]" "Could not check the config keys:" e))))
+
+(defn ^:private sync-external-modules!
+  "Loads, reloads or drops the external modules to match their sources.
+   Returns what changed."
+  [db* messenger config]
+  (let [changes (loader/sync! config @db*)]
+    (notify-module-load-errors! messenger changes)
+    changes))
+
+(defn initialized [{:keys [db* messenger config metrics] :as components}]
   (metrics/task metrics :eca/initialized
     (let [sync-models-and-notify!
           (fn [config]
@@ -147,6 +186,17 @@
       (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
              (fn [prev-config new-config]
                (f.tools/reconcile-servers! prev-config new-config db* messenger metrics)))
+      (swap! db* assoc-in [:config-updated-fns :modules-reconcile]
+             (fn [_prev-config new-config]
+               ;; modules.<id>.source may have changed
+               (let [changes (when (modules/started?)
+                               (sync-external-modules! db* messenger new-config))
+                     config (if (seq changes) (config/all @db*) new-config)]
+                 (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics} config)
+                 (when (seq changes)
+                   (f.tools/refresh-module-tool-servers! db* messenger config))
+                 (when (modules/started?)
+                   (warn-unknown-config-keys! db* messenger config)))))
       (swap! db* assoc-in [:config-updated-fns :tool-refresh]
              (fn [prev-config new-config]
                (when (and prev-config
@@ -160,9 +210,10 @@
         (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
             (sync-models-and-notify! config)
             (send-progress! db* messenger {:type "finish" :taskId "models" :title "Syncing models"}))))
-    (when (get-in config [:remote :enabled])
+    ;; here, as before modules: the module's :start, which runs later, finds it running
+    (when (modules/active? config :eca/remote)
       (send-progress! db* messenger {:type "start" :taskId "remote-server" :title "Starting remote server"})
-      (start-remote-server! components)
+      (m.remote/start-server! components)
       (send-progress! db* messenger {:type "finish" :taskId "remote-server" :title "Starting remote server"}))
     (future
       (Thread/sleep 1000) ;; wait chat window is open in some editors.
@@ -179,7 +230,7 @@
       (try
         (let [plugins-config (:plugins config)]
           (when (seq plugins-config)
-            (reset! config/plugin-components* (f.plugins/resolve-all! plugins-config))
+            (reset! config/plugin-components* (m.plugins/resolve-all! plugins-config))
             (config/clear-cache!)))
         (catch Exception e
           (reset! config/plugin-components* nil)
@@ -193,15 +244,40 @@
               (logger/warn "[PLUGINS]" "Could not report plugin resolution failure:"
                            (ex-message notification-error))))))
       (send-progress! db* messenger {:type "finish" :taskId "plugins" :title "Resolving plugins"})
+      (try
+        (sync-external-modules! db* messenger (config/all @db*))
+        (catch Exception e
+          (logger/error "[MODULES]" "Could not load external modules:" e)))
       (let [config (config/all @db*)]
+        (try
+          (modules/start! {:db* db* :messenger messenger :metrics metrics} config)
+          (catch Exception e
+            (logger/error "[MODULES]" "Could not start modules:" e)))
+        ;; external modules reload when their files change
+        (future
+          (loader/watch! {:running? #(not (:stopping @db*))
+                          :config-fn #(config/all @db*)
+                          :db-fn #(deref db*)
+                          :on-changes (fn [changes]
+                                        (notify-module-load-errors! messenger changes)
+                                        (let [config (config/all @db*)]
+                                          (modules/reconcile-if-started! {:db* db* :messenger messenger :metrics metrics}
+                                                                         config)
+                                          (f.tools/refresh-module-tool-servers! db* messenger config)
+                                          (warn-unknown-config-keys! db* messenger config))
+                                        (notify-chat-config-state! db* messenger))}))
+        (warn-unknown-config-keys! db* messenger config)
         ;; Trigger sessionStart before delivering plugins-resolved so it
         ;; completes before any chatStart hook can fire (chatStart waits
         ;; on await-plugins-resolved!).
-        (f.hooks/trigger-if-matches! :sessionStart
-                                     (f.hooks/base-hook-data @db*)
+        (m.hooks/trigger-if-matches! :sessionStart
+                                     (m.hooks/base-hook-data @db*)
                                      {}
                                      @db*
                                      config)
+        (events/emit! {:db* db* :messenger messenger :metrics metrics :config config}
+                      :session/started
+                      {:workspaces (:workspace-folders @db*)})
         (config/deliver-plugins-resolved!)
         ;; Re-emit the chat config now that plugin agents are resolved, so the
         ;; editor's agent list reflects them even when model sync already
@@ -233,16 +309,23 @@
     (db/save-all-chats! @db* metrics)
 
     ;; 2. Trigger sessionEnd hook
-    (f.hooks/trigger-if-matches! :sessionEnd
-                                 (f.hooks/base-hook-data @db*)
+    (m.hooks/trigger-if-matches! :sessionEnd
+                                 (m.hooks/base-hook-data @db*)
                                  {}
                                  @db*
                                  config)
+    (events/emit! {:db* db* :metrics metrics :config config} :session/ended {})
 
     ;; 3. Then shutdown
     (f.background-tasks/cleanup-all!)
     (swap! db* assoc :stopping true)
-    (f.mcp/shutdown! db*)
+    (try
+      ;; the remote server and the OTel export run until ECA exits, as before
+      ;; modules: exit stops the server, and the shutdown's metric still exports
+      (modules/stop-all! {:db* db* :config config :metrics metrics} #{:eca/remote :eca/otel})
+      (catch Exception e
+        (logger/error "[MODULES]" "Could not stop modules:" e)))
+    (m.mcp/shutdown! db*)
     nil))
 
 (defn chat-prompt

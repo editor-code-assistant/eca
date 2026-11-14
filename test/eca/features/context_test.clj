@@ -5,8 +5,8 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
-   [eca.features.tools.mcp :as f.mcp]
    [eca.llm-api :as llm-api]
+   [eca.modules.mcp :as m.mcp]
    [eca.shared :as shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -26,7 +26,7 @@
       (swap! (h/db*) assoc :workspace-folders [{:uri (h/file-uri "file:///fake/repo")}])
       (with-redefs [f.index/allowed-files (fn [_root _config] fake-paths)
                     fs/directory? (fn [p] (string/ends-with? (str p) "/dir"))
-                    f.mcp/all-resources (fn [_db] [{:uri "mcp://r1"}])]
+                    m.mcp/all-resources (fn [_db] [{:uri "mcp://r1"}])]
         (is (match?
              [{:type "repoMap"}
               {:type "cursor"}
@@ -47,7 +47,7 @@
       (with-redefs [f.index/allowed-files (fn [_root _config] fake-paths)
                     fs/directory? (constantly false)
                     fs/canonicalize identity
-                    f.mcp/all-resources (fn [_db] [])]
+                    m.mcp/all-resources (fn [_db] [])]
         (let [result (f.context/all-contexts "foo" false (h/db*) {})]
           ;; Should include foo.txt but not bar.txt
           (is (some #(= {:type "file" :path (str root "/foo.txt")} %) result))
@@ -70,7 +70,7 @@
                                               :else []))
                     fs/directory? (constantly false)
                     fs/canonicalize identity
-                    f.mcp/all-resources (fn [_db] [])]
+                    m.mcp/all-resources (fn [_db] [])]
         (let [result (f.context/all-contexts nil false (h/db*) {})]
           ;; Root directories present
           (is (some #(= {:type "directory" :path root1} %) result))
@@ -87,7 +87,7 @@
       (with-redefs [f.index/allowed-files (fn [_root _config] fake-paths)
                     fs/directory? (constantly false)
                     fs/canonicalize identity
-                    f.mcp/all-resources (fn [_db] (throw (ex-info "all-resources should not be called for files-only" {})))]
+                    m.mcp/all-resources (fn [_db] (throw (ex-info "all-resources should not be called for files-only" {})))]
         (is (match?
              (m/equals
               [{:type "file" :path (h/file-path (str root "/foo.txt"))}])
@@ -124,7 +124,7 @@
                     fs/list-dir (fn [p] (is (= src (str p))) entries)
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [files _root _config] files)
-                    f.mcp/all-resources (fn [_] [])]
+                    m.mcp/all-resources (fn [_] [])]
         (is (match?
              [{:type "repoMap"}
               {:type "cursor"}
@@ -144,7 +144,7 @@
                     fs/list-dir (fn [p] (is (= src (str p))) entries)
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [files _root _config] files)
-                    f.mcp/all-resources (fn [_] [])]
+                    m.mcp/all-resources (fn [_] [])]
         (is (match?
              [{:type "repoMap"}
               {:type "cursor"}
@@ -167,7 +167,7 @@
                                         (when (and i (pos? i)) (subs s 0 i))))
                     fs/directory? (fn [p] (= (str root "/chatter") (str p)))
                     fs/canonicalize identity
-                    f.mcp/all-resources (fn [_] [])]
+                    m.mcp/all-resources (fn [_] [])]
         (is (match?
              [{:type "repoMap"}
               {:type "cursor"}
@@ -194,7 +194,7 @@
                     fs/directory? (fn [p] (string/ends-with? (str p) "/pkg"))
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
-                    f.mcp/all-resources (fn [_] [])]
+                    m.mcp/all-resources (fn [_] [])]
         (let [result (f.context/all-contexts "./src" false db* {})]
           ;; Root directory present
           (is (some #(= {:type "directory" :path root} %) result))
@@ -220,7 +220,7 @@
                     fs/directory? (fn [p] (string/ends-with? (str p) "/subdir"))
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
-                    f.mcp/all-resources (fn [_] [])]
+                    m.mcp/all-resources (fn [_] [])]
         (let [result (f.context/all-contexts "./missing/file" false db* {})]
           ;; Root directory present
           (is (some #(= {:type "directory" :path root} %) result))
@@ -245,7 +245,7 @@
                     fs/directory? (fn [p] (string/ends-with? (str p) "/projects"))
                     fs/canonicalize identity
                     f.index/filter-allowed (fn [file-paths _root _config] file-paths)
-                    f.mcp/all-resources (fn [_] [])]
+                    m.mcp/all-resources (fn [_] [])]
         (let [result (f.context/all-contexts "~" false db* {})]
           ;; Root directory present
           (is (some #(= {:type "directory" :path root} %) result))

@@ -1,0 +1,1650 @@
+(ns eca.modules.providers.openai-chat-test
+  (:require
+   [cheshire.core :as json]
+   [clojure.java.io :as io]
+   [clojure.test :refer [deftest is testing]]
+   [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
+   [eca.features.tools.util :as tools.util]
+   [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
+   [eca.modules.providers.openai-chat :as m.openai-chat]
+   [hato.client :as http]
+   [matcher-combinators.test :refer [match?]]))
+
+(def thinking-start-tag "<think>")
+(def thinking-end-tag "</think>")
+
+(deftest base-chat-req-test
+  (testing "builds a chat request and extracts assistant output text"
+    (let [req* (atom nil)]
+      (with-client-proxied {}
+
+        (fn handler [req]
+          (reset! req* req)
+          {:status 200
+           :body {:id "chatcmpl-p7ezf7cu8pbcg5e20p6er6",
+                  :object "chat.completion",
+                  :created 1763927678,
+                  :model "ibm/granite-4-h-tiny",
+                  :choices [{:index 0,
+                             :message {:role "assistant",
+                                       :content "Hello there!"
+                                       :tool_calls []},
+                             :logprobs nil,
+                             :finish_reason "stop"}]
+
+                  :usage {:prompt_tokens 17,
+                          :completion_tokens 32,
+                          :ytotal_tokens 49},
+                  :stats {},
+                  :system_fingerprint "ibm/granite-4-h-tiny"}})
+
+        (let [body {:model "ibm/granite-4-h-tiny"
+                    :messages [{:role "system" :content "# title generator"}
+                               {:role "user" :content "hi"}]
+                    :stream false
+                    :max_completion_tokens 32000}
+              response (#'m.openai-chat/base-chat-request!
+                        {:api-key "username:password"
+                         :api-url "http://localhost:1"
+                         :body body
+                         :url-relative-path "/v1/chat/completions"})]
+          (is (= {:method "POST"
+                  :uri "/v1/chat/completions"
+                  :body body}
+                 (select-keys @req* [:method :uri :body])))
+          (is (= {:output-text "Hello there!"}
+                 (select-keys response [:output-text]))))))))
+
+(deftest chat-request-enforces-max-output-tokens-test
+  (let [requests* (atom [])]
+    (with-client-proxied {}
+      (fn handler [req]
+        (swap! requests* conj req)
+        {:status 200
+         :body {:choices [{:message {:content "ok"}}]}})
+      (let [base-opts {:model "test-model"
+                       :instructions "System prompt"
+                       :user-messages [{:role "user" :content "hello"}]
+                       :past-messages []
+                       :tools nil
+                       :api-key "fake-key"
+                       :api-url "http://localhost:1"
+                       :max-output-tokens 512}]
+        (m.openai-chat/chat-completion! base-opts nil)
+        (m.openai-chat/chat-completion!
+         (assoc base-opts :extra-payload {:max_completion_tokens 99}) nil)))
+    (is (= 512 (get-in @requests* [0 :body :max_completion_tokens])))
+    (is (= 99 (get-in @requests* [1 :body :max_completion_tokens]))
+        "Configured extraPayload must remain the final override")))
+
+(deftest chat-completion-stream-cancelled-test
+  (testing "watchdog aborts a hung stream when cancelled, surfacing a silent error"
+    (let [errors* (atom [])
+          messages* (atom [])
+          stream-body (blocking-input-stream)]
+      (with-redefs [http/post (fn [_url opts]
+                                (is (= :stream (:as opts)))
+                                {:status 200
+                                 :body stream-body})]
+        (m.openai-chat/chat-completion!
+         {:model "test-model"
+          :instructions "System prompt"
+          :user-messages [{:role "user" :content "hello"}]
+          :past-messages []
+          :api-key "fake-key"
+          :api-url "http://localhost:1"
+          :cancelled? (constantly true)}
+         {:on-message-received (fn [msg] (swap! messages* conj msg))
+          :on-error (fn [err] (swap! errors* conj err))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [_] {:new-messages [] :tools []})
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])}))
+      (is (= 1 (count @errors*)))
+      (is (= "Stream cancelled" (ex-message (:exception (first @errors*)))))
+      (is (true? (:silent? (ex-data (:exception (first @errors*))))))
+      (is (empty? @messages*)))))
+
+(deftest chat-completion-stream-usage-reported-once-test
+  (let [stream (fn [text]
+                 (java.io.ByteArrayInputStream.
+                  (.getBytes ^String text java.nio.charset.StandardCharsets/UTF_8)))
+        base-opts {:model "test-model"
+                   :instructions "System prompt"
+                   :user-messages [{:role "user" :content "hello"}]
+                   :past-messages []
+                   :api-key "fake-key"
+                   :api-url "http://localhost:1"}]
+    (testing "Cumulative usage streamed on every chunk (e.g. Synthetic) is reported exactly once, with final values"
+      (let [usage* (atom [])
+            sse (str
+                 "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n"
+                 "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"He\"}}],\"usage\":{\"prompt_tokens\":18,\"prompt_tokens_details\":{\"cached_tokens\":12},\"completion_tokens\":1,\"total_tokens\":19}}\n\n"
+                 "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"llo\"}}],\"usage\":{\"prompt_tokens\":18,\"prompt_tokens_details\":{\"cached_tokens\":12},\"completion_tokens\":2,\"total_tokens\":20}}\n\n"
+                 "data: {\"id\":\"1\",\"choices\":[],\"usage\":{\"prompt_tokens\":18,\"prompt_tokens_details\":{\"cached_tokens\":12},\"completion_tokens\":2,\"total_tokens\":20}}\n\n"
+                 "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   :body (stream sse)})]
+          (m.openai-chat/chat-completion!
+           base-opts
+           {:on-message-received (fn [_])
+            :on-error (fn [_])
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_])
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage] (swap! usage* conj usage))}))
+        (is (= [{:input-tokens 6
+                 :output-tokens 2
+                 :input-cache-read-tokens 12}]
+               @usage*))))
+    (testing "Tool-call rounds report usage once per round"
+      (let [usage* (atom [])
+            events* (atom [])
+            requests* (atom 0)
+            tool-round (str
+                        "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"t\",\"arguments\":\"{}\"}}]}}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n"
+                        "data: {\"id\":\"1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n"
+                        "data: [DONE]\n\n")
+            final-round (str
+                         "data: {\"id\":\"2\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23}}\n\n"
+                         "data: {\"id\":\"2\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3,\"total_tokens\":23}}\n\n"
+                         "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   :body (stream (case (swap! requests* inc)
+                                                   1 tool-round
+                                                   final-round))})]
+          (m.openai-chat/chat-completion!
+           base-opts
+           {:on-message-received (fn [msg]
+                                   (when (= :finish (:type msg))
+                                     (swap! events* conj :finish)))
+            :on-error (fn [error] (swap! events* conj [:error error]))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_]
+                               (swap! events* conj :tools)
+                               {:new-messages [{:role "user" :content "tool result"}] :tools []})
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage]
+                                (swap! usage* conj usage)
+                                (swap! events* conj [:usage (:output-tokens usage)]))}))
+        (is (= [[:usage 5] :tools [:usage 3] :finish] @events*))
+        (is (= [{:input-tokens 10
+                 :output-tokens 5
+                 :input-cache-read-tokens nil}
+                {:input-tokens 20
+                 :output-tokens 3
+                 :input-cache-read-tokens nil}]
+               @usage*))))))
+
+(deftest chat-completion-stream-usage-before-finish-test
+  (doseq [[label early-usage? final-usage? finish-reason]
+          [["cumulative usage" true true "stop"]
+           ["OpenAI final-only usage" false true "stop"]
+           ["no usage" false false "stop"]
+           ["output limit" true false "length"]]]
+    (testing label
+      (let [events* (atom [])
+            usage-json "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}"
+            sse (str "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]"
+                     (when early-usage? (str "," usage-json)) "}\n\n"
+                     "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"" finish-reason "\"}]}\n\n"
+                     (when final-usage? (str "data: {\"choices\":[]," usage-json "}\n\n"))
+                     "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   ;; A complete response must not need another read after [DONE].
+                                   :body (java.io.SequenceInputStream.
+                                          (java.io.ByteArrayInputStream.
+                                           (.getBytes ^String sse java.nio.charset.StandardCharsets/UTF_8))
+                                          (proxy [java.io.InputStream] []
+                                            (read [& _]
+                                              (throw (java.io.IOException. "read after [DONE]")))))})]
+          (m.openai-chat/chat-completion!
+           {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+            :user-messages [{:role "user" :content "hello"}]}
+           {:on-message-received (fn [msg]
+                                   (when (= :finish (:type msg))
+                                     (swap! events* conj [:finish (:finish-reason msg)])))
+            :on-error (fn [error] (swap! events* conj [:error error]))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_] (swap! events* conj :tools))
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage] (swap! events* conj [:usage usage]))}))
+        (is (= (cond-> []
+                 (or early-usage? final-usage?)
+                 (conj [:usage {:input-tokens 10 :output-tokens 2 :input-cache-read-tokens nil}])
+                 true (conj [:finish finish-reason]))
+               @events*))))))
+
+(deftest chat-completion-stream-reasoning-before-text-test
+  (doseq [[label deltas events text]
+          [["a mixed chunk ends the open reasoning before its text"
+            [{:reasoning "No em-d"} {:content "Summary" :reasoning "ashes."} {:content ":"}]
+            [:started [:thinking "No em-d"] [:thinking "ashes."] :finished :text :finish]
+            "Summary:"]
+           ["a mixed chunk with no open reasoning keeps all of its text after the reasoning"
+            [{:content "line 130. Next" :reasoning "Step 3"} {:content " I will look"}]
+            [:started [:thinking "Step 3"] :finished :text :finish]
+            "line 130. Next I will look"]
+           ["empty reasoning strings open no block"
+            [{:content "Hel" :reasoning ""} {:content "lo" :reasoning_content ""}]
+            [:text :finish]
+            "Hello"]
+           ["think tags in content"
+            [{:content "<think>Pl"} {:content "an</think>Ans"} {:content "wer"}]
+            [:started [:thinking "Plan"] :finished :text :finish]
+            "Answer"]
+           ["a reasoning field inside think tags does not cut the tag block"
+            [{:content "<think>first"} {:content " last</think>" :reasoning "extra"} {:content "Answer"}]
+            [:started [:thinking "first last"] :finished :started [:thinking "extra"] :finished :text :finish]
+            "Answer"]]]
+    (testing label
+      (let [events* (atom [])
+            text* (atom "")
+            sse (str (apply str (map #(str "data: " (json/generate-string {:choices [{:delta %}]}) "\n\n") deltas))
+                     "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+                     "data: [DONE]\n\n")]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200
+                                   :body (java.io.ByteArrayInputStream.
+                                          (.getBytes ^String sse java.nio.charset.StandardCharsets/UTF_8))})]
+          (m.openai-chat/chat-completion!
+           {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+            :user-messages [{:role "user" :content "hello"}]}
+           {:on-message-received (fn [{:keys [type text]}]
+                                   (swap! events* conj type)
+                                   (swap! text* str text))
+            :on-error (fn [error] (swap! events* conj [:error error]))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_])
+            :on-reason (fn [{:keys [status text]}]
+                         (swap! events* conj (if text [status text] status)))
+            :on-usage-updated (fn [_])}))
+        (is (= events (dedupe @events*)))
+        (is (= text @text*))))))
+
+(deftest chat-completion-stream-usage-before-error-test
+  (doseq [reason [nil :cancelled :idle-timeout]
+          tool-call? [true false]]
+    (testing (str "received usage survives a read failure before DONE: " reason ", tool call: " tool-call?)
+      (let [events* (atom [])
+            errors* (atom [])
+            lines* (atom ["data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}"
+                          (if tool-call?
+                            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"t\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}"
+                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5}}")])
+            reader (proxy [java.io.BufferedReader] [(java.io.StringReader. "")]
+                     (readLine []
+                       (if-let [line (first @lines*)]
+                         (do (swap! lines* rest) line)
+                         (throw (java.io.IOException. "test read failure")))))]
+        (with-redefs [http/post (fn [_url _opts]
+                                  {:status 200 :body (java.io.ByteArrayInputStream. (byte-array 0))})
+                      io/reader (fn [_] reader)
+                      llm-util/start-stream-watchdog! (fn [& _]
+                                                       {:touch-fn (fn [])
+                                                        :set-reading-fn (fn [_])
+                                                        :stop-fn (fn [])
+                                                        :reason* (atom reason)})]
+          (m.openai-chat/chat-completion!
+           {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+            :user-messages [{:role "user" :content "hello"}]}
+           {:on-message-received (fn [msg]
+                                   (when (= :finish (:type msg))
+                                     (swap! events* conj :finish)))
+            :on-error (fn [error]
+                        (swap! errors* conj error)
+                        (swap! events* conj :error))
+            :on-prepare-tool-call (fn [_])
+            :on-tools-called (fn [_] (swap! events* conj :tools))
+            :on-reason (fn [_])
+            :on-usage-updated (fn [usage] (swap! events* conj [:usage usage]))}))
+        (is (= [[:usage {:input-tokens 10 :output-tokens 5 :input-cache-read-tokens nil}]
+                :error]
+               @events*))
+        (is (= 1 (count @errors*)))
+        (case reason
+          :cancelled (is (true? (:silent? (ex-data (:exception (first @errors*))))))
+          :idle-timeout (is (match? {:idle-timeout? true
+                                     :message "Stream idle timeout: no data received for 300 seconds"}
+                                    (first @errors*)))
+          (is (= "test read failure" (ex-message (:exception (first @errors*))))))))))
+
+(defn ^:private input-stream [^String s]
+  (java.io.ByteArrayInputStream. (.getBytes s java.nio.charset.StandardCharsets/UTF_8)))
+
+(defn ^:private sse [chunks]
+  (apply str (map #(str "data: " (json/generate-string %) "\n\n") chunks)))
+
+(def ^:private tool-chunks
+  [{:choices [{:index 0 :delta {:tool_calls [{:index 0 :id "call-1" :type "function"
+                                               :function {:name "test_tool" :arguments "{}"}}]}}]}
+   {:choices [{:index 0 :delta {} :finish_reason "tool_calls"}]}])
+
+(def ^:private final-chunks
+  [{:choices [{:index 0 :delta {:content "done"}}]}
+   {:choices [{:index 0 :delta {} :finish_reason "stop"}]}])
+
+(def ^:private final-messages
+  [{:type :text :text "done"} {:type :finish :finish-reason "stop"}])
+
+(defn ^:private bad-gateway []
+  {:status 502
+   :headers {"content-type" "text/html"}
+   :body (input-stream (str "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n"
+                            "<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n"
+                            "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"))})
+
+(defn ^:private failing-stream
+  "SSE body that throws `failure` once `chunks` are consumed."
+  [chunks failure]
+  (proxy [java.io.ByteArrayInputStream]
+         [(.getBytes ^String (sse chunks) java.nio.charset.StandardCharsets/UTF_8)]
+    (read
+      ([] (if (zero? (.available ^java.io.ByteArrayInputStream this))
+            (throw failure)
+            (proxy-super read)))
+      ([buffer offset length]
+       (if (zero? (.available ^java.io.ByteArrayInputStream this))
+         (throw failure)
+         (proxy-super read buffer offset length))))))
+
+(defn ^:private post-tool-scenario!
+  "Runs a prompt through the shared retry controller. The first request streams
+   a tool call unless `initial-response` is given; later ones use `child-response`."
+  [{:keys [child-response initial-response sleep-fn max-retries cancelled?]
+    :or {max-retries 2 cancelled? (constantly false)}}]
+  (let [requests* (atom [])
+        tools-called* (atom 0)
+        messages* (atom [])
+        errors* (atom [])
+        retries* (atom [])
+        sleeps* (atom [])
+        respond (fn [chunks]
+                  {:status 200 :body (input-stream (str (sse chunks) "data: [DONE]\n\n"))})]
+    (with-redefs [http/post (fn [_ opts]
+                              (let [n (count (swap! requests* conj (:body opts)))]
+                                (cond
+                                  (and (= 1 n) initial-response) (initial-response n respond)
+                                  (= 1 n) (respond tool-chunks)
+                                  :else (child-response n respond))))
+                  eca.llm-api/sleep-with-cancel (fn [delay-ms cancelled?]
+                                                (swap! sleeps* conj delay-ms)
+                                                (if sleep-fn
+                                                  (sleep-fn cancelled?)
+                                                  (not (cancelled?))))]
+      (llm-api/sync-or-async-prompt!
+       {:provider "custom"
+        :model "test-model"
+        :model-capabilities {:tools true}
+        :instructions "test"
+        :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+        :past-messages []
+        :tools [{:full-name "test_tool" :description "test" :parameters {:type "object"}}]
+        :config {:providers {"custom" {:api "openai-chat"
+                                       :url "http://test.invalid"
+                                       :retry {:maxRetries max-retries :baseDelayMs 0}
+                                       :models {"test-model" {}}}}}
+        :provider-auth {:api-key "test-key"}
+        :cancelled? cancelled?
+        :on-message-received #(swap! messages* conj %)
+        :on-error #(swap! errors* conj %)
+        :on-retry #(swap! retries* conj %)
+        :on-tools-called (fn [[call]]
+                           (swap! tools-called* inc)
+                           {:new-messages [{:role "tool_call" :content call}
+                                           {:role "tool_call_output"
+                                            :content (assoc call :output {:contents [{:type :text :text "result"}]})}]
+                            :tools []})}))
+    {:requests @requests* :tools-called @tools-called* :messages @messages*
+     :errors @errors* :retries @retries* :sleeps @sleeps*}))
+
+(deftest post-tool-bad-gateway-retry-test
+  (testing "a gateway 502 on a post-tool request replays that exact request without rerunning tools #620"
+    (let [{:keys [requests tools-called messages errors retries sleeps]}
+          (post-tool-scenario! {:child-response (fn [n respond]
+                                                  (if (= 2 n)
+                                                    (bad-gateway)
+                                                    (respond final-chunks)))})]
+      (is (= 3 (count requests)))
+      (is (= 1 tools-called))
+      (is (apply = (rest requests)) "replay the exact serialized tool-result request")
+      (is (= [:overloaded] (mapv #(get-in % [:classified :error/type]) retries)))
+      (is (= [502] (mapv #(get-in % [:error-data :status]) retries)))
+      (is (= [0] sleeps))
+      (is (empty? errors))
+      (is (= final-messages messages)))))
+
+(deftest post-tool-network-retry-test
+  (doseq [[label failed-response]
+          [["connection failure" (fn [failure] (throw failure))]
+           ["read failure after a role-only chunk"
+            (fn [failure]
+              {:status 200
+               :body (failing-stream [{:choices [{:index 0 :delta {:role "assistant" :content ""}}]}] failure)})]]]
+    (testing label
+      (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+            {:keys [requests tools-called messages errors retries]}
+            (post-tool-scenario! {:child-response (fn [n respond]
+                                                    (if (= 2 n)
+                                                      (failed-response failure)
+                                                      (respond final-chunks)))})]
+        (is (= 3 (count requests)))
+        (is (= 1 tools-called))
+        (is (apply = (rest requests)))
+        (is (= [:network] (mapv #(get-in % [:classified :error/type]) retries)))
+        (is (identical? failure (get-in retries [0 :error-data :exception])))
+        (is (empty? errors))
+        (is (= final-messages messages))))))
+
+(deftest post-tool-output-prevents-replay-test
+  (doseq [[label chunk expected-messages]
+          [["buffered partial text" {:choices [{:index 0 :delta {:content "par"}}]} [{:type :text :text "par"}]]
+           ["reasoning" {:choices [{:index 0 :delta {:reasoning_content "thinking"}}]} []]
+           ["nameless tool-call delta" {:choices [{:index 0 :delta {:tool_calls [{:index 0 :function {:arguments "{"}}]}}]} []]]]
+    (testing label
+      (let [failure (javax.net.ssl.SSLException. "bad_record_mac")
+            {:keys [requests tools-called messages errors retries sleeps]}
+            (post-tool-scenario! {:child-response (fn [_ _]
+                                                    {:status 200 :body (failing-stream [chunk] failure)})})]
+        (is (= 2 (count requests)))
+        (is (= 1 tools-called))
+        (is (empty? retries))
+        (is (empty? sleeps))
+        (is (= 1 (count errors)))
+        (is (identical? failure (:exception (first errors))))
+        (is (= expected-messages messages) "buffered output is flushed once, never replayed")))))
+
+(deftest post-tool-retry-exhaustion-test
+  (doseq [budget [0 1 2]]
+    (testing (str "retry budget " budget)
+      (let [{:keys [requests tools-called errors retries sleeps messages]}
+            (post-tool-scenario! {:max-retries budget
+                                 :child-response (fn [_ _] (bad-gateway))})]
+        (is (= (+ 2 budget) (count requests)))
+        (is (= 1 tools-called))
+        (is (apply = (rest requests)))
+        (is (= (range 1 (inc budget)) (map :attempt retries)))
+        (is (= budget (count sleeps)))
+        (is (= 1 (count errors)))
+        (is (= 502 (:status (first errors))))
+        (is (empty? messages))))))
+
+(deftest post-tool-retry-cancellation-test
+  (doseq [during-backoff? [false true]]
+    (testing (if during-backoff? "cancel during backoff" "cancel before retry decision")
+      (let [cancelled* (atom false)
+            {:keys [requests tools-called errors retries sleeps]}
+            (post-tool-scenario!
+             {:cancelled? #(deref cancelled*)
+              :child-response (fn [_ _]
+                                (when-not during-backoff? (reset! cancelled* true))
+                                (bad-gateway))
+              :sleep-fn (fn [cancelled?]
+                          (reset! cancelled* true)
+                          (not (cancelled?)))})]
+        (is (= 2 (count requests)))
+        (is (= 1 tools-called))
+        (is (= (if during-backoff? 1 0) (count retries) (count sleeps)))
+        (is (= 1 (count errors)))))))
+
+(deftest nested-post-tool-retry-test
+  (testing "each post-tool request owns its retry budget and tool rounds never rerun"
+    (let [{:keys [requests tools-called errors retries messages]}
+          (post-tool-scenario! {:max-retries 1
+                                :child-response (fn [n respond]
+                                                  (case n
+                                                    (2 4) (bad-gateway)
+                                                    3 (respond tool-chunks)
+                                                    (respond final-chunks)))})]
+      (is (= 5 (count requests)))
+      (is (= 2 tools-called))
+      (is (= (nth requests 1) (nth requests 2)))
+      (is (= (nth requests 3) (nth requests 4)))
+      (is (= [1 1] (map :attempt retries)))
+      (is (empty? errors))
+      (is (= final-messages messages))))
+  (testing "an exhausted nested request errors once without replaying its ancestors"
+    (let [{:keys [requests tools-called errors retries messages]}
+          (post-tool-scenario! {:max-retries 1
+                                :child-response (fn [n respond]
+                                                  (if (= 2 n)
+                                                    (respond tool-chunks)
+                                                    (bad-gateway)))})]
+      (is (= 4 (count requests)))
+      (is (= 2 tools-called))
+      (is (= (nth requests 2) (nth requests 3)))
+      (is (= 1 (count retries)))
+      (is (= 1 (count errors)))
+      (is (empty? messages)))))
+
+(deftest initial-request-retry-budget-unchanged-test
+  (let [{:keys [requests tools-called errors retries]}
+        (post-tool-scenario! {:max-retries 1
+                              :initial-response (fn [_ _] (bad-gateway))
+                              :child-response (fn [_ _] (bad-gateway))})]
+    (is (= 2 (count requests)) "no extra request-scoped budget for the initial prompt")
+    (is (apply = requests))
+    (is (zero? tools-called))
+    (is (= 1 (count retries)))
+    (is (= 1 (count errors)))))
+
+(deftest normalize-messages-test
+  (testing "With tool_call history - assistant text and tool calls are merged"
+    (is (match?
+         [{:role "user" :content "List the files"}
+          {:role "assistant"
+           :content "I'll list the files for you"
+           :tool_calls [{:id "call-1"
+                         :type "function"
+                         :function {:name "eca__list_files"
+                                    :arguments "{}"}}]}
+          {:role "tool"
+           :tool_call_id "call-1"
+           :content "file1.txt\nfile2.txt\n"}
+          {:role "assistant" :content "I found 2 files"}]
+         (#'m.openai-chat/normalize-messages
+          [{:role "user" :content "List the files"}
+           {:role "assistant" :content "I'll list the files for you"}
+           {:role "tool_call" :content {:id "call-1" :full-name "eca__list_files" :arguments {}}}
+           {:role "tool_call_output" :content {:id "call-1"
+                                               :full-name "eca__list_files"
+                                               :arguments {}
+                                               :output {:contents [{:type :text
+                                                                    :error false
+                                                                    :text "file1.txt\nfile2.txt"}]}}}
+           {:role "assistant" :content "I found 2 files"}]
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Reason messages without reasoning-content use think tags, merged with following assistant"
+    (is (match?
+         [{:role "user" :content "Hello"}
+          {:role "assistant" :content "<think>Thinking...</think>\nHi"}]
+         (#'m.openai-chat/normalize-messages
+          [{:role "user" :content "Hello"}
+           {:role "reason" :content {:text "Thinking..."}}
+           {:role "assistant" :content "Hi"}]
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
+
+(deftest normalize-messages-tool-result-image-test
+  (testing "Tool result with image emits tool message + synthetic user image message when supported"
+    (is (match?
+         [{:role "user" :content "look"}
+          {:role "assistant" :tool_calls [{:id "call-1"}]}
+          {:role "tool" :tool_call_id "call-1"}
+          {:role "user"
+           :content [{:type "image_url"
+                      :image_url {:url "data:image/png;base64,abc123"}}]}]
+         (#'m.openai-chat/normalize-messages
+          [{:role "user" :content "look"}
+           {:role "tool_call" :content {:id "call-1" :full-name "foo__shot" :arguments {}}}
+           {:role "tool_call_output"
+            :content {:id "call-1"
+                      :full-name "foo__shot"
+                      :arguments {}
+                      :output {:contents [{:type :text :error false :text "done"}
+                                          {:type :image :media-type "image/png" :base64 "abc123"}]}}}]
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool result image dropped (no user image message) when image input unsupported"
+    (is (match?
+         [{:role "user" :content "look"}
+          {:role "assistant" :tool_calls [{:id "call-1"}]}
+          {:role "tool" :tool_call_id "call-1"}]
+         (#'m.openai-chat/normalize-messages
+          [{:role "user" :content "look"}
+           {:role "tool_call" :content {:id "call-1" :full-name "foo__shot" :arguments {}}}
+           {:role "tool_call_output"
+            :content {:id "call-1"
+                      :full-name "foo__shot"
+                      :arguments {}
+                      :output {:contents [{:type :text :error false :text "done"}
+                                          {:type :image :media-type "image/png" :base64 "abc123"}]}}}]
+          false
+          thinking-start-tag
+          thinking-end-tag)))))
+
+(deftest extract-content-test
+  (testing "String input - returns string for text-only content"
+    (is (= "Hello world"
+           (#'m.openai-chat/extract-content "  Hello world  " true))))
+
+  (testing "Sequential messages with actual format"
+    (is (= "First message\nSecond message"
+           (#'m.openai-chat/extract-content
+            [{:type :text :text "First message"}
+             {:type :text :text "Second message"}]
+            true))))
+
+  (testing "Fallback to string conversion"
+    (is (= [{:text "{:some :other}" :type "text"}]
+           (#'m.openai-chat/extract-content
+            {:some :other}
+            true)))))
+
+(deftest ->tools-test
+  (testing "Converts ECA tools to OpenAI format"
+    (is (match?
+         [{:type "function"
+           :function {:name "eca__get_weather"
+                      :description "Get the weather"
+                      :parameters {:type "object"
+                                   :properties {:location {:type "string"}}}}}]
+         (#'m.openai-chat/->tools
+          [{:full-name "eca__get_weather"
+            :description "Get the weather"
+            :parameters {:type "object"
+                         :properties {:location {:type "string"}}}
+            :other-field "ignored"}]))))
+
+  (testing "preserves normalized schema order in emitted parameters"
+    (is (= [[:type "object"]
+            [:required ["location"]]
+            [:properties {:location {:type "string"}}]]
+           (-> (#'m.openai-chat/->tools
+                [{:full-name "eca__get_weather"
+                  :description "Get the weather"
+                  :parameters (tools.util/reorder-schema-required-first
+                               {:required ["location"]
+                                :type "object"
+                                :properties {:location {:type "string"}}})}])
+               first
+               :function
+               :parameters
+               seq))))
+
+  (testing "Empty tools list"
+    (is (match?
+         []
+         (#'m.openai-chat/->tools [])))))
+
+(deftest transform-message-test
+  (testing "Tool call transformation - returns assistant message with tool_calls"
+    (is (match?
+         {:role "assistant"
+          :tool_calls [{:id "call-123"
+                        :type "function"
+                        :function {:name "foo__get_weather"
+                                   :arguments "{\"location\":\"NYC\"}"}}]}
+         (#'m.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "call-123"
+                     :full-name "foo__get_weather"
+                     :arguments {:location "NYC"}}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool call transformation with nil arguments defaults to empty object"
+    (is (match?
+         {:role "assistant"
+          :tool_calls [{:id "call-123"
+                        :type "function"
+                        :function {:name "foo__diagnostics"
+                                   :arguments "{}"}}]}
+         (#'m.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "call-123"
+                     :full-name "foo__diagnostics"
+                     :arguments nil}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool call transformation prefers :llm-tool-call-id when present"
+    (is (match?
+         {:role "assistant"
+          :tool_calls [{:id "external-456"
+                        :type "function"
+                        :function {:name "foo__get_weather"}}]}
+         (#'m.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "internal-123"
+                     :llm-tool-call-id "external-456"
+                     :full-name "foo__get_weather"
+                     :arguments {:location "NYC"}}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool call output transformation"
+    (is (match?
+         {:role "tool"
+          :tool_call_id "call-123"
+          :content "Sunny, 75°F\n"}
+         (#'m.openai-chat/transform-message
+          {:role "tool_call_output"
+           :content {:id "call-123"
+                     :output {:contents [{:type :text :text "Sunny, 75°F"}]}}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Tool call output transformation prefers :llm-tool-call-id when present"
+    (is (match?
+         {:role "tool"
+          :tool_call_id "external-456"}
+         (#'m.openai-chat/transform-message
+          {:role "tool_call_output"
+           :content {:id "internal-123"
+                     :llm-tool-call-id "external-456"
+                     :output {:contents [{:type :text :text "ok"}]}}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Reason messages - use reasoning_content if :delta-reasoning?, otherwise tags"
+    ;; Without :delta-reasoning?, uses think tags (string, not array - for Gemini compatibility)
+    (is (match?
+         {:role "assistant"
+          :content "<think>Reasoning...</think>"}
+         (#'m.openai-chat/transform-message
+          {:role "reason"
+           :content {:text "Reasoning..."}}
+          true
+          thinking-start-tag
+          thinking-end-tag)))
+    ;; With :delta-reasoning?, uses reasoning_content field with :text value
+    (is (match?
+         {:role "assistant"
+          :reasoning_content "Reasoning..."}
+         (#'m.openai-chat/transform-message
+          {:role "reason"
+           :content {:text "Reasoning..."
+                     :delta-reasoning? true}}
+          true
+          thinking-start-tag
+          thinking-end-tag))))
+
+  (testing "Reason messages with the :mistral dialect (#674)"
+    (testing "delta reasoning becomes a thinking content chunk, without reasoning_content"
+      (is (= {:role "assistant"
+              :content [{:type "thinking"
+                         :thinking [{:type "text" :text "Reasoning..."}]
+                         :closed true}]}
+             (#'m.openai-chat/transform-message
+              {:role "reason"
+               :content {:text "Reasoning..."
+                         :delta-reasoning? true}}
+              true
+              thinking-start-tag
+              thinking-end-tag
+              :mistral))))
+    (testing "blank delta reasoning is dropped"
+      (is (nil? (#'m.openai-chat/transform-message
+                 {:role "reason"
+                  :content {:text "" :delta-reasoning? true}}
+                 true
+                 thinking-start-tag
+                 thinking-end-tag
+                 :mistral))))
+    (testing "tag-based reasoning keeps think tags"
+      (is (= {:role "assistant"
+              :content "<think>Reasoning...</think>"}
+             (#'m.openai-chat/transform-message
+              {:role "reason"
+               :content {:text "Reasoning..."}}
+              true
+              thinking-start-tag
+              thinking-end-tag
+              :mistral)))))
+
+  (testing "Unsupported role returns nil"
+    (is (nil?
+         (#'m.openai-chat/transform-message
+          {:role "unsupported" :content "test"}
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
+
+(deftest normalize-messages-llm-tool-call-id-test
+  (testing "Outgoing normalization uses :llm-tool-call-id for tool_call + tool_call_output"
+    (is (match?
+         [{:role "user"}
+          {:role "assistant"
+           :tool_calls [{:id "external-1"
+                         :function {:name "eca__list_files"
+                                    :arguments "{}"}}]}
+          {:role "tool"
+           :tool_call_id "external-1"}]
+         (#'m.openai-chat/normalize-messages
+          [{:role "user" :content "List"}
+           {:role "tool_call"
+            :content {:id "internal-1"
+                      :llm-tool-call-id "external-1"
+                      :full-name "eca__list_files"
+                      :arguments {}}}
+           {:role "tool_call_output"
+            :content {:id "internal-1"
+                      :llm-tool-call-id "external-1"
+                      :output {:contents [{:type :text :text "file1"}]}}}]
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
+
+(deftest response-body->result-internal-tool-call-id-test
+  (testing "Non-stream tool calls use internal :id and preserve provider tool_call_id in :llm-tool-call-id"
+    (let [ids* (atom ["turn-uuid" "tool-uuid" "reason-uuid"])
+          result (with-redefs [random-uuid (fn []
+                                             (let [id (first @ids*)]
+                                               (swap! ids* rest)
+                                               id))]
+                   (#'m.openai-chat/response-body->result
+                    {:choices [{:message {:role "assistant"
+                                          :content ""
+                                          :tool_calls [{:id " functions.eca__shell_command:56"
+                                                        :type "function"
+                                                        :function {:name "eca__shell_command"
+                                                                   :arguments "{\"command\":\"echo hi\"}"}}]}}]
+                     :usage {:prompt_tokens 1 :completion_tokens 1}}
+                    (fn [& _] nil)))
+          tool-call (first (:tools-to-call result))]
+      (is (match?
+           {:id "tool-uuid"
+            :llm-tool-call-id " functions.eca__shell_command:56"
+            :full-name "eca__shell_command"
+            :arguments {"command" "echo hi"}
+            :tool-turn-id "turn-uuid"}
+           tool-call))
+      (is (= "reason-uuid" (:reason-id result)))
+      (is (not= (:id tool-call) (:llm-tool-call-id tool-call)))))
+
+  (testing "Non-stream tool calls with invalid JSON arguments are kept, marked with :arguments-error"
+    (let [result (#'m.openai-chat/response-body->result
+                  {:choices [{:message {:role "assistant"
+                                        :content ""
+                                        :tool_calls [{:id "call_1"
+                                                      :type "function"
+                                                      :function {:name "eca__shell_command"
+                                                                 :arguments "{\"command\":\"echo hi"}}]}}]
+                   :usage {:prompt_tokens 1 :completion_tokens 1}}
+                  (fn [& _] nil))]
+      (is (match? [{:llm-tool-call-id "call_1"
+                    :full-name "eca__shell_command"
+                    :arguments {}
+                    :arguments-error #"^Unexpected end-of-input"
+                    :tool-turn-id string?}]
+                  (:tools-to-call result))))))
+
+(deftest merge-adjacent-assistants-test
+  (testing "All adjacent assistant messages are merged (even without reasoning_content)"
+    (is (match?
+         [{:role "user" :content "What's the weather?"}
+          {:role "assistant"
+           :content ""
+           :tool_calls [{:id "call-1" :function {:name "get_weather"}}
+                        {:id "call-2" :function {:name "get_location"}}]}
+          {:role "user" :content "Thanks"}]
+         (#'m.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "What's the weather?"}
+           {:role "assistant" :tool_calls [{:id "call-1" :function {:name "get_weather"}}]}
+           {:role "assistant" :tool_calls [{:id "call-2" :function {:name "get_location"}}]}
+           {:role "user" :content "Thanks"}]))))
+
+  (testing "Blank string content does not introduce leading newlines"
+    (is (match?
+         [{:role "user" :content "Hi"}
+          {:role "assistant" :content "Hello"}
+          {:role "user" :content "Thanks"}]
+         (#'m.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Hi"}
+           {:role "assistant" :content ""}
+           {:role "assistant" :content "Hello"}
+           {:role "user" :content "Thanks"}]))))
+
+  (testing "DeepSeek: empty assistant content from reasoning does not add newlines to final content"
+    (is (match?
+         [{:role "user" :content "Q"}
+          {:role "assistant"
+           :reasoning_content "Thinking..."
+           :content "A"}]
+         (#'m.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Q"}
+           {:role "assistant" :reasoning_content "Thinking..." :content ""}
+           {:role "assistant" :content "A"}]))))
+
+  (testing "DeepSeek: Reasoning content merges with tool calls"
+    (is (match?
+         [{:role "user" :content "Calc"}
+          {:role "assistant"
+           :reasoning_content "Thinking about math..."
+           :tool_calls [{:id "call-1" :function {:name "calculator"}}]}]
+         (#'m.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Calc"}
+           {:role "assistant" :reasoning_content "Thinking about math..."}
+           {:role "assistant" :tool_calls [{:id "call-1" :function {:name "calculator"}}]}]))))
+
+  (testing "DeepSeek: Reasoning content merges with text content"
+    (is (match?
+         [{:role "user" :content "Hi"}
+          {:role "assistant"
+           :reasoning_content "Thinking about greeting..."
+           :content "Hello!"}]
+         (#'m.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Hi"}
+           {:role "assistant" :reasoning_content "Thinking about greeting..."}
+           {:role "assistant" :content "Hello!"}]))))
+
+  (testing "DeepSeek: Standalone reasoning content stays as-is"
+    (is (match?
+         [{:role "user" :content "Why?"}
+          {:role "assistant"
+           :reasoning_content "Thinking..."}]
+         (#'m.openai-chat/merge-adjacent-assistants
+          [{:role "user" :content "Why?"}
+           {:role "assistant" :reasoning_content "Thinking..."}])))))
+
+(deftest prune-history-test
+  (testing "reasoningHistory \"turn\" drops all reason messages before the last user message"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "reason" :content {:text "r2" :delta-reasoning? true}}
+          {:role "assistant" :content "A2"}]
+         (#'m.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "r1" :delta-reasoning? true}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "r2" :delta-reasoning? true}}
+           {:role "assistant" :content "A2"}]
+          :turn))))
+
+  (testing "reasoningHistory \"turn\" also drops think-tag reasoning before last user message"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "reason" :content {:text "more thinking..."}}
+          {:role "assistant" :content "A2"}]
+         (#'m.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "thinking..."}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "more thinking..."}}
+           {:role "assistant" :content "A2"}]
+          :turn))))
+
+  (testing "reasoningHistory \"all\" preserves all reasoning"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "reason" :content {:text "r1"}}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "reason" :content {:text "r2"}}
+          {:role "assistant" :content "A2"}]
+         (#'m.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "r1"}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "r2"}}
+           {:role "assistant" :content "A2"}]
+          :all))))
+
+  (testing "reasoningHistory \"off\" removes all reasoning messages"
+    (is (match?
+         [{:role "user" :content "Q1"}
+          {:role "assistant" :content "A1"}
+          {:role "user" :content "Q2"}
+          {:role "assistant" :content "A2"}]
+         (#'m.openai-chat/prune-history
+          [{:role "user" :content "Q1"}
+           {:role "reason" :content {:text "r1" :delta-reasoning? true}}
+           {:role "assistant" :content "A1"}
+           {:role "user" :content "Q2"}
+           {:role "reason" :content {:text "r2"}}
+           {:role "assistant" :content "A2"}]
+          :off))))
+
+  (testing "No user message - reasoningHistory \"turn\" leaves list unchanged"
+    (let [msgs [{:role "assistant" :content "A"}
+                {:role "reason" :content {:text "r"}}]]
+      (is (= msgs (#'m.openai-chat/prune-history msgs :turn)))))
+
+  (testing "No user message - reasoningHistory \"off\" removes reason"
+    (is (match?
+         [{:role "assistant" :content "A"}]
+         (#'m.openai-chat/prune-history
+          [{:role "assistant" :content "A"}
+           {:role "reason" :content {:text "r"}}]
+          :off)))))
+
+(deftest valid-message-test
+  (testing "Tool messages are always kept"
+    (is (#'m.openai-chat/valid-message?
+         {:role "tool" :tool_call_id "123" :content ""})))
+
+  (testing "Messages with tool calls are kept"
+    (is (#'m.openai-chat/valid-message?
+         {:role "assistant" :tool_calls [{:id "123"}]})))
+
+  (testing "Messages with blank content are filtered"
+    (is (not (#'m.openai-chat/valid-message?
+              {:role "user" :content "   "}))))
+
+  (testing "Messages with valid content are kept"
+    (is (#'m.openai-chat/valid-message?
+         {:role "user" :content "Hello world"}))))
+
+(deftest external-id-test
+  (testing "Tool call with external-id is preserved"
+    (is (match?
+         {:role "assistant"
+          :tool_calls [{:id "call-123"
+                        :type "function"
+                        :function {:name      "eca__get_weather"
+                                   :arguments "{\"location\":\"Paris\"}"}
+                        :extra_content {:google {:thought_signature "signature-abc-123"}}}]}
+         (#'m.openai-chat/transform-message
+          {:role "tool_call"
+           :content {:id "call-123"
+                     :full-name "eca__get_weather"
+                     :arguments {:location "Paris"}
+                     :external-id "signature-abc-123"}}
+          true
+          thinking-start-tag
+          thinking-end-tag)))))
+
+;; =============================================================================
+;; Gemini API compatibility tests
+;; These tests ensure proper message ordering and thought_signature preservation
+;; required by Google Gemini API.
+;;
+;; Gemini requires:
+;; 1. Function call turns come immediately after user/function response turns
+;; 2. thought_signature is preserved in functionCall parts
+;; =============================================================================
+
+(deftest gemini-message-ordering-test
+  (testing "Gemini: Sequential tool calls must be grouped - all tool_calls before outputs"
+    ;; ECA stores tool calls sequentially: [tool_call_1, output_1, tool_call_2, output_2]
+    ;; But Gemini expects: [assistant with all tool_calls, output_1, output_2]
+    ;; This tests that normalize-messages produces the correct ordering
+    (let [eca-messages [{:role "user" :content "Read two files"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file1.txt"}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file1.txt"}
+                                   :output {:contents [{:type :text :text "content1"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file2.txt"}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file2.txt"}
+                                   :output {:contents [{:type :text :text "content2"}]}}}
+                        {:role "assistant" :content "I read both files"}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      ;; After normalization, all tool_calls should be merged into one assistant message
+      ;; followed by all tool outputs, then the final assistant message
+      (is (match?
+           [{:role "user" :content "Read two files"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1" :function {:name "eca__read_file"}}
+                          {:id "call-2" :function {:name "eca__read_file"}}]}
+            {:role "tool" :tool_call_id "call-1" :content "content1\n"}
+            {:role "tool" :tool_call_id "call-2" :content "content2\n"}
+            {:role "assistant" :content "I read both files"}]
+           normalized)
+          "Tool calls must be grouped together before their outputs")))
+
+  (testing "Gemini: Single tool call ordering is preserved"
+    (let [eca-messages [{:role "user" :content "Read a file"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :arguments {:path "/file.txt"}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :full-name "eca__read_file"
+                                   :output {:contents [{:type :text :text "content"}]}}}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant" :tool_calls [{:id "call-1"}]}
+            {:role "tool" :tool_call_id "call-1"}]
+           normalized))))
+
+  (testing "Gemini: Multiple separate tool call sequences are each grouped"
+    ;; User asks something -> tool call -> output -> assistant responds
+    ;; User asks again -> tool call -> output -> assistant responds
+    (let [eca-messages [{:role "user" :content "First request"}
+                        {:role "tool_call"
+                         :content {:id "call-1" :full-name "tool1" :arguments {}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1" :output {:contents [{:type :text :text "r1"}]}}}
+                        {:role "assistant" :content "First response"}
+                        {:role "user" :content "Second request"}
+                        {:role "tool_call"
+                         :content {:id "call-2" :full-name "tool2" :arguments {}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2" :output {:contents [{:type :text :text "r2"}]}}}
+                        {:role "assistant" :content "Second response"}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant" :tool_calls [{:id "call-1"}]}
+            {:role "tool" :tool_call_id "call-1"}
+            {:role "assistant" :content "First response"}
+            {:role "user"}
+            {:role "assistant" :tool_calls [{:id "call-2"}]}
+            {:role "tool" :tool_call_id "call-2"}
+            {:role "assistant" :content "Second response"}]
+           normalized)))))
+
+(deftest gemini-thought-signature-test
+  (testing "Gemini: thought_signature (external-id) is preserved through normalize-messages"
+    (let [eca-messages [{:role "user" :content "Do something"}
+                        {:role "tool_call"
+                         :content {:id "call-abc"
+                                   :full-name "eca__some_tool"
+                                   :arguments {:arg "value"}
+                                   :external-id "gemini-thought-sig-12345"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-abc"
+                                   :output {:contents [{:type :text :text "result"}]}}}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-abc"
+                           :extra_content {:google {:thought_signature "gemini-thought-sig-12345"}}}]}
+            {:role "tool"}]
+           normalized)
+          "thought_signature must be preserved for Gemini API compatibility")))
+
+  (testing "Gemini: Multiple tool calls each preserve their thought_signatures"
+    (let [eca-messages [{:role "user" :content "Multi-tool request"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "tool1"
+                                   :arguments {}
+                                   :external-id "sig-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1" :output {:contents [{:type :text :text "r1"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2"
+                                   :full-name "tool2"
+                                   :arguments {}
+                                   :external-id "sig-2"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2" :output {:contents [{:type :text :text "r2"}]}}}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1"
+                           :extra_content {:google {:thought_signature "sig-1"}}}
+                          {:id "call-2"
+                           :extra_content {:google {:thought_signature "sig-2"}}}]}
+            {:role "tool" :tool_call_id "call-1"}
+            {:role "tool" :tool_call_id "call-2"}]
+           normalized)
+          "Each tool call must preserve its own thought_signature")))
+
+  (testing "Gemini: Tool calls without external-id don't include extra_content"
+    (let [eca-messages [{:role "user" :content "Request"}
+                        {:role "tool_call"
+                         :content {:id "call-1"
+                                   :full-name "some_tool"
+                                   :arguments {}}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1" :output {:contents [{:type :text :text "r"}]}}}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)
+          tool-calls (-> normalized second :tool_calls)]
+      (is (nil? (:extra_content (first tool-calls)))
+          "Tool calls without external-id should not have extra_content")))
+
+  (testing "Gemini history replayed to a :mistral dialect endpoint drops the signature (Mistral rejects extra_content)"
+    (let [eca-messages [{:role "user" :content "Do something"}
+                        {:role "tool_call"
+                         :content {:id "call-abc"
+                                   :full-name "eca__some_tool"
+                                   :arguments {:arg "value"}
+                                   :external-id "gemini-thought-sig-12345"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-abc"
+                                   :output {:contents [{:type :text :text "result"}]}}}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag :mistral)
+          tool-call (-> normalized second :tool_calls first)]
+      (is (match? {:id "call-abc" :function {:name "eca__some_tool"}} tool-call))
+      (is (not (contains? tool-call :extra_content))))))
+
+(deftest tool-turn-boundary-test
+  (testing "Tool-call step boundaries: sequential rounds must not be merged into one parallel tool_calls array"
+    ;; Problem:
+    ;; - ECA history can contain adjacent tool_call/tool_call_output messages from multiple model steps.
+    ;; - If we blindly reorder a contiguous tool-related block, we can accidentally merge sequential rounds
+    ;;   (step 1 tool call -> output -> step 2 tool call -> output) into a single parallel tool_calls turn.
+    ;;
+    ;; Expected:
+    ;; - Tool calls are grouped only within the same step (tool-turn), preserving sequential rounds.
+    (let [eca-messages [{:role "user" :content "Q"}
+                        {:role "tool_call"
+                         :content {:id "call-1" :full-name "tool1" :arguments {} :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r1"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2" :full-name "tool2" :arguments {} :tool-turn-id "turn-2"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2"
+                                   :tool-turn-id "turn-2"
+                                   :output {:contents [{:type :text :text "r2"}]}}}
+                        {:role "assistant" :content "Done"}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1" :function {:name "tool1"}}]}
+            {:role "tool" :tool_call_id "call-1" :content "r1\n"}
+            {:role "assistant"
+             :tool_calls [{:id "call-2" :function {:name "tool2"}}]}
+            {:role "tool" :tool_call_id "call-2" :content "r2\n"}
+            {:role "assistant" :content "Done"}]
+           normalized)))))
+
+(deftest tool-call-order-by-index-test
+  (testing "Parallel tool calls: normalize-messages sorts by :index within a tool turn"
+    ;; Chat history can record parallel tool calls in completion order (tool finishes first wins),
+    ;; but API payloads must preserve the model-provided order (tool_calls[].index).
+    (let [eca-messages [{:role "user" :content "Q"}
+                        ;; Completion order: 3, 2, 1 (but indices indicate model order: 1, 2, 3)
+                        {:role "tool_call"
+                         :content {:id "call-3" :full-name "tool3" :arguments {} :index 2 :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-3"
+                                   :index 2
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r3"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-2" :full-name "tool2" :arguments {} :index 1 :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-2"
+                                   :index 1
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r2"}]}}}
+                        {:role "tool_call"
+                         :content {:id "call-1" :full-name "tool1" :arguments {} :index 0 :tool-turn-id "turn-1"}}
+                        {:role "tool_call_output"
+                         :content {:id "call-1"
+                                   :index 0
+                                   :tool-turn-id "turn-1"
+                                   :output {:contents [{:type :text :text "r1"}]}}}]
+          normalized (#'m.openai-chat/normalize-messages
+                      eca-messages true thinking-start-tag thinking-end-tag)]
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :tool_calls [{:id "call-1" :function {:name "tool1"}}
+                          {:id "call-2" :function {:name "tool2"}}
+                          {:id "call-3" :function {:name "tool3"}}]}
+            {:role "tool" :tool_call_id "call-1" :content "r1\n"}
+            {:role "tool" :tool_call_id "call-2" :content "r2\n"}
+            {:role "tool" :tool_call_id "call-3" :content "r3\n"}]
+           normalized)))))
+
+(deftest execute-accumulated-tools-ordering-test
+  (testing "Streaming tool calls: execution order must follow :index, not map iteration order"
+    ;; Problem:
+    ;; - Streaming tool call deltas are accumulated into a map.
+    ;; - Using (vals map) produces an undefined order, which can reorder tool calls.
+    ;;
+    ;; Expected:
+    ;; - Tool calls are executed (and later recorded) in ascending :index order.
+    (let [tool-calls* (atom (sorted-map
+                             ;; Key order is intentionally the opposite of :index order.
+                             "a" {:index 1 :id "call-2" :full-name "tool2" :arguments-text "{}"}
+                             "b" {:index 0 :id "call-1" :full-name "tool1" :arguments-text "{}"}))
+          result (#'m.openai-chat/execute-accumulated-tools!
+                  tool-calls*
+                  (fn [tools-to-call _ _] tools-to-call)
+                  nil
+                  nil)]
+      (is (= ["call-1" "call-2"] (mapv :id result)))))
+  (testing "Streaming tool calls: when :index is missing, execution order must follow stream arrival order (not :id sorting)"
+    ;; Problem:
+    ;; - Some OpenAI-compatible providers emit tool_calls without tool_calls[].index.
+    ;; - If we fall back to sorting by :id, approval/execution order can disagree with the UI's
+    ;;   toolCallPrepare order, making the UX appear to jump between tool calls.
+    ;;
+    ;; Expected:
+    ;; - When :index is absent, preserve the stream arrival order via a stable :stream-order field.
+    (let [tool-calls* (atom {"k1" {:stream-order 0 :id "z-call" :full-name "tool-z" :arguments-text "{}"}
+                             "k2" {:stream-order 1 :id "a-call" :full-name "tool-a" :arguments-text "{}"}})
+          result (#'m.openai-chat/execute-accumulated-tools!
+                  tool-calls*
+                  (fn [tools-to-call _ _] tools-to-call)
+                  nil
+                  nil)]
+      (is (= ["z-call" "a-call"] (mapv :id result))))))
+
+(defn process-text-think-aware [texts]
+  (let [reasoning-state* (atom {:id nil :type nil :content "" :buffer ""})
+        callbacks-called* (atom [])]
+    (doseq [text texts]
+      (with-redefs [random-uuid (constantly "123")]
+        (#'m.openai-chat/process-text-think-aware
+         text
+         reasoning-state*
+         thinking-start-tag
+         thinking-end-tag
+         (fn [{:keys [text]}]
+           (swap! callbacks-called* conj [:text text]))
+         (fn [{:keys [status text id]}]
+           (let [value (case status
+                         :thinking text
+                         status)]
+             (swap! callbacks-called* conj [:reason value id]))))))
+    {:callbacks-called @callbacks-called*
+     :content-buffer (:buffer @reasoning-state*)}))
+
+(deftest process-text-think-aware-test
+  (testing "non-string content (e.g. a Mistral content-block array) is ignored, never stringified as chat text"
+    (is (match?
+         {:content-buffer ""
+          :callbacks-called []}
+         (process-text-think-aware
+          [[{:type "thinking" :thinking [{:type "text" :text "secret"}] :closed true}]]))))
+  (testing "complete tag by chunk"
+    (is (match?
+         {:content-buffer " mate!"
+          :callbacks-called
+          [[:reason :started "123"]
+           [:reason "Hum..." "123"]
+           [:reason :finished "123"]
+           [:text "Hello "]
+           [:text "there"]]}
+         (process-text-think-aware
+          ["<think>" "Hum..." "</think>"
+           "Hello" " there " "mate!"]))))
+  (testing "thinking tag with content"
+    (is (match?
+         {:content-buffer " mate!"
+          :callbacks-called
+          [[:reason :started "123"]
+           [:reason "Hum..." "123"]
+           [:reason :finished "123"]
+           [:text "Hello there"]]}
+         (process-text-think-aware
+          ["<think>Hum..."
+           "</think>Hello there mate!"]))))
+  (testing "Single message with thinking and content"
+    (is (match?
+         {:content-buffer " mate!"
+          :callbacks-called
+          [[:reason :started "123"]
+           [:reason "Hum..." "123"]
+           [:reason :finished "123"]
+           [:text "Hello there"]]}
+         (process-text-think-aware
+          ["<think>Hum...</think>Hello there mate!"]))))
+  (testing "thinking tag splitted in chunks with content together"
+    (is (match?
+         {:content-buffer " mate!"
+          :callbacks-called
+          [[:reason :started "123"]
+           [:reason "Hu" "123"]
+           [:reason "m..." "123"]
+           [:reason :finished "123"]
+           [:text "Hello"]
+           [:text " the"]
+           [:text "re"]]}
+         (process-text-think-aware
+          ["<thi" "nk>" "Hu" "m..." "</t" "hink>"
+           "Hel" "lo " "there" " mat" "e!"]))))
+  (testing "thinking tag splitted in chunks with content together"
+    (is (match?
+         {:content-buffer " mate!"
+          :callbacks-called
+          [[:reason :started "123"]
+           [:reason "H" "123"]
+           [:reason "um." "123"]
+           [:reason ".." "123"]
+           [:reason :finished "123"]
+           [:text "Hel"]
+           [:text "lo "]
+           [:text "the"]
+           [:text "re"]]}
+         (process-text-think-aware
+          ["<" "thi" "nk>H" "um.." ".</" "thi" "nk>H"
+           "ello " "the" "re " "mat" "e!"]))))
+  (testing "buffer never grows beyond tag length for long text without tags"
+    (let [long-text (apply str (repeat 1000 "x"))
+          result (process-text-think-aware [long-text])
+          buffer-size (count (:content-buffer result))]
+      ;; Buffer should be at most start-tail characters.
+      ;; With default tags: start-tail = dec(count "<think>") = dec 7 = 6.
+      (is (<= buffer-size 6)
+          (str "Buffer should be bounded by tag length, but was " buffer-size))
+      ;; Most text should have been emitted
+      (let [text-calls (filter #(= :text (first %)) (:callbacks-called result))
+            total-emitted (apply str (map second text-calls))]
+        (is (<= (- (count long-text) 6) (count total-emitted) (count long-text))
+            "Should emit almost all text, keeping only a small buffer")))))
+
+(deftest split-stream-content-test
+  (testing "plain string content passes through as text"
+    (is (= {:text "Hello there" :thinking nil}
+           (#'m.openai-chat/split-stream-content "Hello there"))))
+  (testing "nil content yields neither text nor thinking"
+    (is (= {:text nil :thinking nil}
+           (#'m.openai-chat/split-stream-content nil))))
+  (testing "Mistral-style array: nested thinking chunks are separated from visible text"
+    (is (= {:text "Hello!" :thinking "Let me think"}
+           (#'m.openai-chat/split-stream-content
+            [{:type "thinking" :thinking [{:type "text" :text "Let me "} {:type "text" :text "think"}] :closed true}
+             {:type "text" :text "Hello!"}]))))
+  (testing "thinking field may be a plain string"
+    (is (= {:text "$$3$$" :thinking "There are 3 r"}
+           (#'m.openai-chat/split-stream-content
+            [{:type "thinking" :thinking "There are 3 r" :closed true}
+             {:type "text" :text "$$3$$"}]))))
+  (testing "unknown block types are ignored"
+    (is (= {:text "ok" :thinking nil}
+           (#'m.openai-chat/split-stream-content
+            [{:type "image_url" :image_url {:url "data:..."}}
+             {:type "text" :text "ok"}])))))
+
+(deftest finish-reasoning-error-handling-test
+  (testing "finish-reasoning should not call on-reason when :id is nil (regression test)"
+    (let [on-reason-called? (atom false)
+          on-reason (fn [_] (reset! on-reason-called? true))
+          reasoning-state* (atom {:type :tag :id nil :content "" :buffer ""})]
+      ;; With fixed implementation, on-reason should NOT be called when :id is nil
+      (#'m.openai-chat/finish-reasoning! reasoning-state* on-reason)
+      (is (not @on-reason-called?) "on-reason should not be called when :id is nil"))))
+
+(deftest execute-accumulated-tools-with-invalid-arguments-test
+  (testing "a tool call with invalid JSON arguments is passed on marked with :arguments-error, not dropped"
+    ;; Dropping it ended the turn silently: the LLM never learned its call failed.
+    (let [tool-calls* (atom {"rid-0" {:index 0
+                                      :id "call-123"
+                                      :full-name "eca__write_file"
+                                      :arguments-text "{\"path\": \"/tmp/test.txt\", \"content\": \"truncated..."}}) ;; Invalid JSON
+          passed-tools (atom nil)
+          on-tools-called-wrapper (fn [tools & _] (reset! passed-tools tools))]
+      (#'m.openai-chat/execute-accumulated-tools!
+       tool-calls*
+       on-tools-called-wrapper
+       (fn [_] {:new-messages []})
+       (fn [& _]))
+      (is (match? [{:id "call-123"
+                    :full-name "eca__write_file"
+                    :arguments {}
+                    :arguments-error #"^Unexpected end-of-input.* The arguments ended with: .*truncated\.\.\.$"
+                    :tool-turn-id string?}]
+                  @passed-tools))))
+
+  (testing "a valid tool call next to an invalid one keeps its arguments"
+    (let [tool-calls* (atom {"rid-0" {:index 0
+                                      :id "call-123"
+                                      :full-name "eca__read_file"
+                                      :arguments-text "{\"path\": \"/tmp/test.txt\"}"}  ;; Valid JSON
+                             "rid-1" {:index 1
+                                      :id "call-456"
+                                      :full-name "eca__write_file"
+                                      :arguments-text "{\"path\": \"truncated..."}})  ;; Invalid JSON
+          passed-tools (atom nil)
+          on-tools-called-wrapper (fn [tools & _] (reset! passed-tools tools))]
+      (#'m.openai-chat/execute-accumulated-tools!
+       tool-calls*
+       on-tools-called-wrapper
+       (fn [_] {:new-messages []})
+       (fn [& _]))
+      (is (match? [{:id "call-123" :arguments {"path" "/tmp/test.txt"}}
+                   {:id "call-456" :arguments {} :arguments-error string?}]
+                  @passed-tools))
+      (is (not (contains? (first @passed-tools) :arguments-error))))))
+
+(deftest chat-completion-stream-invalid-tool-arguments-test
+  (testing "a streamed tool call whose arguments never close reaches the chat instead of ending the turn as a clean stop"
+    ;; The shape of a real response: finish_reason \"tool_calls\", arguments without the closing `\"}`.
+    (let [events* (atom [])
+          chunk (fn [delta & [finish-reason]]
+                  (str "data: "
+                       (json/generate-string {:choices [(cond-> {:index 0 :delta delta}
+                                                          finish-reason (assoc :finish_reason finish-reason))]})
+                       "\n\n"))
+          sse (str (chunk {:tool_calls [{:index 0
+                                         :id "call_1"
+                                         :function {:name "eca__compact_chat"
+                                                    :arguments "{\"summary\":\"Done so far"}}]})
+                   (chunk {:tool_calls [{:index 0 :function {:arguments "</summary>"}}]} "tool_calls")
+                   "data: [DONE]\n\n")]
+      (with-redefs [http/post (fn [_url _opts]
+                                {:status 200
+                                 :body (java.io.ByteArrayInputStream.
+                                        (.getBytes ^String sse java.nio.charset.StandardCharsets/UTF_8))})]
+        (m.openai-chat/chat-completion!
+         {:model "test-model" :api-key "fake-key" :api-url "http://localhost:1"
+          :user-messages [{:role "user" :content "hello"}]}
+         {:on-message-received (fn [msg] (swap! events* conj [:msg msg]))
+          :on-error (fn [error] (swap! events* conj [:error error]))
+          :on-prepare-tool-call (fn [_])
+          :on-tools-called (fn [tool-calls]
+                             (swap! events* conj [:tools tool-calls])
+                             nil)
+          :on-reason (fn [_])
+          :on-usage-updated (fn [_])}))
+      (is (match? [[:tools [{:full-name "eca__compact_chat"
+                             :llm-tool-call-id "call_1"
+                             :arguments {}
+                             :arguments-error #"The arguments ended with: \{\"summary\":\"Done so far</summary>$"}]]]
+                  @events*)
+          "no fake finish and no error: the chat decides how the turn goes on"))))
+
+(deftest deepseek-non-stream-reasoning-content-test
+  (testing "response-body->result captures reasoning_content and normalization uses :text with :delta-reasoning?"
+    (let [body {:usage {:prompt_tokens 5 :completion_tokens 2}
+                :choices [{:message {:content "hi"
+                                     :reasoning_content "think more"}}]}
+          result (#'m.openai-chat/response-body->result body (fn [& _]))
+          ;; Simulate how chat.clj would store this: :text has the content, :delta-reasoning? is the flag
+          ;; In non-streaming, llm_api.clj converts (some? reasoning-content) to :delta-reasoning?
+          normalized (#'m.openai-chat/normalize-messages
+                      [{:role "user" :content "Q"}
+                       {:role "reason" :content {:id "r1"
+                                                 :text (:reason-text result)
+                                                 :delta-reasoning? (some? (:reasoning-content result))}}]
+                      true
+                      thinking-start-tag
+                      thinking-end-tag)]
+      (is (= "think more" (:reason-text result)))
+      (is (some? (:reasoning-content result)) "reasoning-content should be present in non-streaming result")
+      (is (match?
+           [{:role "user" :content "Q"}
+            {:role "assistant"
+             :reasoning_content "think more"}]
+           normalized)))))
+
+(deftest mistral-non-stream-thinking-content-test
+  (testing "response-body->result separates Mistral thinking chunks from the output text"
+    ;; Shape of a live mistral-large-4 non-stream reply (e.g. title generation)
+    (let [result (#'m.openai-chat/response-body->result
+                  {:usage {:prompt_tokens 31 :completion_tokens 255}
+                   :choices [{:finish_reason "stop"
+                              :message {:role "assistant"
+                                        :tool_calls nil
+                                        :content [{:type "thinking"
+                                                   :thinking [{:type "text" :text "A short title."}]
+                                                   :closed true}
+                                                  {:type "text" :text "Hello"}]}}]}
+                  (fn [& _]))]
+      (is (= "Hello" (:output-text result)))
+      (is (= "A short title." (:reason-text result)))
+      (is (= "A short title." (:reasoning-content result)))))
+
+  (testing "plain string content is unchanged"
+    (let [result (#'m.openai-chat/response-body->result
+                  {:usage {:prompt_tokens 5 :completion_tokens 2}
+                   :choices [{:message {:role "assistant" :content "hi"}}]}
+                  (fn [& _]))]
+      (is (= "hi" (:output-text result)))
+      (is (nil? (:reason-text result)))
+      (is (nil? (:reasoning-content result))))))
+
+(deftest mistral-thinking-chunks-replay-test
+  (let [history [{:role "user" :content [{:type :text :text "List files"}]}
+                 {:role "reason" :content {:id "r1" :text "I should list." :delta-reasoning? true}}
+                 {:role "assistant" :content [{:type :text :text "Listing."}]}
+                 {:role "tool_call" :content {:id "internal-1"
+                                              :llm-tool-call-id "oagouVY1Z"
+                                              :full-name "eca__directory_tree"
+                                              :arguments {:path "."}}}
+                 {:role "tool_call_output" :content {:id "internal-1"
+                                                     :llm-tool-call-id "oagouVY1Z"
+                                                     :output {:contents [{:type :text :text "a.txt"}]}}}]]
+    (testing "reasoning, text and tool calls merge into one assistant message with thinking + text chunks (#674)"
+      (let [normalized (#'m.openai-chat/normalize-messages
+                        history true thinking-start-tag thinking-end-tag :mistral)
+            assistant (second normalized)]
+        (is (match?
+             [{:role "user" :content "List files"}
+              {:role "assistant"
+               :content [{:type "thinking"
+                          :thinking [{:type "text" :text "I should list."}]
+                          :closed true}
+                         {:type "text" :text "Listing."}]
+               :tool_calls [{:id "oagouVY1Z"
+                             :function {:name "eca__directory_tree"}}]}
+              {:role "tool" :tool_call_id "oagouVY1Z"}]
+             normalized))
+        (is (not (contains? assistant :reasoning_content)))))
+
+    (testing "default replay still sends reasoning_content"
+      (is (match?
+           [{:role "user"}
+            {:role "assistant"
+             :reasoning_content "I should list."
+             :content "Listing."}
+            {:role "tool"}]
+           (#'m.openai-chat/normalize-messages
+            history true thinking-start-tag thinking-end-tag))))))

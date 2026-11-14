@@ -154,14 +154,11 @@ interface InitializeParams {
     };
     
     /**
-     * User provided initialization options.
+     * User provided initialization options: ECA config, merged with the other
+     * config sources (see https://eca.dev/config/introduction). Clients may
+     * also send settings of their own here, which ECA ignores.
      */
-    initializationOptions?: {
-        /*
-         * The chat agent.
-         */
-         chatAgent?: ChatAgent;
-    };
+    initializationOptions?: object;
     
     /**
      * The capabilities provided by the client (editor or tool)
@@ -3203,7 +3200,7 @@ _Notification:_
 * params: `ToolServerUpdatedParams` defined as follows:
 
 ```typescript
-type ToolServerUpdatedParams = EcaServerUpdatedParams | MCPServerUpdatedParams;
+type ToolServerUpdatedParams = EcaServerUpdatedParams | ModuleServerUpdatedParams | MCPServerUpdatedParams;
 
 interface EcaServerUpdatedParams {
     type: 'native';
@@ -3222,6 +3219,33 @@ interface EcaServerUpdatedParams {
      * Note: `spawn_agent` and `task` are excluded from subagent tool sets.
      * `spawn_agent` is excluded to prevent nesting, and `task` because
      * task list state is chat-local and should be managed by the parent agent.
+     */
+    tools: ServerTool[];
+}
+
+/**
+ * The tools of an external module (a user's or a plugin's ECA module). Its
+ * tools are named `<name>__<tool>`, like MCP tools. Sent again when modules
+ * load, reload, are enabled or disabled, or add or remove tools; when a
+ * module has no tools anymore, `tool/serverRemoved` drops its server.
+ */
+interface ModuleServerUpdatedParams {
+    type: 'module';
+
+    /**
+     * The module's tool prefix, e.g. `jira` for `jira__issue`.
+     */
+    name: string;
+
+    /**
+     * The module id, e.g. `acme/jira`.
+     */
+    module: string;
+
+    status: 'running';
+
+    /**
+     * The module's tools.
      */
     tools: ServerTool[];
 }
@@ -3361,8 +3385,9 @@ interface ServerResource {
 
 ### Tool server removed (←)
 
-A server notification that an MCP server has been removed (via `mcp/removeServer`).
-Clients should drop the corresponding entry from any cached server list / UI.
+A server notification that an MCP server has been removed (via `mcp/removeServer`), or that
+an external module's tool server is gone (the module was removed or disabled, or has no tools
+anymore). Clients should drop the corresponding entry from any cached server list / UI.
 
 _Notification:_
 
@@ -3372,7 +3397,7 @@ _Notification:_
 ```typescript
 interface ToolServerRemovedParams {
     /**
-     * The MCP server name that was removed.
+     * The name of the MCP server, or of the module tool server, that was removed.
      */
     name: string;
 }

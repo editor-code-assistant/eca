@@ -1,0 +1,824 @@
+(ns eca.modules.tools.filesystem-test
+  (:require
+   [babashka.fs :as fs]
+   [clojure.java.shell :as shell]
+   [clojure.string :as string]
+   [clojure.test :refer [deftest is testing]]
+   [eca.features.index :as f.index]
+   [eca.features.tools.util :as tools.util]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.tools.filesystem :as m.filesystem]
+   [eca.shared :as shared :refer [multi-str]]
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]])
+  (:import
+   [java.io ByteArrayInputStream]
+   [java.util Base64]))
+
+(deftest directory-tree-test
+  (testing "Invalid path"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (str (h/file-path "/foo/qux") " is not a valid path")}]}
+         (with-redefs [fs/canonicalize (constantly (h/file-path "/foo/qux"))
+                       fs/exists? (constantly false)]
+           ((get-in m.filesystem/definitions ["directory_tree" :handler])
+            {"path" (h/file-path "/foo/qux")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+  (testing "Approval required outside workspace"
+    (let [require-approval-fn (get-in m.filesystem/definitions ["directory_tree" :require-approval-fn])
+          args {"path" (h/file-path "/foo/qux")}
+          db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}]
+      (is (true? (require-approval-fn args {:db db})))))
+  (let [root (fs/canonicalize (fs/create-temp-dir {:prefix "eca-directory-tree-test"}))
+        root-str (str root)
+        touch! (fn [& segments]
+                 (let [f (apply fs/path root segments)]
+                   (fs/create-dirs (fs/parent f))
+                   (fs/create-file f)
+                   (str f)))
+        handler (get-in m.filesystem/definitions ["directory_tree" :handler])
+        tree (fn [path db]
+               (-> (handler {"path" path} {:db db :config {:index {:ignoreFiles [{:type :gitignore}]}}})
+                   :contents first :text))
+        in-workspace {:workspace-folders [{:uri (shared/filename->uri root-str) :name "root"}]}]
+    (try
+      (let [allowed [(touch! "README.md")
+                     (touch! ".hidden.txt")
+                     (touch! "src" "a.clj")]]
+        (touch! "src" "b.log")
+        (touch! "target" "classes" "Foo.class")
+        (touch! ".git" "HEAD")
+        (touch! ".git" "hooks" "pre-commit")
+        (fs/create-dirs (fs/path root "empty"))
+        (fs/create-dirs (fs/path root "nested" "inner"))
+        (with-redefs [f.index/allowed-files (constantly allowed)]
+          (testing "ignored files and dirs are hidden alike, empty dirs kept, dot entries skipped"
+            (is (= (multi-str root-str
+                              " README.md"
+                              " empty"
+                              " nested"
+                              "  inner"
+                              " src"
+                              "  a.clj"
+                              ""
+                              "4 directories, 2 files")
+                   (tree root-str in-workspace))))
+          (testing "requesting an ignored dir directly lists it unfiltered"
+            (is (= (multi-str (str (fs/path root ".git"))
+                              " HEAD"
+                              " hooks"
+                              "  pre-commit"
+                              ""
+                              "1 directories, 2 files")
+                   (tree (str (fs/path root ".git")) in-workspace)))
+            (is (= (multi-str (str (fs/path root "target"))
+                              " classes"
+                              "  Foo.class"
+                              ""
+                              "1 directories, 1 files")
+                   (tree (str (fs/path root "target")) in-workspace))))
+          (testing "outside workspace only dot entries are skipped"
+            (is (= (multi-str root-str
+                              " README.md"
+                              " empty"
+                              " nested"
+                              "  inner"
+                              " src"
+                              "  a.clj"
+                              "  b.log"
+                              " target"
+                              "  classes"
+                              "   Foo.class"
+                              ""
+                              "6 directories, 4 files")
+                   (tree root-str {:workspace-folders []}))))))
+      (finally
+        (fs/delete-tree root)))))
+
+(deftest read-file-test
+  (testing "Not readable path"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "File %s is not readable" (h/file-path "/foo/qux"))}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly false)]
+           ((get-in m.filesystem/definitions ["read_file" :handler])
+            {"path" (h/file-path "/foo/qux")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+  (testing "Path is a directory"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "%s is a directory, not a file" (h/file-path "/foo/dir"))}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       fs/directory? (constantly true)]
+           ((get-in m.filesystem/definitions ["read_file" :handler])
+            {"path" (h/file-path "/foo/dir")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+  (testing "Readable path"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "fooo"}]}
+         (with-redefs [slurp (constantly "fooo")
+                       fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       fs/directory? (constantly false)]
+           ((get-in m.filesystem/definitions ["read_file" :handler])
+            {"path" (h/file-path "/foo/qux")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}
+             :config {:toolCall {:readFile {:maxLines 2000}}}})))))
+  (testing "with line_offset"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "line3\nline4\nline5"}]}
+         (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
+                       fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in m.filesystem/definitions ["read_file" :handler])
+            {"path" (h/file-path "/foo/qux") "line_offset" 2}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}
+             :config {:toolCall {:readFile {:maxLines 2000}}}})))))
+  (testing "with limit"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "line1\nline2\n\n[CONTENT TRUNCATED] Showing lines 1 to 2 of 5 total lines. Use line_offset=2 parameter to read more content."}]}
+         (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
+                       fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in m.filesystem/definitions ["read_file" :handler])
+            {"path" (h/file-path "/foo/qux") "limit" 2}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+  (testing "with line_offset and limit"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "line3\nline4\n\n[CONTENT TRUNCATED] Showing lines 3 to 4 of 5 total lines. Use line_offset=4 parameter to read more content."}]}
+         (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
+                       fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in m.filesystem/definitions ["read_file" :handler])
+            {"path" (h/file-path "/foo/qux") "line_offset" 2 "limit" 2}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}}))))))
+
+(deftest view-image-test
+  (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-view-image-test"}))
+        png-bytes (byte-array [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A 1 2 3])
+        write! (fn [name ^bytes data]
+                 (let [f (fs/path dir name)]
+                   (fs/write-bytes f data)
+                   (str f)))
+        png-path (write! "shot.png" png-bytes)
+        fake-png-path (write! "fake.png" (.getBytes "not really a png" "UTF-8"))
+        txt-path (write! "notes.txt" (.getBytes "hello" "UTF-8"))
+        view-image (get-in m.filesystem/definitions ["view_image" :handler])
+        read-file (get-in m.filesystem/definitions ["read_file" :handler])
+        enabled? (get-in m.filesystem/definitions ["view_image" :enabled-fn])
+        db (fn [image-input?]
+             {:workspace-folders [{:uri (shared/filename->uri (str dir)) :name "root"}]
+              :chats {"chat-1" {:model "foo/bar"}}
+              :models {"foo/bar" {:image-input? image-input?}}})
+        ctx (fn [image-input?] {:db (db image-input?) :chat-id "chat-1" :config {}})]
+    (try
+      (testing "returns the image as image content for a model with image input"
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text (format "Image %s (image/png, 11 B)" png-path)}
+                         {:type :image
+                          :media-type "image/png"
+                          :base64 (.encodeToString (Base64/getEncoder) png-bytes)}]}
+             (view-image {"path" png-path} (ctx true)))))
+      (testing "model without image input"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"Model foo/bar does not support image input.*imageInput: true"}]}
+             (view-image {"path" png-path} (ctx false)))))
+      (testing "not an image extension"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"is not a supported image"}]}
+             (view-image {"path" txt-path} (ctx true)))))
+      (testing "image extension but not image bytes"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"not a valid image/png file"}]}
+             (view-image {"path" fake-png-path} (ctx true)))))
+      (testing "above the size limit"
+        (with-redefs [m.filesystem/view-image-max-bytes 4]
+          (is (match?
+               {:error true
+                :contents [{:type :text
+                            :text (format "Image %s is 11 B, above the 4 B limit. Downscale or compress it before viewing." png-path)}]}
+               (view-image {"path" png-path} (ctx true))))))
+      (testing "missing file"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text (str (fs/path dir "missing.png") " is not a valid path")}]}
+             (view-image {"path" (str (fs/path dir "missing.png"))} (ctx true)))))
+      (testing "read_file refuses images, pointing to view_image when the model can see them"
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"is an image \(image/png\), not a text file\. Use view_image"}]}
+             (read-file {"path" png-path} (ctx true))))
+        (is (match?
+             {:error true
+              :contents [{:type :text
+                          :text #"is an image \(image/png\), not a text file\. Use shell_command"}]}
+             (read-file {"path" png-path} (ctx false)))))
+      (testing "enabled only when the model is not known to lack image input"
+        (is (true? (enabled? {:db (db true) :full-model "foo/bar"})))
+        (is (false? (enabled? {:db (db false) :full-model "foo/bar"})))
+        (is (true? (enabled? {:db (db false) :full-model nil})))
+        (is (true? (enabled? {:db (db false) :full-model "foo/unknown"}))))
+      (testing "summary"
+        (is (= "Viewing shot.png"
+               ((get-in m.filesystem/definitions ["view_image" :summary-fn]) {:args {"path" png-path}}))))
+      (finally
+        (fs/delete-tree dir)))))
+
+(deftest write-file-test
+  (testing "Approval required outside workspace"
+    (let [require-approval-fn (get-in m.filesystem/definitions ["write_file" :require-approval-fn])
+          args {"path" (h/file-path "/foo/qux/new_file.clj")}
+          db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "bar"}]}]
+      (is (true? (require-approval-fn args {:db db})))))
+
+  (testing "Path-scoped rules are skipped when fetch_rule is unavailable"
+    (let [writes* (atom {})
+          path (h/file-path "/project/foo/src/new_file.clj")]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text (format "Successfully wrote to %s" path)}]}
+           (with-redefs [fs/create-dirs (constantly nil)
+                         spit (fn [f content] (swap! writes* assoc f content))]
+             ((get-in m.filesystem/definitions ["write_file" :handler])
+              {"path" path
+               "content" "(ns new-file)"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+               :config {}
+               :chat-id "chat-1"
+               :agent "code"
+               :all-tools []}))))
+      (is (= "(ns new-file)" (get @writes* path))))))
+
+(deftest grep-test
+  (testing "invalid pattern"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Invalid content regex pattern ' '"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" " "}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "invalid include"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Invalid file pattern ' '"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" ".*"
+             "include" " "}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "no files found is not an error"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "No files found for given pattern"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "rg" command))
+                       shell/sh (constantly {:exit 1 :out ""})]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" ".*"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "ripgrep search"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "/project/foo/bla.txt\n/project/foo/qux.txt"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "rg" command))
+                       shell/sh (constantly {:out "/project/foo/bla.txt\n/project/foo/qux.txt"})]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "some-cool-content"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "grep search"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "/project/foo/bla.txt\n/project/foo/qux.txt"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "grep" command))
+                       shell/sh (constantly {:out "/project/foo/bla.txt\n/project/foo/qux.txt"})]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "some-cool-content"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "java grep search"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text (h/file-path "/project/foo/bla.txt")}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (constantly false)
+                       shell/sh (constantly {:out "/project/foo/bla.txt\n/project/foo/qux.txt"})
+                       fs/list-dir (constantly [(fs/path (h/file-path "/project/foo/bla.txt"))])
+                       fs/canonicalize identity
+                       fs/directory? (constantly false)
+                       fs/hidden? (constantly false)
+                       fs/file (constantly (ByteArrayInputStream. (.getBytes "some-cool-content")))]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "some-cool-content"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "invalid output_mode"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Invalid output_mode 'invalid'. Must be one of: files_with_matches, content, count"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" ".*"
+             "output_mode" "invalid"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "ripgrep content mode"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "/project/foo/bla.txt:10:matching line content"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "rg" command))
+                       shell/sh (constantly {:out "/project/foo/bla.txt:10:matching line content"})]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "matching"
+             "output_mode" "content"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}})))))
+  (testing "ripgrep count mode"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "/project/foo/bla.txt:5\n/project/foo/qux.txt:3"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       tools.util/command-available? (fn [command & _args] (= "rg" command))
+                       shell/sh (constantly {:out "/project/foo/bla.txt:5\n/project/foo/qux.txt:3"})]
+           ((get-in m.filesystem/definitions ["grep" :handler])
+            {"path" (h/file-path "/project/foo")
+             "pattern" "some-content"
+             "output_mode" "count"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))))
+
+(deftest edit-file-test
+  (testing "Not readable path"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "File %s is not readable" (h/file-path "/foo/qux"))}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly false)]
+           ((get-in m.filesystem/definitions ["edit_file" :handler])
+            {"path" (h/file-path "/foo/qux")
+             "original_content" "foo"
+             "new_content" "bar"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+
+  (testing "Original content not found"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "Original content not found in %s" (h/file-path "/foo/bar/my-file.txt"))}]}
+         (with-redefs [fs/exists? (constantly true)
+                       fs/readable? (constantly true)
+                       slurp (constantly "line1\nline2\nline3")]
+           ((get-in m.filesystem/definitions ["edit_file" :handler])
+            {"path" (h/file-path "/foo/bar/my-file.txt")
+             "original_content" "notfound"
+             "new_content" "new"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}})))))
+
+  (testing "Blocks edits until matching path-scoped rules were fetched"
+    (let [path (h/file-path "/project/foo/src/my_file.clj")]
+      (is (match?
+           {:error true
+            :contents [{:type :text
+                        :text "fetch rules first"}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         m.rules/require-fetched-path-scoped-rules (fn [_ _]
+                                                                                  (tools.util/single-text-content "fetch rules first" :error))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" path
+               "original_content" "old"
+               "new_content" "new"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+               :config {}
+               :chat-id "chat-1"
+               :agent "code"
+               :all-tools [{:full-name "eca__fetch_rule"}]}))))))
+
+  (testing "Replace first occurrence only"
+    (let [file-content* (atom {})]
+      (is (match?
+           {:rollback-changes [{:content "a b a c"
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
+            :contents [{:type :text
+                        :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (constantly "a b a c")
+                         spit (fn [f content] (swap! file-content* assoc f content))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" (h/file-path "/project/foo/my-file.txt")
+               "original_content" "a"
+               "new_content" "X"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      (is (match?
+           {(h/file-path "/project/foo/my-file.txt") "X b a c"}
+           @file-content*))))
+
+  (testing "Replace all occurrences"
+    (let [file-content* (atom {})]
+      (is (match?
+           {:rollback-changes [{:content "foo bar foo baz foo"
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
+            :contents [{:type :text
+                        :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (constantly "foo bar foo baz foo")
+                         spit (fn [f content] (swap! file-content* assoc f content))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" (h/file-path "/project/foo/my-file.txt")
+               "original_content" "foo"
+               "new_content" "Z"
+               "all_occurrences" true}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      (is (match?
+           {(h/file-path "/project/foo/my-file.txt") "Z bar Z baz Z"}
+           @file-content*))))
+
+  (testing "Match with CRLF line endings (normalization)"
+    (let [file-content* (atom {})
+          file-content "line1\nline2\nline3"
+          search-content "line1\r\nline2\r\nline3"]
+      (is (match?
+           {:rollback-changes [{:content file-content
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
+            :contents [{:type :text
+                        :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (constantly file-content)
+                         spit (fn [f content] (swap! file-content* assoc f content))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" (h/file-path "/project/foo/my-file.txt")
+               "original_content" search-content
+               "new_content" "REPLACED"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      (is (match?
+           {(h/file-path "/project/foo/my-file.txt") "REPLACED"}
+           @file-content*))))
+
+  (testing "Match with trailing whitespace (normalization)"
+    (let [file-content* (atom {})
+          file-content "line1\nline2\nline3"
+          search-content "line1  \nline2   \nline3"]
+      (is (match?
+           {:rollback-changes [{:content file-content
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
+            :contents [{:type :text
+                        :text (format "Successfully replaced content in %s." (h/file-path "/project/foo/my-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (constantly file-content)
+                         spit (fn [f content] (swap! file-content* assoc f content))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" (h/file-path "/project/foo/my-file.txt")
+               "original_content" search-content
+               "new_content" "REPLACED"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      (is (match?
+           {(h/file-path "/project/foo/my-file.txt") "REPLACED"}
+           @file-content*))))
+
+  (testing "Optimistic retry succeeds when file changed between read and write"
+    (let [writes* (atom {})
+          slurp-calls* (atom 0)
+          initial "a b a c"
+          changed "a z a c"
+          path (h/file-path "/project/foo/my-file.txt")]
+      (is (match?
+           {:rollback-changes [{:content changed
+                                :path (h/file-path "/project/foo/my-file.txt")}]
+            :error false
+            :contents [{:type :text
+                        :text (format "Successfully replaced content in %s." path)}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (fn [_]
+                                 (let [n (swap! slurp-calls* inc)]
+                                   (if (= n 1) initial changed)))
+                         spit (fn [f content] (swap! writes* assoc f content))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" path
+               "original_content" "a"
+               "new_content" "X"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      ;; Should have applied retry on changed content
+      (is (match?
+           {path "X z a c"}
+           @writes*))))
+
+  (testing "Optimistic retry returns conflict when retry cannot match uniquely"
+    (let [writes* (atom {})
+          slurp-calls* (atom 0)
+          initial "A\nB\nC\n"
+          changed "A\nQ\nC\n"
+          path (h/file-path "/project/foo/my-file.txt")]
+      (is (match?
+           {:error true
+            :contents [{:type :text
+                        :text (format (str "File changed since it was read: %s. "
+                                           "Re-read the file and retry the edit so we don't overwrite concurrent changes.")
+                                      path)}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (fn [_]
+                                 (let [n (swap! slurp-calls* inc)]
+                                   (if (= n 1) initial changed)))
+                         spit (fn [f content] (swap! writes* assoc f content))]
+             ((get-in m.filesystem/definitions ["edit_file" :handler])
+              {"path" path
+               "original_content" "B"
+               "new_content" "X"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}}))))
+      ;; No write should have occurred
+      (is (empty? @writes*)))))
+
+(deftest concurrent-file-edits-test
+  (doseq [all? [false true]]
+    (testing (str "Same-file edits preserve both changes, all_occurrences=" all?)
+      (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-concurrent-edit"}))
+            path (str (fs/path dir "file.txt"))
+            alias (str dir fs/file-separator "." fs/file-separator "file.txt")
+            other-path (str (fs/path dir "other.txt"))
+            edit! (get-in m.filesystem/definitions ["edit_file" :handler])
+            write! spit
+            writing (promise)
+            release (promise)
+            started (promise)
+            cancelled-started (promise)
+            cancelled-finished (promise)
+            first-edit* (atom nil)
+            second-edit* (atom nil)
+            cancelled-edit* (atom nil)]
+        (spit path "alpha\nbeta\n")
+        (spit other-path "other\n")
+        (try
+          (with-redefs [spit (fn [file content]
+                              (when (= content "ALPHA\nbeta\n")
+                                (deliver writing true)
+                                (when (= ::timeout (deref release 10000 ::timeout))
+                                  (throw (ex-info "Timed out releasing first edit" {}))))
+                              (write! file content))]
+            (reset! first-edit* (future (edit! {"path" path
+                                               "original_content" "alpha"
+                                               "new_content" "ALPHA"
+                                               "all_occurrences" all?} {})))
+            (is (= true (deref writing 5000 ::timeout)))
+            (testing "Cancelling a waiting edit releases its reservation"
+              (reset! cancelled-edit* (future
+                                        (try
+                                          (deliver cancelled-started true)
+                                          (edit! {"path" alias
+                                                  "original_content" "beta"
+                                                  "new_content" "cancelled"} {})
+                                          (finally (deliver cancelled-finished true)))))
+              (is (= true (deref cancelled-started 5000 ::timeout)))
+              (is (= ::pending (deref @cancelled-edit* 200 ::pending)))
+              (future-cancel @cancelled-edit*)
+              (is (= true (deref cancelled-finished 5000 ::timeout))))
+            (reset! second-edit* (future
+                                  (deliver started true)
+                                  (edit! {"path" alias
+                                          "original_content" "beta"
+                                          "new_content" "BETA"
+                                          "all_occurrences" all?} {})))
+            (is (= true (deref started 5000 ::timeout)))
+            ;; A different file remains editable while the first file is paused.
+            (let [other-edit (future (edit! {"path" other-path
+                                             "original_content" "other"
+                                             "new_content" "OTHER"} {}))]
+              (try
+                (is (match? {:error false} (deref other-edit 5000 ::timeout)))
+                (finally (future-cancel other-edit))))
+            (is (= ::pending (deref @second-edit* 500 ::pending)))
+            (deliver release true)
+            (is (match? {:error false} (deref @first-edit* 5000 ::timeout)))
+            (is (match? {:error false
+                         :rollback-changes [{:path alias :content "ALPHA\nbeta\n"}]}
+                        (deref @second-edit* 5000 ::timeout)))
+            (is (= "ALPHA\nBETA\n" (slurp path))))
+          (finally
+            (deliver release true)
+            (doseq [edit [@first-edit* @second-edit* @cancelled-edit*] :when edit]
+              (future-cancel edit))
+            (fs/delete-tree dir)))))))
+
+(deftest file-edit-failure-recovery-test
+  (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-edit-recovery"}))
+        path (str (fs/path dir "file.txt"))
+        edit! (get-in m.filesystem/definitions ["edit_file" :handler])
+        arguments {"path" path "original_content" "before" "new_content" "after"}]
+    (spit path "before")
+    (try
+      (testing "A failed write releases the file for another thread"
+        (with-redefs [spit (fn [_ _] (throw (ex-info "Write failed" {})))]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Write failed" (edit! arguments {}))))
+        (is (= "before" (slurp path)))
+        (let [retry (future (edit! arguments {}))]
+          (try
+            (is (match? {:error false :rollback-changes [{:path path :content "before"}]}
+                        (deref retry 5000 ::timeout)))
+            (finally (future-cancel retry))))
+        (is (= "after" (slurp path))))
+      (testing "A stale overlapping edit fails without changing the newer content"
+        (is (match? {:error true} (edit! arguments {})))
+        (is (= "after" (slurp path))))
+      (finally (fs/delete-tree dir)))))
+
+(deftest concurrent-file-write-and-edit-test
+  (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-write-edit"}))
+        path (str (fs/path dir "file.txt"))
+        write! (get-in m.filesystem/definitions ["write_file" :handler])
+        edit! (get-in m.filesystem/definitions ["edit_file" :handler])
+        spit! spit
+        release (promise)
+        writing (promise)
+        writer (atom nil)
+        editor (atom nil)]
+    (spit path "before")
+    (try
+      (with-redefs [spit (fn [file content]
+                           (when (= content "written")
+                             (deliver writing true)
+                             (when (= ::timeout (deref release 10000 ::timeout))
+                               (throw (ex-info "Timed out releasing write" {}))))
+                           (spit! file content))]
+        (reset! writer (future (write! {"path" path "content" "written"} {})))
+        (is (= true (deref writing 5000 ::timeout)))
+        (reset! editor (future (edit! {"path" path
+                                       "original_content" "written"
+                                       "new_content" "edited"}
+                                      {})))
+        (is (= ::pending (deref @editor 500 ::pending)))
+        (deliver release true)
+        (is (match? {:error false} (deref @writer 5000 ::timeout)))
+        (is (match? {:error false} (deref @editor 5000 ::timeout)))
+        (is (= "edited" (slurp path))))
+      (finally
+        (deliver release true)
+        (future-cancel @writer)
+        (future-cancel @editor)
+        (fs/delete-tree dir)))))
+
+(deftest move-file-test
+  (testing "Not readable source path"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "%s is not a valid path" (h/file-path "/foo/qux"))}]}
+         (with-redefs [fs/exists? (constantly false)]
+           ((get-in m.filesystem/definitions ["move_file" :handler])
+            {"source" (h/file-path "/foo/qux")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+  (testing "Destination already exists"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "Path %s already exists" (h/file-path "/foo/bar/other_file.clj"))}]}
+         (with-redefs [fs/exists? (constantly true)]
+           ((get-in m.filesystem/definitions ["move_file" :handler])
+            {"source" (h/file-path "/foo/bar/some_file.clj")
+             "destination" (h/file-path "/foo/bar/other_file.clj")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}})))))
+  (testing "Move successfully"
+    (is (match?
+         {:rollback-changes [{:content nil
+                              :path (h/file-path "/foo/bar/other_file.clj")}
+                             {:content "some content"
+                              :path (h/file-path "/foo/bar/some_file.clj")}]
+          :error false
+          :contents [{:type :text
+                      :text (format "Successfully moved %s to %s"
+                                    (h/file-path "/foo/bar/some_file.clj")
+                                    (h/file-path "/foo/bar/other_file.clj"))}]}
+         (with-redefs [fs/exists? (fn [path] (not (string/includes? path "other_file.clj")))
+                       fs/move (constantly true)
+                       slurp (constantly "some content")]
+           ((get-in m.filesystem/definitions ["move_file" :handler])
+            {"source" (h/file-path "/foo/bar/some_file.clj")
+             "destination" (h/file-path "/foo/bar/other_file.clj")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))))
+
+(deftest preview-file-change-test
+  (testing "Preview does not modify files"
+    (let [spit-called* (atom false)
+          original-file-content "line1\nline2\nline3"]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text (format "Change simulation completed for %s. Original file unchanged - preview only." (h/file-path "/foo/bar/my-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (constantly original-file-content)
+                         spit (fn [& _] (reset! spit-called* true))]
+             ((get-in m.filesystem/definitions ["preview_file_change" :handler])
+              {"path" (h/file-path "/foo/bar/my-file.txt")
+               "original_content" "line2"
+               "new_content" "modified line2"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+      ;; Verify that spit was never called (no file modification)
+      (is (false? @spit-called*))))
+
+  (testing "Preview handles content not found"
+    (let [spit-called* (atom false)]
+      (is (match?
+           {:error true
+            :contents [{:type :text
+                        :text (format "Original content not found in %s" (h/file-path "/foo/bar/my-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly true)
+                         fs/readable? (constantly true)
+                         slurp (constantly "line1\nline2\nline3")
+                         spit (fn [& _] (reset! spit-called* true))]
+             ((get-in m.filesystem/definitions ["preview_file_change" :handler])
+              {"path" (h/file-path "/foo/bar/my-file.txt")
+               "original_content" "notfound"
+               "new_content" "new"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+      ;; Verify that spit was never called even for error case
+      (is (false? @spit-called*))))
+
+  (testing "Preview succeeds for new file creation (empty original content)"
+    (let [spit-called* (atom false)]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text (format "New file creation simulation completed for %s. File will be created - preview only." (h/file-path "/foo/bar/new-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
+                         spit (fn [& _] (reset! spit-called* true))]
+             ((get-in m.filesystem/definitions ["preview_file_change" :handler])
+              {"path" (h/file-path "/foo/bar/new-file.txt")
+               "original_content" ""  ; Empty for new file
+               "new_content" "New file content"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+      ;; Verify that spit was never called (no file modification)
+      (is (false? @spit-called*))))
+
+  (testing "Preview fails when trying to find content in non-existent file"
+    (let [spit-called* (atom false)]
+      (is (match?
+           {:error true
+            :contents [{:type :text
+                        :text (format "Preview error for %s: For new files, original_content must be empty string (\"\")." (h/file-path "/foo/bar/missing-file.txt"))}]}
+           (with-redefs [fs/exists? (constantly false)  ; File doesn't exist
+                         spit (fn [& _] (reset! spit-called* true))]
+             ((get-in m.filesystem/definitions ["preview_file_change" :handler])
+              {"path" (h/file-path "/foo/bar/missing-file.txt")
+               "original_content" "some content"  ; Non-empty for non-existent file
+               "new_content" "replacement content"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}}))))
+      ;; Verify that spit was never called
+      (is (false? @spit-called*)))))

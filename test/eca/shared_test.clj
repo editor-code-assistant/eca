@@ -272,6 +272,14 @@
            @(shared/future* {:env "prod"}
               1)))))
 
+(deftest map->camel-cased-map-test
+  (testing "keyword keys are camel-cased at every level"
+    (is (= {:pureConfig true :toolCall {:readFile {:maxLines 1}}}
+           (shared/map->camel-cased-map {:pure-config true :tool-call {:read-file {:max-lines 1}}}))))
+  (testing "qualified keywords, like module ids, and strings stay"
+    (is (= {:modules {:acme/hello-world {:enabled true}} "some-key" 1}
+           (shared/map->camel-cased-map {:modules {:acme/hello-world {:enabled true}} "some-key" 1})))))
+
 (deftest map->snake-cased-map-test
   (testing "converts top-level keyword keys only"
     (is (= {:hook_name "x"

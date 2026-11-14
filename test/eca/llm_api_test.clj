@@ -6,10 +6,10 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
-   [eca.llm-providers.anthropic :as llm-providers.anthropic]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
-   [eca.llm-providers.openai :as llm-providers.openai]
-   [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
+   [eca.modules.providers.anthropic :as m.anthropic]
+   [eca.modules.providers.ollama :as m.ollama]
+   [eca.modules.providers.openai :as m.openai]
+   [eca.modules.providers.openai-chat :as m.openai-chat]
    [eca.secrets :as secrets]
    [eca.shared :as shared]
    [eca.test-helper :as h]
@@ -262,7 +262,7 @@
 
 (deftest prompt-forwards-max-output-tokens-to-ollama-test
   (let [captured* (atom nil)]
-    (with-redefs [llm-providers.ollama/chat!
+    (with-redefs [m.ollama/chat!
                   (fn [opts _callbacks]
                     (reset! captured* opts)
                     {:output-text "ok"})]
@@ -365,7 +365,7 @@
                    :sync? false}]
     (testing "Chat models receive reasoning_effort"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai-chat/chat-completion!
+        (with-redefs [m.openai-chat/chat-completion!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (assoc base-opts
@@ -381,7 +381,7 @@
 
     (testing "Responses models receive nested reasoning config"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai/create-response!
+        (with-redefs [m.openai/create-response!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (assoc base-opts
@@ -397,7 +397,7 @@
 
     (testing "Messages models receive Anthropic payload and headers"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.anthropic/chat!
+        (with-redefs [m.anthropic/chat!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (assoc base-opts
@@ -417,7 +417,7 @@
 
     (testing "Messages models with no selected variant fall back to discovered default (#528)"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.anthropic/chat!
+        (with-redefs [m.anthropic/chat!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (assoc base-opts
@@ -461,7 +461,7 @@
                    :sync? false}]
     (testing "openai-chat provider sends reasoning_effort"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai-chat/chat-completion!
+        (with-redefs [m.openai-chat/chat-completion!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt! (assoc base-opts :provider "gateway")))
         (is (= "medium" (get-in @captured* [:extra-payload :reasoning_effort])))
@@ -469,7 +469,7 @@
 
     (testing "openai-responses provider keeps the nested reasoning object"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai/create-response!
+        (with-redefs [m.openai/create-response!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt! (assoc base-opts :provider "responses-gateway")))
         (is (= {:effort "medium" :summary "auto"} (get-in @captured* [:extra-payload :reasoning])))
@@ -483,7 +483,7 @@
                             "openrouter" {:api "openai-chat" :url "https://openrouter.ai/api/v1"}}}
         prompt-with (fn [provider model]
                       (let [captured* (atom nil)]
-                        (with-redefs [llm-providers.openai-chat/chat-completion!
+                        (with-redefs [m.openai-chat/chat-completion!
                                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
                           (#'eca.llm-api/prompt!
                            {:provider provider
@@ -520,7 +520,7 @@
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"
     (let [captured* (atom nil)]
-      (with-redefs [llm-providers.openai/create-response!
+      (with-redefs [m.openai/create-response!
                     (fn [opts _callbacks] (reset! captured* opts) :ok)]
         (#'eca.llm-api/prompt!
          {:provider "openai"
@@ -541,7 +541,7 @@
 
   (testing "openai branch strips internal top-level message fields before reaching handler"
     (let [captured* (atom nil)]
-      (with-redefs [llm-providers.openai/create-response!
+      (with-redefs [m.openai/create-response!
                     (fn [opts _callbacks] (reset! captured* opts) :ok)]
         (#'eca.llm-api/prompt!
          {:provider "openai"
@@ -570,9 +570,9 @@
 
   (testing "openai tool-call replay strips internal top-level message fields before follow-up request"
     (let [seen-bodies* (atom [])]
-      (with-redefs [eca.llm-providers.openai/normalize-messages
+      (with-redefs [eca.modules.providers.openai/normalize-messages
                     (fn [messages _supports-image?] (vec messages))
-                    eca.llm-providers.openai/base-responses-request!
+                    eca.modules.providers.openai/base-responses-request!
                     (fn [{:keys [body on-stream]}]
                       (swap! seen-bodies* conj body)
                       (if (= 1 (count @seen-bodies*))
@@ -589,7 +589,7 @@
                                                :usage {:input_tokens 1 :output_tokens 1}
                                                :output []}}))
                       :ok)]
-        (llm-providers.openai/create-response!
+        (m.openai/create-response!
          {:model "gpt-5.2"
           :instructions nil
           :reason? false
@@ -621,7 +621,7 @@
 
   (testing "openai branch forwards :image-generation false (or nil) when capability is off"
     (let [captured* (atom nil)]
-      (with-redefs [llm-providers.openai/create-response!
+      (with-redefs [m.openai/create-response!
                     (fn [opts _callbacks] (reset! captured* opts) :ok)]
         (#'eca.llm-api/prompt!
          {:provider "openai"
@@ -656,7 +656,7 @@
                    :sync? false}]
     (testing "the openai handler receives provider, auth-type and opaque provider-data"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai/create-response!
+        (with-redefs [m.openai/create-response!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (merge base-opts
@@ -675,7 +675,7 @@
 
     (testing "OpenAI API keys forward their auth-type so no Codex behavior applies"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai/create-response!
+        (with-redefs [m.openai/create-response!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (merge base-opts
@@ -702,7 +702,7 @@
                  :url "https://gateway.example.com"
                  :models {"gpt-5.6-sol" {}}}]]]
         (let [captured* (atom nil)]
-          (with-redefs [llm-providers.openai/create-response!
+          (with-redefs [m.openai/create-response!
                         (fn [opts _callbacks] (reset! captured* opts) :ok)]
             (#'eca.llm-api/prompt!
              (merge base-opts
@@ -807,7 +807,7 @@
                    :sync? false}]
     (testing "a provider inheriting anthropic sends OAuth auth and structured instructions like anthropic"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.anthropic/chat!
+        (with-redefs [m.anthropic/chat!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (merge base-opts
@@ -827,7 +827,7 @@
 
     (testing "a provider inheriting openai keeps Codex behavior and its own account"
       (let [captured* (atom nil)]
-        (with-redefs [llm-providers.openai/create-response!
+        (with-redefs [m.openai/create-response!
                       (fn [opts _callbacks] (reset! captured* opts) :ok)]
           (#'eca.llm-api/prompt!
            (merge base-opts
@@ -855,7 +855,7 @@
 (deftest prompt-forwards-stream-idle-timeout-and-cache-retention-to-anthropic-handler-test
   (testing "custom provider with :api anthropic forwards :stream-idle-timeout-seconds and :cache-retention to chat!"
     (let [captured* (atom nil)]
-      (with-redefs [llm-providers.anthropic/chat!
+      (with-redefs [m.anthropic/chat!
                     (fn [opts _callbacks] (reset! captured* opts) :ok)]
         (#'eca.llm-api/prompt!
          {:provider "my-proxy"
@@ -882,7 +882,7 @@
 
 (deftest prompt-prefers-provider-stream-idle-timeout-test
   (let [captured* (atom nil)]
-    (with-redefs [llm-providers.anthropic/chat!
+    (with-redefs [m.anthropic/chat!
                   (fn [opts _callbacks] (reset! captured* opts) :ok)]
       (#'eca.llm-api/prompt!
        {:provider "my-proxy"
@@ -901,7 +901,7 @@
 (deftest prompt-merges-provider-and-model-extra-headers-test
   (testing "provider-level extraHeaders are sent and model-level ones win on conflicts"
     (let [captured* (atom nil)]
-      (with-redefs [llm-providers.openai/create-response!
+      (with-redefs [m.openai/create-response!
                     (fn [opts _callbacks] (reset! captured* opts) :ok)]
         (#'eca.llm-api/prompt!
          {:provider "openai"
@@ -1303,6 +1303,69 @@
            :on-message-received identity})))
       (is (= 1 @attempt*))
       (is (true? @on-error-called*)))))
+
+(deftest on-before-request-test
+  (testing "it gets the first request and each tool-loop request, and its changes are sent"
+    (let [seen* (atom [])
+          prompts* (atom [])
+          loop-results* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-tools-called] :as args}]
+                                          (swap! prompts* conj (select-keys args [:past-messages :user-messages
+                                                                                  :instructions :tools]))
+                                          (swap! loop-results* conj (on-tools-called [{:id "call-1"}])))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:past-messages [{:role "user" :content "earlier"}]
+           :tools [{:name "a"}]
+           :on-tools-called (fn [_] {:new-messages [{:role "user" :content "earlier"} {:role "tool_call_output"}]
+                                     :tools [{:name "a"} {:name "b" :deferred true}]
+                                     :fresh-api-key "k2"})
+           :on-before-request (fn [request]
+                                (swap! seen* conj request)
+                                (-> request
+                                    (update :past-messages #(conj (vec %) {:role "user" :content "note"}))
+                                    (update :tools #(conj (vec %) {:name "added"}))
+                                    (assoc :instructions "changed")))})))
+      (is (= [{:past-messages [{:role "user" :content "earlier"}]
+               :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+               :instructions "test"
+               :tools [{:name "a"}]}
+              {:past-messages [{:role "user" :content "earlier"} {:role "tool_call_output"}]
+               :user-messages []
+               :instructions "changed"
+               :tools [{:name "a"} {:name "b" :deferred true}]}]
+             @seen*))
+      (is (= [{:past-messages [{:role "user" :content "earlier"} {:role "user" :content "note"}]
+               :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+               :instructions "changed"
+               :tools [{:name "a"} {:name "added"}]}]
+             @prompts*))
+      (is (= [{:new-messages [{:role "user" :content "earlier"} {:role "tool_call_output"} {:role "user" :content "note"}]
+               :tools [{:name "a"} {:name "added"}]
+               :fresh-api-key "k2"}]
+             @loop-results*)
+          "deferred tools are still left out of the request")))
+  (testing "a retry resends the request without asking again"
+    (let [seen* (atom 0)
+          prompts* (atom [])]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [past-messages]}]
+                                          (swap! prompts* conj past-messages)
+                                          (if (= 1 (count @prompts*))
+                                            {:error {:status 429
+                                                     :body "Rate limit exceeded"
+                                                     :message "LLM response status: 429"}}
+                                            {:output-text "ok" :usage {:input-tokens 1 :output-tokens 1}}))
+                    eca.llm-api/sleep-with-cancel (fn [_ cancelled?] (not (cancelled?)))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:stream false
+           :on-error identity
+           :on-message-received identity
+           :on-before-request (fn [request]
+                                (swap! seen* inc)
+                                (update request :past-messages conj {:role "user" :content "note"}))})))
+      (is (= 1 @seen*))
+      (is (= [[{:role "user" :content "note"}] [{:role "user" :content "note"}]] @prompts*)))))
 
 (deftest message-output-tps-test
   (testing "usage gets TPS from output tokens and measured time"

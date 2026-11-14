@@ -8,6 +8,7 @@
    [eca.config :as config]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.secrets :as secrets]
    [eca.shared :as shared]
    [eca.test-helper :as h]
@@ -353,6 +354,17 @@
            "providers" {"customProvider" {"key" "123"
                                           "models" {"gpt-5" {}}}
                         "open-router" {"models" {"openAi/o4-mini" {}}}}}))))
+  (testing "a module id, a keyword key in initializationOptions, keeps its namespace"
+    (is (= {:modules {:acme/hello {:source "/tmp/hello.clj"} :eca/mcp {:enabled false}}}
+           (#'config/normalize-fields
+            {:stringfy-key [[:mcpServers]]}
+            {:modules {:acme/hello {:source "/tmp/hello.clj"} :eca/mcp {:enabled false}}}))))
+  (testing "other keyword keys, e.g. a plugin's .mcp.json server, keep only their name, as before modules"
+    ;; the name ends up in tool names, which can't have @ or /
+    (is (= {:mcpServers {"server" {:command "x"}}}
+           (#'config/normalize-fields
+            {:stringfy-key [[:mcpServers]]}
+            {:mcpServers {(keyword "@org/server") {:command "x"}}}))))
   (testing "keywordize-vals"
     (is (match?
          {:pureConfig true
@@ -371,6 +383,27 @@
            "providers" {"customProvider" {"key" "123"
                                           "models" {"gpt-5" {}}
                                           "httpClient" {"version" "http1.1"}}}})))))
+
+(deftest optional-modules-stay-on-test
+  (testing "nothing turns them on before their config does"
+    (is (= {} (#'config/enable-optional-modules {}))))
+  (testing "remote.enabled turns :eca/remote on"
+    (is (= {:remote {:enabled true} :modules {:eca/remote {:enabled true}}}
+           (#'config/enable-optional-modules {:remote {:enabled true}}))))
+  (testing "it stays on when that config goes away, e.g. while its file has a JSON error, as before modules"
+    (is (= {:modules {:eca/remote {:enabled true}}}
+           (#'config/enable-optional-modules {}))))
+  (testing "an explicit modules.<id>.enabled still wins"
+    (is (= {:modules {:eca/remote {:enabled false}}}
+           (#'config/enable-optional-modules {:modules {:eca/remote {:enabled false}}}))))
+  (testing "otlp does the same for :eca/otel"
+    (is (match? {:modules {:eca/otel {:enabled true}}}
+                (#'config/enable-optional-modules {:otlp {"otel.exporter" "otlp"}})))
+    (is (match? {:modules {:eca/otel {:enabled true} :eca/remote {:enabled true}}}
+                (#'config/enable-optional-modules {}))))
+  (testing "a new session starts without them"
+    (modules/reset-registry!)
+    (is (= {} (#'config/enable-optional-modules {})))))
 
 (deftest validate-agent-test
   (testing "valid agent returns as-is"

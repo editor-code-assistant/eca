@@ -19,10 +19,11 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.cache :as cache]
-   [eca.features.agents :as agents]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [multi-str]]
    [rewrite-json.core :as rj])
   (:import
@@ -46,208 +47,9 @@
 (defn get-property [property] (System/getProperty property))
 (defn user-home [] (cache/user-home))
 
-(def ^:private dangerous-commands-regexes
-  [".*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*" ;; output redirection (except /dev/null and /tmp/)
-   ".*\\|\\s*(tee|dd|xargs).*",                                                          ;; pipe to tee/dd/xargs
-   ".*\\b(sed|awk|perl)\\s+.*-i.*",                                                      ;; in-place editing
-   ".*\\b(rm|mv|cp|touch|mkdir)\\b.*",                                                   ;; file mutation commands
-   ".*git\\s+(add|commit|push).*",                                                       ;; git write ops
-   ".*npm\\s+install.*",                                                                 ;; npm install
-   ".*-c\\s+[\"'].*open.*[\"']w[\"'].*",                                                 ;; python open(...,'w')
-   ".*bash.*-c.*[12&]?>>?\\s*(?!/dev/null\\b)(?!/tmp/\\S*\\b)(?!&\\d+\\b)(?!>)\\S+.*"])
-
-(def ^:private openai-variants
-  {"none" {:reasoning {:effort "none"}}
-   "low" {:reasoning {:effort "low" :summary "auto"}}
-   "medium" {:reasoning {:effort "medium" :summary "auto"}}
-   "high" {:reasoning {:effort "high" :summary "auto"}}
-   "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}})
-
-(def ^:private openai-gpt-5-6-variants
-  "Variants for gpt-5.6 models (gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna).
-   Same reasoning effort levels as `openai-variants` (none, low, medium, high,
-   xhigh) plus \"max\". Note: codex also defines \"ultra\" but downgrades it to
-   \"max\" on the wire, so it is not included here."
-  {"none" {:reasoning {:effort "none"}}
-   "low" {:reasoning {:effort "low" :summary "auto"}}
-   "medium" {:reasoning {:effort "medium" :summary "auto"}}
-   "high" {:reasoning {:effort "high" :summary "auto"}}
-   "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}
-   "max" {:reasoning {:effort "max" :summary "auto"}}})
-
-(def ^:private openai-gpt-6-variants
-  "Variants for gpt-6 models (gpt-6-astra). Same as `openai-gpt-5-6-variants`
-   minus \"none\": OpenAI documents that GPT-6 Astra rejects the none reasoning
-   effort. Codex also lists \"ultra\" but downgrades it to \"max\" on the wire."
-  {"low" {:reasoning {:effort "low" :summary "auto"}}
-   "medium" {:reasoning {:effort "medium" :summary "auto"}}
-   "high" {:reasoning {:effort "high" :summary "auto"}}
-   "xhigh" {:reasoning {:effort "xhigh" :summary "auto"}}
-   "max" {:reasoning {:effort "max" :summary "auto"}}})
-
-(defn ^:private chat-completions-variants
-  "Chat Completions counterpart of a Responses API variant table: the same
-   effort levels, sent as the top-level `reasoning_effort` string that
-   /chat/completions expects instead of the `reasoning.effort` object, which
-   OpenAI-compatible gateways reject as an unknown parameter (#609)."
-  [responses-variants]
-  (into {}
-        (map (fn [[variant-name {{:keys [effort]} :reasoning}]]
-               [variant-name {:reasoning_effort effort}]))
-        responses-variants))
-
-(def ^:private openai-chat-variants (chat-completions-variants openai-variants))
-(def ^:private openai-chat-gpt-5-6-variants (chat-completions-variants openai-gpt-5-6-variants))
-(def ^:private openai-chat-gpt-6-variants (chat-completions-variants openai-gpt-6-variants))
-
-(def ^:private openai-responses-apis
-  "Provider `api` values routed to the Responses API (`openai` is a legacy alias)."
-  ["openai-responses" "openai"])
-
-(def ^:private anthropic-variants
-  {"low" {:output_config {:effort "low"} :thinking {:type "adaptive"}}
-   "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive"}}
-   "high" {:output_config {:effort "high"} :thinking {:type "adaptive"}}
-   "max" {:output_config {:effort "max"} :thinking {:type "adaptive"}}})
-
-(def ^:private anthropic-v2-variants
-  {"default" {:thinking {:type "adaptive" :display "summarized"}}
-   "low" {:output_config {:effort "low"} :thinking {:type "adaptive" :display "summarized"}}
-   "medium" {:output_config {:effort "medium"} :thinking {:type "adaptive" :display "summarized"}}
-   "high" {:output_config {:effort "high"} :thinking {:type "adaptive" :display "summarized"}}
-   "xhigh" {:output_config {:effort "xhigh"} :thinking {:type "adaptive" :display "summarized"}}
-   "max" {:output_config {:effort "max"} :thinking {:type "adaptive" :display "summarized"}}})
-
-(def ^:private openai-chat-claude-variants
-  "Claude 4.5/4.6 models served through OpenAI-compatible gateways (e.g.
-   OpenRouter). The top-level `verbosity` param is mapped by OpenRouter to
-   Anthropic's output_config.effort; thinking is opt-in via the unified
-   `reasoning` param."
-  {"low" {:verbosity "low" :reasoning {:enabled true}}
-   "medium" {:verbosity "medium" :reasoning {:enabled true}}
-   "high" {:verbosity "high" :reasoning {:enabled true}}
-   "max" {:verbosity "max" :reasoning {:enabled true}}})
-
-(def ^:private openai-chat-claude-v2-variants
-  "Adaptive-thinking Claude models (Opus 4.7+, Opus/Sonnet/Fable/Mythos 5)
-   served through OpenAI-compatible gateways (e.g. OpenRouter). Thinking is
-   always on, and `verbosity` is the only effort lever: OpenRouter ignores
-   `reasoning.effort` for these models."
-  {"low" {:verbosity "low"}
-   "medium" {:verbosity "medium"}
-   "high" {:verbosity "high"}
-   "xhigh" {:verbosity "xhigh"}
-   "max" {:verbosity "max"}})
-
-(def ^:private deepseek-variants
-  {"none" {:thinking {:type "disabled"}}
-   "high" {:reasoning_effort "high"}
-   "max" {:reasoning_effort "max"}})
-
-(def ^:private glm-variants
-  {"none" {:reasoning_effort "none"}
-   "high" {:reasoning_effort "high"}
-   "max" {:reasoning_effort "max"}})
-
 (def ^:private initial-config*
-  {:providers {"openai" {:api "openai-responses"
-                         :url "${env:OPENAI_API_URL:https://api.openai.com}"
-                         :key "${env:OPENAI_API_KEY}"
-                         :requiresAuth? true
-                         :models {"gpt-4.1" {}
-                                  "gpt-5" {}
-                                  "gpt-5-mini" {}
-                                  "gpt-5.2" {}
-                                  "gpt-5.3-codex" {}}}
-               "anthropic" {:api "anthropic"
-                            :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
-                            :key "${env:ANTHROPIC_API_KEY}"
-                            :requiresAuth? true
-                            :models {"claude-sonnet-4-6" {}
-                                     "claude-sonnet-5" {}
-                                     "claude-opus-4-6" {}
-                                     "claude-opus-4-7" {}
-                                     "claude-opus-4-8" {}
-                                     "claude-opus-5" {}
-                                     "claude-opus-5-5" {}
-                                     "claude-fable-5" {}
-                                     "claude-fable-5-1" {}
-                                     "claude-mythos-5" {}
-                                     "claude-mythos-5-1" {}}}
-               "github-copilot" {:api "openai-chat"
-                                 :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
-                                 :key nil ;; not supported, requires login auth
-                                 :requiresAuth? true
-                                 ;; models come from the account's /models catalog after login;
-                                 ;; a static entry here would bypass its plan filtering.
-                                 :models {}}
-               "google" {:api "openai-chat"
-                         :url "${env:GOOGLE_API_URL:https://generativelanguage.googleapis.com/v1beta/openai}"
-                         :key "${env:GOOGLE_API_KEY}"
-                         :requiresAuth? true
-                         :models {"gemini-2.5-pro" {}}}
-               "ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}
-   :defaultAgent "code"
-   :agent {"code" {:mode "primary"
-                   :prompts {:chat "${classpath:prompts/code_agent.md}"}
-                   :disabledTools ["preview_file_change"]}
-           "plan" {:mode "primary"
-                   :prompts {:chat "${classpath:prompts/plan_agent.md}"}
-                   :disabledTools ["edit_file" "write_file" "move_file" "git"]
-                   :toolCall {:approval {:byDefault "ask"
-                                         :allow {"eca__shell_command"
-                                                 {:argsMatchers {"command" ["pwd"
-                                                                            "git\\s+diff(\\s+.*)?"
-                                                                            "git\\s+log(\\s+.*)?"
-                                                                            "git\\s+show(\\s+.*)?"
-                                                                            "find(\\s+.*)?"
-                                                                            "ls(\\s+.*)?"]}}
-                                                 "eca__compact_chat" {}
-                                                 "eca__preview_file_change" {}
-                                                 "eca__read_file" {}
-                                                 "eca__directory_tree" {}
-                                                 "eca__grep" {}
-                                                 "eca__editor_diagnostics" {}
-                                                 "eca__skill" {}
-                                                 "eca__search_tools" {}
-                                                 "eca__task" {}
-                                                 "eca__fetch_rule" {}
-                                                 "eca__spawn_agent" {}}
-                                         :deny {"eca__shell_command"
-                                                {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
-           "explorer" {:mode "subagent"
-                       :description "${classpath:prompts/explorer_agent_description.md}"
-                       :systemPrompt "${classpath:prompts/explorer_agent.md}"
-                       :disabledTools ["edit_file" "write_file" "move_file" "preview_file_change" "git"]
-                       :toolCall {:approval {:byDefault "ask"
-                                             :allow {"eca__shell_command"
-                                                     {:argsMatchers {"command" ["pwd"
-                                                                                "git\\s+diff(\\s+.*)?"
-                                                                                "git\\s+log(\\s+.*)?"
-                                                                                "git\\s+show(\\s+.*)?"
-                                                                                "find(\\s+.*)?"
-                                                                                "ls(\\s+.*)?"]}}
-                                                     "eca__compact_chat" {}
-                                                     "eca__read_file" {}
-                                                     "eca__directory_tree" {}
-                                                     "eca__grep" {}
-                                                     "eca__editor_diagnostics" {}
-                                                     "eca__skill" {}
-                                                     "eca__search_tools" {}
-                                                     "eca__task" {}
-                                                     "eca__fetch_rule" {}}
-                                             :deny {"eca__shell_command"
-                                                    {:argsMatchers {"command" dangerous-commands-regexes}}}}}}
-           "general" {:mode "subagent"
-                      :description "${classpath:prompts/general_agent_description.md}"
-                      :systemPrompt "${classpath:prompts/code_agent.md}"
-                      :disabledTools ["preview_file_change"]}}
-   :defaultModel nil
-   :prompts {:chat "${classpath:prompts/code_agent.md}" ;; default to code agent
-             :chatTitle "${classpath:prompts/title.md}"
-             :compact "${classpath:prompts/compact.md}"
-             :init "${classpath:prompts/init.md}"
-             :skillCreate "${classpath:prompts/skill_create.md}"
+  {:defaultModel nil
+   :prompts {:chatTitle "${classpath:prompts/title.md}"
              :completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:title true
@@ -256,77 +58,9 @@
    :chatInline {}
    :chatRetentionDays 30
    :rewrite {:fullFileMaxLines 2000}
-   :hooks {}
-   :rules []
-   :commands []
-   :skills []
    :extraConfigs []
-   :disabledTools []
-   :mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext nil
-                   :includePattern []
-                   :excludePattern []}
-   :toolCall {:approval {:byDefault "ask"
-                         :allow {"eca__compact_chat" {}
-                                 "eca__preview_file_change" {}
-                                 "eca__read_file" {}
-                                 "eca__directory_tree" {}
-                                 "eca__grep" {}
-                                 "eca__editor_diagnostics" {}
-                                 "eca__skill" {}
-                                 "eca__search_tools" {}
-                                 "eca__task" {}
-                                 "eca__ask_user" {}
-                                 "eca__fetch_rule" {}
-                                 "eca__spawn_agent" {}}
-                         :ask {}
-                         :deny {}}
-              :readFile {:maxLines 2000}
-              :shellCommand {:summaryMaxLength 35}
-              :editorNav {:enabled true}
-              :outputTruncation {:lines 2000 :sizeKb 50}}
-   ;; Same Claude regexes appear twice with different payload dialects per API;
-   ;; the (?:...) wrapper only keeps the map keys unique.
-   :variantsByModel {".*sonnet[-._]4[-._]6|opus[-._]4[-._][56]" {:variants anthropic-variants
-                                                                 :api ["anthropic" "bedrock"]}
-                     ".*opus[-._]4[-._][78]|.*opus[-._]5|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5" {:variants anthropic-v2-variants
-                                                                                                       :api ["anthropic" "bedrock"]}
-                     "(?:.*sonnet[-._]4[-._]6|opus[-._]4[-._][56])" {:variants openai-chat-claude-variants
-                                                                     :api "openai-chat"
-                                                                     :excludeProviders ["github-copilot"]}
-                     "(?:.*opus[-._]4[-._][78]|.*opus[-._]5|.*sonnet[-._]5|.*fable[-._]5|.*mythos[-._]5)" {:variants openai-chat-claude-v2-variants
-                                                                                                           :api "openai-chat"
-                                                                                                           :excludeProviders ["github-copilot"]}
-                     ".*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex)" {:variants openai-variants
-                                                                              :api openai-responses-apis
-                                                                              :excludeProviders ["github-copilot"]}
-                     ".*gpt[-._]5[-._]6(?!\\d)" {:variants openai-gpt-5-6-variants
-                                                 :api openai-responses-apis
-                                                 :excludeProviders ["github-copilot"]}
-                     ;; gpt-6 family (gpt-6-astra), not gpt-6.x point releases.
-                     ".*gpt[-._]6(?![-._]?\\d)" {:variants openai-gpt-6-variants
-                                                 :api openai-responses-apis
-                                                 :excludeProviders ["github-copilot"]}
-                     ;; Same GPT families served through openai-chat providers (e.g.
-                     ;; LiteLLM/Azure gateways): /chat/completions takes a top-level
-                     ;; `reasoning_effort` string instead of `reasoning.effort` (#609).
-                     "(?:.*gpt[-._]5(?:[-._](?:2|4|5)(?!\\d)|[-._]3[-._]codex))" {:variants openai-chat-variants
-                                                                                  :api "openai-chat"
-                                                                                  :excludeProviders ["github-copilot"]}
-                     "(?:.*gpt[-._]5[-._]6(?!\\d))" {:variants openai-chat-gpt-5-6-variants
-                                                     :api "openai-chat"
-                                                     :excludeProviders ["github-copilot"]}
-                     "(?:.*gpt[-._]6(?![-._]?\\d))" {:variants openai-chat-gpt-6-variants
-                                                     :api "openai-chat"
-                                                     :excludeProviders ["github-copilot"]}
-                     ".*deepseek[-._]v4[-._](?:pro|flash)" {:variants deepseek-variants
-                                                            :api "openai-chat"}
-                     "(?i).*glm[-._]5[-._]2" {:variants glm-variants}}
-   :mcpTimeoutSeconds 60
-   :mcpKeepAliveSeconds 30
-   :lspTimeoutSeconds 30
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
-   :mcpServers {}
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
                               "Type `/` to see all commands"
@@ -345,17 +79,19 @@
                               ""
                               "Toggle **trust mode** to auto-accept all tool calls"
                               "")
-   :index {:ignoreFiles [{:type :gitignore}]
-           :repoMap {:maxTotalEntries 800
-                     :maxEntriesPerDir 50}}
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
-   :autoCompactPercentage 75
-   :autoCompactMaxPerTurn 3
    :includeParentAgentsFiles false
-   :plugins {"eca" {:source "https://github.com/editor-code-assistant/eca-plugins.git"}}
    :remote {:enabled false}
    :env "prod"})
+
+(def core-root-keys
+  "Root config keys ECA reads that no module declares (yet): the ones above,
+   which keep their defaults here, and keys without a default, legacy keys and
+   keys ECA sets itself. Modules' keys come from their `:config-spec`."
+  (into (set (keys initial-config*))
+        #{:$schema :agent :behavior :defaultBehavior :network :otlp :providers :variantsByModel
+          :pureConfig :pluginSkillDirs :compactPrompt :compactPromptFile}))
 
 (defn ^:private parse-dynamic-string-values
   "walk through config parsing dynamic string contents if value is a string."
@@ -367,8 +103,21 @@
        x))
    config))
 
-(defn initial-config []
-  (parse-dynamic-string-values initial-config* (io/file ".")))
+(declare deep-merge)
+
+(defn initial-config
+  "ECA's config defaults: the ones the active modules declare (their
+   `:config-spec` defaults and `:config-defaults`, see
+   `eca.modules/default-config`) under the rest in `initial-config*`.
+   `config`'s `modules` key decides which modules are active; `db` is what
+   a module's `:config-defaults` function can read, e.g. the workspaces."
+  ([] (initial-config nil nil))
+  ([config db]
+   (let [module-defaults (modules/default-config config db)]
+     (parse-dynamic-string-values (if (seq module-defaults)
+                                    (deep-merge module-defaults initial-config*)
+                                    initial-config*)
+                                  (io/file ".")))))
 
 (defn provider-base
   "Returns the provider whose built-in behavior (login flows, request options,
@@ -721,7 +470,12 @@
                             (into {}
                                   (map (fn [[k v]]
                                          (let [base-name (cond
-                                                           (keyword? k) (name k)
+                                                           ;; a module id keeps its namespace; other keys
+                                                           ;; only their name, as before modules (a plugin's
+                                                           ;; .mcp.json server name ends up in tool names)
+                                                           (keyword? k) (if (= [:modules] cur-path)
+                                                                          (subs (str k) 1)
+                                                                          (name k))
                                                            (string? k) k
                                                            :else (str k))
                                                kebabed (if apply-kebab-key?
@@ -828,12 +582,21 @@
     (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
         (update :chat dissoc :defaultBehavior))))
 
+(def ^:private ^:dynamic *module-string-key-paths*
+  "Paths of external modules' `:map` keys (`eca.modules/external-map-paths`),
+   bound while the layers merge: their entries keep string names, like
+   `mcpServers`'."
+  [])
+
 (defn ^:private merge-config
   "Deep-merges a normalized config layer into config. The plugins install
    lists combine across layers: a layer's entries append unless its own
    installMode is \"replace\"."
   [config layer]
-  (let [layer (normalize-fields normalization-rules layer)
+  (let [layer (normalize-fields (cond-> normalization-rules
+                                  (seq *module-string-key-paths*)
+                                  (update :stringfy-key into *module-string-key-paths*))
+                                layer)
         plugins (:plugins layer)
         {:strs [install installMode]} plugins
         merged (deep-merge config layer)]
@@ -845,7 +608,37 @@
                      reverse distinct reverse vec))
       merged)))
 
-(defn ^:private all* [db]
+(def ^:private optional-modules-turned-on-by
+  "The optional modules a feature's own config turns on, as that config turned
+   the feature on before modules: for the rest of the session, so a config
+   change, or a JSON error while editing the file, doesn't stop the remote
+   server or the export (`modules/keep-on!`). An explicit
+   `modules.<id>.enabled` wins."
+  {:eca/remote (fn [config] (get-in config [:remote :enabled]))
+   :eca/otel (fn [config] (:otlp config))})
+
+(defn ^:private enable-optional-modules [config]
+  (reduce-kv (fn [config id on?]
+               (if (boolean? (get-in config [:modules id :enabled]))
+                 config
+                 (do (when (on? config)
+                       (modules/keep-on! id))
+                     (cond-> config
+                       (modules/kept-on? id) (assoc-in [:modules id :enabled] true)))))
+             config
+             optional-modules-turned-on-by))
+
+(declare all-layers*)
+
+(defn ^:private all-layers
+  "The config from every source, over the defaults of the modules active
+   under `modules-config`."
+  [db modules-config]
+  (binding [*module-string-key-paths* (modules/external-map-paths {:modules modules-config})]
+    (all-layers* db modules-config)))
+
+(defn ^:private all-layers*
+  [db modules-config]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
         plugin-data (when-not pure-config? @plugin-components*)
@@ -857,7 +650,7 @@
         plugin-rules (:rules plugin-data)
         plugin-agents (:agents plugin-data)]
     (-> (as-> {} $
-          (merge-config $ (initial-config))
+          (merge-config $ (initial-config {:modules modules-config} db))
           (merge-config $ initialization-config)
           (merge-config $ (when-not pure-config?
                             (config-from-envvar)))
@@ -876,20 +669,53 @@
          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
         migrate-legacy-config
-        ;; Merge markdown-defined agents (lowest priority — JSON config agents win)
-        ;; Plugin agents merge at same level as markdown agents
+        enable-optional-modules
+        ;; Merge the modules' agents, e.g. markdown-defined ones (lowest priority —
+        ;; JSON config agents win). Plugin agents merge at the same level
         (as-> config
-              (let [md-agent-configs (when-not pure-config?
-                                       (agents/all-md-agents (:workspace-folders db)))]
-                (if (or (seq md-agent-configs) (seq plugin-agents))
+              (let [module-agents (when-not pure-config?
+                                    (modules/contributed-agents {:modules modules-config} db))]
+                (if (or (seq module-agents) (seq plugin-agents))
                   (update config :agent (fn [existing]
-                                          (merge md-agent-configs plugin-agents existing)))
+                                          (merge module-agents plugin-agents existing)))
                   config)))
         (update :agent resolve-agent-inheritance)
         (update :providers resolve-provider-inheritance))))
 
+(defn ^:private run-resolve-event
+  "Runs the `:config/resolve` event on the merged `config`: modules may change
+   it, e.g. to enforce rules users can't override. The `modules` key stays as
+   the layers set it, as it decides which modules are active."
+  [config]
+  (let [event (events/emit! {:config config} :config/resolve {:config config})
+        changed (:config event)]
+    (cond
+      (identical? config changed) config
+      (map? changed) (if (contains? config :modules)
+                       (assoc changed :modules (:modules config))
+                       (dissoc changed :modules))
+      :else (do (logger/warn logger-tag "Ignoring the :config a :config/resolve handler set" {:value changed})
+                config))))
+
+(defn merged-layers
+  "The config from every source, over the defaults of the active modules,
+   before modules change it (`:config/resolve`). Not cached: use `all`.
+   The `modules` key, set in any layer, decides which modules' defaults sit
+   under the layers, so a config that changes the active modules is read a
+   second time over their defaults."
+  [db]
+  (let [config (all-layers db nil)]
+    (if (= (modules/defaults-signature config) (modules/defaults-signature nil))
+      config
+      (all-layers db (:modules config)))))
+
+(defn ^:private all*
+  "The merged layers, then what modules change (`:config/resolve`)."
+  [db]
+  (run-resolve-event (merged-layers db)))
+
 (def ^:private all-memo
-  (memoize/ttl (fn [workspace-folders]
+  (memoize/ttl (fn [workspace-folders _modules-version]
                  (all* {:workspace-folders workspace-folders}))
                :ttl/threshold ttl-cache-config-ms))
 
@@ -899,9 +725,10 @@
    instead of the whole db, otherwise any unrelated db change would miss it
    and re-run every config source, including `${cmd:...}` commands.
    Writers of the other inputs `all*` reads (config files,
-   `initialization-config*`, `plugin-components*`) must call `clear-cache!`."
+   `initialization-config*`, `plugin-components*`) must call `clear-cache!`;
+   module changes bump `eca.modules/version`, part of the cache key."
   [db]
-  (all-memo (:workspace-folders db)))
+  (all-memo (:workspace-folders db) (modules/version)))
 
 (defn clear-cache!
   "Drops the cached config so the next `all` call re-reads all sources."

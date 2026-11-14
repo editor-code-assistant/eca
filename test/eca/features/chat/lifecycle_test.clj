@@ -3,7 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [are deftest is testing]]
    [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.hooks :as f.hooks]
+   [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -78,7 +78,7 @@
             :tool-calls {"tool-2" {:status :waiting-approval
                                     :name "shell"
                                     :server "eca"}}})
-    (with-redefs [f.hooks/run-shell-cmd
+    (with-redefs [m.hooks/run-shell-cmd
                   (fn [{:keys [input]}]
                     (let [payload (json/parse-string input true)
                           hook-name (:hook_name payload)]
@@ -401,7 +401,7 @@
                :agent "default"
                :full-model full-model}]
       (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running :tool-calls {}})
-      (with-redefs [f.hooks/run-shell-cmd
+      (with-redefs [m.hooks/run-shell-cmd
                     (fn [{:keys [input]}]
                       (let [hook-name (:hook_name (json/parse-string input true))]
                         (swap! calls* conj hook-name)

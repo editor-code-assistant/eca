@@ -3,7 +3,7 @@
    between a parent chat and a server-managed subagent chat. Guards against
    regressions like the one introduced in v0.133.1 (and fixed in v0.133.2),
    where the chat-id validator rejected the deterministic `subagent-...`
-   chat id used internally by `eca.features.tools.agent`, breaking every
+   chat id used internally by `eca.modules.subagents`, breaking every
    subagent invocation."
   (:require
    [clojure.string :as string]

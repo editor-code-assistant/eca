@@ -49,7 +49,21 @@
           :options {:log-level "debug"}}
          (#'main/parse ["server" "--log-level" "debug"]))))
   (testing "option values that match commands are not treated as commands"
-    (is (nil? (:action (#'main/parse ["--config-file" "server"]))))))
+    (is (nil? (:action (#'main/parse ["--config-file" "server"])))))
+  (testing "--module can be repeated, after the command"
+    (is (match?
+         {:action "server"
+          :options {:module ["a.clj" "modules/b"]}}
+         (#'main/parse ["server" "--module" "a.clj" "--module" "modules/b"])))
+    (testing "before it, the command would be read as one more path"
+      (is (nil? (:action (#'main/parse ["--module" "a.clj" "server"]))))))
+  (testing "--repl, after or before the command"
+    (is (match? {:action "server" :options {:repl true}}
+                (#'main/parse ["server" "--repl"])))
+    (is (match? {:action "server" :options {:repl true}}
+                (#'main/parse ["--repl" "server"])))
+    (is (match? {:action "server" :options {:repl m/absent}}
+                (#'main/parse ["server"])))))
 
 (deftest parse-read-chat-command-position-test
   (testing "read-chat supports options after the command"

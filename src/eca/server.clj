@@ -8,10 +8,12 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.modules :as modules]
+   [eca.modules.otel :as m.otel]
+   [eca.modules.remote :as m.remote]
+   [eca.modules.remote.messenger :as m.remote.messenger]
+   [eca.modules.remote.server :as m.remote.server]
    [eca.nrepl :as nrepl]
-   [eca.opentelemetry :as opentelemetry]
-   [eca.remote.messenger :as remote.messenger]
-   [eca.remote.server :as remote.server]
    [eca.shared :as shared :refer [assoc-some]]
    [jsonrpc4clj.io-server :as io-server]
    [jsonrpc4clj.server :as jsonrpc.server]
@@ -53,13 +55,13 @@
         args (cons (format-jsonrpc-trace (first args)) (rest args))]
     (apply log-fn args)))
 
-(def ^:private remote-server* (atom nil))
-
 (defn ^:private exit [server]
   (metrics/task
     :eca/exit
-    (let [remote-stop-f (when-let [rs @remote-server*]
-                          (future (remote.server/stop! rs)))]
+    ;; the remote server stops here, as before modules: shutdown leaves the
+    ;; eca/remote module running
+    (let [remote-stop-f (when-let [rs (m.remote/running)]
+                          (future (m.remote.server/stop! rs)))]
       (jsonrpc.server/shutdown server) ;; blocks, waiting up to 10s for previously received messages to be processed
       (some-> remote-stop-f deref))
     (shutdown-agents)
@@ -338,10 +340,16 @@
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-request server "chat/askQuestion" params))))
 
-(defn ^:private ->Metrics [db*]
-  (if-let [otlp-config (:otlp (config/all @db*))]
-    (opentelemetry/->OtelMetrics otlp-config)
-    (metrics/->NoopMetrics)))
+(defn ^:private ->Metrics
+  "The session's metrics: switchable, so the eca/otel module can turn the
+   export on and off; exporting from the start when the module is on, as
+   before modules."
+  [db*]
+  (let [config (config/all @db*)
+        metrics (metrics/->switchable (metrics/->NoopMetrics))]
+    (when (and (:otlp config) (modules/active? config :eca/otel))
+      (m.otel/install! metrics (:otlp config)))
+    metrics))
 
 (defn start-server! [server]
   (let [db* (atom (assoc db/initial-db :started-at (System/currentTimeMillis)))
@@ -351,21 +359,12 @@
         ;; HTTP server can be started later (e.g. when local project config
         ;; enables it after initialize). Broadcasting to an empty set is a no-op.
         sse-connections* (atom #{})
-        messenger (remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
-        start-remote-server!
-        (fn [components]
-          (when-let [rs (remote.server/start! components sse-connections*)]
-            (reset! remote-server* rs)
-            (swap! db* assoc
-                   :remote-connect-url (:connect-url rs)
-                   :remote-host (:host rs)
-                   :remote-token (:token rs)
-                   :remote-private-host? (:private-host? rs))))
+        ;; the eca/remote module's server (eca.modules.remote) takes them from it
+        messenger (m.remote.messenger/make-broadcast-messenger stdio-messenger sse-connections* db*)
         components {:db* db*
                     :messenger messenger
                     :metrics metrics
-                    :server server
-                    :start-remote-server! start-remote-server!}]
+                    :server server}]
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
     (monitor-server-logs (:log-ch server))

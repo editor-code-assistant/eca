@@ -41,12 +41,39 @@
                      :workspace-folders workspace-folders}
                     (h/db))))))
 
+  (testing "a modules key in initializationOptions, keyed by module ids, works"
+    (h/reset-components!)
+    (with-redefs [db/load-db-from-cache! (constantly nil)]
+      (is (match? {:global-config-path string?}
+                  (handlers/initialize (h/components)
+                                       {:initialization-options {:pureConfig true
+                                                                 :modules {:acme/hello {:source "/tmp/hello.clj"}
+                                                                           :eca/mcp {:enabled false}}}})))
+      (is (match? {:modules {:acme/hello {:source "/tmp/hello.clj"} :eca/mcp {:enabled false}}}
+                  (config/all (h/db))))))
+
   (testing "returns the global config path the server reads"
     (h/reset-components!)
     (with-redefs [db/load-db-from-cache! (constantly nil)]
       (is (match? {:global-config-path (str (config/global-config-file))}
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true}}))))))
+
+(deftest warn-unknown-config-keys-test
+  (let [warn! #(#'handlers/warn-unknown-config-keys! (h/db*) (h/messenger) %)
+        messages #(map :message (:show-message (h/messages)))]
+    (testing "unknown root keys are shown once"
+      (warn! {:fooBar 1 :toolCall {}})
+      (warn! {:fooBar 1 :toolCall {}})
+      (is (= ["Unknown config keys: `fooBar`. Check them for typos; a module's keys are known once the module is loaded."]
+             (messages))))
+    (testing "again when a new one appears"
+      (warn! {:fooBar 1 :bazQux 2})
+      (is (= 2 (count (messages))))
+      (is (re-find #"`bazQux`, `fooBar`" (last (messages)))))
+    (testing "not when they go away"
+      (warn! {})
+      (is (= 2 (count (messages)))))))
 
 (deftest providers-sync-hash-test
   (let [sync-hash #(#'handlers/providers-sync-hash {:providers %})

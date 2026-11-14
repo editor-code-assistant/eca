@@ -2,13 +2,15 @@ ECA Agent Guide (AGENTS.md)
 
 ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/stdout JSON-RPC to provide AI coding features (chat, tools, MCP, agents). Shipped as a GraalVM native binary.
 
-- Architecture (request flow: editor → JSON-RPC stdio → `handlers` → `features` → `llm_api` → `llm_providers` → streamed back via `messenger`):
+- Architecture (request flow: editor → JSON-RPC stdio → `handlers` → `features` and modules → `llm_api` → provider modules → streamed back via `messenger`):
   - `src/eca/server.clj` / `src/eca/main.clj`: stdio server entrypoint / CLI interface.
   - `src/eca/handlers.clj`: entrypoint for all protocol methods, dispatches to features.
-  - `src/eca/features/`: high-level capabilities — `chat.clj` (+ `chat/` lifecycle, history, tool-calls), `tools.clj` (+ `tools/` built-in tools: filesystem, shell, git, mcp, task…), `agents.clj`, `skills.clj`, `rules.clj`, `hooks.clj`, `commands.clj`, `context.clj`, `prompt.clj`, `login.clj`, `plugins.clj`.
-  - `src/eca/llm_api.clj`: façade used by features to call an LLM; vendor adapters in `src/eca/llm_providers/` (anthropic, openai, google, ollama, copilot…).
+  - `src/eca/features/`: core capabilities — `chat.clj` (+ `chat/` lifecycle, history, tool-calls), `tools.clj` (tool pipeline and approval rules, + `tools/util.clj`), `commands.clj` (core commands), `context.clj`, `prompt.clj`, `login.clj`, `providers.clj`, `modules.clj` (`/modules`).
+  - `src/eca/modules/`: the module runtime (`modules.clj`, `events`, `loader`, `config_spec`, `data`) and the built-in modules, one namespace each, listed in `built_in.clj` (`eca.main` hands that list to the runtime): `tools/` (filesystem, shell, git, editor, task…), `providers/` (each provider, with its API when it has its own), `agents`, `subagents`, `skills`, `rules`, `mcp`, `hooks`, `plugins`, `remote`, `otel`, `repl`…
+  - `src/eca/api.clj` + `src/eca/api/`: the module API, all that external modules see.
+  - `src/eca/llm_api.clj`: façade used by features to call an LLM, through the provider modules' APIs.
   - `src/eca/db.clj`: in-memory state (sessions, chats, MCP); `src/eca/config.clj`: config resolution from multiple sources.
-  - `src/eca/messenger.clj`: sends requests/notifications back to the client; `src/eca/remote/`: remote HTTP/SSE server mode.
+  - `src/eca/messenger.clj`: sends requests/notifications back to the client.
   - `src/eca/nrepl.clj`: starts an nREPL when nrepl/cider-nrepl are on the classpath (i.e. the `bb debug-cli` build; no flag needed) — port is logged to stderr, and you can eval against the live process.
 
 - Build (requires Clojure CLI + Babashka):
@@ -33,6 +35,7 @@ ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/
   - One file per `ns`; always `(set! *warn-on-reflection* true)` near top.
   - Group `:require` as: Clojure stdlib, third‑party, then `eca.*`; sort within groups.
   - Prefer `:as` aliases; avoid `:refer` except in tests (`clojure.test` and what you use).
+  - Alias a module namespace `m.<module>` (`[eca.modules.tools.filesystem :as m.filesystem]`) and a module's helper namespace `m.<module>.<helper>` (`m.shell.parser`); the module runtime keeps plain names (`modules`, `events`, `loader`).
 
 - Naming/types/data:
   - Internal Clojure names and domain keys use kebab-case (`chat-id`, `tool-call-id`, `parent-chat-id`).

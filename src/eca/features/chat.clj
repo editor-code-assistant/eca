@@ -13,24 +13,24 @@
    [eca.features.chat.tool-calls :as tc]
    [eca.features.commands :as f.commands]
    [eca.features.context :as f.context]
-   [eca.features.hooks :as f.hooks]
-   [eca.features.index :as f.index]
    [eca.features.prompt :as f.prompt]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
-   [eca.features.rules :as f.rules]
-   [eca.features.skills :as f.skills]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.agent :as f.tools.agent]
-   [eca.features.tools.mcp :as f.mcp]
-   [eca.features.tools.task :as f.tools.task]
    [eca.llm-api :as llm-api]
-   [eca.llm-providers.errors :as llm-providers.errors]
+   [eca.llm-api.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
+   [eca.modules.data :as modules.data]
+   [eca.modules.events :as events]
+   [eca.modules.hooks :as m.hooks]
+   [eca.modules.mcp :as m.mcp]
+   [eca.modules.repo-map :as m.repo-map]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared :refer [assoc-some estimate-tokens future*]]))
 
 (set! *warn-on-reflection* true)
@@ -382,9 +382,13 @@
                                 :total-time-ms (:total-time-ms message-content)}}))
     "compact_marker" [{:role :system
                        :content {:type :text
-                                 :text (if (:auto? message-content)
-                                         "── Chat auto-compacted ──"
-                                         "── Chat compacted ──")}}]
+                                 :text (cond
+                                         ;; a module's checkpoint (eca.api/checkpoint!)
+                                         (shared/not-blank (:label message-content))
+                                         (str "── " (:label message-content) " ──")
+
+                                         (:auto? message-content) "── Chat auto-compacted ──"
+                                         :else "── Chat compacted ──")}}]
     "flag" [{:role :system
              :content {:type :flag
                        :text (:text message-content)
@@ -431,7 +435,7 @@
                    subagent-chat-id (when (= "tool_call_output" (:role message))
                                       (get-in message [:content :details :subagent-chat-id]))
                    subagent-messages (when subagent-chat-id
-                                       (f.tools.agent/replayed-messages (get-in db [:chats subagent-chat-id :messages])
+                                       (history/replayed-messages (get-in db [:chats subagent-chat-id :messages])
                                                                         (:content message)))]
                (if (some? subagent-messages)
                  ;; For subagent tool calls: toolCallRun + toolCallRunning, then
@@ -519,9 +523,10 @@
   (some-> raw-error str string/trim not-empty))
 
 (defn ^:private finish-blocked-or-stopped-pre-request!
-  [chat-ctx {:keys [blocked? stop-turn? stop-reason stop-hook-name blocked-reasons blocked-hook-name]}]
+  [chat-ctx {:keys [blocked? stop-turn? stop-reason stop-hook-name stop-module blocked-reasons blocked-hook-name]}]
   (when (or stop-turn? blocked?)
     (cond
+      stop-module (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
       stop-turn? (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
       blocked?   (if (seq blocked-reasons)
                    (doseq [reason blocked-reasons]
@@ -556,14 +561,15 @@
                                                       :name action-name
                                                       :type action-type})
       ;; Run the hook action
-      (if-let [result (f.hooks/run-hook-action! action
+      (if-let [result (m.hooks/run-hook-action! action
                                                 action-name
                                                 :preRequest
-                                                (merge (f.hooks/chat-hook-data db chat-ctx)
+                                                (merge (m.hooks/chat-hook-data db chat-ctx)
                                                        {:prompt (:final-prompt state)})
-                                                db)]
+                                                db
+                                                chat-ctx)]
         (let [{:keys [raw-error exit]} result
-              exit-2? (= f.hooks/hook-rejection-exit-code exit)]
+              exit-2? (= m.hooks/hook-rejection-exit-code exit)]
           ;; Notify after action
           (lifecycle/notify-after-hook-action! chat-ctx (merge result
                                                                {:id id
@@ -638,12 +644,37 @@
       :blocked-hook-name nil
       :stop-reason nil
       :stop-hook-name nil}
-     (->> (:hooks config)
+     (->> (m.hooks/active-hooks config)
           ;; This function owns preRequest chaining, so it must select legacy
           ;; prePrompt hooks itself; hook-matches? only normalizes legacy types
           ;; for the generic trigger-if-matches! path.
           (filter #({"preRequest" "prePrompt"} (:type (val %))))
           (sort-by key)))))
+
+(defn ^:private run-pre-request!
+  "Runs the `:chat/before-request` event, then the preRequest shell hooks,
+   modules first, as their handlers run before `:eca/hooks`' (4.17). A module
+   may rewrite the prompt (when `modify-allowed?`), which the hooks then see,
+   add context before theirs, or block or stop the request, and then no hook
+   runs. Returns the hooks' state (`run-pre-request-hooks!`), with
+   `:stop-module` when a module stopped the turn."
+  [chat-ctx original-text modify-allowed?]
+  (let [event (events/emit! chat-ctx :chat/before-request
+                            (lifecycle/chat-event chat-ctx {:prompt original-text}))
+        module (::events/ended-by event)]
+    (cond
+      (:block event)
+      {:blocked? true
+       :blocked-reasons [(lifecycle/request-blocked-by-module-message module (:block event))]}
+
+      (contains? event :stop)
+      {:stop-turn? true :stop-reason (:stop event) :stop-module module}
+
+      :else
+      (let [prompt (if (and modify-allowed? (string? (:prompt event))) (:prompt event) original-text)
+            context (shared/not-blank (:additional-context event))]
+        (cond-> (run-pre-request-hooks! (assoc chat-ctx :message prompt))
+          context (update :additional-contexts #(into [{:hook-name "modules" :content context}] %)))))))
 
 (declare prompt prompt-messages! delete-chat)
 
@@ -665,7 +696,9 @@
         [command-name & args] (when possible-command
                                 (let [toks (tokenize-args possible-command)] (if (seq toks) toks [""])))
         args (vec args)
-        matched (get cmds-by-name command-name)]
+        matched (or (get cmds-by-name command-name)
+                    ;; a module command typed by its full id, e.g. /eca:compact
+                    (when command-name (f.commands/find-command command-name config)))]
     (cond
       (= :mcpPrompt (:type matched))
       (let [[server prompt] (string/split command-name #":" 2)]
@@ -676,7 +709,7 @@
 
       matched
       {:type :eca-command
-       :command command-name
+       :command (:name matched)
        :command-type (:type matched)
        :args args}
 
@@ -711,10 +744,12 @@
    so the resume continuation does not fire."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name]} (lifecycle/complete-compact! chat-ctx trigger)
+  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name stop-module]} (lifecycle/complete-compact! chat-ctx trigger)
         current-prompt-ctx (assoc chat-ctx :prompt-id (get-in @db* [:chats chat-id :prompt-id]))]
     (when stop-turn?
-      (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+      (if stop-module
+        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
     (when (or stop-turn? (not compacted?))
       (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
     {:stop-after-finish? (or stop-turn? (not compacted?))}))
@@ -763,62 +798,160 @@
    task (`user-messages`). `trigger` is \"auto\" (context threshold reached) or
    \"manual\" (steered `/compact`, with `custom-instructions`).
 
-   Runs preCompact hooks first: continue:false stops the turn (reason from
-   stopReason, hook-name for provenance); exit 2 only blocks compaction, with no
-   user-facing reason, in which case `on-blocked` decides how the turn goes on
-   and its result is returned. Otherwise the compact prompt is sent under
-   :auto-compacting?, so finishing it does not end the turn: the finish
-   side-effect applies the compaction and the after-finish continuation resumes
-   the task. Returns nil when it took over the turn."
+   Runs the `:chat/before-compact` event and the preCompact hooks first:
+   continue:false (or a module's :stop) stops the turn (reason from
+   stopReason, hook-name or module for provenance); exit 2 (or a module's
+   :block) only blocks compaction, in which case `on-blocked` decides how the
+   turn goes on and its result is returned. A module answering `:chat/compact`
+   compacts instead of the compact prompt; the turn then resumes, unless it
+   says `:resume? false`. Otherwise the compact prompt is sent under :auto-compacting?,
+   so finishing it does not end the turn: the finish side-effect applies the
+   compaction and the after-finish continuation resumes the task.
+   `event-trigger` is the trigger compaction events report, e.g. :overflow.
+   Returns nil when it took over the turn."
   [{:keys [db* config chat-id agent] :as chat-ctx}
    all-tools
    user-messages
-   {:keys [trigger custom-instructions on-blocked]}]
-  (let [{:keys [blocked? reason hook-name stop-turn?]} (lifecycle/run-pre-compact-hooks! chat-ctx trigger custom-instructions)]
+   {:keys [trigger custom-instructions on-blocked event-trigger]}]
+  (let [compact-ctx (cond-> chat-ctx event-trigger (assoc :compact-trigger event-trigger))
+        {:keys [blocked? reason hook-name stop-turn? module instructions]}
+        (lifecycle/run-pre-compact! compact-ctx trigger custom-instructions)]
     (if blocked?
       (do
-        (logger/info logger-tag "Compaction blocked by hook" {:chat-id chat-id
-                                                              :trigger trigger
-                                                              :stop-turn? stop-turn?})
+        (logger/info logger-tag "Compaction blocked" {:chat-id chat-id
+                                                      :trigger trigger
+                                                      :stop-turn? stop-turn?
+                                                      :module module})
         (if stop-turn?
-          (do (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason)
+          (do (if module
+                (lifecycle/send-turn-stopped-by-module! chat-ctx module reason)
+                (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason))
               (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
               nil)
-          (do (lifecycle/send-content! chat-ctx :system {:type :text :text (lifecycle/compaction-blocked-by-hook-message hook-name)})
+          (do (lifecycle/send-content! chat-ctx :system {:type :text
+                                                         :text (if module
+                                                                 (lifecycle/compaction-blocked-by-module-message module reason)
+                                                                 (lifecycle/compaction-blocked-by-hook-message hook-name))})
               (on-blocked))))
-      (let [db             @db*
-            compact-prompt (f.prompt/compact-prompt (shared/not-blank custom-instructions) all-tools agent config db)]
-        (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
-        (swap! db* update-in [:chats chat-id]
-               #(-> %
-                    (dissoc :last-summary :compact-done?)
-                    (assoc :auto-compacting? true)))
-        (prompt-messages!
-         [{:role "user" :content "Compact the chat following the template:"}
-          {:role "user" :content compact-prompt}]
-         :auto-compact
-         (assoc chat-ctx
-                :on-finished-side-effect #(compact-finished-side-effect! chat-ctx trigger)
-                :on-after-finish! #(resume-after-compact! chat-ctx user-messages)))
-        nil))))
+      (if-let [answer (lifecycle/compact-with-module! compact-ctx trigger instructions)]
+        (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name stop-module]}
+              (lifecycle/finish-module-compaction! compact-ctx trigger answer)]
+          (logger/info logger-tag "Chat compacted by a module" {:chat-id chat-id :trigger trigger
+                                                                :status (:status answer)})
+          (cond
+            stop-turn?
+            (do (if stop-module
+                  (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
+                  (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+                (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
+
+            (not compacted?)
+            (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
+
+            ;; as after the built-in compaction, the interrupted task goes on
+            ;; unless the module says not to
+            (get answer :resume? true)
+            (resume-after-compact! chat-ctx user-messages)
+
+            :else
+            (lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
+          nil)
+        (if-not (lifecycle/compaction-module-active? config)
+          ;; only a module could have compacted, and none did
+          (do (lifecycle/send-content! chat-ctx :system {:type :text :text "No compaction module handled this chat."})
+              (on-blocked))
+          (let [db             @db*
+                compact-prompt (f.prompt/compact-prompt (shared/not-blank instructions) all-tools agent config db)]
+            (logger/info logger-tag "Compacting chat" {:chat-id chat-id :trigger trigger})
+            (swap! db* update-in [:chats chat-id]
+                   #(-> %
+                        (dissoc :last-summary :compact-done?)
+                        (assoc :auto-compacting? true)))
+            (prompt-messages!
+             [{:role "user" :content "Compact the chat following the template:"}
+              {:role "user" :content compact-prompt}]
+             :auto-compact
+             (assoc chat-ctx
+                    :on-finished-side-effect #(compact-finished-side-effect! compact-ctx trigger)
+                    :on-after-finish! #(resume-after-compact! chat-ctx user-messages)))
+            nil))))))
 
 (defn ^:private trigger-auto-compact!
   "Trigger auto-compact: send compact prompt, then resume the original task.
    When a hook blocks compaction without stopping the turn, the original task is
    (re)sent as a new prompt, marked so auto-compaction is not retried.
-   Counts the auto-compactions of the turn, see `autoCompactMaxPerTurn`."
+   Counts the auto-compactions of the turn, see `autoCompactMaxPerTurn`.
+   A `:compact-trigger` in `chat-ctx`, e.g. :overflow, is the trigger
+   compaction events report; it's only for this compaction."
   [chat-ctx all-tools user-messages]
-  (let [{:keys [chat-id config agent auto-compactions] :as chat-ctx} (update chat-ctx :auto-compactions (fnil inc 0))]
+  (let [event-trigger (:compact-trigger chat-ctx)
+        {:keys [chat-id config agent auto-compactions] :as chat-ctx} (-> chat-ctx
+                                                                         (dissoc :compact-trigger)
+                                                                         (update :auto-compactions (fnil inc 0)))]
     (when (= (lifecycle/auto-compact-max-per-turn config agent) auto-compactions)
       (logger/warn logger-tag "Last auto-compaction allowed in this turn" {:chat-id chat-id
                                                                          :auto-compactions auto-compactions}))
     (trigger-compact! chat-ctx all-tools user-messages
                       {:trigger "auto"
+                       :event-trigger event-trigger
                        :on-blocked (fn []
                                      (prompt-messages! user-messages
                                                        :auto-compact-blocked
                                                        (assoc chat-ctx :auto-compacted? true))
                                      nil)})))
+
+(def ^:private max-requested-compactions-per-turn
+  "Compactions modules may ask for in a turn when `autoCompactMaxPerTurn`
+   isn't set: a backstop against a module that keeps asking."
+  3)
+
+(defn ^:private take-compaction-request!
+  "Removes the compaction a module asked for (eca.api/request-compaction!)
+   from the chat and returns it, `{:module :trigger :instructions}`, when
+   the chat may compact now: not while it compacts, nor when this turn can't
+   auto-compact again (see `auto-compact-suppressed?`), reached its cap, or
+   had a requested compaction blocked."
+  [{:keys [db* chat-id prompt-id config agent auto-compactions] :as chat-ctx}]
+  (let [[old] (swap-vals! db* (fn [db]
+                                (cond-> db
+                                  (get-in db [:chats chat-id :compaction-request])
+                                  (update-in [:chats chat-id] dissoc :compaction-request))))
+        {:keys [compaction-request compacting? auto-compacting? compaction-blocked-prompt-id]}
+        (get-in old [:chats chat-id])]
+    (when (and compaction-request
+               (not compacting?)
+               (not auto-compacting?)
+               (not (auto-compact-suppressed? chat-ctx))
+               (< (or auto-compactions 0)
+                  (or (lifecycle/auto-compact-max-per-turn config agent) max-requested-compactions-per-turn))
+               (not (and prompt-id (= prompt-id compaction-blocked-prompt-id))))
+      compaction-request)))
+
+(defn ^:private trigger-requested-compact!
+  "Runs the compaction `request` asks for, a module's (see
+   `take-compaction-request!`) or a `{:compact ..}` answer to
+   `:llm/request-failed`, as an auto-compaction: it counts in the turn's,
+   then the task resumes. When it's blocked, no request runs again in this
+   prompt and `on-blocked` decides how the turn goes on."
+  [{:keys [db* chat-id prompt-id] :as chat-ctx} all-tools user-messages {:keys [module trigger instructions]} on-blocked]
+  (logger/info logger-tag "Compacting chat, as a module asked" {:chat-id chat-id :module module :trigger trigger})
+  (trigger-compact! (update chat-ctx :auto-compactions (fnil inc 0))
+                    all-tools
+                    user-messages
+                    {:trigger (if (= :manual trigger) "manual" "auto")
+                     :event-trigger (or trigger :auto)
+                     :custom-instructions instructions
+                     :on-blocked (fn []
+                                   (swap! db* assoc-in [:chats chat-id :compaction-blocked-prompt-id] prompt-id)
+                                   (on-blocked))}))
+
+(defn ^:private run-requested-compaction!
+  "Runs the compaction a module asked for, if any may run now (see
+   `take-compaction-request!`). Returns `{:result ..}`, what
+   `trigger-compact!` returned, when it ran one; nil otherwise."
+  [chat-ctx all-tools user-messages on-blocked]
+  (when-let [request (take-compaction-request! chat-ctx)]
+    {:result (trigger-requested-compact! chat-ctx all-tools user-messages request on-blocked)}))
 
 (defn ^:private log-api-switch!
   "Log when the user swaps to a model whose api differs from the chat's
@@ -889,10 +1022,11 @@
    {:custom-instructions string :content-id string}; otherwise leaves the steer
    message pending and returns nil."
   [chat-id db* {:keys [config] :as chat-ctx}]
-  (when-let [{:keys [args steer-msg]} (take-steered-command! chat-id db* config
-                                                             (fn [{:keys [type command]}]
-                                                               (and (= :eca-command type)
-                                                                    (= "compact" command))))]
+  (when-let [{:keys [args steer-msg]} (and (lifecycle/compaction-handled? config)
+                                           (take-steered-command! chat-id db* config
+                                                                  (fn [{:keys [type command]}]
+                                                                    (and (= :eca-command type)
+                                                                         (= "compact" command)))))]
     (let [content-id (lifecycle/new-content-id)]
       (logger/info logger-tag "Steered /compact consumed" {:chat-id chat-id})
       (lifecycle/send-content! chat-ctx :user {:type :text
@@ -1081,6 +1215,16 @@
           (try (thunk)
                (finally (swap! db* update-in [:managed-chats chat-id :workers] dec)))))))
 
+(defn ^:private take-module-contexts!
+  "The contexts modules added for the chat's next request (with
+   `eca.api/add-context!`), removed from the chat: `[{:module :content}]`."
+  [db* chat-id]
+  (let [[old-db _] (swap-vals! db* (fn [db]
+                                     (cond-> db
+                                       (get-in db [:chats chat-id :module-contexts])
+                                       (update-in [:chats chat-id] dissoc :module-contexts))))]
+    (get-in old-db [:chats chat-id :module-contexts])))
+
 (defn ^:private prompt-messages!
   "Send user messages to LLM with hook processing.
    source-type controls hook agent.
@@ -1095,10 +1239,15 @@
         run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
         user-messages (if run-hooks?
                         (let [{:keys [final-prompt additional-contexts stop-turn? blocked?] :as pre-request-state}
-                              (run-pre-request-hooks! (assoc chat-ctx :message original-text))]
+                              (run-pre-request! chat-ctx original-text modify-allowed?)]
                           (cond
                             (or stop-turn? blocked?) (do (finish-blocked-or-stopped-pre-request! chat-ctx pre-request-state) nil)
-                            :else (let [last-user-idx (llm-util/find-last-user-msg-idx user-messages)
+                            :else (let [;; contexts modules added with eca.api/add-context! join the hooks' ones
+                                        additional-contexts (into (vec additional-contexts)
+                                                                  (map (fn [{:keys [module content]}]
+                                                                         {:hook-name module :content content}))
+                                                                  (take-module-contexts! db* chat-id))
+                                        last-user-idx (llm-util/find-last-user-msg-idx user-messages)
                                           ;; preRequest additionalContext should ideally attach to the last user message,
                                           ;; but some prompt sources may not contain a user role (e.g. prompt templates).
                                         context-idx   (or last-user-idx
@@ -1140,7 +1289,7 @@
       (when (and run-hooks? (:user-content-id chat-ctx))
         ;; Kept until the LLM responds, so a turn that is stopped, fails or is
         ;; superseded before that doesn't lose what the user typed.
-        (lifecycle/record-unsent-user-messages! db* chat-id)
+        (lifecycle/record-unsent-user-messages! db* chat-id chat-ctx)
         (swap! db* assoc-in [:chats chat-id :unsent-user-messages]
                (assoc-some {:content-id (:user-content-id chat-ctx)
                             :messages user-messages}
@@ -1194,6 +1343,7 @@
                                              (assoc with-ts :content (assoc content :api current-api))
                                              with-ts)]
                                 (swap! db* update-in [:chats chat-id :messages] (fnil conj []) tagged)
+                                (lifecycle/emit-messages-added! chat-ctx [tagged])
                                 ;; Persist after meaningful history mutations so a
                                 ;; long-running chat is recoverable mid-loop even if
                                 ;; ECA dies (crash, kill, host reboot) before the
@@ -1232,7 +1382,22 @@
                                                             (merge {:type :usage} usage
                                                                    (when breakdown {:context-breakdown breakdown})
                                                                    (when-let [pct (lifecycle/auto-compact-threshold config agent (get-in usage [:limit :context]))]
-                                                                     {:auto-compact-percentage pct}))))))
+                                                                     {:auto-compact-percentage pct}))))
+                                 (let [context-limit (get-in usage [:limit :context])
+                                       session-tokens (:session-tokens usage)]
+                                   (events/emit! chat-ctx :chat/usage-updated
+                                                 {:chat-id chat-id
+                                                  :parent-chat-id (:parent-chat-id chat-ctx)
+                                                  :agent agent
+                                                  :model full-model
+                                                  :variant (:variant chat-ctx)
+                                                  :usage usage
+                                                  :session-tokens session-tokens
+                                                  :context-limit context-limit
+                                                  :context-used (when (and (number? session-tokens)
+                                                                           (number? context-limit)
+                                                                           (pos? context-limit))
+                                                                  (double (/ session-tokens context-limit)))}))))
             prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
             retitle? (= prompt-count 3)
             generate-title? (and (get-in config [:chat :title])
@@ -1263,17 +1428,30 @@
                   ;; needed to title the prompt. #683
                   (without-contents user-messages (:attached-contents chat-ctx)))]
             (future* config
-              (when-let [{:keys [output-text]} (llm-api/sync-prompt!
-                                                {:provider provider
-                                                 :model model
-                                                 :model-capabilities
-                                                 (assoc model-capabilities :reason? false :tools false :web-search false)
-                                                 :instructions (f.prompt/chat-title-prompt agent config)
-                                                 :past-messages nil
-                                                 :user-messages title-user-messages
-                                                 :config config
-                                                 :provider-auth provider-auth
-                                                 :subagent? true})]
+              (when-let [output-text
+                         (or
+                          ;; a module may give the title (:chat/title); else the chat model writes it
+                          (some-> (events/emit! chat-ctx :chat/title
+                                                (lifecycle/chat-event
+                                                 chat-ctx
+                                                 {:messages (-> (->> (get-in db [:chats chat-id :messages] [])
+                                                                     shared/messages-after-last-compact-marker
+                                                                     (filterv #(contains? #{"user" "assistant"} (:role %))))
+                                                                (into user-messages))
+                                                  :retitle? retitle?}))
+                                  :title
+                                  shared/not-blank)
+                          (:output-text (llm-api/sync-prompt!
+                                         {:provider provider
+                                          :model model
+                                          :model-capabilities
+                                          (assoc model-capabilities :reason? false :tools false :web-search false)
+                                          :instructions (f.prompt/chat-title-prompt agent config)
+                                          :past-messages nil
+                                          :user-messages title-user-messages
+                                          :config config
+                                          :provider-auth provider-auth
+                                          :subagent? true})))]
                 ;; A title set meanwhile (chat/update, e.g. a client renaming
                 ;; the chat while this request ran) wins over the generated one.
                 (when (and output-text
@@ -1284,9 +1462,21 @@
                     (when (= :idle (get-in @db* [:chats chat-id :status]))
                       (db/save-chat! @db* chat-id metrics))))))))
         (lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
-        (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                 (not (auto-compact-suppressed? chat-ctx)))
+        (cond
+          ;; a module asked to compact (eca.api/request-compaction!)
+          (run-requested-compaction! chat-ctx all-tools user-messages
+                                     (fn []
+                                       (prompt-messages! user-messages
+                                                         :auto-compact-blocked
+                                                         (assoc chat-ctx :auto-compacted? true))
+                                       nil))
+          nil
+
+          (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+               (not (auto-compact-suppressed? chat-ctx)))
           (trigger-auto-compact! chat-ctx all-tools user-messages)
+
+          :else
           (start-prompt-worker! chat-ctx
            (fn []
             (try
@@ -1299,6 +1489,8 @@
                 :past-messages (messages-to-send @db* chat-id full-model)
                 :config  config
                 :tools all-tools
+                ;; modules may change what the model sees, in every request (:llm/before-request)
+                :on-before-request (partial lifecycle/before-llm-request chat-ctx)
                 :provider-auth provider-auth
                 ;; Renew before each prompt! invocation so long-running chats
                 ;; (spawn_agent, retries) always get a fresh token.
@@ -1505,10 +1697,14 @@
                                                    ;; Other steered native commands safe to run mid-turn execute here
                                                    ;; and the task resumes, so the LLM never sees them as text. #610
                                                    (consume-steered-native-command! chat-id db* chat-ctx)
-                                                   (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
-                                                            (not (auto-compact-suppressed? chat-ctx)))
-                                                     (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-                                                     (continue-turn!))))))))
+                                                   (if-let [{:keys [result]} (run-requested-compaction!
+                                                                              chat-ctx tc-all-tools tc-user-messages
+                                                                              continue-turn!)]
+                                                     result
+                                                     (if (and (lifecycle/auto-compact? chat-id agent full-model config @db*)
+                                                              (not (auto-compact-suppressed? chat-ctx)))
+                                                       (trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
+                                                       (continue-turn!)))))))))
                                   received-msgs* add-to-history! user-messages)
                 :on-reason (fn [{:keys [status id text external-id delta-reasoning? redacted? data]}]
                              (lifecycle/assert-chat-not-stopped! chat-ctx)
@@ -1670,7 +1866,15 @@
                                   ;; with empty history it would just re-issue the same oversized request
                                   ;; under a new prompt-id and the error would never surface to the user. (#491)
                                   compactable? (boolean (seq (shared/messages-after-last-compact-marker
-                                                              (get-in db [:chats chat-id :messages] []))))]
+                                                              (get-in db [:chats chat-id :messages] []))))
+                                  ;; Modules are asked first (:llm/request-failed), once per prompt.
+                                  module-answer (when-not (or stale? compacting? (:module-recovery-attempted? chat-ctx))
+                                                  (lifecycle/request-failed-answer
+                                                   chat-ctx
+                                                   {:model full-model :user-messages user-messages}
+                                                   (assoc-some {:type error-type}
+                                                               :message message
+                                                               :status (:status error-data))))]
                               ;; Tool calls the failed response was still streaming are never
                               ;; resumed (a retry starts new ones), so reject them or clients
                               ;; keep showing them as in progress forever.
@@ -1681,10 +1885,58 @@
                                 (logger/info logger-tag "Ignoring error for finished or superseded prompt"
                                              {:chat-id chat-id :message message})
 
+                                ;; A module asked to compact, then go on with the task. As on the
+                                ;; built-in overflow path, an overflow first prunes old tool outputs,
+                                ;; and only a chat with history can compact (#491).
+                                (and (:compact module-answer)
+                                     (or (not= :context-overflow error-type) compactable?))
+                                (let [opts (:compact module-answer)
+                                      chat-ctx (assoc chat-ctx :module-recovery-attempted? true)]
+                                  (logger/info logger-tag "Compacting after a failed request, as a module asked"
+                                               {:chat-id chat-id :error-type error-type})
+                                  (when (= :context-overflow error-type)
+                                    (prune-tool-results! db* chat-id {}))
+                                  (trigger-requested-compact! chat-ctx all-tools user-messages
+                                                              {:trigger (or (when (map? opts) (:trigger opts))
+                                                                            (when (= :context-overflow error-type) :overflow))
+                                                               :instructions (when (map? opts) (:instructions opts))}
+                                                              (fn []
+                                                                (prompt-messages! user-messages
+                                                                                  :auto-compact-blocked
+                                                                                  (assoc chat-ctx :auto-compacted? true))
+                                                                nil)))
+
+                                ;; A module asked to send the request again.
+                                (:retry module-answer)
+                                (let [user-msgs-in-history? (boolean (when-let [user-content-id (:user-content-id chat-ctx)]
+                                                                       (some #(= user-content-id (:content-id %))
+                                                                             (get-in @db* [:chats chat-id :messages]))))
+                                      retry-messages (if user-msgs-in-history?
+                                                       [{:role "user"
+                                                         :content [{:type :text
+                                                                    :text "The previous request failed and was sent again. Continue with the task, do not redo completed steps."}]}]
+                                                       user-messages)]
+                                  (when (and (map? (:retry module-answer)) (seq (:retry module-answer)))
+                                    (logger/warn logger-tag "Retrying the failed request as is: request changes aren't supported yet"
+                                                 {:chat-id chat-id :changes (:retry module-answer)}))
+                                  (lifecycle/send-content! chat-ctx :system {:type :text :text "\nRetrying the request, as a module asked...\n"})
+                                  (swap! db* assoc-in [:chats chat-id :auto-compacting?] true)
+                                  (lifecycle/finish-chat-prompt! :idle
+                                                                 (assoc chat-ctx
+                                                                        :on-finished-side-effect
+                                                                        (fn []
+                                                                          (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?))
+                                                                        :on-after-finish!
+                                                                        (fn []
+                                                                          (prompt-messages! retry-messages
+                                                                                            :module-retry
+                                                                                            (assoc chat-ctx :module-recovery-attempted? true))))))
+
                                 (and (= :context-overflow error-type)
                                      (not compacting?)
                                      (not (auto-compact-suppressed? chat-ctx))
-                                     compactable?)
+                                     compactable?
+                                     (lifecycle/compaction-module-active? config))
                                 (do
                                   (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
                                                {:chat-id chat-id})
@@ -1692,7 +1944,7 @@
                                                            {:type :text
                                                             :text "Context window exceeded. Auto-compacting conversation..."})
                                   (prune-tool-results! db* chat-id {})
-                                  (trigger-auto-compact! chat-ctx all-tools user-messages))
+                                  (trigger-auto-compact! (assoc chat-ctx :compact-trigger :overflow) all-tools user-messages))
 
                                 ;; Provider rejected an image in the request (e.g. an MCP tool
                                 ;; returned an image below xAI's 512 total-pixels minimum).
@@ -1920,9 +2172,9 @@
 (defn ^:private send-mcp-prompt!
   [{:keys [prompt args] :as _decision}
    {:keys [db*] :as chat-ctx}]
-  (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (f.mcp/all-prompts @db*)))
+  (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (m.mcp/all-prompts @db*)))
         args-vals (zipmap (map :name arguments) args)
-        {:keys [messages error-message]} (f.prompt/get-prompt! prompt args-vals @db*)]
+        {:keys [messages error-message]} (m.mcp/get-prompt! prompt args-vals @db*)]
     (cond
       error-message
       (do (lifecycle/send-content! chat-ctx
@@ -1996,28 +2248,27 @@
                                                  :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))))
 
-(defn ^:private run-start-hooks!
+(defn ^:private run-start-shell-hooks!
   "Runs chatStart (or subagentStart for subagent chats) hooks for this chat's
-   first prompt. Collects additionalContext from successful hooks into
-   :startup-context so build-chat-instructions and /prompt-show pick it up, and
-   returns {:stop-turn? boolean :stop-reason string-or-nil} when a hook returns
-   {\"continue\":false} on exit 0. db-before-hooks is the stable snapshot used
-   for hook reads; db* is mutated only for hook side effects."
-  [{:keys [db* chat-id agent messenger variant] :as _chat-ctx} db-before-hooks resumed? full-model]
-  (config/await-plugins-resolved!)
-  (let [config (config/all db-before-hooks)
-        hook-results* (atom [])
+   first prompt. Collects additionalContext from successful hooks, after
+   `module-context`, into :startup-context so build-chat-instructions and
+   /prompt-show pick it up, and returns {:stop-turn? boolean :stop-reason
+   string-or-nil} when a hook returns {\"continue\":false} on exit 0.
+   db-before-hooks is the stable snapshot used for hook reads; db* is mutated
+   only for hook side effects."
+  [{:keys [db* chat-id agent messenger variant]} db-before-hooks resumed? full-model config module-context]
+  (let [hook-results* (atom [])
         subagent? (some? (get-in db-before-hooks [:chats chat-id :subagent]))
         hook-ctx (cond-> {:messenger messenger :chat-id chat-id}
                    subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id)))
         hook-type (if subagent? :subagentStart :chatStart)
-        hook-data (cond-> (f.hooks/chat-hook-data db-before-hooks {:chat-id chat-id
+        hook-data (cond-> (m.hooks/chat-hook-data db-before-hooks {:chat-id chat-id
                                                                    :agent agent
                                                                    :full-model full-model
                                                                    :variant variant})
                     subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id))
                     (not subagent?) (assoc :resumed resumed?))]
-    (f.hooks/trigger-if-matches! hook-type
+    (m.hooks/trigger-if-matches! hook-type
                                  hook-data
                                  {:on-before-action (partial lifecycle/notify-before-hook-action! hook-ctx)
                                   :on-after-action (fn [result]
@@ -2025,21 +2276,38 @@
                                                      (swap! hook-results* conj result))}
                                  db-before-hooks
                                  config)
-    (when-let [additional-contexts (seq (keep (fn [{:keys [parsed exit]}]
-                                                (when (zero? exit)
-                                                  (shared/not-blank (get parsed "additionalContext"))))
-                                              @hook-results*))]
+    (when-let [additional-contexts (seq (concat (some-> module-context vector)
+                                                (keep (fn [{:keys [parsed exit]}]
+                                                        (when (zero? exit)
+                                                          (shared/not-blank (get parsed "additionalContext"))))
+                                                      @hook-results*)))]
       (swap! db* assoc-in [:chats chat-id :startup-context]
              (string/join "\n\n" additional-contexts)))
     ;; Note: :chat-start-fired is set by prompt* (via swap-vals!) before this
     ;; runs, since prompt* is what decides whether start hooks fire at all.
     (let [stop-result (some (fn [{:keys [parsed name] :as result}]
-                              (when (f.hooks/successful-continue-false? result)
+                              (when (m.hooks/successful-continue-false? result)
                                 {:stop-turn? true
                                  :stop-reason (shared/not-blank (get parsed "stopReason"))
                                  :stop-hook-name name}))
                             @hook-results*)]
       (or stop-result {:stop-turn? false}))))
+
+(defn ^:private run-start-hooks!
+  "Runs the `:chat/started` event, then the chatStart shell hooks
+   (`run-start-shell-hooks!`), modules first, as their handlers run before
+   `:eca/hooks`' (4.17). A module's `:additional-context` joins the chat's
+   startup context before the hooks' ones; its `:stop` ends the turn without
+   running them, with `:stop-module` in the result."
+  [chat-ctx db-before-hooks resumed? full-model]
+  (config/await-plugins-resolved!)
+  (let [config (config/all db-before-hooks)
+        event (events/emit! (assoc chat-ctx :config config) :chat/started
+                            (lifecycle/chat-event (assoc chat-ctx :full-model full-model) {:resumed? (boolean resumed?)}))]
+    (if (contains? event :stop)
+      {:stop-turn? true :stop-reason (:stop event) :stop-module (::events/ended-by event)}
+      (run-start-shell-hooks! chat-ctx db-before-hooks resumed? full-model config
+                              (shared/not-blank (:additional-context event))))))
 
 (defn ^:private mark-editor-open!
   "Records that the editor has this chat open this run, so the remote endpoint
@@ -2072,9 +2340,11 @@
                             (run-start-hooks! base-chat-ctx db-before-hooks resumed? full-model))]
     (if (:stop-turn? start-hook-result)
       (do
-        (lifecycle/send-turn-stopped-by-hook! base-chat-ctx
-                                              (:stop-hook-name start-hook-result)
-                                              (:stop-reason start-hook-result))
+        (if-let [module (:stop-module start-hook-result)]
+          (lifecycle/send-turn-stopped-by-module! base-chat-ctx module (:stop-reason start-hook-result))
+          (lifecycle/send-turn-stopped-by-hook! base-chat-ctx
+                                                (:stop-hook-name start-hook-result)
+                                                (:stop-reason start-hook-result)))
         (lifecycle/finish-chat-prompt-stopped! :idle base-chat-ctx)
         {:chat-id chat-id
          :model full-model
@@ -2088,9 +2358,9 @@
             refined-contexts (concat
                               (f.context/agents-file-contexts db config)
                               (f.context/raw-contexts->refined contexts db))
-            {static-rules :static path-scoped-rules :path-scoped} (f.rules/all-rules config (:workspace-folders db) agent full-model)
+            {static-rules :static path-scoped-rules :path-scoped} (m.rules/all-rules config (:workspace-folders db) agent full-model)
             all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
-            skills (->> (f.skills/all config (:workspace-folders db))
+            skills (->> (m.skills/all config (:workspace-folders db))
                         (remove
                          (fn [skill]
                            (= :deny (f.tools/approval all-tools
@@ -2099,7 +2369,7 @@
                                                       db
                                                       config
                                                       agent)))))
-            repo-map* (delay (f.index/repo-map db config {:as-string? true}))
+            repo-map* (delay (m.repo-map/repo-map db config {:as-string? true}))
             prompt-cache (get-in db [:chats chat-id :prompt-cache])
             auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
             static-signature (static-prompt-cache-signature
@@ -2135,7 +2405,7 @@
                                         (changed-system-prompt-categories prompt-cache static-signature agent full-model))})
                                (swap! db* assoc-in [:chats chat-id :prompt-cache :stale-signature] static-signature))
                              {:static (:static prompt-cache)
-                              :dynamic (f.prompt/build-dynamic-instructions refined-contexts db)})
+                              :dynamic (f.prompt/build-dynamic-instructions refined-contexts db config)})
                            (let [result (f.prompt/build-chat-instructions
                                          refined-contexts static-rules path-scoped-rules skills repo-map*
                                          agent config chat-id all-tools db)]
@@ -2227,6 +2497,28 @@
          :model full-model
          :status :prompting}))))
 
+(defn ^:private prompt-input*
+  "Runs the `:chat/input` event on the text before commands, skills or the
+   model see it. A module may change the text, or handle it: then the model
+   isn't called, and a string answer is shown in the chat. `:source` is
+   `:module` for `eca.api/send-prompt!`, else `:user`."
+  [{:keys [source] :as params} {:keys [chat-id db* message] :as base-chat-ctx}]
+  (let [event (events/emit! base-chat-ctx :chat/input
+                            (lifecycle/chat-event base-chat-ctx {:text message :source (or source :user)}))
+        handled (:handled event)
+        text (:text event)]
+    (if handled
+      (do
+        (when (string? handled)
+          (lifecycle/send-content! base-chat-ctx :system {:type :text :text handled}))
+        (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :follow-up-active?)
+        (lifecycle/finish-chat-prompt! :idle (assoc base-chat-ctx :skip-post-request-hooks? true))
+        {:chat-id chat-id
+         :model (get-in @db* [:chats chat-id :model])
+         :status :prompting})
+      (prompt* params (cond-> base-chat-ctx
+                        (and (string? text) (not (string/blank? text))) (assoc :message text))))))
+
 (def ^:private max-client-chat-id-length 256)
 
 (defn ^:private server-managed-subagent-chat-id?
@@ -2244,7 +2536,7 @@
    field.
 
    Rejected: blank, the reserved `subagent-` prefix (used for deterministic
-   subagent chat ids in `eca.features.tools.agent`), embedded whitespace or
+   subagent chat ids in `eca.modules.subagents`), embedded whitespace or
    control characters (which would mangle log lines / tab-line titles), and
    ids longer than `max-client-chat-id-length` characters."
   [chat-id]
@@ -2365,15 +2657,8 @@
                   ;; server is about to apply.
                   _ (when (and seeded-default-trust? provided-chat-id)
                       (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id))]
-              (when-let [cleared-details (f.tools.task/auto-clear-completed! db* chat-id)]
-                (logger/info logger-tag "Auto-cleared completed task list" {:chat-id chat-id})
-                (lifecycle/send-content! base-chat-ctx :assistant
-                                         {:type :toolCalled
-                                          :server "eca"
-                                          :name "task"
-                                          :details cleared-details}))
               (try
-                (prompt* params base-chat-ctx)
+                (prompt-input* params base-chat-ctx)
                 (catch Exception e
                   (logger/error e)
                   (lifecycle/send-content! base-chat-ctx :system {:type :text
@@ -2438,7 +2723,8 @@
                                               :messages (f.commands/drop-dangling-tool-calls
                                                          (vec (:messages source-chat)))}
                                              (select-keys source-chat [:trust :remembered-approvals
-                                                                       :prompt-cache :startup-context])))
+                                                                       :prompt-cache :startup-context
+                                                                       :modules])))
                              ;; Mirror prompt's default-trust seeding for brand-new
                              ;; chats: explicit trust param wins, then the source
                              ;; chat's trust, then chat.defaultTrust.
@@ -2507,7 +2793,7 @@
             ;; Granular keys only exist for native tools, an MCP tool named
             ;; like one (e.g. `git`) is remembered as a whole tool.
             (if-let [{keys' :keys} (when (= :native origin)
-                                     (f.tools/tool-approval-keys tool-call-name arguments))]
+                                     (f.tools/tool-approval-keys (or full-name tool-call-name) arguments @db* config))]
               ;; Granular remember (e.g. shell commands): remember only the
               ;; derived keys instead of whitelisting the whole tool. #153
               (when (seq keys')
@@ -2666,15 +2952,20 @@
       (when-let [chat (get-in db [:chats chat-id])]
         ;; Trigger chatEnd hook BEFORE deleting (chat still exists in cache)
         (let [{:keys [agent model variant]} chat
-              hook-data (f.hooks/chat-hook-data db {:chat-id    chat-id
+              hook-data (m.hooks/chat-hook-data db {:chat-id    chat-id
                                                     :agent      agent
                                                     :full-model model
                                                     :variant    variant})]
-          (f.hooks/trigger-if-matches! :chatEnd
+          (m.hooks/trigger-if-matches! :chatEnd
                                        hook-data
                                        {}
                                        db
-                                       config)))
+                                       config)
+          (events/emit! {:db* db* :messenger messenger :metrics metrics :config config :chat-id chat-id}
+                        :chat/ended
+                        (assoc-some {:chat-id chat-id :agent agent :model model}
+                                    :variant variant
+                                    :parent-chat-id (db/parent-chat-id db chat-id)))))
       ;; Delete chat from memory; tombstone the id so the cache merge-on-write
       ;; never resurrects it from a cache file shared with another live server.
       (swap! db* (fn [db]
@@ -2683,7 +2974,12 @@
                        (update :deleted-chat-ids (fnil conj #{}) chat-id))))
       (messenger/chat-deleted messenger {:chat-id chat-id})
       ;; Delete the chat's cache file and drop it from the chats index
-      (db/delete-chat-from-cache! @db* chat-id metrics))))
+      (db/delete-chat-from-cache! @db* chat-id metrics)
+      ;; and the modules' files for it (eca.api/data-dir)
+      (try
+        (modules.data/delete-chat-dirs! @db* chat-id)
+        (catch Exception e
+          (logger/warn logger-tag "Could not delete the modules' files of the chat:" (ex-message e)))))))
 
 (defn clear-chat
   "Clear specific aspects of a chat. Currently supports clearing :messages."
@@ -2892,15 +3188,17 @@
             now (System/currentTimeMillis)
             new-title (f.commands/fork-title (:title chat))
             kept-messages (subvec messages 0 (inc target-idx))
-            new-chat {:id new-id
-                      :title new-title
-                      :status :idle
-                      :created-at now
-                      :updated-at now
-                      :model (:model chat)
-                      :last-api (:last-api chat)
-                      :messages kept-messages
-                      :prompt-finished? true}
+            new-chat (assoc-some {:id new-id
+                                  :title new-title
+                                  :status :idle
+                                  :created-at now
+                                  :updated-at now
+                                  :model (:model chat)
+                                  :last-api (:last-api chat)
+                                  :messages kept-messages
+                                  :prompt-finished? true}
+                                 ;; the modules' chat state goes with the chat
+                                 :modules (:modules chat))
             page (history/server-created-page @db* kept-messages)
             meta (when page (history/page-meta page kept-messages))]
         (swap! db* assoc-in [:chats new-id] new-chat)

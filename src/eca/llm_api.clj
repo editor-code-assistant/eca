@@ -4,25 +4,12 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.prompt :as f.prompt]
-   [eca.llm-providers.anthropic :as llm-providers.anthropic]
-   [eca.llm-providers.azure]
-   [eca.llm-providers.bedrock :as llm-providers.bedrock]
-   [eca.llm-providers.copilot]
-   [eca.llm-providers.deepseek]
-   [eca.llm-providers.errors :as llm-providers.errors]
-   [eca.llm-providers.google]
-   [eca.llm-providers.litellm]
-   [eca.llm-providers.lmstudio]
-   [eca.llm-providers.mistral]
-   [eca.llm-providers.moonshot]
-   [eca.llm-providers.ollama :as llm-providers.ollama]
-   [eca.llm-providers.openai :as llm-providers.openai]
-   [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
-   [eca.llm-providers.openrouter]
-   [eca.llm-providers.z-ai]
+   ;; the providers' multimethods (login, quota, errors) and modules
+   [eca.llm-api.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -181,39 +168,40 @@
 (defn ^:private real-model-name [model model-capabilities]
   (or (:model-name model-capabilities) model))
 
-(defn ^:private api->handler [api]
-  (case (some-> api keyword)
-    :openai-responses {:api     :openai-responses
-                       :handler llm-providers.openai/create-response!}
-    :anthropic {:api     :anthropic
-                :handler llm-providers.anthropic/chat!}
-    :openai-chat {:api     :openai-chat
-                  :handler llm-providers.openai-chat/chat-completion!}
-    :ollama {:api     :ollama
-             :handler llm-providers.ollama/chat!}
-    :bedrock {:api     :bedrock
-              :handler llm-providers.bedrock/chat!}
-    nil))
+(defn ^:private api->handler
+  "The handler of an API, e.g. `openai-chat`, from the active modules' `:apis`,
+   as `{:api :openai-chat :handler (fn [request callbacks])}`; nil when no
+   active module has it."
+  [api config]
+  (when-let [api-name (some-> api name)]
+    (when-let [[entry {:keys [handler]}] (modules/find-contribution config :apis api-name)]
+      {:api (keyword api-name)
+       :handler (fn [request callbacks]
+                  (let [ctx (modules/module-ctx {:config config} entry)]
+                    (if (:built-in? entry)
+                      (handler ctx request callbacks)
+                      (modules/invoke ctx entry (str "API " api-name) {} handler ctx request callbacks))))})))
 
 (defn provider->api-handler
   ([provider model config]
    (provider->api-handler provider model nil config))
   ([provider model model-capabilities config]
-   (or (api->handler (:api model-capabilities))
+   (or (api->handler (:api model-capabilities) config)
        (let [base-provider (config/provider-base provider config)]
          (cond
-           (= "openai" base-provider) (api->handler :openai-responses)
-           (= "anthropic" base-provider) (api->handler :anthropic)
+           (= "openai" base-provider) (api->handler :openai-responses config)
+           (= "anthropic" base-provider) (api->handler :anthropic config)
            (= "github-copilot" base-provider) (api->handler (if (copilot-responses-api-model? model)
                                                               :openai-responses
-                                                              :openai-chat))
-           (= "google" base-provider) (api->handler :openai-chat)
-           (= "ollama" base-provider) (api->handler :ollama)
+                                                              :openai-chat)
+                                                            config)
+           (= "google" base-provider) (api->handler :openai-chat config)
+           (= "ollama" base-provider) (api->handler :ollama config)
            :else (case (get-in config [:providers provider :api])
-                   ("openai-responses" "openai") (api->handler :openai-responses)
-                   "anthropic" (api->handler :anthropic)
-                   "openai-chat" (api->handler :openai-chat)
-                   "bedrock" (api->handler :bedrock)
+                   ("openai-responses" "openai") (api->handler :openai-responses config)
+                   "anthropic" (api->handler :anthropic config)
+                   "openai-chat" (api->handler :openai-chat config)
+                   "bedrock" (api->handler :bedrock config)
                    nil))))))
 
 (def ^:private reasoning-keys-by-api
@@ -257,7 +245,7 @@
 
 (defn ^:private chat-dialect
   "The chat-completions dialect of the endpoint that receives the request (see
-   `eca.llm-providers.openai-chat/transform-message`), or nil for the common one.
+   `eca.modules.providers.openai-chat/transform-message`), or nil for the common one.
    :mistral for Mistral's own API: the built-in provider (or one inheriting it),
    or any provider whose URL host is a subdomain of mistral.ai (api.mistral.ai,
    codestral.mistral.ai). Gateways serving Mistral models (OpenRouter, LiteLLM, ...)
@@ -545,12 +533,29 @@
     (assoc-in config [:providers provider :key] fresh-key)
     config))
 
+(defn ^:private tool-loop-request
+  "`result`, what `on-tools-called` returned for the next request of a tool
+   loop, after `on-before-request`: its messages and tools may change. The
+   provider keeps the first request's instructions."
+  [{:keys [new-messages tools] :as result} on-before-request instructions]
+  (let [request (on-before-request {:past-messages new-messages
+                                    :user-messages []
+                                    :instructions instructions
+                                    :tools tools})]
+    (assoc result
+           :new-messages (into (vec (:past-messages request)) (:user-messages request))
+           :tools (:tools request))))
+
 (defn sync-or-async-prompt!
+  "Sends a chat's request to its LLM and runs the tool loop.
+   `on-before-request`, optional, gets every request of the turn, the first
+   one and each tool-loop one, as `{:past-messages :user-messages
+   :instructions :tools}` and returns it, changed or not; retries resend it."
   [{:keys [provider model model-capabilities instructions user-messages config on-first-response-received
            on-message-received on-error on-prepare-tool-call on-tools-called on-reason on-usage-updated
            on-server-web-search on-server-image-generation on-history-sanitized on-response-headers
            past-messages tools provider-auth refresh-provider-auth-fn refresh-config-fn variant cancelled?
-           on-retry subagent? prompt-cache-key]
+           on-retry subagent? prompt-cache-key on-before-request]
     :or {on-first-response-received identity
          on-message-received identity
          on-error identity
@@ -562,7 +567,13 @@
          on-server-image-generation identity
          on-history-sanitized identity
          cancelled? (constantly false)}}]
-  (let [first-response-received* (atom false)
+  (let [{:keys [past-messages user-messages instructions tools]}
+        (cond-> {:past-messages past-messages
+                 :user-messages user-messages
+                 :instructions instructions
+                 :tools tools}
+          on-before-request on-before-request)
+        first-response-received* (atom false)
         ;; First generation event of the current model response. Consumed by
         ;; the next usage update, so tool-call loops start a new measurement.
         generation-start-ms* (atom nil)
@@ -593,6 +604,9 @@
                                   (reset! generation-start-ms* nil)
                                   (let [result (on-tools-called tool-calls)]
                                     (cond-> result
+                                      (and (map? result) on-before-request)
+                                      (tool-loop-request on-before-request instructions)
+
                                       (map? result) (update :tools tools-for-request))))
         on-message-received-wrapper (fn [& [message :as args]]
                                       (when (#{:text :url :refusal} (:type message))

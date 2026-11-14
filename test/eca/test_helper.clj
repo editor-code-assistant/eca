@@ -9,6 +9,9 @@
    [eca.db :as db]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
+   [eca.modules :as modules]
+   [eca.modules.built-in :as built-in]
+   [eca.modules.loader :as loader]
    [eca.shared :as shared]))
 
 (def ^:private isolated-cache-dir
@@ -19,6 +22,9 @@
   (io/file (str (fs/create-temp-dir {:prefix "eca-test-cache"}))))
 
 (alter-var-root #'cache/global-dir (constantly (constantly isolated-cache-dir)))
+
+;; what eca.main does at startup: the module runtime needs the built-in list
+(modules/set-built-ins! built-in/modules)
 
 (def windows? (string/starts-with? (System/getProperty "os.name") "Windows"))
 
@@ -128,10 +134,26 @@
 (defn reset-components! []
   (reset! config/initialization-config* {})
   (reset! config/plugin-components* nil)
+  (modules/reset-registry!)
+  (loader/reset-state!)
   (config/clear-cache!)
   (reset! components* (make-components))
   ;; Set default workspace folder for tests
   (swap! (db*) assoc :workspace-folders [{:uri (shared/filename->uri (System/getProperty "user.dir"))}]))
+
+(defn built-in-modules-with
+  "The built-in modules with these ids, the modules they require, and
+   :eca/core: a module set for `(with-redefs [modules/built-in-modules
+   (constantly ..)])`."
+  [& ids]
+  (let [all built-in/modules
+        by-id (into {} (map (juxt :id identity)) all)
+        wanted (loop [wanted #{:eca/core} pending (vec ids)]
+                 (if-let [id (first pending)]
+                   (recur (conj wanted id)
+                          (into (subvec pending 1) (remove wanted (:requires (by-id id)))))
+                   wanted))]
+    (filterv #(contains? wanted (:id %)) all)))
 
 (defn reset-components-before-test []
   (use-fixtures :each (fn [f] (reset-components!) (f))))

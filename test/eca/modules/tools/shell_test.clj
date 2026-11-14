@@ -1,0 +1,270 @@
+(ns eca.modules.tools.shell-test
+  (:require
+   [babashka.fs :as fs]
+   [babashka.process :as p]
+   [clojure.test :refer [are deftest is testing]]
+   [eca.modules.tools.shell :as m.shell]
+   [eca.shared :as shared]
+   [eca.test-helper :as h]
+   [matcher-combinators.test :refer [match?]]))
+
+(def ^:private call-state-fn (constantly {:status :executing}))
+(def ^:private state-transition-fn (constantly nil))
+
+(deftest background-command-is-not-a-tool-resource-test
+  (testing "a background job is never a tool-call resource, so stopping the chat neither waits for it nor kills it"
+    (let [events* (atom [])
+          ;; An existing dir: on Windows a temp dir that the job still uses cannot be deleted.
+          dir (System/getProperty "user.dir")
+          result ((get-in m.shell/definitions ["shell_command" :handler])
+                  {"command" "echo started" "background" "test job"}
+                  {:db {:workspace-folders [{:uri (shared/filename->uri dir) :name "project"}]}
+                   :db* (atom {})
+                   :chat-id "chat"
+                   :messenger (h/messenger)
+                   :call-state-fn call-state-fn
+                   :state-transition-fn (fn [event & _] (swap! events* conj event))})]
+      (is (match? {:contents [{:text #"Background job \S+ started"}]} result))
+      (is (empty? @events*)))))
+
+(deftest shell-command-test
+  (testing "non-existent working_directory"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text (format "working directory %s does not exist" (h/file-path "/baz"))}]}
+         (with-redefs [fs/exists? (constantly false)]
+           ((get-in m.shell/definitions ["shell_command" :handler])
+            {"command" "ls -lh"
+             "working_directory" (h/file-path "/baz")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
+  (testing "command exited with non-zero exit code"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Exit code: 1"}
+                     {:type :text
+                      :text "Stderr:\nSome error"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       p/process (constantly (future {:exit 1 :err "Some error"}))]
+           ((get-in m.shell/definitions ["shell_command" :handler])
+            {"command" "ls -lh"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
+  (testing "command succeeds"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "Exit code: 0"}
+                     {:type :text
+                      :text "Stderr:\nOther text"}
+                     {:type :text
+                      :text "Stdout:\nSome text"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       p/process (constantly (future {:exit 0 :out "Some text" :err "Other text"}))]
+           ((get-in m.shell/definitions ["shell_command" :handler])
+            {"command" "ls -lh"}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
+  (testing "command succeeds with different working directory"
+    (is (match?
+         {:error false
+          :contents [{:type :text
+                      :text "Exit code: 0"}
+                     {:type :text
+                      :text "Stdout:\nSome text"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       p/process (constantly (future {:exit 0 :out "Some text"}))]
+           ((get-in m.shell/definitions ["shell_command" :handler])
+            {"command" "ls -lh"
+             "working_directory" (h/file-path "/project/foo/src")}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn})))))
+  (testing "command exceeds timeout"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text "Command timed out after 50 ms"}]}
+         (with-redefs [fs/exists? (constantly true)
+                       p/process (constantly (future (Thread/sleep 1000) {:exit 0 :err "ok"}))]
+           ((get-in m.shell/definitions ["shell_command" :handler])
+            {"command" "ls -lh"
+             "timeout" 50}
+            {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+             :call-state-fn call-state-fn
+             :state-transition-fn state-transition-fn}))))))
+
+(deftest shell-env-injection-test
+  (testing "spawned process env marks ECA-spawned commands with chat id"
+    (let [captured-opts (atom nil)]
+      (with-redefs [fs/exists? (constantly true)
+                    p/process (fn [opts]
+                                (reset! captured-opts opts)
+                                (future {:exit 0 :out "ok"}))]
+        ((get-in m.shell/definitions ["shell_command" :handler])
+         {"command" "ls -lh"}
+         {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+          :chat-id "chat-123"
+          :call-state-fn call-state-fn
+          :state-transition-fn state-transition-fn}))
+      (is (match?
+           {:extra-env {"ECA_AGENT" "1"
+                        "ECA_CHAT_ID" "chat-123"}}
+           @captured-opts))))
+  (testing "ECA_CHAT_ID is omitted when there is no chat id"
+    (let [captured-opts (atom nil)]
+      (with-redefs [fs/exists? (constantly true)
+                    p/process (fn [opts]
+                                (reset! captured-opts opts)
+                                (future {:exit 0 :out "ok"}))]
+        ((get-in m.shell/definitions ["shell_command" :handler])
+         {"command" "ls -lh"}
+         {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+          :call-state-fn call-state-fn
+          :state-transition-fn state-transition-fn}))
+      (is (= "1" (get-in @captured-opts [:extra-env "ECA_AGENT"])))
+      (is (not (contains? (:extra-env @captured-opts) "ECA_CHAT_ID"))))))
+
+(deftest shell-stores-process-test
+  (testing "Shell command stores the process as a resource in the tool call state"
+    (let [call-state (atom nil)
+          proc (atom nil)
+          state-transition-fn (fn [event event-data]
+                                (when-not (= :resources-destroyed event)
+                                  (reset! call-state event-data)))]
+      (is (match?
+           {:error false
+            :contents [{:type :text
+                        :text "Exit code: 0"}
+                       {:type :text
+                        :text "Stdout:\nalso ok"}]}
+           (with-redefs [fs/exists? (constantly true)
+                         p/process (constantly (reset! proc (future {:exit 0 :out "also ok"})))]
+             ((get-in m.shell/definitions ["shell_command" :handler])
+              {"command" "ls -lh"}
+              {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+               :call-state-fn call-state-fn
+               :state-transition-fn state-transition-fn})))
+          "Expected the shell command to return the expected values")
+      (is (= {:resources {:process @proc}}
+             @call-state)
+          "Expected the resource in the call state to match the process"))))
+
+(deftest shell-require-approval-fn-test
+  (let [approval-fn (get-in m.shell/definitions ["shell_command" :require-approval-fn])
+        db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
+    (testing "returns nil when working_directory is not provided"
+      (is (nil? (approval-fn nil {:db db})))
+      (is (nil? (approval-fn {} {:db db}))))
+    (testing "returns nil when working_directory equals a workspace root"
+      (is (nil? (approval-fn {"working_directory" (h/file-path "/project/foo")} {:db db}))))
+    (testing "returns nil when working_directory is a subdirectory of a workspace root"
+      (is (nil? (approval-fn {"working_directory" (h/file-path "/project/foo/src")} {:db db}))))
+    (testing "returns true when working_directory is outside any workspace root"
+      (is (true? (approval-fn {"working_directory" (h/file-path "/other/place")} {:db db}))))))
+
+(deftest plan-mode-restrictions-test
+  (testing "safe commands allowed in plan mode"
+    (are [command] (match?
+                    {:error false
+                     :contents [{:type :text
+                                 :text "Exit code: 0"}
+                                {:type :text
+                                 :text "Stdout:\nSome output"}]}
+                    (with-redefs [fs/exists? (constantly true)
+                                  p/process (constantly (future {:exit 0 :out "Some output"}))]
+                      ((get-in m.shell/definitions ["shell_command" :handler])
+                       {"command" command}
+                       {:db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}
+                        :agent "plan"
+                        :call-state-fn call-state-fn
+                        :state-transition-fn state-transition-fn})))
+      "git status"
+      "ls -la"
+      "find . -name '*.clj'"
+      "grep 'test' file.txt"
+      "cat file.txt"
+      "head -10 file.txt"
+      "pwd"
+      "date"
+      "env")))
+
+(deftest shell-command-summary-test
+  (let [summary-fn (get-in m.shell/definitions ["shell_command" :summary-fn])
+        config {:toolCall {:shellCommand {:summaryMaxLength 80}}}
+        db {:workspace-folders [{:uri (h/file-uri "file:///project/foo") :name "foo"}]}]
+    (testing "strips cd prefix when path matches a workspace root"
+      (is (= "$ clojure -M:test"
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " && clojure -M:test")}
+                          :config config
+                          :db db}))))
+    (testing "strips cd prefix with semicolon separator"
+      (is (= "$ clojure -M:test"
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " ; clojure -M:test")}
+                          :config config
+                          :db db}))))
+    (testing "does not strip cd prefix when path is not a workspace root"
+      (is (= (format "$ cd %s && clojure -M:test" (h/file-path "/other/dir"))
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/other/dir") " && clojure -M:test")}
+                          :config config
+                          :db db}))))
+    (testing "handles command without cd prefix"
+      (is (= "$ ls -la"
+             (summary-fn {:args {"command" "ls -la"}
+                          :config config
+                          :db db}))))
+    (testing "handles no command argument"
+      (is (= "Preparing shell command"
+             (summary-fn {:args {}
+                          :config config
+                          :db db}))))
+    (testing "truncates long commands"
+      (is (= "$ aaaaaaaaaa..."
+             (summary-fn {:args {"command" "aaaaaaaaaaaaaaaaaaa"}
+                          :config {:toolCall {:shellCommand {:summaryMaxLength 10}}}
+                          :db db}))))
+    (testing "handles nil db gracefully"
+      (is (= (format "$ cd %s && clojure -M:test" (h/file-path "/project/foo"))
+             (summary-fn {:args {"command" (str "cd " (h/file-path "/project/foo") " && clojure -M:test")}
+                          :config config
+                          :db nil}))))
+    (testing "trims newlines in command"
+      (is (= "$ echo hello && echo world"
+             (summary-fn {:args {"command" "echo hello\n&& echo world"}
+                          :config config
+                          :db db}))))
+    (testing "trims leading and trailing whitespace"
+      (is (= "$ echo hello"
+             (summary-fn {:args {"command" "\n echo hello \n"}
+                          :config config
+                          :db db}))))))
+
+(deftest shell-command-details-test
+  (let [db {:chats {"c1" {:id "c1"
+                          :remembered-approvals {"eca__shell_command" {:remembered-command-keys #{"git status"}}}}
+                    "c1-sub" {:id "c1-sub" :parent-chat-id "c1"}
+                    "c2" {:id "c2"}}}]
+    (testing "marks remembered and not remembered commands"
+      (is (= {:type :shellCommand
+              :commands [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}
+                         {:command "rg" :args ["foo"] :approvalKey "rg" :remembered false}]}
+             (m.shell/shell-command-details "eca__shell_command" "git status && rg foo" db "c1"))))
+    (testing "remembered set is per tool name"
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
+             (:commands (m.shell/shell-command-details "eca__git" "git status" db "c1")))))
+    (testing "remembered set is per chat session, shared with its subagents"
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered true}]
+             (:commands (m.shell/shell-command-details "eca__shell_command" "git status" db "c1-sub"))))
+      (is (= [{:command "git" :args ["status"] :approvalKey "git status" :remembered false}]
+             (:commands (m.shell/shell-command-details "eca__shell_command" "git status" db "c2")))))
+    (testing "commands without approval key have no remembered flag"
+      (is (= {:type :shellCommand
+              :commands [{:command "sudo" :args ["ls"]}]}
+             (m.shell/shell-command-details "eca__shell_command" "sudo ls" db "c1"))))
+    (testing "unparseable command returns nil"
+      (is (nil? (m.shell/shell-command-details "eca__shell_command" "echo $(x)" db "c1"))))))

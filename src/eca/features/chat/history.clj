@@ -185,3 +185,13 @@
   [db messages]
   (when (incremental-updates? db)
     (window-messages messages {:limit (history-page-size db)})))
+
+(defn replayed-messages
+  "The part of a subagent chat's `messages` that one spawn_agent call ran, from
+   the `:subagent-message-range` of the call's tool-call `details`. A continued subagent runs over several calls,
+   so each call replays only its own part. Histories from before continuation
+   have no range and replay all."
+  [messages {:keys [details]}]
+  (if-let [[start end] (:subagent-message-range details)]
+    (take (- end start) (drop start messages))
+    messages))
