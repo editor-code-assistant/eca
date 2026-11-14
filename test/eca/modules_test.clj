@@ -1,5 +1,6 @@
 (ns eca.modules-test
   (:require
+   [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
@@ -46,7 +47,32 @@
       (doseq [[_ id path] links]
         (is (and (.exists (java.io.File. ^String path))
                  (string/includes? (slurp path) (str ":id :" id)))
-            (str id " links to " path))))))
+            (str id " links to " path)))))
+  (testing "each built-in module is the `module` var of a namespace under eca.modules named after its id, and listed"
+    (let [nss (for [f (file-seq (io/file "src/eca/modules"))
+                    :let [path (string/replace (str f) "\\" "/")]
+                    :when (string/ends-with? path ".clj")]
+                (-> path
+                    (subs (count "src/"))
+                    (string/replace #"\.clj$" "")
+                    (string/replace "/" ".")
+                    (string/replace "_" "-")
+                    symbol))
+          _ (run! require nss)
+          module-vars (for [ns-sym nss
+                            [var-name v] (ns-publics ns-sym)
+                            :when (#{'module 'api-module} var-name)]
+                        v)]
+      (is (= (set (map :id built-in/modules)) (set (map #(:id @%) module-vars))))
+      (doseq [v module-vars
+              :let [{:keys [id]} @v
+                    ns-name (str (:ns (meta v)))]]
+        (if (= 'module (:name (meta v)))
+          (is (string/ends-with? ns-name (str "." (name id))) (str id " in " ns-name))
+          ;; an API's module shares its provider's namespace
+          (is (and (string/starts-with? (name id) "api-")
+                   (string/starts-with? ns-name "eca.modules.providers."))
+              (str id " in " ns-name)))))))
 
 (deftest problems-test
   (testing "a minimal module is valid"

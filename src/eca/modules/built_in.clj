@@ -1,19 +1,22 @@
 (ns eca.modules.built-in
-  "The built-in modules, compiled into ECA. Each one is a `module` var in the
-   namespace of its feature."
+  "The built-in modules, compiled into ECA: each one is the `module` var of
+   its namespace under `eca.modules`, named after its id. A provider's
+   namespace also holds its API's module, `api-module`. Their order here
+   doesn't matter: modules start after the ones they require, then by
+   priority and id."
   (:require
-   [eca.modules.agents :as f.agents]
+   [eca.modules.agents :as agents]
    [eca.modules.agents.agent-code :as agent-code]
    [eca.modules.agents.agent-plan :as agent-plan]
    [eca.modules.approval :as approval]
-   [eca.modules.compact-as-summary :as tools.chat]
-   [eca.modules.core :as f.core]
+   [eca.modules.compact-as-summary :as compact-as-summary]
+   [eca.modules.core :as core]
    [eca.modules.create :as create]
    [eca.modules.custom-commands :as custom-commands]
-   [eca.modules.hooks :as f.hooks]
-   [eca.modules.mcp :as f.mcp]
-   [eca.modules.otel :as f.otel]
-   [eca.modules.plugins :as f.plugins]
+   [eca.modules.hooks :as hooks]
+   [eca.modules.mcp :as mcp]
+   [eca.modules.otel :as otel]
+   [eca.modules.plugins :as plugins]
    [eca.modules.providers.anthropic :as anthropic]
    [eca.modules.providers.azure :as azure]
    [eca.modules.providers.bedrock :as bedrock]
@@ -29,37 +32,37 @@
    [eca.modules.providers.openai-chat :as openai-chat]
    [eca.modules.providers.openrouter :as openrouter]
    [eca.modules.providers.z-ai :as z-ai]
-   [eca.modules.remote :as f.remote]
-   [eca.modules.repl :as f.repl]
+   [eca.modules.remote :as remote]
+   [eca.modules.repl :as repl]
    [eca.modules.repo-map :as repo-map]
    [eca.modules.rules :as rules]
    [eca.modules.skills :as skills]
-   [eca.modules.subagents :as tools.agent]
+   [eca.modules.subagents :as subagents]
    [eca.modules.subagents.subagent-explorer :as subagent-explorer]
    [eca.modules.subagents.subagent-general :as subagent-general]
-   [eca.modules.tools.ask-user :as tools.ask-user]
-   [eca.modules.tools.custom-tools :as tools.custom]
-   [eca.modules.tools.editor :as tools.editor]
-   [eca.modules.tools.filesystem :as tools.filesystem]
-   [eca.modules.tools.git :as tools.git]
-   [eca.modules.tools.shell :as tools.shell]
-   [eca.modules.tools.task :as tools.task]
-   [eca.modules.tools.tool-search :as tools.tool-search]))
+   [eca.modules.tools.ask-user :as ask-user]
+   [eca.modules.tools.custom-tools :as custom-tools]
+   [eca.modules.tools.editor :as editor]
+   [eca.modules.tools.filesystem :as filesystem]
+   [eca.modules.tools.git :as git]
+   [eca.modules.tools.shell :as shell]
+   [eca.modules.tools.task :as task]
+   [eca.modules.tools.tool-search :as tool-search]))
 
 (set! *warn-on-reflection* true)
 
 (def modules
-  [f.core/module
+  [core/module
    ;; tools
-   tools.filesystem/module
-   tools.shell/module
-   tools.git/module
-   tools.editor/module
-   tools.ask-user/module
-   tools.task/module
+   filesystem/module
+   shell/module
+   git/module
+   editor/module
+   ask-user/module
+   task/module
    ;; agents
-   f.agents/module
-   tools.agent/module
+   agents/module
+   subagents/module
    agent-code/module
    agent-plan/module
    subagent-explorer/module
@@ -67,21 +70,21 @@
    ;; skills, rules, tool search
    skills/module
    rules/module
-   tools.tool-search/module
+   tool-search/module
    ;; MCP
-   f.mcp/module
+   mcp/module
    ;; user extensions
-   tools.custom/module
+   custom-tools/module
    custom-commands/module
-   f.hooks/module
-   f.plugins/module
+   hooks/module
+   plugins/module
    ;; chat behavior
    approval/module
-   tools.chat/module
+   compact-as-summary/module
    create/module
    ;; editor features
    repo-map/module
-   ;; APIs
+   ;; APIs, each in its provider's namespace
    anthropic/api-module
    bedrock/api-module
    ollama/api-module
@@ -103,6 +106,6 @@
    openrouter/module
    z-ai/module
    ;; optional, off by default
-   f.remote/module
-   f.otel/module
-   f.repl/module])
+   remote/module
+   otel/module
+   repl/module])
