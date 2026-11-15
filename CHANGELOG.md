@@ -10,6 +10,7 @@
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
+- Add dark mode to the docs site: it follows the OS and the header toggle persists, and document installing the CLI with `mise` at eca.dev/install#cli.
 
 ## 0.171.1
 
