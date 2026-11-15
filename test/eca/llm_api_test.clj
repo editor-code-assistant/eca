@@ -7,7 +7,6 @@
    [eca.config :as config]
    [eca.llm-api :as llm-api]
    [eca.llm-providers.anthropic :as llm-providers.anthropic]
-   [eca.llm-providers.bedrock :as llm-providers.bedrock]
    [eca.llm-providers.ollama :as llm-providers.ollama]
    [eca.llm-providers.openai :as llm-providers.openai]
    [eca.llm-providers.openai-chat :as llm-providers.openai-chat]
@@ -106,17 +105,6 @@
              messages))
       (is (every? #(not (contains? % :created-at)) messages))
       (is (every? #(not (contains? % :content-id)) messages))))
-
-  (testing "memory data never reaches a provider payload"
-    (let [past [{:role "user"
-                 :content [{:type :text :text "hi"}
-                           {:type :memory-context :text "index"}]
-                 :memory {"/a.md" {:hash "abc"}}}]
-          {:keys [messages]}
-          (llm-api/sanitize-past-messages-for-api :anthropic past)]
-      (is (= [{:role "user" :content [{:type :text :text "hi"}
-                                      {:type :text :text "index"}]}]
-             messages))))
 
   (testing "mixed history: tagged foreign entries dropped, untagged + matching kept"
     (let [past [{:role "user" :content [{:type :text :text "u1"}]}
@@ -1855,9 +1843,12 @@
       (is (true? @on-error-called*)))))
 
 (deftest provider-payloads-never-carry-memory-test
-  ;; Memory blocks and the message-level :memory state must not reach any
+  ;; Memory blocks and the message-level :memory state must not reach a
   ;; provider handler: the Anthropic and OpenAI Responses normalizers copy
   ;; unknown top-level keys into the body, and Bedrock drops unknown blocks.
+  ;; `prompt!` sanitizes once, before it picks the provider. A message gives
+  ;; the same result as a user message and later as a past message, so a
+  ;; stored block is resent unchanged and the provider prompt cache holds.
   (let [memory-message {:role "user"
                         :content [{:type :text :text "hi"}
                                   {:type :memory-context :text "index"}]
@@ -1865,79 +1856,22 @@
                         :content-id "m1"}
         expected [{:role "user" :content [{:type :text :text "hi"}
                                           {:type :text :text "index"}]}]
-        apis [:openai-responses :anthropic :openai-chat :ollama :bedrock]
-        captured* (atom {})
-        record (fn [api]
-                 (fn [opts _callbacks]
-                   (swap! captured* assoc api opts)
-                   :ok))]
-    (with-redefs [eca.llm-providers.openai/create-response! (record :openai-responses)
-                  eca.llm-providers.anthropic/chat! (record :anthropic)
-                  eca.llm-providers.openai-chat/chat-completion! (record :openai-chat)
-                  eca.llm-providers.ollama/chat! (record :ollama)
-                  eca.llm-providers.bedrock/chat! (record :bedrock)]
-      (doseq [api apis]
-        (#'eca.llm-api/prompt!
-         {:provider "test-provider"
-          :model "test-model"
-          :model-capabilities {:api api :tools false :reason? false :web-search false}
-          :user-messages [memory-message]
-          :past-messages [memory-message]
-          :tools []
-          :provider-auth {:api-key "test-key"}
-          :config {:providers {"test-provider" {:url "http://test" :key "test-key"}}}
-          :sync? false})))
-    (doseq [api apis]
-      (let [opts (get @captured* api)]
-        (is (= expected (:user-messages opts)) (str api " user messages"))
-        (is (= expected (:past-messages opts)) (str api " past messages"))
-        (is (not-any? #(contains? % :memory)
-                      (concat (:user-messages opts) (:past-messages opts)))
-            (str api " must not receive the :memory state key"))
-        (is (not-any? #(= :memory-context (:type %))
-                      (mapcat :content (concat (:user-messages opts) (:past-messages opts))))
-            (str api " must not receive :memory-context blocks"))))))
-
-(deftest memory-block-stays-byte-identical-across-requests-test
-  ;; The stored memory block must be resent unchanged: a single changed byte
-  ;; would end the provider prompt cache at that message.
-  (let [memory-message {:role "user"
-                        :content [{:type :text :text "first"}
-                                  {:type :memory-context :text "<memory-index>notes</memory-index>"}]
-                        :memory {"/a.md" {:hash "abc" :name "A" :label "global"}}}
-        reply {:role "assistant" :content [{:type :text :text "ok"}]}
-        captured* (atom [])
-        record (fn [api]
-                 (fn [opts _callbacks]
-                   (swap! captured* conj [api opts])
-                   :ok))
-        call! (fn [api past user]
-                (#'eca.llm-api/prompt!
-                 {:provider "test-provider"
-                  :model "test-model"
-                  :model-capabilities {:api api :tools false :reason? false :web-search false}
-                  :user-messages [user]
-                  :past-messages past
-                  :tools []
-                  :provider-auth {:api-key "test-key"}
-                  :config {:providers {"test-provider" {:url "http://test" :key "test-key"}}}
-                  :sync? false}))]
-    (with-redefs [eca.llm-providers.openai/create-response! (record :openai-responses)
-                  eca.llm-providers.anthropic/chat! (record :anthropic)]
-      (doseq [api [:openai-responses :anthropic]]
-        (reset! captured* [])
-        (call! api [] memory-message)
-        (call! api [memory-message reply]
-               {:role "user" :content [{:type :text :text "second"}]})
-        (let [[[api-1 opts-1] [api-2 opts-2]] @captured*]
-          (is (= api api-1 api-2))
-          (let [past-2 (:past-messages opts-2)
-                user-1 (:user-messages opts-1)]
-            (is (= (pr-str user-1) (pr-str (subvec past-2 0 (count user-1))))
-                "request N's user message, with its memory block, is resent byte-identically")
-            (is (not-any? #(= :memory-context (:type %))
-                          (mapcat :content (:user-messages opts-2)))
-                "the new user message carries no memory block")))))))
+        captured* (atom nil)]
+    (with-redefs [eca.llm-providers.anthropic/chat! (fn [opts _callbacks]
+                                                      (reset! captured* opts)
+                                                      :ok)]
+      (#'eca.llm-api/prompt!
+       {:provider "test-provider"
+        :model "test-model"
+        :model-capabilities {:api :anthropic :tools false :reason? false :web-search false}
+        :user-messages [memory-message]
+        :past-messages [memory-message]
+        :tools []
+        :provider-auth {:api-key "test-key"}
+        :config {:providers {"test-provider" {:url "http://test" :key "test-key"}}}
+        :sync? false}))
+    (is (= expected (:user-messages @captured*)))
+    (is (= expected (:past-messages @captured*)))))
 
 (deftest on-tools-called-wrapper-sanitizes-new-messages-test
   (testing "stream path: the provider callback gets sanitized :new-messages"

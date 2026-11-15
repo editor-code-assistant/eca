@@ -15,7 +15,6 @@
    [eca.features.memory.render :as render]
    [eca.features.memory.usage :as usage]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.shared :as shared]))
 
@@ -99,9 +98,10 @@
       {:text (:content full-index) :kind "full"}
       {:text changes :kind "changes"})))
 
-(defn ^:private render-full-index
+(defn render-full-index
   "The full index of `entries` with the configured caps, or nil when nothing
-   fits (see `render/index-context`)."
+   fits (see `render/index-context`). `/memories` uses it too, so the command
+   shows the same selection that a chat gets."
   [entries config]
   (render/index-context {:entries entries
                          :max-entries (memory/index-max-entries config)
@@ -112,9 +112,7 @@
 
    `window` is what the model will see: `shared/messages-after-last-compact-marker`
    of the chat messages. Returns
-   `{:block {:text <string> :memory <state map>} or nil
-     :entries <scan entries>
-     :render <full index render or nil>}`,
+   `{:block {:text <string> :memory <state map>} or nil}`,
    or nil on any error: a memory problem must never stop a prompt (fail open)."
   [{:keys [chat-id db config metrics window]}]
   (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
@@ -141,34 +139,7 @@
             (metrics/count-up! "memory-block-added" {:kind (:kind text+kind)} metrics))
           {:block (when text+kind
                     {:text (:text text+kind)
-                     :memory current})
-           :entries entries
-           :render full-index}))
+                     :memory current})}))
       (catch Throwable e
         (logger/warn logger-tag "Memory block failed; continuing without memory" e)
         nil))))
-
-(defn index-loaded-params
-  "Payload of the `memory/indexLoaded` notification: the notes a full index
-   would show NOW, not an exact record of what the model saw (own writes and
-   change lists can differ)."
-  [chat-id entries rendered]
-  {:chat-id chat-id
-   :count (or (:item-count rendered) 0)
-   :total-count (count entries)
-   :items (or (:items rendered) [])})
-
-(defn notify-index-loaded!
-  "Scans the store and sends one `memory/indexLoaded` notification for `chat-id`.
-   Nothing when memory is disabled or the chat is a subagent; a scan error sends
-   nothing (fail open, logged). No fingerprint, no dedupe: this describes the
-   current store, not the exact content the model saw."
-  [{:keys [chat-id db config messenger]}]
-  (when (memory/enabled-for-chat? db config chat-id)
-    (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
-      (try
-        (let [entries (usage/ranked-memories db)]
-          (messenger/memory-index-loaded messenger
-                                         (index-loaded-params chat-id entries (render-full-index entries config))))
-        (catch Throwable e
-          (logger/warn logger-tag "Memory index notification failed" e))))))

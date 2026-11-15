@@ -955,7 +955,7 @@
    command is refused (see `steer-refused-command`). /btw runs immediately
    instead (`steer-divertible-commands`) and /compact has its own boundary
    handling. #610"
-  #{"sync-system-prompt" "costs" "context" "chats" "skills" "rules" "subagents"
+  #{"sync-system-prompt" "costs" "context" "chats" "skills" "rules" "memories" "subagents"
     "plugins" "hooks" "prompt-show" "repo-map-show" "doctor" "config" "remote"
     "debug-chat" "export" "approvals" "forget-approvals"})
 
@@ -2273,17 +2273,6 @@
                                 ;; count as an added block.
                                 :metrics (when (= :prompt-message (:type decision)) metrics)
                                 :window window}))
-            ;; The client indicator describes the notes a full index would show
-            ;; now. It reuses this turn's scan, so a normal prompt costs one
-            ;; scan in total.
-            _ (when (and (= :prompt-message (:type decision))
-                         memory-delivery)
-                (messenger/memory-index-loaded
-                 messenger
-                 (f.memory.delivery/index-loaded-params
-                  chat-id
-                  (:entries memory-delivery)
-                  (:render memory-delivery))))
             user-messages [(with-memory-block
                              {:role "user"
                               :content (vec (concat [{:type :text :text message}]
@@ -3086,12 +3075,6 @@
          (mark-editor-open! db* chat-id)
          (messenger/chat-cleared messenger {:chat-id chat-id :messages true})
          (messenger/chat-opened messenger (assoc-some {:chat-id chat-id} :title title))
-         ;; A resumed chat gets the current store counts, so the client
-         ;; indicator is right also after a restart.
-         (f.memory.delivery/notify-index-loaded! {:chat-id chat-id
-                                                  :db @db*
-                                                  :config config
-                                                  :messenger messenger})
          (send-chat-contents! messages chat-ctx)
          (lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
          (let [model-selection (config/notify-selected-model-changed!

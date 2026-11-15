@@ -1,7 +1,8 @@
 (ns eca.features.memory.render
   "Renders the memory context blocks that ride user messages (a full index or
    a change list), the memory guidance text placed in the static system
-   instructions, and the /memory-consolidate usage snapshot."
+   instructions, the /memory-consolidate usage snapshot, and the /memories
+   listing."
   (:require
    [clojure.java.io :as io]
    [clojure.string :as string]
@@ -519,3 +520,62 @@
                            skipped)))
                    ["" "_Note: reads and last-read ages count local `read_file` consultations only._"]))
      "No memory directories configured.")))
+
+(defn ^:private memories-entry-lines
+  "The lines of one note in the /memories text: its index line, then its file
+   (relative to its memory dir) and its tags."
+  [entry dir]
+  [(entry-line entry)
+   (str "  File: " (entry-relative-path dir (:path entry))
+        (when (seq (:tags entry))
+          (str ", tags: " (string/join ", " (:tags entry)))))])
+
+(defn memories-text
+  "Chat text of the /memories command. It is for the user and is never sent to
+   the model. First how many notes the full index lists now, then each memory
+   dir with its notes in index order (the notes that the index does not list
+   come last, under their own line), and at the end the files that the scan
+   skipped.
+
+   `entries` has the shape of `eca.features.memory.usage/ranked-memories` and
+   `index` is their full index (see `index-context`), or nil when there is
+   none. `max-entries` and `max-tokens` are the configured caps; they are
+   shown only when they hide notes. Notes are grouped by `:label`, like in the
+   index."
+  [{:keys [dirs entries skipped index max-entries max-tokens]}]
+  (let [listed? (comp (into #{} (map :path) (:items index)) :path)
+        by-label (group-by :label entries)
+        total (count entries)
+        listed (count (filter listed? entries))]
+    (string/join
+     "\n"
+     (concat
+      [(cond
+         (zero? total)
+         "No memories saved yet."
+
+         (= listed total)
+         (str "Memories in the index: " listed " of " total ".")
+
+         :else
+         (str "Memories in the index: " listed " of " total "."
+              " Limits: `memory.index.maxEntries` " max-entries
+              ", `memory.index.maxTokens` " max-tokens "."
+              " The agent can still find the other memories with its file tools."))]
+      (mapcat (fn [{:keys [dir label tier]}]
+                (let [notes (get by-label label)
+                      lines (fn [notes] (mapcat #(memories-entry-lines % dir) notes))]
+                  (concat ["" (str "### " label (when (= :personal tier) " (project)"))
+                           (str "Directory: " dir)]
+                          (if (seq notes)
+                            (concat (lines (filter listed? notes))
+                                    (when-let [hidden (seq (remove listed? notes))]
+                                      (concat ["" "Not in the index:"] (lines hidden))))
+                            ["(no memories)"]))))
+              dirs)
+      (when (seq skipped)
+        (concat ["" "### Skipped files"
+                 "Not indexed. Fix or delete them, or run `/memory-consolidate`."]
+                (map (fn [{:keys [path reason]}]
+                       (str "- " path " — " reason))
+                     skipped)))))))

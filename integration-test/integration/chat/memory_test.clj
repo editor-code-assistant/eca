@@ -1,20 +1,17 @@
 (ns integration.chat.memory-test
   "End-to-end coverage of the file-based memory feature: with
    `memory.enabled: true` a full memory index block is stored in the first user
-   message, reaches the LLM provider request (through real config plumbing, real
-   workspace/memory dirs and the mock LLM server), and the
-   `memory/indexLoaded` notification is emitted; a second prompt reuses the
-   stored block without adding one; with memory disabled (the default) nothing
-   memory-related is sent at all."
+   message and reaches the LLM provider request (through real config plumbing,
+   real workspace/memory dirs and the mock LLM server); a second prompt reuses
+   the stored block without adding one; with memory disabled (the default)
+   nothing memory-related is sent at all."
   (:require
    [babashka.fs :as fs]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
    [integration.fixture :as fixture]
-   [llm-mock.mocks :as llm.mocks]
-   [matcher-combinators.matchers :as m]
-   [matcher-combinators.test :refer [match?]]))
+   [llm-mock.mocks :as llm.mocks]))
 
 (eca/clean-after-test)
 
@@ -52,14 +49,6 @@
                                         :message "Hello"}))
             chat-id (:chatId prompt-resp)]
         (is (string? chat-id))
-
-        (testing "memory/indexLoaded notification carries the seeded memory"
-          (let [n (eca/client-awaits-server-notification :memory/indexLoaded)]
-            (is (match? {:chatId chat-id
-                         :count 1
-                         :totalCount 1
-                         :items (m/embeds [{:name "Integration gotcha"}])}
-                        n))))
 
         (drain-until-progress-finished! chat-id)
 

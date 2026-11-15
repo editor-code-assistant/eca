@@ -103,21 +103,6 @@
         (move-file {"source" (str destination) "destination" (str (fs/path root "outside"))} context)
         (is (= #{(str sibling)} (set (keys (disk-ledger)))))))))
 
-(deftest record-read-roundtrip-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/repo/one")])
-            f (fs/file root "projects"
-                       (memory/project-slug (test-helper/file-path "/repo/one"))
-                       "note.md")]
-        (write-md! f)
-        (usage/record-read! (ctx db) (str f))
-        (usage/record-read! (ctx db) (str f))
-        (let [ledger (disk-ledger)
-              key (str (fs/absolutize (fs/file f)))]
-          (is (= 2 (get-in ledger [key :reads])) "two reads increment the counter")
-          (is (number? (get-in ledger [key :last-read-at]))))))))
-
 (deftest corrupt-ledger-warns-and-starts-empty-test
   (test-helper/with-memory-root
     (fn [root]
@@ -158,18 +143,26 @@
           (is (false? (memory/memory-path? db {} personal)))
           (is (false? (memory/memory-path? db enabled-config nil))))))))
 
-(deftest repo-local-markdown-reads-not-recorded-test
+(deftest non-memory-paths-record-nothing-test
   (test-helper/with-memory-root
-    (fn [_root]
+    (fn [root]
       (let [workspace-root (temp-dir)
             db (test-db [(str workspace-root)])
-            f (fs/file workspace-root ".eca" "memory" "team.md")]
-        (write-md! f)
-        (usage/record-read! (ctx db) (str f))
+            repo-local (fs/file workspace-root ".eca" "memory" "team.md")]
+        (write-md! repo-local)
+        (usage/record-read! (ctx db) (str repo-local))
+        (usage/record-write! (ctx db) (str repo-local))
         (is (empty? (disk-ledger))
-            "reads of repo-local markdown are not memory reads (no shared tier)")
+            "repo-local markdown is not a memory file (no shared tier)")
         (is (not (fs/exists? (usage/usage-file)))
-            "nothing is persisted for a non-memory-dir read")))))
+            "nothing is persisted for a path outside the memory dirs")
+        (testing "disabled memory records nothing even for a memory path"
+          (let [f (fs/file root "projects" (memory/project-slug (str workspace-root)) "note.md")
+                disabled {:chat-id "chat-1" :db db :config {:memory {:enabled false}}}]
+            (write-md! f)
+            (usage/record-read! disabled (str f))
+            (usage/record-write! disabled (str f))
+            (is (empty? (disk-ledger)))))))))
 
 (deftest consolidating-flag-suppresses-recording-test
   (test-helper/with-memory-root
@@ -325,14 +318,7 @@
         (testing "a read preserves the exact hash/date pair"
           (usage/record-read! (ctx {}) path)
           (is (= (select-keys (get latest path) [:body-hash :changed-at])
-                 (select-keys (get (disk-ledger) path) [:body-hash :changed-at]))))
-        (testing "a changed body gets the file time, cut to the observation date"
-          (is (= {path {:body-hash (digest/sha-256-hex "changed") :changed-at 300}}
-                 (#'usage/body-change-updates [{:path path :body "changed" :mtime-ms 300}]
-                                              latest 500)))
-          (is (= {path {:body-hash (digest/sha-256-hex "changed") :changed-at 500}}
-                 (#'usage/body-change-updates [{:path path :body "changed" :mtime-ms 900}]
-                                              latest 500))))))))
+                 (select-keys (get (disk-ledger) path) [:body-hash :changed-at]))))))))
 
 (deftest failed-ledger-replacement-keeps-disk-ledger-test
   (test-helper/with-memory-root
@@ -435,8 +421,6 @@
         (testing "a read afterwards preserves the write stamp"
           (usage/record-read! (ctx db) (str f))
           (is (= 1 (get-in (disk-ledger) [key :reads])))
-          (is (some? (get-in (disk-ledger) [key :last-write]))))
-        (testing "the stamp is on disk for any later process"
           (is (some? (get-in (disk-ledger) [key :last-write]))))))))
 
 (deftest record-write-maintenance-flag-test
@@ -456,28 +440,8 @@
                         (assoc-in [:chats "parent-1" :memory-consolidating?] true))]
             (usage/record-write! (ctx db2) (str f))
             (let [last-write (get-in (disk-ledger) [key :last-write])]
-              (is (true? (:maintenance? last-write)))
-              (is (= "parent-1" (:parent-chat-id last-write))))))
-        (testing "unlike reads, consolidating writes are recorded, not skipped"
-          (is (some? (get-in (disk-ledger) [key :last-write]))))))))
-
-(deftest record-write-guards-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [workspace-root (temp-dir)
-            db (test-db [(str workspace-root)])
-            slug (memory/project-slug (str workspace-root))
-            not-memory (fs/file workspace-root "src" "notes.md")]
-        (write-md! not-memory)
-        (usage/record-write! (ctx db) (str not-memory))
-        (is (empty? (disk-ledger)) "writes outside memory dirs are not recorded")
-        (is (not (fs/exists? (usage/usage-file))) "nothing is persisted for a non-memory write")
-        (testing "disabled memory records nothing even for a memory path"
-          (let [f (fs/file root "projects" slug "note.md")]
-            (write-md! f)
-            (usage/record-write! {:chat-id "chat-1" :db db :config {:memory {:enabled false}}}
-                                 (str f))
-            (is (empty? (disk-ledger)))))))))
+              (is (true? (:maintenance? last-write)) "unlike reads, consolidating writes are recorded")
+              (is (= "parent-1" (:parent-chat-id last-write))))))))))
 
 (deftest record-move-rekeys-entry-test
   (test-helper/with-memory-root

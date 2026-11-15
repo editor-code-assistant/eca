@@ -52,14 +52,6 @@
              :content [{:type :text :text "hi"}
                        {:type :image :media-type "image/png" :base64 "aa"}]})))))
 
-(deftest sanitize-outbound-messages-test
-  (testing "returns a vector of fully sanitized messages"
-    (is (= [{:role "user" :content [{:type :text :text "hi"}]}
-            {:role "user" :content [{:type :text :text (:text memory-block)}]}]
-           (message-sanitize/sanitize-outbound-messages
-            [{:role "user" :content [{:type :text :text "hi"}] :content-id "c1"}
-             {:role "user" :content [memory-block] :memory {"/a.md" {:hash "abc"}}}])))))
-
 (deftest remove-memory-context-test
   (testing "removes memory blocks and the :memory key, keeps the rest"
     (is (= {:role "user" :content [{:type :text :text "hi"}] :content-id "c1"}

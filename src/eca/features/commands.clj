@@ -334,7 +334,11 @@
                        :arguments []}]
         eca-commands (cond-> eca-commands
                        (f.memory/enabled? config)
-                       (conj {:name "memory-consolidate"
+                       (conj {:name "memories"
+                              :type :native
+                              :description "List saved memories and show which ones the memory index includes."
+                              :arguments []}
+                             {:name "memory-consolidate"
                               :type :native
                               :description "Review, merge and clean up durable memory files"
                               :arguments [{:name "scope"
@@ -602,6 +606,21 @@
          (str "Path-scoped rules (only a catalog is included in the system prompt; load full content with fetch_rule using the rule id and target path):\n\n"
               (reduce (fn [s rule] (str s (format-rule rule false))) "" visible-path-scoped))))
       "No rules available for the current agent and model.")))
+
+(defn ^:private memories-msg
+  "Text of `/memories`: the notes of the chat's memory dirs, which of them the
+   full index lists now, and the files that the scan skipped. The index is
+   built like the one a chat gets (`f.memory.delivery/render-full-index`). It
+   describes the store now, not the blocks this chat already got."
+  [db config]
+  (let [entries (f.memory.usage/ranked-memories db)]
+    (f.memory.render/memories-text
+     {:dirs (f.memory/memory-dirs db)
+      :entries entries
+      :skipped (f.memory/skipped-files db)
+      :index (f.memory.delivery/render-full-index entries config)
+      :max-entries (f.memory/index-max-entries config)
+      :max-tokens (f.memory/index-max-tokens config)})))
 
 (defn ^:private fmt-tokens
   "Formats a token count compactly (e.g. 5300 -> \"5.3k\")."
@@ -983,12 +1002,6 @@
                                       (update :deleted-chat-ids (fnil conj #{}) selected-chat-id))))
                      (db/save-chat! @db* chat-id metrics)
                      (db/delete-chat-from-cache! @db* selected-chat-id metrics)
-                     ;; The resumed chat gets the current memory counts; it does
-                     ;; not go through open-chat!.
-                     (f.memory.delivery/notify-index-loaded! {:chat-id chat-id
-                                                              :db @db*
-                                                              :config config
-                                                              :messenger messenger})
                      ;; Align the client's selected model with the resumed chat
                      ;; so the LLM call keeps using the chat's original model. #417
                      (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat) chat-id)
@@ -1272,6 +1285,10 @@
                     msg (rules-msg config roots agent full-model all-tools)]
                 {:type :chat-messages
                  :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}})
+      ;; The scan and the usage ledger log, so they need the chat context.
+      "memories" (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
+                   {:type :chat-messages
+                    :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (memories-msg db config)}]}]}}})
       "prompt-show" {:type :chat-messages
                      :chats {chat-id {:messages [{:role "system"
                                                   :content [{:type :text

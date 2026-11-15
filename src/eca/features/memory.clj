@@ -30,7 +30,7 @@
 
 (defn enabled-for-chat?
   "True when memory is enabled and `chat-id` is not a subagent chat. Subagents
-   get no memory: no guidance, no memory blocks, no index notification."
+   get no memory: no guidance and no memory blocks."
   [db config chat-id]
   (and (enabled? config)
        (not (get-in db [:chats chat-id :subagent]))))
@@ -159,8 +159,8 @@
 
 (defn memory-path?
   "True when memory is enabled and `path` is inside one of the chat's memory
-   dirs. The one place that answers this question for trust, validation, the
-   usage ledger and the file-change tag. `path` is normalized with `abs-path`
+   dirs. The one place that answers this question for trust, validation and
+   the usage ledger. `path` is normalized with `abs-path`
    first, so ledger keys join with scan entries."
   [db config path]
   (boolean
@@ -452,8 +452,7 @@
                                                                ;; overwritten by the usage ledger's body-hash
                                                                ;; stamp in `usage/enrich`, so consumers never
                                                                ;; choose between two timestamps. `:mtime-ms`
-                                                               ;; keeps the file time: `list-memories` returns
-                                                               ;; it on the protocol, and the ledger seeds a
+                                                               ;; keeps the file time: the ledger seeds a
                                                                ;; first `:changed-at` from it.
                                                                :updated-at-ms mtime-ms))
                               (skip acc path (:skip result)))))))
@@ -493,23 +492,8 @@
   "Vector of `{:path :tier :label :reason}` for memory files found in
    `(memory-dirs db)` that are excluded from `scan-memories`: they failed to
    read or parse, or they are links to a file outside the memory dirs. Used by
-   /memory-consolidate so broken files are fixable instead of invisible."
+   /memory-consolidate and /memories so broken files are fixable instead of
+   invisible."
   [db]
   (into [] (comp (mapcat :skipped) (distinct-paths)) (scan-dirs db)))
 
-(defn list-memories
-  "Public protocol shape for memory panels: vector of
-   `{:path :tier (string) :name :description :type :tags :label :mtime-ms}`
-   in memory-directory order, newest actual file mtime first within each
-   directory. Usage enrichment is not needed for the public list."
-  [db]
-  (mapv (fn [{:keys [path tier name description type tags label mtime-ms]}]
-          {:path path
-           :tier (clojure.core/name tier)
-           :name name
-           :description description
-           :type type
-           :tags tags
-           :label label
-           :mtime-ms mtime-ms})
-        (scan-memories db)))

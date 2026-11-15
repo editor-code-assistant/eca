@@ -180,7 +180,7 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable durable memory: scanning, memory blocks in prompts, and the memory protocol methods."
+          "description": "Enable durable memory: scanning, memory blocks in prompts, and the /memories and /memory-consolidate commands."
         },
         "writeMode": {
           "type": "string",

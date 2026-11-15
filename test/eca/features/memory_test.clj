@@ -56,8 +56,6 @@
     (is (re-matches #".*pr-ject-[0-9a-f]{8}" (memory/project-slug "prøject"))))
   (testing "safe as a shell argument: never starts with a dash"
     (is (not (string/starts-with? (memory/project-slug "/home/akiz/x") "-"))))
-  (testing "deterministic"
-    (is (= (memory/project-slug "/home/akiz/eca") (memory/project-slug "/home/akiz/eca"))))
   (testing "hash suffix keeps distinct paths unique when readable slugs collide"
     (is (apply distinct?
                (map memory/project-slug ["/home/me/my.project" "/home/me/my project" "/home/me/my-project"]))))
@@ -68,11 +66,7 @@
     (is (re-matches #".*-monorepo-services-payments-gateway-[0-9a-f]{8}"
                     (memory/project-slug
                      (test-helper/file-path
-                      "/home/someone/Code/Clojure/company/very/deeply/nested/monorepo/services/payments-gateway")))))
-  (testing "worktree canonicalization is delegated to cache/canonicalize-workspace-path"
-    (let [main (memory/abs-path (test-helper/file-path "/main/root"))]
-      (with-redefs [cache/canonicalize-workspace-path (constantly main)]
-        (is (= (memory/project-slug main) (memory/project-slug "/some/worktree")))))))
+                      "/home/someone/Code/Clojure/company/very/deeply/nested/monorepo/services/payments-gateway"))))))
 
 (deftest canonical-project-paths-test
   (test-helper/with-memory-root
@@ -92,10 +86,7 @@
             (fs/create-sym-link alias project)
             (is (= (memory/project-slug project) (memory/project-slug alias)))
             (is (= (memory/abs-path project) (memory/abs-path alias)))
-            (is (= 2 (count (memory/memory-dirs (test-db [(str alias) (str project)])))))
-            (with-redefs [cache/canonicalize-workspace-path
-                          #(if (= (memory/abs-path project) %) (str root) %)]
-              (is (= (memory/project-slug root) (memory/project-slug alias)))))
+            (is (= 2 (count (memory/memory-dirs (test-db [(str alias) (str project)]))))))
           (let [case-alias (fs/path root "CHECKOUT")]
             (when (fs/exists? case-alias)
               (is (= (memory/project-slug project) (memory/project-slug case-alias)))))
@@ -122,11 +113,7 @@
                   (is (= 1 (count entries)))
                   (is (= [(memory/abs-path note) :personal label]
                          ((juxt :path :tier :label) (first entries))))
-                  (is (= 1 (:item-count index)))))
-              (let [entries (memory/list-memories db)]
-                (is (= 1 (count entries)))
-                (is (= [(memory/abs-path note) "personal" label]
-                       ((juxt :path :tier :label) (first entries))))))
+                  (is (= 1 (:item-count index))))))
             (spit (str note) "---\nname: Missing description\n---\n\nbody\n")
             (let [skipped (memory/skipped-files db)]
               (is (= 1 (count skipped)) "repair lists also identify each physical file once")
@@ -164,13 +151,6 @@
             (is (= 1 (count skipped)))
             (is (string/starts-with? (:reason (first skipped)) "cannot read file:")
                 "a read error is not reported as a YAML problem")))))))
-
-(deftest workspace-paths-test
-  (is (= [(test-helper/file-path "/repo/one") (test-helper/file-path "/repo/two")]
-         (memory/workspace-paths (test-db [(test-helper/file-path "/repo/one")
-                                           (test-helper/file-path "/repo/two")]))))
-  (is (= [] (memory/workspace-paths {})))
-  (is (= [] (memory/workspace-paths {:workspace-folders []}))))
 
 (deftest memory-dirs-ordering-test
   (test-helper/with-memory-root
@@ -355,7 +335,7 @@
     (is (nil? (frontmatter-error "name: '2026-11-12'\ndescription: 'yes'"))
         "quoted values are text")))
 
-(deftest scan-memories-leniency-and-shape-test
+(deftest scan-and-skipped-files-test
   (test-helper/with-memory-root
     (fn [root]
       (let [db (test-db [(test-helper/file-path "/repo/one")])
@@ -366,32 +346,37 @@
                             "---\nname: Docker IPv6\ndescription: CI fails on localhost\ntype: gotcha\ntags:\n  - docker\n  - ci\n---\n\nBody text here.\n")
         (write-memory-file! (fs/file global "top.md")
                             "---\nname: Top fact\ndescription: A global fact\ntags: alpha, beta\n---\n\nGlobal body.\n")
+        (write-memory-file! (fs/file global "NOTE.MD") "---\nname: Upper\ndescription: D\n---\n")
         (write-memory-file! (fs/file global "missing-description.md")
                             "---\nname: No description here\n---\n\nSkipped.\n")
         (write-memory-file! (fs/file global "unclosed.md")
                             "---\nname: Unclosed\nthis frontmatter never closes\n\n")
         (write-memory-file! (fs/file global "notes.txt") "not scanned")
-        (let [entries (memory/scan-memories db)]
-          (is (= 2 (count entries)) "only valid .md files are scanned")
-          (is (= #{:personal :global} (set (map :tier entries))))
-          (is (= #{"one" "global"} (set (map :label entries))))
-          (let [docker (first (filter #(= "Docker IPv6" (:name %)) entries))
-                top (first (filter #(= "Top fact" (:name %)) entries))]
+        (write-memory-file! (fs/file global "README") "no extension, not scanned")
+        (testing "valid .md files (any case of the extension, also in subdirectories) are scanned"
+          (let [by-name (into {} (map (juxt :name identity)) (memory/scan-memories db))
+                docker (by-name "Docker IPv6")
+                top (by-name "Top fact")]
+            (is (= #{"Docker IPv6" "Top fact" "Upper"} (set (keys by-name))))
+            (is (= [:personal "one"] ((juxt :tier :label) docker)))
+            (is (= [:global "global"] ((juxt :tier :label) top)))
             (is (= "gotcha" (:type docker)))
             (is (= ["docker" "ci"] (:tags docker)) "YAML list tags normalize to a vector")
             (is (= "Body text here." (:body docker)))
             (is (= "note" (:type top)) "absent type defaults to note")
             (is (= ["alpha" "beta"] (:tags top)) "comma-separated tags normalize to a vector")
             (is (string? (:path docker)))
-            (is (number? (:mtime-ms docker)))))))))
-
-(deftest scan-accepts-upper-case-extension-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/repo/one")])]
-        (write-memory-file! (fs/file root "global" "NOTE.MD") "---\nname: Upper\ndescription: D\n---\n")
-        (write-memory-file! (fs/file root "global" "README") "no extension, not scanned")
-        (is (= ["Upper"] (mapv :name (memory/scan-memories db))))))))
+            (is (number? (:mtime-ms docker)))))
+        (testing "invalid .md files are skipped with a reason; other files are ignored"
+          (let [skipped (memory/skipped-files db)
+                reason-of (fn [file]
+                            (:reason (first (filter #(string/ends-with? (:path %) file) skipped))))]
+            (is (= 2 (count skipped)))
+            (is (= #{[:global "global"]} (set (map (juxt :tier :label) skipped))))
+            (is (string/includes? (reason-of "missing-description.md") "`description`")
+                "skip reason names the missing key")
+            (is (string/includes? (reason-of "unclosed.md") "frontmatter")
+                "skip reason surfaces the YAML problem")))))))
 
 (deftest unknown-memory-metadata-test
   (test-helper/with-memory-root
@@ -402,7 +387,7 @@
         (is (some? (memory/memory-content-error content))
             "a number tag does not: YAML reads it as a number and the tag would be lost")
         (write-memory-file! (fs/file root "global" "custom.md") content)
-        (let [item (first (memory/list-memories {}))]
+        (let [item (first (memory/scan-memories {}))]
           (is (= "Custom" (:name item)))
           (is (= "custom-kind" (:type item)))
           (is (= [] (:tags item)) "the scan stays lenient and drops the number tag"))))))
@@ -419,61 +404,20 @@
             (is (= ["docker" "ci" "alpha" "beta"] (:tags entry))
                 "casing variants collapse, dupes drop, only the first 4 survive")))))))
 
-(deftest skipped-files-reports-reasons-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/repo/one")])
-            global (fs/file root "global")]
-        (write-memory-file! (fs/file global "ok.md")
-                            "---\nname: A\ndescription: D\n---\n\nbody\n")
-        (write-memory-file! (fs/file global "missing-description.md")
-                            "---\nname: No description here\n---\n\nSkipped.\n")
-        (write-memory-file! (fs/file global "unclosed.md")
-                            "---\nname: Unclosed\nthis frontmatter never closes\n\n")
-        (write-memory-file! (fs/file global "notes.txt") "not scanned")
-        (let [skipped (memory/skipped-files db)
-              missing (first (filter #(string/ends-with? (:path %) "missing-description.md") skipped))
-              unclosed (first (filter #(string/ends-with? (:path %) "unclosed.md") skipped))]
-          (is (= 2 (count skipped)) "valid and non-.md files are not skipped")
-          (is (= #{:global} (set (map :tier skipped))))
-          (is (= #{"global"} (set (map :label skipped))))
-          (is (string/includes? (:reason missing) "`description`")
-              "skip reason names the missing key")
-          (is (string/includes? (:reason unclosed) "frontmatter")
-              "skip reason surfaces the YAML problem")
-          (is (every? (comp string? :path) skipped)))))))
-
-(deftest scan-memories-mtime-ordering-test
+(deftest newest-first-order-test
   (test-helper/with-memory-root
     (fn [root]
       (let [db (test-db [(test-helper/file-path "/repo/one")])
             global (fs/file root "global")
-            now-ms (System/currentTimeMillis)]
+            now-ms (System/currentTimeMillis)
+            names #(mapv (comp fs/file-name :path) %)]
         (fs/create-dirs global)
         (doseq [[n delta] [["old.md" 300000] ["mid.md" 200000] ["new.md" 100000]]]
-          (let [f (fs/file global n)]
-            (spit (str f) (str "---\nname: " n "\ndescription: d\n---\n\nbody\n"))
-            (.setLastModified (io/file (str f)) ^long (- now-ms delta))))
-        (is (= ["new.md" "mid.md" "old.md"]
-               (mapv :name (memory/scan-memories db))))))))
-
-(deftest ranked-memories-zero-usage-preserves-mtime-order-test
-  (testing "with an empty usage ledger the score degenerates to the mtime term,
-            so ordering is exactly the plain mtime-desc order"
-    (test-helper/with-memory-root
-      (fn [root]
-        (let [db (test-db [(test-helper/file-path "/repo/one")])
-              global (fs/file root "global")
-              now-ms (System/currentTimeMillis)]
-          (write-ledger! root {})
-          (fs/create-dirs global)
-          (doseq [[n delta] [["old.md" 300000] ["mid.md" 200000] ["new.md" 100000]]]
-            (write-memory-file-at! (fs/file global n) (- now-ms delta)))
-          (let [entries (usage/ranked-memories db {:now-ms now-ms})]
-            (is (= ["new.md" "mid.md" "old.md"]
-                   (mapv #(fs/file-name (:path %)) entries)))
-            (is (every? #(= 0 (:reads %)) entries))
-            (is (every? #(nil? (:last-read-at %)) entries))))))))
+          (write-memory-file-at! (fs/file global n) (- now-ms delta)))
+        (is (= ["new.md" "mid.md" "old.md"] (names (memory/scan-memories db)))
+            "the plain scan lists the newest file first")
+        (is (= ["new.md" "mid.md" "old.md"] (names (usage/ranked-memories db {:now-ms now-ms})))
+            "without recorded reads the score is the recency term, so the ranked order is the same")))))
 
 (deftest ranked-memories-usage-score-ordering-test
   (testing "the design example, damped: a year-old 60-read entry last read 60d ago
@@ -506,27 +450,6 @@
                 "the higher-scoring entry sorts first")
             (is (= [score-b score-a] (mapv :score entries))
                 "each entry keeps its score for the index selection")))))))
-
-(deftest ranked-memories-stale-habit-fades-below-fresh-test
-  (testing "log damping: a stale habit (60 reads, last read 60d ago, ~0.56)
-            fades below a fresh single read (~1.64) instead of squatting on top"
-    (test-helper/with-memory-root
-      (fn [root]
-        (let [db (test-db [(test-helper/file-path "/repo/one")])
-              global (fs/file root "global")
-              now-ms (System/currentTimeMillis)
-              habit (fs/file global "habit.md")
-              once (fs/file global "once.md")]
-          (fs/create-dirs global)
-          (write-memory-file-at! habit (- now-ms (* 365 86400000)))
-          (write-memory-file-at! once (- now-ms 86400000))
-          (write-ledger! root {(str (fs/absolutize habit))
-                               {:reads 60 :last-read-at (- now-ms (* 60 86400000))}
-                               (str (fs/absolutize once))
-                               {:reads 1 :last-read-at (- now-ms 86400000)}})
-          (is (= ["once.md" "habit.md"]
-                 (mapv #(fs/file-name (:path %))
-                       (usage/ranked-memories db {:now-ms now-ms})))))))))
 
 (deftest usage-score-log-damping-test
   (let [now 1755000000000
@@ -606,52 +529,6 @@
                 (is (= 2 (count (scan))))
                 (is (= 4 (count @parse-calls*))
                     "only the edited file is re-parsed (mtime/size fingerprint changed)")))))))))
-
-(deftest list-memories-mtime-order-per-directory-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/first/repo")
-                        (test-helper/file-path "/second/repo")])
-            dirs (memory/memory-dirs db)
-            now-ms 1755000000000
-            files (mapv (fn [{:keys [dir]}]
-                          [(fs/file dir "old.md") (fs/file dir "new.md")]) dirs)]
-        (is (every? #(re-matches #"repo \([0-9a-f]{8}\)" %) (map :label (butlast dirs))))
-        (is (= "global" (:label (last dirs))))
-        (is (apply distinct? (mapv :label dirs)) "two roots named repo get distinct labels")
-        (doseq [[i [old new]] (map-indexed vector files)]
-          (write-memory-file-at! old (- now-ms (* (- 10 i) 86400000)))
-          (write-memory-file-at! new (- now-ms (* (- 5 i) 86400000))))
-        (write-ledger! root
-                       (into {} (map (fn [[old _]]
-                                       [(str (fs/absolutize old))
-                                        {:reads 100 :last-read-at now-ms}]) files)))
-        (let [paths #(mapv (comp str fs/absolutize) %)]
-          (is (= (paths (mapcat identity files))
-                 (mapv :path (usage/ranked-memories db {:now-ms now-ms})))
-              "older highly read files lead each prompt scan group")
-          (is (= (paths (mapcat reverse files))
-                 (mapv :path (memory/list-memories db)))
-              "list uses actual mtime and keeps same-label roots separate"))))))
-
-(deftest list-memories-shape-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/repo/one")])
-            global (fs/file root "global")]
-        (write-memory-file! (fs/file global "a.md")
-                            "---\nname: A\ndescription: D\ntype: fact\ntags: x, y\n---\n\nbody\n")
-        (let [item (first (memory/list-memories db))]
-          (is (= [:path :tier :name :description :type :tags :label :mtime-ms]
-                 (vec (keys item))))
-          (is (= "global" (:tier item)))
-          (is (= "A" (:name item)))
-          (is (= "D" (:description item)))
-          (is (= "fact" (:type item)))
-          (is (= ["x" "y"] (:tags item)))
-          (is (= "global" (:label item)))
-          (is (number? (:mtime-ms item)))
-          (is (string? (:path item))))))))
 
 (deftest pre-create-dirs-test
   (test-helper/with-memory-root

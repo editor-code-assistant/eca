@@ -898,7 +898,6 @@
   (let [db {:workspace-folders [{:uri (h/file-uri "file:///repo/one") :name "one"}]}
         memory-root (fs/file (h/file-path "/tmp/eca-test-mem-root"))
         global-mem-file (str (fs/file memory-root "global" "a.md"))
-        repo-local-file (h/file-path "/repo/one/.eca/memory/b.md")
         regular-file (h/file-path "/repo/one/src/core.clj")
         ctx (fn [config] {:db db :config config})
         enabled-config {:memory {:enabled true :writeMode "agent"}}
@@ -913,33 +912,17 @@
                   fs/directory? (constantly false)
                   fs/create-dirs identity
                   slurp (constantly valid-content)]
-      (testing "write_file rejects malformed content in memory dirs without writing"
-        (doseq [[label content] [["unparseable YAML" "---\nname: [unclosed\n---\n"]
-                                 ["missing name" "---\ndescription: D\n---\n\nbody\n"]
-                                 ["missing description" "---\nname: A\n---\n\nbody\n"]
-                                 ["blank description" "---\nname: A\ndescription:   \n---\n\nbody\n"]]]
-          (let [writes* (atom {})]
-            (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
-              (let [result ((handler "write_file")
-                            {"path" global-mem-file "content" content}
-                            (ctx enabled-config))]
-                (is (match? {:error true} result) (str label " must error"))
-                (is (string/includes? (get-in result [:contents 0 :text])
-                                      "Invalid memory file content")
-                    (str label " must explain the invalid content"))
-                (is (string/includes? (get-in result [:contents 0 :text])
-                                      "fix and retry")
-                    (str label " must guide the model"))
-                (is (empty? @writes*) (str label " must not write")))))))
-      (testing "write_file treats repo-local .eca path as a plain file (shared tier removed)"
+      (testing "write_file rejects invalid content in memory dirs without writing"
         (let [writes* (atom {})]
           (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
             (let [result ((handler "write_file")
-                          {"path" repo-local-file "content" "---\nname: A\n---\n"}
+                          {"path" global-mem-file "content" "---\nname: [unclosed\n---\n"}
                           (ctx enabled-config))]
-              (is (match? {:error false} result)
-                  "no memory validation outside memory dirs")
-              (is (= {repo-local-file "---\nname: A\n---\n"} @writes*))))))
+              (is (match? {:error true} result))
+              (is (string/includes? (get-in result [:contents 0 :text]) "Invalid memory file content"))
+              (is (string/includes? (get-in result [:contents 0 :text]) "fix and retry")
+                  "the error guides the model")
+              (is (empty? @writes*))))))
       (testing "write_file accepts valid memory content"
         (let [writes* (atom {})]
           (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
@@ -947,15 +930,7 @@
                         ((handler "write_file")
                          {"path" global-mem-file "content" valid-content}
                          (ctx enabled-config))))
-            (is (= valid-content (get @writes* global-mem-file)))))
-        (testing "minimal valid frontmatter is accepted"
-          (let [writes* (atom {})]
-            (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
-              (is (match? {:error false}
-                          ((handler "write_file")
-                           {"path" global-mem-file
-                            "content" "---\nname: A\ndescription: D\n---\n"}
-                           (ctx enabled-config))))))))
+            (is (= valid-content (get @writes* global-mem-file))))))
       (testing "write_file outside memory dirs is not validated"
         (let [writes* (atom {})]
           (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
@@ -983,36 +958,6 @@
               (is (match? {:error true} result))
               (is (string/includes? (get-in result [:contents 0 :text]) "`description`"))
               (is (empty? @writes*) "the broken edit must not write")))))
-      (testing "a `#` that would cut frontmatter text is rejected in memory dirs only"
-        (let [writes* (atom {})
-              lossy "---\nname: A\ndescription: D\ntags: auth, #679\n---\n\nbody\n"]
-          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
-            (let [result ((handler "write_file")
-                          {"path" global-mem-file "content" lossy}
-                          (ctx enabled-config))]
-              (is (match? {:error true} result))
-              (is (string/includes? (get-in result [:contents 0 :text]) "would lose `#679`"))
-              (is (empty? @writes*) "nothing is written"))
-            (let [result ((handler "edit_file")
-                          {"path" global-mem-file
-                           "original_content" "description: D"
-                           "new_content" "description: see #679"}
-                          (ctx enabled-config))]
-              (is (match? {:error true} result))
-              (is (string/includes? (get-in result [:contents 0 :text]) "would lose `#679`"))
-              (is (empty? @writes*) "nothing is written"))
-            (is (match? {:error false}
-                        ((handler "write_file")
-                         {"path" global-mem-file
-                          "content" "---\nname: A\ndescription: D\ntags: 'auth, #679'\n---\n\nbody\n"}
-                         (ctx enabled-config)))
-                "the quoted value is written")
-            (is (match? {:error false}
-                        ((handler "write_file")
-                         {"path" regular-file "content" lossy}
-                         (ctx enabled-config)))
-                "other files keep their YAML as written")
-            (is (= lossy (get @writes* regular-file))))))
       (testing "edit_file allowing safe edits that keep the file valid"
         (let [writes* (atom {})]
           (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]

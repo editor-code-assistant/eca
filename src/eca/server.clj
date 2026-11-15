@@ -231,9 +231,6 @@
 (defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
   (async-notify (handlers/chat-selected-model-changed (with-config components) params)))
 
-(defmethod jsonrpc.server/receive-request "memory/list" [_ components params]
-  (eventually (handlers/memory-list (with-config components) params)))
-
 (defmethod jsonrpc.server/receive-request "jobs/list" [_ components params]
   (eventually (handlers/jobs-list (with-config components) params)))
 
@@ -339,10 +336,7 @@
                                                                             :include-declaration include-declaration))))
   (ask-question [_this params]
     (jsonrpc.server/discarding-stdout
-     (jsonrpc.server/send-request server "chat/askQuestion" params)))
-  (memory-index-loaded [_this params]
-    (jsonrpc.server/discarding-stdout
-     (jsonrpc.server/send-notification server "memory/indexLoaded" params))))
+     (jsonrpc.server/send-request server "chat/askQuestion" params))))
 
 (defn ^:private ->Metrics [db*]
   (if-let [otlp-config (:otlp (config/all @db*))]

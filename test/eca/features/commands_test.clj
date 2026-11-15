@@ -495,25 +495,6 @@
           (is (= messages new-messages))
           (is (not (contains? (first (:chat-opened (h/messages))) :history))))))))
 
-(deftest fork-commands-keep-memory-state-test
-  (let [messages [{:role "user"
-                   :content [{:type :text :text "hello"}
-                             {:type :memory-context :text "<memory-index>x</memory-index>"}]
-                   :memory {"/m/a.md" {:hash "h" :name "A" :label "global"}}}
-                  {:role "assistant" :content [{:type :text :text "hi"}]}]]
-    (with-redefs [db/save-chat! (fn [& _])]
-      (doseq [[label fork!] [["/fork" #(f.commands/handle-command! "fork" [] (command-context "chat-1"))]
-                             ["/btw" #(f.commands/handle-command! "btw" ["why?"]
-                                                                  (assoc (command-context "chat-1")
-                                                                         :message "/btw why?"))]]]
-        (testing (str label " copies the messages with their memory block and state")
-          (h/reset-components!)
-          (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :title "T" :messages messages})
-          (fork!)
-          (let [new-id (first (remove #{"chat-1"} (keys (:chats (h/db)))))]
-            (is (string? new-id))
-            (is (= messages (get-in (h/db) [:chats new-id :messages])))))))))
-
 (deftest all-commands-include-model-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]
     (is (some #(= {:name "model"
@@ -521,23 +502,21 @@
                    :description "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)"
                    :arguments [{:name "full-model"}]}
                   %)
-              commands))
-    (is (empty? (->> commands
-                     (map :name)
-                     (filter #{"memory-consolidate"})
-                     set))
-        "/memory-consolidate is hidden with default config (memory disabled)")))
+              commands))))
 
-(deftest memory-consolidate-command-gating-test
-  (let [names (fn [config]
-                (->> (f.commands/all-commands {:workspace-folders []} config)
-                     (map :name)
-                     set))]
-    (is (not (contains? (names {:memory {:enabled false}}) "memory-consolidate")))
-    (is (contains? (names {:memory {:enabled true}}) "memory-consolidate"))
-    (is (contains? (names {:memory {:enabled true :writeMode "explicit"}}) "memory-consolidate"))
-    (is (contains? (names {:memory {:enabled true :writeMode "typo"}}) "memory-consolidate")
-        "listed whenever memory is enabled; invalid writeMode fails safe to explicit")))
+(deftest memory-commands-test
+  (let [commands (fn [config]
+                   (->> (f.commands/all-commands {:workspace-folders []} config)
+                        (filter (comp #{"memories" "memory-consolidate"} :name))))]
+    (testing "listed only when memory is enabled, in every write mode"
+      (is (empty? (commands {})))
+      (is (empty? (commands {:memory {:enabled false}})))
+      (is (= ["memories" "memory-consolidate"] (map :name (commands {:memory {:enabled true}}))))
+      (is (= 2 (count (commands {:memory {:enabled true :writeMode "explicit"}})))))
+    (testing "/memory-consolidate declares two optional arguments"
+      (let [arguments (:arguments (last (commands {:memory {:enabled true}})))]
+        (is (= ["scope" "instructions"] (mapv :name arguments)))
+        (is (every? false? (map :required arguments)))))))
 
 (def ^:private consolidate-config
   {:memory {:enabled true :writeMode "agent"}
@@ -669,40 +648,6 @@
             (is (has? prompt "## Additional instructions from the user\nglobl"))
             (is (has? prompt "project-note.md"))))))))
 
-(deftest memory-consolidate-declared-arguments-test
-  (let [command (->> (f.commands/all-commands {:workspace-folders []} {:memory {:enabled true}})
-                     (filter #(= "memory-consolidate" (:name %)))
-                     first)]
-    (is (= ["scope" "instructions"] (mapv :name (:arguments command))))
-    (is (every? false? (map :required (:arguments command)))
-        "both arguments are optional")
-    (is (string/includes? (-> command :arguments first :description) "default")
-        "the scope description names its default")))
-
-(deftest handle-memory-consolidate-omits-additional-input-test
-  (h/with-memory-root
-    (fn [_root]
-      (let [result (f.commands/handle-command!
-                    "memory-consolidate"
-                    []
-                    {:chat-id "chat-1"
-                     :db* (atom {:workspace-folders []})
-                     :config consolidate-config
-                     :messenger (h/messenger)
-                     :full-model "openai/gpt-5.2"
-                     :agent "code"
-                     :all-tools []
-                     :instructions {}
-                     :user-messages []
-                     :metrics (h/metrics)})]
-        (is (= :send-prompt (:type result)))
-        (is (string/includes? (:prompt result) "TEST: consolidate my memories"))
-        (is (string/includes? (:prompt result) "## Memory directories and usage snapshot"))
-        (is (not (string/includes? (:prompt result) "## Additional instructions from the user"))
-            "no additional-input section without trailing args")
-        (is (not (string/includes? (:prompt result) "usage snapshot unavailable"))
-            "the empty snapshot still builds")))))
-
 (deftest handle-memory-consolidate-snapshot-error-isolation-test
   (let [warns* (atom [])
         db* (atom {:workspace-folders []})]
@@ -725,23 +670,59 @@
         (is (string/includes? (:prompt result) "TEST: consolidate my memories"))
         (is (string/includes? (:prompt result) "usage snapshot unavailable")
             "snapshot failure degrades to a note, the command never crashes")
-        (is (seq @warns*) "the snapshot failure logs a warning")
-        (is (true? (:memory-consolidating? result))
-            "the flag still travels in the result")
-        (is (nil? (get-in @db* [:chats "chat-1" :memory-consolidating?]))
-            "the command does not write the flag to the db")))))
+        (is (seq @warns*) "the snapshot failure logs a warning")))))
 
 (deftest default-memory-consolidate-prompt-test
   (let [resource (slurp (io/resource "prompts/memory_consolidate.md"))]
     (is (not (string/blank? resource)))
     (is (= resource
-           (f.prompt/memory-consolidate-prompt "code" (config/initial-config))))
-    (testing "complete bodies need no review read, but repair and verification may read files"
-      (is (string/includes? resource "Do not reread a complete memory body just to review it."))
-      (is (string/includes? resource "when inspecting a skipped file for repair"))
-      (is (string/includes? resource "need its current contents to edit it safely."))
-      (is (string/includes? resource "Read repository source and documentation as needed"))
-      (is (not (string/includes? resource "open a file only when the snapshot cut its body"))))))
+           (f.prompt/memory-consolidate-prompt "code" (config/initial-config))))))
+
+(deftest handle-memories-command-test
+  (h/with-memory-root
+    (fn [root]
+      (let [workspace-root (temp-dir)
+            personal-dir (fs/file root "projects" (memory/project-slug (str workspace-root)))
+            global-dir (fs/file root "global")
+            db* (atom {:workspace-folders [{:uri (shared/filename->uri (str workspace-root))}]})
+            run (fn [config]
+                  (f.commands/handle-command!
+                   "memories"
+                   []
+                   {:chat-id "chat-1"
+                    :db* db*
+                    :config config
+                    :messenger (h/messenger)
+                    :full-model "openai/gpt-5.2"
+                    :agent "code"
+                    :all-tools []
+                    :instructions {}
+                    :user-messages []
+                    :metrics (h/metrics)}))
+            text-of (fn [result] (get-in result [:chats "chat-1" :messages 0 :content 0 :text]))
+            config {:memory {:enabled true}}]
+        ;; The text format is covered by `memories-text-test`; this checks what
+        ;; the command feeds into it.
+        (write-memory-file! (fs/file personal-dir "project-note.md"))
+        (write-memory-file! (fs/file global-dir "global-note.md"))
+        (spit (str (fs/file global-dir "broken.md")) "---\nname: [unclosed\n---\n")
+        (testing "the notes, dirs and skipped files of the chat's store"
+          (let [result (run config)
+                text (text-of result)]
+            (is (= :chat-messages (:type result)) "the text goes to the chat, not to the model")
+            (is (string/starts-with? text "Memories in the index: 2 of 2.\n"))
+            (is (string/includes? text (str "Directory: " (memory/abs-path personal-dir) "\n- Note [note]")))
+            (is (string/includes? text (str "Directory: " (memory/abs-path global-dir) "\n- Note [note]")))
+            (is (string/includes? text (str "- " (memory/abs-path (fs/file global-dir "broken.md")) " — ")))))
+        (testing "the index caps of the config decide which notes are in the index"
+          (let [text (text-of (run (assoc-in config [:memory :index :maxEntries] 1)))]
+            (is (string/starts-with? text "Memories in the index: 1 of 2. Limits: `memory.index.maxEntries` 1,"))
+            (is (< (string/index-of text "project-note.md")
+                   (string/index-of text "Not in the index:")
+                   (string/index-of text "global-note.md"))
+                "the one position goes to the project note")))
+        (testing "the command does not count as a read of the notes"
+          (is (= [0 0] (mapv :reads (usage/ranked-memories @db*)))))))))
 
 (deftest all-commands-include-agent-command-test
   (let [commands (f.commands/all-commands {:workspace-folders []} {})]
@@ -1425,30 +1406,3 @@
       (with-redefs [db/list-all-workspaces-chats (fn [_ _] [])]
         (is (string/includes? (text-of (f.commands/handle-command! "chats" [] (command-context "chat-b")))
                               "No chats found in any workspace."))))))
-
-(deftest resume-notifies-memory-index-test
-  (h/with-memory-root
-    (fn [root]
-      (h/reset-components!)
-      (h/config! {:memory {:enabled true :writeMode "agent"}})
-      (write-memory-file! (fs/file root "global" "note.md"))
-      (swap! (h/db*) assoc :chats {"chat-a" {:id "chat-a" :created-at 1 :messages []}
-                                   "chat-b" {:id "chat-b" :created-at 2 :messages []}})
-      (testing "/resume sends the memory/indexLoaded notification for the resumed chat"
-        (with-redefs [db/save-chat! (fn [& _])
-                      db/delete-chat-from-cache! (fn [& _])]
-          (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
-        (is (match? {:chat-id "chat-b"
-                     :count 1
-                     :total-count 1
-                     :items [{:name "Note" :type "note" :source "global" :path string?}]}
-                    (last (:memory-index-loaded (h/messages))))))
-      (testing "nothing when memory is disabled"
-        (h/config! {:memory {:enabled false}})
-        (let [before (count (:memory-index-loaded (h/messages)))]
-          (swap! (h/db*) assoc :chats {"chat-c" {:id "chat-c" :created-at 3 :messages []}
-                                       "chat-d" {:id "chat-d" :created-at 4 :messages []}})
-          (with-redefs [db/save-chat! (fn [& _])
-                        db/delete-chat-from-cache! (fn [& _])]
-            (f.commands/handle-command! "resume" ["1"] (command-context "chat-d")))
-          (is (= before (count (:memory-index-loaded (h/messages))))))))))

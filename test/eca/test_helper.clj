@@ -98,9 +98,7 @@
       (cond
         (instance? Throwable v) (throw v)
         (= v :block) (promise)
-        :else (future v))))
-  (memory-index-loaded [_ params]
-    (swap! messages* update :memory-index-loaded (fnil conj []) params)))
+        :else (future v)))))
 
 (defn stub-messenger
   "An IMessenger for tests exercising only some methods: each method calls the
@@ -129,7 +127,6 @@
       (editor-definition [_ uri position] (call :editor-definition uri position))
       (editor-references [_ uri position include-declaration]
         (call :editor-references uri position include-declaration))
-      (memory-index-loaded [_ params] (call :memory-index-loaded params))
       (ask-question [_ params] (call :ask-question params)))))
 
 (defn ^:private make-components []

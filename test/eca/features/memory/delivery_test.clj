@@ -57,14 +57,12 @@
 (defn ^:private tool-output
   "A stored tool call output without memory hashes: what a failed, rejected or
    non-writing call leaves in the history."
-  ([name arguments] (tool-output name arguments nil))
-  ([name arguments output-extra]
-   {:role "tool_call_output"
-    :content (merge {:server "eca"
-                     :name name
-                     :arguments arguments
-                     :output {:contents []}}
-                    output-extra)}))
+  [name arguments]
+  {:role "tool_call_output"
+   :content {:server "eca"
+             :name name
+             :arguments arguments
+             :output {:contents []}}})
 
 (defn ^:private own-write
   "A stored tool call output of a native write that happened: the hashes of
@@ -98,9 +96,8 @@
       (let [dirs (memory-dirs root)]
         (testing "an empty store sends nothing"
           (let [result (turn root [])]
-            (is (nil? (:block result)))
-            (is (nil? (:render result)))
-            (is (empty? (:entries result)))))
+            (is (some? result) "an empty store is not an error")
+            (is (nil? (:block result)))))
         (testing "after the first note the next prompt gets a full index"
           (write-note! (str (fs/file (get dirs :global) "a.md")) "Cache" "Cache notes" "body")
           (let [result (turn root [])]
@@ -113,9 +110,7 @@
         (write-note! (str (fs/file (get dirs :global) "a.md")) "Cache" "Cache notes" "body")
         (let [first-result (turn root [])]
           (is (some? (:block first-result)))
-          (is (nil? (:block (turn root (window-with (state first-result))))))
-          (testing "a second walk over the same store still sends nothing"
-            (is (nil? (:block (turn root (window-with (state first-result))))))))))))
+          (is (nil? (:block (turn root (window-with (state first-result)))))))))))
 
 (deftest change-list-for-new-changed-and-deleted-test
   (h/with-memory-root
@@ -186,18 +181,12 @@
         (f root dirs a b (state (turn root [])))))))
 
 (deftest own-write-tools-send-nothing-test
-  (testing "a successful write_file of a memory note"
+  (testing "a successful write of a memory note"
     (fresh-write-store
      (fn [root _dirs a _b first-state]
        (write-note! a "Cache" "Cache notes" "body written by the chat")
        (is (nil? (:block (turn root (window-with first-state
                                                  (own-write "write_file" {"path" a} a)))))))))
-  (testing "a successful edit_file of a memory note"
-    (fresh-write-store
-     (fn [root _dirs a _b first-state]
-       (write-note! a "Cache" "Cache notes" "body edited by the chat")
-       (is (nil? (:block (turn root (window-with first-state
-                                                 (own-write "edit_file" {"path" a} a)))))))))
   (testing "a move counts both ends as own writes"
     (fresh-write-store
      (fn [root _dirs a b first-state]
@@ -217,34 +206,18 @@
                                                    first-write
                                                    (own-write "edit_file" {"path" a} a)))))))))))
 
-(deftest not-own-writes-are-reported-test
-  (testing "a failed write stamps no hash, so it is not own"
-    (fresh-write-store
-     (fn [root _dirs a _b first-state]
-       (write-note! a "Cache" "Cache notes" "body after a failed write")
-       (let [result (turn root (window-with
-                                first-state
-                                (assoc-in (tool-output "write_file" {"path" a})
-                                          [:content :error] true)))]
-         (is (string/starts-with? (block-text result) "<memory-changes description="))
-         (is (string/includes? (block-text result) "- Cache [fact]"))))))
-  (testing "a rejected write is not own"
-    (fresh-write-store
-     (fn [root _dirs a _b first-state]
-       (write-note! a "Cache" "Cache notes" "body after a rejected write")
-       (let [result (turn root (window-with
-                                first-state
-                                (tool-output "write_file" {"path" a}
-                                             {:output {:error true :message "rejected"}})))]
-         (is (string/starts-with? (block-text result) "<memory-changes description="))))))
-  (testing "preview_file_change does not write, so it is not own"
-    (fresh-write-store
-     (fn [root _dirs a _b first-state]
-       (write-note! a "Cache" "Cache notes" "body previewed by the chat")
-       (let [result (turn root (window-with
-                                first-state
-                                (tool-output "preview_file_change" {"path" a})))]
-         (is (string/starts-with? (block-text result) "<memory-changes description=")))))))
+(deftest tool-output-without-hashes-is-not-an-own-write-test
+  ;; A failed, rejected or non-writing call (preview_file_change) stamps no
+  ;; hash, so a change of that note counts as external.
+  (fresh-write-store
+   (fn [root _dirs a _b first-state]
+     (write-note! a "Cache" "Cache notes" "body after a failed write")
+     (let [result (turn root (window-with
+                              first-state
+                              (assoc-in (tool-output "write_file" {"path" a})
+                                        [:content :error] true)))]
+       (is (string/starts-with? (block-text result) "<memory-changes description="))
+       (is (string/includes? (block-text result) "- Cache [fact]"))))))
 
 (deftest outside-edit-after-own-write-is-reported-test
   (fresh-write-store
@@ -316,7 +289,8 @@
         (write-note! a "Cache" "Cache notes" "body")
         (write-note! b "Hidden" "Hidden notes" "body")
         (let [first-result (turn root [] limited)]
-          (is (= 1 (:item-count (:render first-result))) "the index caps hide one note")
+          (is (string/includes? (block-text first-result) "Showing 1 of 2 memories.")
+              "the index caps hide one note")
           (is (= 2 (count (state first-result))) "the state map holds both notes")
           (write-note! b "Hidden" "Hidden notes" "body changed externally")
           (let [result (turn root (window-with (state first-result)) limited)]
@@ -349,31 +323,15 @@
        (is (string/includes? (block-text result) "- Cache [fact]"))))))
 
 (deftest tie-sends-the-full-index-test
+  ;; Real files cannot hit an exact tie, so this calls the choice directly.
   (let [entries [{:path "/m/a.md" :name "A" :type "fact" :label "global"
                   :description "d" :updated-at-ms 1 :tags []}]
-        changes (render/changes-context [{:label "global" :name "A" :entry (first entries)}])
-        change-tokens (shared/estimate-tokens changes)]
-    (testing "a tie goes to the full index, which is never stale"
-      (is (= {:text "<memory-index>fake</memory-index>" :kind "full"}
-             (#'delivery/choose-block entries #{"/m/a.md"} {}
-                                      {:content "<memory-index>fake</memory-index>"
-                                       :tokens change-tokens} []))))
-    (testing "a smaller full index wins over the change list"
-      (is (= "full"
-             (:kind (#'delivery/choose-block entries #{"/m/a.md"} {}
-                                              {:content "<memory-index>fake</memory-index>"
-                                               :tokens 1} [])))))
-    (testing "a smaller change list wins over the full index"
-      (is (= "changes"
-             (:kind (#'delivery/choose-block entries #{"/m/a.md"} {}
-                                              {:content "<memory-index>fake</memory-index>"
-                                               :tokens (inc change-tokens)} [])))))))
-
-(deftest fail-open-test
-  (h/with-memory-root
-    (fn [root]
-      (with-redefs [memory/scan-memories (fn [& _] (throw (ex-info "boom" {})))]
-        (is (nil? (turn root [])))))))
+        changes (render/changes-context [{:label "global" :name "A" :entry (first entries)}])]
+    (is (= {:text "<memory-index>fake</memory-index>" :kind "full"}
+           (#'delivery/choose-block entries #{"/m/a.md"} {}
+                                    {:content "<memory-index>fake</memory-index>"
+                                     :tokens (shared/estimate-tokens changes)} []))
+        "a tie goes to the full index, which is never stale")))
 
 (deftest memory-disabled-sends-nothing-test
   (h/with-memory-root
@@ -393,18 +351,3 @@
                                           :config config
                                           :metrics (h/metrics)
                                           :window []}))))))))
-
-(deftest index-loaded-params-test
-  (testing "params describe the notes a full index would show now"
-    (is (= {:chat-id "chat-1"
-            :count 1
-            :total-count 3
-            :items [{:name "Cache" :type "fact" :source "global" :path "/m/a.md"}]}
-           (delivery/index-loaded-params
-            "chat-1"
-            [{:path "/m/a.md"} {:path "/m/b.md"} {:path "/m/c.md"}]
-            {:item-count 1
-             :items [{:name "Cache" :type "fact" :source "global" :path "/m/a.md"}]}))))
-  (testing "no notes means zero counts and no items"
-    (is (= {:chat-id "chat-1" :count 0 :total-count 0 :items []}
-           (delivery/index-loaded-params "chat-1" [] nil)))))

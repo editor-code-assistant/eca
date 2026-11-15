@@ -186,7 +186,6 @@
                 :updated-at (:updated-at chat)
                 ;; Omit automatic prompt-only memory blocks and bookkeeping
                 ;; from chat history (pages included), not normal tool results.
-                ;; Live memory:index-loaded events still send names and paths.
                 ;; The session keeps the raw messages.
                 :messages (mapv message-sanitize/remove-memory-context
                                 (if paginate? (:messages page) all-messages))

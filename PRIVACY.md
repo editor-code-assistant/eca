@@ -26,7 +26,7 @@ The automatic index and change list do not include note bodies. A body can reach
 
 If you enable ECA's remote server, clients with valid credentials can receive chat content, tool arguments, and tool results, including local file paths. They are trusted control interfaces, not restricted views of the session.
 
-Live `memory:index-loaded` notifications include counts and selected note names, types, source labels, and absolute file paths, but not note bodies. REST chat-history responses omit ECA's automatic memory blocks and internal memory state. This does not hide all memory content from remote clients: ordinary tool results and consolidation prompts can still contain it.
+REST chat-history responses omit ECA's automatic memory blocks and internal memory state. This does not hide all memory content from remote clients: ordinary tool results, the output of the `/memories` command (note names, types, descriptions, tags, and file paths, but not note bodies), and consolidation prompts can still contain it.
 
 ## What data is stored locally
 
