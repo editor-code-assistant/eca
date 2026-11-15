@@ -1108,7 +1108,8 @@
                                  (let [delayed-future
                                        (delay
                                          (future
-                                           (let [tool-result          (f.tools/call-tool! full-name
+                                           (try
+                                             (let [tool-result          (f.tools/call-tool! full-name
                                                                                           arguments
                                                                                           chat-id
                                                                                           id
@@ -1181,7 +1182,42 @@
                                                                                                     :reason        {:code :user-stop}
                                                                                                     :details       details
                                                                                                     :summary       summary})
-                                                 (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))))]
+                                                 (logger/warn logger-tag "Unexpected value of :status in tool call" {:status status}))))
+                                             (catch Throwable t
+                                               (logger/warn logger-tag "Unexpected error in tool call future"
+                                                            {:tool-call-id id :error (.getMessage t)})
+                                               (let [state (get-tool-call-state @db* chat-id id)]
+                                                 (when (= :executing (:status state))
+                                                   (let [error-output [{:type :text
+                                                                        :text (str "Error calling tool: "
+                                                                                   (or (.getMessage t) (.getName (class t))))}]]
+                                                     (add-to-history! {:role "tool_call"
+                                                                       :content (assoc tool-call
+                                                                                       :name name
+                                                                                       :details details
+                                                                                       :summary summary
+                                                                                       :origin origin
+                                                                                       :server server-name)})
+                                                     (add-to-history! {:role "tool_call_output"
+                                                                       :content (assoc tool-call
+                                                                                       :name name
+                                                                                       :error true
+                                                                                       :output {:error true :contents error-output}
+                                                                                       :details details
+                                                                                       :summary summary
+                                                                                       :origin origin
+                                                                                       :server server-name)})
+                                                     (transition-tool-call! db* chat-ctx id :execution-end
+                                                                            {:origin origin
+                                                                             :name name
+                                                                             :server server-name
+                                                                             :arguments arguments
+                                                                             :error true
+                                                                             :outputs error-output
+                                                                             :progress-text "Error"
+                                                                             :details details
+                                                                             :summary summary}))))
+                                               (throw t)))))]
                                    (transition-tool-call! db*
                                                           chat-ctx
                                                           id

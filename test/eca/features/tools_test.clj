@@ -767,7 +767,31 @@
               identity
               identity
               nil))))
-      (is (= {"path" "/tmp/foo"} @called-args*)))))
+      (is (= {"path" "/tmp/foo"} @called-args*))))
+  (testing "Throwable thrown by native tool handler returns error map"
+    (is (match?
+         {:error true
+          :contents [{:type :text
+                      :text #"Error calling tool: Simulated throwable"}]}
+         (with-redefs [m.filesystem/definitions
+                       {"throwable_tool"
+                        {:description "Throws throwable"
+                         :parameters {:type "object"}
+                         :handler (fn [& _]
+                                    (throw (Error. "Simulated throwable")))}}]
+           (f.tools/call-tool!
+            "eca__throwable_tool"
+            {}
+            "chat-1"
+            "call-1"
+            "code"
+            (h/db*)
+            (h/config)
+            (h/messenger)
+            (h/metrics)
+            identity
+            identity
+            nil))))))
 
 (deftest throttle-test
   (let [throttle #'f.tools/throttle]
