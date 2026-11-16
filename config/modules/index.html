@@ -2011,8 +2011,8 @@
 <tr>
 <td><code>:chat/before-request</code></td>
 <td>transform</td>
-<td><code>:prompt</code>. Runs once per user message.</td>
-<td><code>:prompt</code>, <code>:additional-context</code>, <code>:block</code>, <code>:stop</code></td>
+<td><code>:prompt</code>, what was typed for a command or an MCP prompt. Runs once per user message, not for <code>/compact</code>.</td>
+<td><code>:prompt</code> (not for commands and MCP prompts), <code>:additional-context</code>, <code>:block</code>, <code>:stop</code></td>
 </tr>
 <tr>
 <td><code>:llm/before-request</code></td>
@@ -2112,6 +2112,7 @@
 </tr>
 </tbody>
 </table>
+<p><code>:additional-context</code> is a string, or <code>{:text "..." :data {...}}</code> to keep plain data with it. A module's context goes to the model marked with the module's id, so <code>(eca/added-contexts ctx)</code> finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in <code>:chat/after-compact</code>.</p>
 <p>A module can also define its own events in <code>:defines</code> and send them with <code>(eca/emit! ctx event-id event)</code>.</p>
 <h3 id="module-keys">Module keys<a class="headerlink" href="#module-keys" title="Permanent link">#</a></h3>
 <table>
@@ -2200,7 +2201,7 @@
 </tr>
 <tr>
 <td>Chat</td>
-<td><code>chat</code>, <code>messages</code> (<code>{:since-checkpoint? true}</code> for what the model sees), <code>chat-state</code> and <code>swap-chat-state!</code> (plain data saved with the chat), <code>send-prompt!</code>, <code>add-context!</code> (for the next request), <code>checkpoint!</code> (<code>{:messages [..] :label ".." :data {..}}</code>: the model sees only what comes after it), <code>request-compaction!</code> (<code>{:trigger :instructions}</code>: compacts before the next LLM request)</td>
+<td><code>chat</code>, <code>messages</code> (<code>{:since-checkpoint? true}</code> for what the model sees), <code>chat-state</code> and <code>swap-chat-state!</code> (plain data saved with the chat, copied by forks and exports, dropped when the chat is cleared), <code>send-prompt!</code>, <code>add-context!</code> (for the next request; <code>{:data ..}</code> keeps plain data with it), <code>added-contexts</code> (the module's contexts in the chat, with their data), <code>checkpoint!</code> (<code>{:messages [..] :label ".." :data {..}}</code>: the model sees only what comes after it), <code>request-compaction!</code> (<code>{:trigger :instructions}</code>: compacts before the next LLM request)</td>
 </tr>
 <tr>
 <td>User</td>
@@ -2268,7 +2269,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 14, 2026 12:48:23 UTC">November 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 16, 2026 13:08:32 UTC">November 16, 2026</span>
   </span>
 
     

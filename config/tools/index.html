@@ -804,6 +804,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#folders-outside-the-workspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      Folders outside the workspace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tool-selectors" class="md-nav__link">
     <span class="md-ellipsis">
       Tool selectors
@@ -1593,6 +1602,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#folders-outside-the-workspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      Folders outside the workspace
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tool-selectors" class="md-nav__link">
     <span class="md-ellipsis">
       Tool selectors
@@ -2269,7 +2287,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <ol>
 <li><strong><code>deny</code> rules</strong>: always win, even over remembered approvals and trust mode.</li>
 <li><strong>Remembered approvals</strong>: what you approved in the current chat with "approve and remember for this session" (<a href="#approve-remember-for-this-session">below</a>).</li>
-<li><strong>Tool built-in checks</strong>: some native tools force asking in risky cases regardless of <code>allow</code> rules, e.g. filesystem tools and <code>shell_command</code> when the path or working directory is outside the workspace roots.</li>
+<li><strong>Tool built-in checks</strong>: some native tools force asking in risky cases regardless of <code>allow</code> rules, e.g. filesystem tools and <code>shell_command</code> when the path or working directory is outside the workspace roots. Folders in <a href="#folders-outside-the-workspace"><code>insideWorkspace</code></a> count as inside.</li>
 <li><strong><code>ask</code> rules</strong>.</li>
 <li><strong><code>allow</code> rules</strong>.</li>
 <li><strong>Legacy <code>manualApproval</code> config</strong>.</li>
@@ -2280,6 +2298,17 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <p class="admonition-title">Agent rules replace global rules</p>
 <p><code>agent.&lt;name&gt;.toolCall.approval</code> does not deep-merge with the global <code>toolCall.approval</code> at runtime: each key present (<code>allow</code>, <code>ask</code>, <code>deny</code> or <code>byDefault</code>) entirely replaces the global one. Since the builtin <code>plan</code> and <code>explorer</code> agents define their own <code>allow</code> and <code>deny</code> (<a href="#default-approval-rules">default rules</a>), global <code>allow</code> entries you add are ignored while using those agents — configure <code>agent.plan.toolCall.approval.allow</code> too if you need them there.</p>
 </div>
+<h3 id="folders-outside-the-workspace">Folders outside the workspace<a class="headerlink" href="#folders-outside-the-workspace" title="Permanent link">#</a></h3>
+<p>Filesystem tools and <code>shell_command</code> ask for a path or working directory outside the workspace roots, whatever your <code>allow</code> rules say. <code>insideWorkspace</code> lists folders that count as inside the workspace for that check, so your rules decide for their paths as for the workspace's:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;toolCall&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;approval&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="s2">&quot;insideWorkspace&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;~/notes&quot;</span><span class="p">]</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Paths are absolute or start with <code>~</code>. The lists add up: the ones of every config file, the folders modules add and, for an agent, its own <code>agent.&lt;name&gt;.toolCall.approval.insideWorkspace</code>.</p>
 <h3 id="tool-selectors">Tool selectors<a class="headerlink" href="#tool-selectors" title="Permanent link">#</a></h3>
 <p>The keys of <code>allow</code>, <code>ask</code> and <code>deny</code> are matched by exact name (no regex or glob, unlike <code>disabledTools</code>), in one of 3 forms:</p>
 <table>
@@ -2406,7 +2435,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
 <li>The regex must match the whole argument: use <code>"grep(\\s+.*)?"</code> instead of <code>"grep"</code>.</li>
 <li>Allowing <code>eca__grep</code> doesn't cover <code>grep</code> run through <code>eca__shell_command</code> — they are different tools.</li>
 <li>You are on the <code>plan</code>/<code>explorer</code> agent (or a custom one) whose <code>allow</code> replaces the global one.</li>
-<li>The path or working directory is outside the workspace roots (<code>:tool-built-in-check</code>).</li>
+<li>The path or working directory is outside the workspace roots (<code>:tool-built-in-check</code>); see <a href="#folders-outside-the-workspace"><code>insideWorkspace</code></a>.</li>
 <li>Chained commands: the regex must match the full chained string, e.g. <code>cat file | grep foo</code>.</li>
 </ul>
 
@@ -2429,7 +2458,7 @@ interpolation (<code>${env:...}</code>, <code>${file:...}</code>, <code>${cmd:..
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 14, 2026 12:48:23 UTC">November 14, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 16, 2026 13:08:32 UTC">November 16, 2026</span>
   </span>
 
     
