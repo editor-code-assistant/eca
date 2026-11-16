@@ -13,6 +13,7 @@
    [eca.shared :as shared]
    [eca.test-helper :as test-helper])
   (:import
+   [java.io RandomAccessFile]
    [java.nio.file Files]
    [java.nio.file.attribute FileAttribute]))
 
@@ -402,6 +403,29 @@
             (finally
               (.destroyForcibly process)
               (.waitFor process 5 java.util.concurrent.TimeUnit/SECONDS))))))))
+
+(deftest held-ledger-lock-does-not-stop-a-prompt-test
+  ;; Stands for an ECA process that froze while it held the ledger lock.
+  (test-helper/with-memory-root
+    (fn [root]
+      (let [f (fs/file root "global" "note.md")
+            key (str f)
+            warns* (atom [])]
+        (write-md! f)
+        (usage/record-read! (ctx {}) key)
+        (with-open [raf (RandomAccessFile. (io/file (str (usage/usage-file) ".lock")) "rw")]
+          (let [held (.lock (.getChannel raf))]
+            (try
+              (with-redefs-fn {#'usage/ledger-lock-timeout-ms 100
+                               #'logger/warn (fn [& args] (swap! warns* conj args))}
+                (fn []
+                  (usage/record-read! (ctx {}) key)
+                  (is (= 1 (:reads (first (usage/enrich [{:path key :body "body" :mtime-ms 1}]))))
+                      "the scan still gets the usage data on disk")))
+              (finally (.release held)))))
+        (is (seq @warns*) "the given-up update is logged")
+        (is (= 1 (get-in (disk-ledger) [key :reads]))
+            "the read made while the lock was held is lost, nothing else")))))
 
 (deftest record-write-stamps-a-pointer-test
   (test-helper/with-memory-root

@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.file-io :as file-io])
   (:import
+   [java.io RandomAccessFile]
    [java.nio.file AtomicMoveNotSupportedException StandardCopyOption]))
 
 (set! *warn-on-reflection* true)
@@ -77,4 +78,24 @@
                             (file-io/with-os-file-lock-fn
                               lock-file #(throw (ex-info "Callback failed" {})))))
       (is (= :ok (file-io/with-os-file-lock-fn lock-file (constantly :ok))))
+      (finally (fs/delete-tree root)))))
+
+(deftest os-lock-wait-with-a-time-limit-test
+  (let [root (fs/create-temp-dir)
+        lock-file (io/file (str root) "data.lock")
+        ran?* (atom false)]
+    (try
+      (testing "a lock held by another holder makes the wait give up after the limit"
+        (with-open [raf (RandomAccessFile. lock-file "rw")]
+          (let [held (.lock (.getChannel raf))
+                start (System/currentTimeMillis)]
+            (try
+              (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Timed out waiting for a file lock"
+                                    (file-io/with-os-file-lock-fn lock-file {:timeout-ms 200}
+                                      #(reset! ran?* true))))
+              (is (<= 200 (- (System/currentTimeMillis) start) 10000))
+              (is (false? @ran?*) "the callback does not run without the lock")
+              (finally (.release held))))))
+      (testing "a free lock is taken at once"
+        (is (= :ok (file-io/with-os-file-lock-fn lock-file {:timeout-ms 200} (constantly :ok)))))
       (finally (fs/delete-tree root)))))

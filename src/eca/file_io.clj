@@ -6,7 +6,7 @@
    [eca.logger :as logger])
   (:import
    [java.io File RandomAccessFile]
-   [java.nio.channels FileChannel FileLock]
+   [java.nio.channels FileChannel FileLock OverlappingFileLockException]
    [java.nio.file AtomicMoveNotSupportedException CopyOption Files StandardCopyOption]
    [java.nio.file.attribute FileAttribute]
    [java.util.concurrent ConcurrentHashMap]))
@@ -23,27 +23,45 @@
         (let [o (Object.)]
           (or (.putIfAbsent file-locks k o) o)))))
 
+(defn ^:private acquire-os-lock
+  "The OS lock on `channel`. Without `timeout-ms`, waits as long as needed.
+   With it, retries until the deadline and then throws: a process that froze
+   while holding the lock must not stop every other process. A lock held by
+   another channel in this JVM counts as busy too."
+  ^FileLock [^FileChannel channel timeout-ms]
+  (if-not timeout-ms
+    (.lock channel)
+    (let [deadline (+ (System/currentTimeMillis) (long timeout-ms))]
+      (loop []
+        (or (try (.tryLock channel)
+                 (catch OverlappingFileLockException _ nil))
+            (if (< (System/currentTimeMillis) deadline)
+              (do (Thread/sleep 20) (recur))
+              (throw (ex-info "Timed out waiting for a file lock" {:timeout-ms timeout-ms}))))))))
+
 (defn with-os-file-lock-fn
   "Run f with both a JVM monitor and an exclusive OS lock on lock-file.
    Use a stable sidecar file, not a file that will be replaced. Blocks until
-   acquired. The callback must not acquire this OS lock again."
-  [^File lock-file f]
-  #_{:clj-kondo/ignore [:locking-suspicious-lock]}
-  (locking (file-lock lock-file)
-    (io/make-parents lock-file)
-    (let [^RandomAccessFile raf (RandomAccessFile. lock-file "rw")
-          ^FileChannel channel (.getChannel raf)
-          lock-ref (volatile! nil)]
-      (try
-        (vreset! lock-ref ^FileLock (.lock channel))
-        (f)
-        (finally
-          (when-let [^FileLock lock @lock-ref]
-            (try (.release lock)
-                 (catch Throwable e
-                   (logger/warn "[FILE-IO]" "Could not release file lock" e))))
-          (try (.close channel) (catch Throwable _))
-          (try (.close raf) (catch Throwable _)))))))
+   acquired, or, with `:timeout-ms`, throws when another process holds the
+   OS lock longer. The callback must not acquire this OS lock again."
+  ([lock-file f] (with-os-file-lock-fn lock-file {} f))
+  ([^File lock-file {:keys [timeout-ms]} f]
+   #_{:clj-kondo/ignore [:locking-suspicious-lock]}
+   (locking (file-lock lock-file)
+     (io/make-parents lock-file)
+     (let [^RandomAccessFile raf (RandomAccessFile. lock-file "rw")
+           ^FileChannel channel (.getChannel raf)
+           lock-ref (volatile! nil)]
+       (try
+         (vreset! lock-ref (acquire-os-lock channel timeout-ms))
+         (f)
+         (finally
+           (when-let [^FileLock lock @lock-ref]
+             (try (.release lock)
+                  (catch Throwable e
+                    (logger/warn "[FILE-IO]" "Could not release file lock" e))))
+           (try (.close channel) (catch Throwable _))
+           (try (.close raf) (catch Throwable _))))))))
 
 (defn atomic-move!
   "Replace dest with src atomically, with a non-atomic replace fallback when

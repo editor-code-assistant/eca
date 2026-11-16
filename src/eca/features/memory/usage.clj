@@ -78,14 +78,24 @@
           {}))
       {})))
 
+(def ^:private ledger-lock-timeout-ms
+  "How long a ledger update waits for the OS lock that another ECA process
+   holds. Updates hold it for milliseconds. A process that froze while
+   holding it must not stop the prompts of every other process: after this
+   time the update gives up (see `update-ledger!`)."
+  2000)
+
 (defn ^:private with-ledger-lock-fn [f]
-  (file-io/with-os-file-lock-fn (io/file (str (usage-file) ".lock")) f))
+  (file-io/with-os-file-lock-fn (io/file (str (usage-file) ".lock"))
+                                {:timeout-ms ledger-lock-timeout-ms}
+                                f))
 
 (defn ^:private update-ledger!
   "Apply f to the latest disk ledger under the update lock, then prune. `f`
    runs first, so it still sees the entry of a file that was just moved and
    can re-key it. Returns the new ledger when the replacement succeeded, and
-   the current on-disk ledger when the read or write failed. Never throws."
+   the current on-disk ledger when the lock wait timed out or the read or
+   write failed; the update is then lost. Never throws."
   [f]
   (try
     (with-ledger-lock-fn
