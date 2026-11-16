@@ -165,6 +165,12 @@
     (is (match? {:chat-id string? :status :prompting} resp))
     {:chat-id chat-id}))
 
+(defn ^:private date-text-item
+  "The date context the `eca/date` module adds to the first user message of
+   a context window per day."
+  []
+  {:type :text :text (h/date-context)})
+
 (defn ^:private deep-sleep
   "Sleep for the given duration in milliseconds, ignoring interrupts.
    Continues sleeping until the full duration has elapsed."
@@ -277,7 +283,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Hey!"}]}
+                     :messages [{:role "user" :content [{:type :text :text "Hey!"}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Hey you!"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -311,7 +318,7 @@
             (fn [{:keys [on-error]}]
               (on-error {:message "Error from mocked API"}))})]
       (is (match?
-           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"}]}]}}
+           {chat-id {:id chat-id :messages [{:role "user" :content [{:type :text :text "Hey!"} (date-text-item)]}]}}
            (:chats (h/db)))
           "the unanswered message is kept so the next prompt and /resume still have it (eca-intellij#27)")
       (is (match?
@@ -409,7 +416,8 @@
       (is (= 2 (count @requests*)))
       (is (= (first @requests*) (second @requests*))
           "a no-output retry must replay the original task, not a contextless continuation")
-      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+      (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}
+                                           (date-text-item)]}
                    {:role "assistant" :content [{:type :text :text "Recovered"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
@@ -438,7 +446,7 @@
                             {:all-tools-mock (constantly [])
                              :api-mock api-mock}))]
     (is (= 2 (count @requests*)))
-    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
+    (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"} (date-text-item)]}
                  {:role "assistant" :content [{:type :text :text "Partial"}]}
                  {:role "user"
                   :content [{:type :text
@@ -634,7 +642,7 @@
           {:keys [chat-id]} (prompt! {:message "hello"}
                                      {:all-tools-mock (constantly [])
                                       :api-mock (fn [{:keys [on-error]}] (on-error error-data))})]
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (not (contains? (get-in (h/db) [:chats chat-id]) :unsent-user-messages)))
       (prompt! {:message "second" :chat-id chat-id}
@@ -644,8 +652,8 @@
                             (on-first-response-received {:type :text :text "ok"})
                             (on-message-received {:type :text :text "ok"})
                             (on-message-received {:type :finish}))})
-      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"}]}]) @past-messages*))
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]) @past-messages*))
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}
                    {:role "user" :content [{:type :text :text "second"}]}
                    {:role "assistant" :content [{:type :text :text "ok"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))))
@@ -657,7 +665,7 @@
                {:all-tools-mock (constantly [])
                 :api-mock (fn [_]
                             (f.chat/prompt-stop {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics) {}))})
-      (is (match? [{:role "user" :content [{:type :text :text "hello"}]}]
+      (is (match? [{:role "user" :content [{:type :text :text "hello"} (date-text-item)]}]
                   (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest transient-tls-recovery-guards-test
@@ -709,7 +717,8 @@
           chat-id-1 (:chat-id res-1)]
       (is (match?
            {chat-id-1 {:id chat-id-1
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}
+                                                          (date-text-item)]}
                                   {:role "assistant" :content [{:type :text :text "2 mississippi"}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -749,7 +758,8 @@
             chat-id-2 (:chat-id res-2)]
         (is (match?
              {chat-id-2 {:id chat-id-2
-                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}]}
+                         :messages [{:role "user" :content [{:type :text :text "Count with me: 1 mississippi"}
+                                                            (date-text-item)]}
                                     {:role "assistant" :content [{:type :text :text "2 mississippi"}]}
                                     {:role "user" :content [{:type :text :text "3 mississippi"}]}
                                     {:role "assistant" :content [{:type :text :text "4 mississippi"}]}]}}
@@ -1629,7 +1639,8 @@
              {chat-id {:id chat-id
                        :messages [{:role "user"
                                    :content [{:type :text :text "Check @/path/to/file please"}
-                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}]}
+                                             {:type :text :text (m/pred #(string/includes? % "<file path"))}
+                                             (date-text-item)]}
                                   {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
              (:chats (h/db)))))))
   (testing "When prompt contains @missing-file we do not add context noise"
@@ -1648,7 +1659,8 @@
               (on-message-received {:type :finish}))})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text msg}]}
+                     :messages [{:role "user" :content [{:type :text :text msg}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "On it..."}]}]}}
            (:chats (h/db))))
       (is (match?
@@ -2049,7 +2061,8 @@
                          :contents [{:type :text :text "Allowed directories: /foo/bar"}]})})]
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}]}
+                     :messages [{:role "user" :content [{:type :text :text "List the files you are allowed to see"}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}
@@ -2263,7 +2276,8 @@
                              {:role "tool_call_output"
                               :content {:id "compact-2" :output {:contents [{:type :text :text "Compacted successfully!"}]}}}
                              {:role "user"
-                              :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nSummary"}]}])
+                              :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nSummary"}
+                                        (date-text-item)]}])
                   (get-in (h/db) [:chats chat-id :messages])))
       (is (match? [{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
                    {:role "user" :content [{:type :text :text "Long task"}]}]
@@ -2462,7 +2476,7 @@
                              messages)]
         (is (match? {:content {:type :text :content-id string?}} steer-echo)
             "the consumed steer is echoed to the client as the user message it was typed as")
-        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"}]}
+        (is (match? {chat-id {:messages [{:role "user" :content [{:type :text :text "Rename rfq to query"} (date-text-item)]}
                                          {:role "assistant" :content [{:type :text :text "Reading"}]}
                                          {:role "tool_call" :content {:id "call-1"}}
                                          {:role "tool_call_output" :content {:id "call-1"}}
@@ -2472,7 +2486,8 @@
                                          {:role "tool_call" :content {:id "compact-1"}}
                                          {:role "tool_call_output" :content {:id "compact-1"}}
                                          {:role "compact_marker" :content {:auto? false}}
-                                         {:role "user" :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nRenamed rfq to query"}]}
+                                         {:role "user" :content [{:type :text :text "The conversation was compacted/summarized, consider this summary:\nRenamed rfq to query"}
+                                                                 (date-text-item)]}
                                          {:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
                                          {:role "user" :content [{:type :text :text "Rename rfq to query"}]}
                                          {:role "assistant" :content [{:type :text :text "Done"}]}]}}
@@ -2808,7 +2823,8 @@
 
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
+                     :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}
+                                                        (date-text-item)]}
                                 {:role "assistant" :content [{:type :text :text "Ok, working on it"}]}
                                 {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
                                 {:role "tool_call_output" :content {:id "call-3"  :full-name "eca__ro_tool_3" :arguments {}
@@ -2917,7 +2933,8 @@
                      :contents [{:type :text :text "RO tool call 3 result"}]})))})]
       (is (match? {chat-id
                    {:id chat-id
-                    :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}]}
+                    :messages [{:role "user" :content [{:type :text :text "Run 3 read-only tool calls simultaneously."}
+                                                       (date-text-item)]}
                                {:role "tool_call" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}}}
                                {:role "tool_call_output" :content {:id "call-3" :full-name "eca__ro_tool_3" :arguments {}
                                                                    :output {:error false
@@ -3137,7 +3154,8 @@
       ;; Verify initial state
       (is (match?
            {chat-id {:id chat-id
-                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                     :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                 {:role "assistant" :content [{:type :text :text "2"}]}]}}
            (:chats (h/db))))
 
@@ -3158,7 +3176,8 @@
         ;; Verify we now have 4 messages
         (is (match?
              {chat-id {:id chat-id
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                   {:role "assistant" :content [{:type :text :text "2"}]}
                                   {:role "user" :content [{:type :text :text "3"}] :content-id second-content-id}
                                   {:role "assistant" :content [{:type :text :text "4"}]}]}}
@@ -3174,7 +3193,8 @@
         ;; Verify messages after content-id are removed (keeps messages before content-id)
         (is (match?
              {chat-id {:id chat-id
-                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}] :content-id first-content-id}
+                       :messages [{:role "user" :content [{:type :text :text "Count with me: 1"}
+                                        (date-text-item)] :content-id first-content-id}
                                   {:role "assistant" :content [{:type :text :text "2"}]}]}}
              (:chats (h/db))))
 
@@ -4260,7 +4280,8 @@
       (is (match? {:chat-id "inline-3" :status :prompting} resp))
       (is (= title-before (get-in (h/db) [:chats "inline-3" :title])))
       (is (nil? (:chat-opened (h/messages))))
-      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}]}
+      (is (match? (m/embeds [{:role "user" :content [{:type :text :text "first"}
+                                                     (date-text-item)]}
                              {:role "user" :content [{:type :text :text "second"}]}])
                   (get-in (h/db) [:chats "inline-3" :messages]))))))
 
@@ -4290,7 +4311,8 @@
       (testing "copied history + new turn, dangling tool call dropped"
         (is (match? (m/embeds [{:role "user" :content [{:type :text :text "original question"}]}
                                {:role "assistant" :content [{:type :text :text "original answer"}]}
-                               {:role "user" :content [{:type :text :text "btw what is bar?"}]}])
+                               {:role "user" :content [{:type :text :text "btw what is bar?"}
+                                                       (date-text-item)]}])
                     (get-in (h/db) [:chats "inline-fork-1" :messages])))
         (is (not-any? #(= "tool_call" (:role %))
                       (get-in (h/db) [:chats "inline-fork-1" :messages]))))
@@ -4422,7 +4444,7 @@
       (is (match? {:chat-id "inline-orphan" :status :prompting} resp))
       (is (match? {:kind :inline} (get-in (h/db) [:chats "inline-orphan"])))
       ;; no copied history: the first message is the new question itself
-      (is (match? {:role "user" :content [{:text "hi"}]}
+      (is (match? {:role "user" :content [{:text "hi"} (date-text-item)]}
                   (first (get-in (h/db) [:chats "inline-orphan" :messages])))))))
 
 (deftest inline-prompt-variant-config-test

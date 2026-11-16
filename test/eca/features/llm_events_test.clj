@@ -109,7 +109,9 @@
       (h/config! {:env "test"})
       (swap! (h/db*) update :models #(merge {"openai/gpt-5.2" {:tools true}} %))
       (f.chat/prompt {:message "hello"} (h/db*) (h/messenger) (h/config) (h/metrics)))
-    (is (match? {:user-messages [{:role "user" :content [{:type :text :text "hello"} {:type :text :text "(from acme)"}]}]}
+    (is (match? {:user-messages [{:role "user" :content [{:type :text :text "hello"}
+                                                         {:type :text :text (h/date-context)}
+                                                         {:type :text :text "(from acme)"}]}]}
                 @sent*))
     (is (match? [{:request {:user-messages [{:role "user"}]} :turn [{:role "user"}]}] @events*))))
 

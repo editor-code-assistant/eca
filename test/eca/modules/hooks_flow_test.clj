@@ -144,6 +144,11 @@
 (defn- context-block [text]
   {:type :text :text (str "<additionalContext>\n" text "\n</additionalContext>")})
 
+(defn- date-block
+  "The context the `eca/date` module adds to the first user message."
+  []
+  {:type :text :text (h/date-context) :module :eca/date})
+
 (defn- last-user-content
   "The content of the last user message of an LLM request."
   [{:keys [user-messages]}]
@@ -172,9 +177,9 @@
       (is (= [["a" "preRequest"] ["b" "preRequest"]] (runs)))
       (is (= "hello" (get (run-input "a") "prompt")))
       (is (= "rewritten" (get (run-input "b") "prompt")))
-      (is (= [{:type :text :text "rewritten"} (context-block "ctx a") (context-block "ctx b")]
+      (is (= [{:type :text :text "rewritten"} (date-block) (context-block "ctx a") (context-block "ctx b")]
              (last-user-content (first requests))))
-      (is (= [{:type :text :text "rewritten"} (context-block "ctx a") (context-block "ctx b")]
+      (is (= [{:type :text :text "rewritten"} (date-block) (context-block "ctx a") (context-block "ctx b")]
              (:content (first (history chat-id))))
           "the history keeps the contexts as plain blocks")))
 

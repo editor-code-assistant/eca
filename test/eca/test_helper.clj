@@ -45,6 +45,12 @@
   (cond-> uri windows?
           (string/replace #"^(file):///(?!\w:/)" (str "$1:///" windows-drive-letter ":/"))))
 
+(defn date-context
+  "The context the `eca/date` module adds to the first user message of a
+   context window per day, as the model gets it."
+  []
+  (str "<additionalContext>\nCurrent date: " (java.time.LocalDate/now) "\n</additionalContext>"))
+
 (defrecord TestMessenger [messages* diagnostics* ask-question-response* definition-response* references-response*]
   messenger/IMessenger
   (chat-content-received [_ data] (swap! messages* update :chat-content-received (fnil conj []) data))

@@ -64,7 +64,7 @@
   (testing "a module changes the text before anything reads it"
     (with-module! {:chat/input (fn [_ {:keys [text]}] {:text (string/replace text "secret-123" "[REDACTED]")})})
     (let [{:keys [requests]} (prompt! {:message "my key is secret-123"})]
-      (is (= "my key is [REDACTED]" (request-text (first requests))))
+      (is (= (str "my key is [REDACTED]\n" (h/date-context)) (request-text (first requests))))
       (is (match? [{:text "my key is secret-123" :source :user :chat-id string?}] @events*))))
   (testing "or handles it: the model isn't called"
     (h/reset-messenger!)
@@ -78,7 +78,8 @@
     (with-module! {:chat/before-request (fn [_ {:keys [prompt]}]
                                           {:prompt (str prompt ", please") :additional-context "Be brief."})})
     (let [{:keys [requests]} (prompt! {:message "explain"})]
-      (is (= "explain, please\n<additionalContext>\nBe brief.\n</additionalContext>" (request-text (first requests))))))
+      (is (= (str "explain, please\n<additionalContext>\nBe brief.\n</additionalContext>\n" (h/date-context))
+             (request-text (first requests))))))
   (testing "or blocks the request"
     (h/reset-messenger!)
     (with-module! {:chat/before-request (fn [_ _] {:block "Budget reached."})})
@@ -140,7 +141,7 @@
                                            (when (= 1 (swap! follow-ups inc))
                                              {:follow-up "Now run the tests."}))})
       (let [{:keys [requests]} (prompt! {:message "fix it"})]
-        (is (= ["fix it" "Now run the tests."] (map request-text requests)))
+        (is (= [(str "fix it\n" (h/date-context)) "Now run the tests."] (map request-text requests)))
         (is (match? [{:chat-id string?} {:chat-id string?}] @events*)))))
   (testing "a module can stop the turn after the response"
     (h/reset-messenger!)
@@ -151,7 +152,8 @@
 (deftest chat-message-added-test
   (with-module! {:chat/message-added (fn [_ _] nil)})
   (prompt! {:message "hello"})
-  (is (match? (m/embeds [{:message {:role "user" :content [{:type :text :text "hello"}]}}
+  (is (match? (m/embeds [{:message {:role "user" :content [{:type :text :text "hello"}
+                                                           {:type :text :text (h/date-context)}]}}
                          {:message {:role "assistant"}}])
               @events*)))
 
@@ -206,7 +208,8 @@
     (let [{:keys [chat-id requests]} (prompt! {:message "explain"})
           content [{:type :text :text "explain"}
                    {:type :text :text "<additionalContext>\nNotes index.\n</additionalContext>"
-                    :module :acme/events :data {:v 1}}]]
+                    :module :acme/events :data {:v 1}}
+                   {:type :text :text (h/date-context) :module :eca/date}]]
       (is (= content (:content (first (first requests)))))
       (is (= content (:content (first (get-in (h/db) [:chats chat-id :messages])))))))
   (testing "the chat's title isn't made from it"

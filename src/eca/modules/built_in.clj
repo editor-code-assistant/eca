@@ -17,6 +17,7 @@
    [eca.modules.completion :as m.completion]
    [eca.modules.core :as m.core]
    [eca.modules.custom-commands :as m.custom-commands]
+   [eca.modules.date :as m.date]
    [eca.modules.hooks :as m.hooks]
    [eca.modules.llm-providers :as m.llm-providers]
    [eca.modules.manage :as m.manage]
@@ -90,6 +91,7 @@
    m.chat-management/module
    m.chat-title/module
    m.compact-as-summary/module
+   m.date/module
    m.manage/module
    ;; editor features
    m.completion/module

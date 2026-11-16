@@ -118,7 +118,8 @@
     (is (match? (conj history
                       {:role "compact_marker" :content {:module :acme/compact :label "Compacted chat (acme)"}}
                       {:role "user" :content [{:type :text :text "Summary. focus on tests"}
-                                              {:type :text :text (context-text "Keep the plan.") :module :acme/compact}]})
+                                              {:type :text :text (context-text "Keep the plan.") :module :acme/compact}
+                                              {:type :text :text (h/date-context) :module :eca/date}]})
                 (get-in (h/db) [:chats chat-id :messages])))
     (is (some #{"Compacted by acme."} (system-texts)))
     (is (match? [[:chat/before-compact {:trigger :manual :instructions "focus on tests" :chat-id chat-id}]

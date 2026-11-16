@@ -1031,6 +1031,7 @@
            (first (get-in (h/db) [:chats "chat-1" :messages]))))
     (is (match? {:role "user"
                  :content [{:type :text :text "The conversation was compacted."}
+                           {:type :text :text (h/date-context) :module :eca/date}
                            {:type :text :text #"resume snapshot"}]}
                 (second (get-in (h/db) [:chats "chat-1" :messages])))))
 
@@ -1073,7 +1074,8 @@
                                               "manual"
                                               "summary"))
     ;; Plain stdout is NOT converted to additionalContext
-    (is (= [{:type :text :text "The conversation was compacted."}]
+    (is (= [{:type :text :text "The conversation was compacted."}
+            {:type :text :text (h/date-context) :module :eca/date}]
            (:content (last (get-in (h/db) [:chats "chat-1" :messages]))))))
 
   (testing "postCompact blank additionalContext is treated as absent"
