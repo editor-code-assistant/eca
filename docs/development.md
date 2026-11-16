@@ -50,7 +50,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `hooks.clj`              | User-configured hooks triggered on server events.
    ├─ `skills.clj`, `rules.clj`| Skills and rules: discovery, loading, their tools and prompt sections.
    ├─ `remote.clj` + `remote/` | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
-   └─ ...                      | `plugins.clj`, `approval.clj`, `create.clj`, `otel.clj`, `repl.clj`, ...
+   └─ ...                      | `plugins.clj`, `approval.clj`, `manage.clj`, `otel.clj`, `repl.clj`, ...
    `src/eca/api.clj` + `api/`  | The module API: all that external modules see.
    `src/eca/nrepl.clj`         | Starts an nREPL when built with `bb debug-cli`.
 
@@ -63,6 +63,25 @@ With this map you can usually answer:
 - _"Where does request X enter the system?"_ – look in `handlers.clj`.
 - _"How is tool Y executed?"_ – see `src/eca/modules/tools/<y>.clj`.
 - _"How do we talk to provider Z?"_ – its module under `src/eca/modules/providers/`.
+
+### Core and modules
+
+ECA is a core plus modules. Core is layered, lowest first, and a namespace requires only its own layer and lower ones:
+
+1. Libs: `eca.logger`, `eca.shared`, `eca.messenger`, `eca.cache`, ...
+2. The module runtime: `eca.modules`, `eca.modules.events`, `eca.modules.config-spec`, `eca.modules.data`; `eca.shell`.
+3. State and config: `eca.config`, `eca.db`, `eca.models`, `eca.llm-util`, ...
+4. The module loader and the module API (`eca.api*`).
+5. Engines: `eca.features.*` (chat, tools, commands, prompt, ...), `eca.llm-api`.
+6. Wiring: `eca.server`, `eca.handlers`, `eca.main`, the built-in modules list.
+
+Every other feature is a module under `src/eca/modules/`, built in or external, with these rules:
+
+- Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.
+- Modules extend core through module keys (what they contribute: config, tools, commands, prompt sections, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id or offer a multimethod for modules to extend.
+- New module keys start built-in only; open one to external modules when one needs it.
+
+`test/eca/architecture_test.clj` checks the layers and the rules. Its allowlists hold the couplings left from before the rules, and only shrink.
 
 ### Unit Tests
 
