@@ -759,20 +759,19 @@
    Remove old memory blocks and resume prefixes, then build memory for the
    post-compact window. Keep a fresh guard for repeated compaction."
   [chat-ctx user-messages]
-  (let [{:keys [db* chat-id config metrics]} chat-ctx
+  (let [{:keys [db* chat-id config]} chat-ctx
         db @db*
         window (shared/messages-after-last-compact-marker (get-in db [:chats chat-id :messages]))
-        memory-delivery (f.memory.delivery/turn-block {:chat-id chat-id
-                                                      :db db
-                                                      :config config
-                                                      :metrics metrics
-                                                      :window window})
+        memory-block (f.memory.delivery/turn-block {:chat-id chat-id
+                                                    :db db
+                                                    :config config
+                                                    :window window})
         resumed (->> user-messages
                      (map message-sanitize/remove-memory-context)
                      (remove #(= resume-after-compact-message (select-keys % [:role :content])))
                      vec)
         resumed (if-let [idx (llm-util/find-last-user-msg-idx resumed)]
-                  (update resumed idx with-memory-block (:block memory-delivery))
+                  (update resumed idx with-memory-block memory-block)
                   resumed)]
     (prompt-messages!
      (cons resume-after-compact-message resumed)
@@ -2262,17 +2261,13 @@
             ;; Memory blocks ride normal user prompts and /prompt-show. The
             ;; delivery function decides between a full index, a change list
             ;; and no block at all; its state is stored on the message.
-            memory-delivery (when (or (= :prompt-message (:type decision))
-                                      (and (= :eca-command (:type decision))
-                                           (= "prompt-show" (:command decision))))
-                              (f.memory.delivery/turn-block
-                               {:chat-id chat-id
-                                :db db
-                                :config config
-                                ;; /prompt-show stores nothing, so it must not
-                                ;; count as an added block.
-                                :metrics (when (= :prompt-message (:type decision)) metrics)
-                                :window window}))
+            memory-block (when (or (= :prompt-message (:type decision))
+                                   (and (= :eca-command (:type decision))
+                                        (= "prompt-show" (:command decision))))
+                           (f.memory.delivery/turn-block {:chat-id chat-id
+                                                          :db db
+                                                          :config config
+                                                          :window window}))
             user-messages [(with-memory-block
                              {:role "user"
                               :content (vec (concat [{:type :text :text message}]
@@ -2282,7 +2277,7 @@
                                                     editor-state-contents
                                                     date-contents
                                                     image-contents))}
-                             (:block memory-delivery))]
+                             memory-block)]
             [provider model] (when full-model (shared/full-model->provider+model full-model))
             chat-ctx (cond-> (merge base-chat-ctx
                                     {:instructions instructions

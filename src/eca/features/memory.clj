@@ -140,8 +140,8 @@
    `{:dir <abs path string> :tier :personal|:global :label <string>}`.
    Labels are unique (see `unique-labels`). Roots that share one personal dir
    (a main worktree and its linked worktrees) give one entry, so no note is
-   scanned or listed twice. There is no team tier on disk: team knowledge
-   belongs in AGENTS.md or .eca/rules, which are versioned and reviewed."
+   scanned or listed twice. Team knowledge belongs in AGENTS.md or
+   .eca/rules, which are versioned and reviewed."
   [db]
   (conj (unique-labels
          (into []
@@ -156,6 +156,13 @@
         {:dir (abs-path (global-dir))
          :tier :global
          :label global-label}))
+
+(defn markdown-file?
+  "True when `path` names a Markdown file (`.md`, any case). Notes are
+   Markdown files: the scan reads only these, and ECA's file tools write only
+   these into memory dirs."
+  [path]
+  (= "md" (some-> (fs/extension (fs/file path)) string/lower-case)))
 
 (defn memory-path?
   "True when memory is enabled and `path` is inside one of the chat's memory
@@ -186,7 +193,7 @@
   "Upper bound on tags kept per memory. A tag exists to group this memory with
    others: up to three topics plus a ticket id is enough, and more tags assert
    groupings that almost never all exist. Read-path only: files keep whatever
-   they wrote, /memory-consolidate is what trims them."
+   they wrote."
   4)
 
 (defn ^:private normalize-tags
@@ -308,9 +315,8 @@
 (defn ^:private parse-memory-file
   "Parse one memory markdown file. Returns `{:ok <base entry>}` (everything
    except tier/label/mtime) on success or `{:skip <human reason>}` on any
-   read/parse/validation failure. Failures are logged once per file
-   fingerprint (the file cache suppresses re-warnings for unchanged files).
-   The skip reason reuses `memory-content-error` wording so the index,
+   read/parse/validation failure. Each failure is logged as a warning on every
+   scan, like a broken rule file. The skip reason reuses `memory-content-error` wording so the index,
    consolidate snapshot and logs always describe identically. The YAML is
    parsed once: `memory-content-error` parses the content itself, so calling
    it here would parse a second time."
@@ -351,9 +357,7 @@
 (defn file-note-hash
   "`note-hash` of the memory file at `path` as it is on disk now, or nil when
    no valid note is there (a missing file, a directory, or a file the scan
-   would skip). Parses the file directly, not through the scan cache, because
-   it runs right after a write, which a coarse mtime may not show.
-   `parse-memory-file` never throws."
+   would skip). `parse-memory-file` never throws."
   [path]
   (when (fs/regular-file? (fs/file path))
     (some-> (:ok (parse-memory-file path)) note-hash)))
@@ -387,75 +391,44 @@
     (catch Exception e
       (parse-error-message e))))
 
-;; abs-path -> {:fingerprint [mtime-ms size-bytes] :parsed <base entry or nil>}.
-;; Memory is scanned every prompt turn; parsing unchanged files each time is
-;; wasted I/O and YAML work. The fingerprint re-parses on any edit (mtime or
-;; size change covers coarse-mtime filesystems), and failed parses are cached
-;; too so permanently broken files don't re-warn every turn. Unbounded in
-;; theory but proportional to the user's memory store, which stays small.
-(defonce ^:private entry-cache* (atom {}))
-
-(defn ^:private cached-parse-memory-file
-  "Fuses fingerprint lookup with parse-on-miss. `path` is `(abs-path file)`.
-   Returns [parse-result mtime-ms]; the parse result is `{:ok <base entry>}` or
-   `{:skip <reason>}` from `parse-memory-file` (never nil)."
-  [file path]
-  (let [^File file (fs/file file)
-        mtime-ms (.lastModified file)
-        current-fingerprint [mtime-ms (.length file)]
-        {:keys [fingerprint parsed]} (get @entry-cache* path)]
-    [(if (= fingerprint current-fingerprint)
-       parsed
-       (let [parsed (parse-memory-file file)]
-         (swap! entry-cache* assoc path {:fingerprint current-fingerprint :parsed parsed})
-         parsed))
-     mtime-ms]))
-
-(defn ^:private outside-link-reason
-  "Skip reason for a file in a memory dir whose resolved path (`target`) is
-   outside the memory dirs of the chat."
-  [target]
-  (format (str "not indexed: this path is a link to %s, which is outside the memory directories."
-               " Move the note here, or link the whole memory directory instead.")
-          target))
+(def ^:private link-reason
+  (str "not indexed: this is a link. ECA reads only regular files inside the memory directories;"
+       " to keep memory somewhere else, link the whole memory directory instead."))
 
 (defn ^:private scan-dir
   "Parse results under one memory dir: `{:entries [...] :skipped [...]}`, entries
    newest mtime first, skipped as `{:path :tier :label :reason}` in glob order.
-   nil when the dir doesn't exist. `roots` are all memory dirs of the chat. A
-   file whose resolved path is outside them (a link to somewhere else) is
-   skipped: `memory-path?` is false for it, so reads, writes and
-   /memory-consolidate would not treat it as a note."
-  [{:keys [dir tier label]} roots]
+   nil when the dir doesn't exist. Every `.md` file is parsed on every scan.
+   Links inside the dir are not read: a linked subdir is not entered, and a
+   linked `.md` file is listed as skipped (by its own path), so the scan and
+   `memory-path?` never disagree about a note. A linked memory dir itself
+   works, because `memory-dirs` resolves it."
+  [{:keys [dir tier label]}]
   (let [dir-file (fs/file dir)]
     (when (fs/directory? dir-file)
-      (let [;; follow-links: links inside and between the memory dirs are
-            ;; aliases of one note and are listed once (see `distinct-paths`).
-            files (filter (fn [f] (and (not (fs/directory? f))
-                                       (= "md" (some-> (fs/extension f) string/lower-case))))
-                          (fs/glob dir-file "**" {:follow-links true}))
+      (let [files (filter #(and (markdown-file? %) (not (fs/directory? %)))
+                          (fs/glob dir-file "**"))
             skip (fn [acc path reason]
                    (update acc :skipped conj {:path path :tier tier :label label :reason reason}))
             {:keys [entries skipped]}
             (reduce (fn [acc f]
-                      (let [path (abs-path f)]
-                        (if-not (some #(fs/starts-with? path %) roots)
-                          ;; The link itself is what the user can fix.
-                          (skip acc (str f) (outside-link-reason path))
-                          (let [[result mtime-ms] (cached-parse-memory-file f path)]
-                            (if-let [entry (:ok result)]
-                              (update acc :entries conj (assoc entry
-                                                               :tier tier :label label
-                                                               :mtime-ms mtime-ms
-                                                               ;; `:updated-at-ms` is THE date everything
-                                                               ;; downstream reads. Seeded from mtime here and
-                                                               ;; overwritten by the usage ledger's body-hash
-                                                               ;; stamp in `usage/enrich`, so consumers never
-                                                               ;; choose between two timestamps. `:mtime-ms`
-                                                               ;; keeps the file time: the ledger seeds a
-                                                               ;; first `:changed-at` from it.
-                                                               :updated-at-ms mtime-ms))
-                              (skip acc path (:skip result)))))))
+                      (if (fs/sym-link? f)
+                        (skip acc (str f) link-reason)
+                        (let [result (parse-memory-file f)
+                              mtime-ms (.lastModified ^File (fs/file f))]
+                          (if-let [entry (:ok result)]
+                            (update acc :entries conj (assoc entry
+                                                             :tier tier :label label
+                                                             :mtime-ms mtime-ms
+                                                             ;; `:updated-at-ms` is THE date everything
+                                                             ;; downstream reads. Seeded from mtime here and
+                                                             ;; overwritten by the usage ledger's body-hash
+                                                             ;; stamp in `usage/enrich`, so consumers never
+                                                             ;; choose between two timestamps. `:mtime-ms`
+                                                             ;; keeps the file time: the ledger seeds a
+                                                             ;; first `:changed-at` from it.
+                                                             :updated-at-ms mtime-ms))
+                            (skip acc (abs-path f) (:skip result))))))
                     {:entries [] :skipped []}
                     files)]
         {:entries (vec (sort-by :updated-at-ms > entries))
@@ -464,36 +437,24 @@
 (defn ^:private scan-dirs
   "`scan-dir` of every memory dir of the chat, in `memory-dirs` order."
   [db]
-  (let [dirs (memory-dirs db)
-        roots (mapv :dir dirs)]
-    (keep #(scan-dir % roots) dirs)))
-
-(defn ^:private distinct-paths
-  "Keep the first entry for each canonical path, including across groups."
-  []
-  (let [seen (volatile! #{})]
-    (filter (fn [{:keys [path]}]
-              (when-not (contains? @seen path)
-                (vswap! seen conj path)
-                true)))))
+  (keep scan-dir (memory-dirs db)))
 
 (defn scan-memories
   "Vector of entry maps, one per valid `.md` file across `(memory-dirs db)`,
-   in memory-dirs order (per root: personal, then global) and newest file
-   first inside each dir. A note reachable through several paths is listed
-   once. This is a plain read of the store: the usage ranking that the prompt
-   index needs is `eca.features.memory.usage/ranked-memories`.
-   Files missing `name`/`description` or failing to parse are skipped with a
-   logged warning."
+   in memory-dirs order (each root's personal dir, then the global dir) and
+   newest file first inside each dir. This is a plain read of the store: the
+   usage ranking that the prompt index needs is
+   `eca.features.memory.usage/ranked-memories`. Files missing
+   `name`/`description` or failing to parse are skipped with a logged
+   warning."
   [db]
-  (into [] (comp (mapcat :entries) (distinct-paths)) (scan-dirs db)))
+  (into [] (mapcat :entries) (scan-dirs db)))
 
 (defn skipped-files
-  "Vector of `{:path :tier :label :reason}` for memory files found in
+  "Vector of `{:path :tier :label :reason}` for `.md` files found in
    `(memory-dirs db)` that are excluded from `scan-memories`: they failed to
-   read or parse, or they are links to a file outside the memory dirs. Used by
-   /memory-consolidate and /memories so broken files are fixable instead of
-   invisible."
+   read or parse, or they are links. Used by /memory-consolidate and /memories
+   so broken files are fixable instead of invisible."
   [db]
-  (into [] (comp (mapcat :skipped) (distinct-paths)) (scan-dirs db)))
+  (into [] (mapcat :skipped) (scan-dirs db)))
 

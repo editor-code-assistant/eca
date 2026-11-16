@@ -92,65 +92,57 @@
               (is (= (memory/project-slug project) (memory/project-slug case-alias)))))
           (finally (fs/delete-tree root)))))))
 
-(deftest canonical-note-paths-are-listed-once-test
-  (when-not shared/windows-os?
-    (test-helper/with-memory-root
-      (fn [root]
-        (try
-          (let [project (fs/create-dirs (fs/path root "checkout"))
-                db (test-db [(str project)])
-                personal (fs/create-dirs (memory/personal-dir project))
-                global (fs/create-dirs (memory/global-dir))
-                note (fs/path personal "note.md")
-                label (:label (first (memory/memory-dirs db)))]
-            (spit (str note) "---\nname: One note\ndescription: D\n---\n\nbody\n")
-            (fs/create-sym-link (fs/path personal "alias.md") note)
-            (doseq [across-dirs? [false true]]
-              (when across-dirs?
-                (fs/create-sym-link (fs/path global "alias.md") note))
-              (doseq [entries [(memory/scan-memories db) (usage/ranked-memories db)]]
-                (let [index (render/index-context {:entries entries :max-entries 10 :max-tokens 2000})]
-                  (is (= 1 (count entries)))
-                  (is (= [(memory/abs-path note) :personal label]
-                         ((juxt :path :tier :label) (first entries))))
-                  (is (= 1 (:item-count index))))))
-            (spit (str note) "---\nname: Missing description\n---\n\nbody\n")
-            (let [skipped (memory/skipped-files db)]
-              (is (= 1 (count skipped)) "repair lists also identify each physical file once")
-              (is (= [(memory/abs-path note) :personal label]
-                     ((juxt :path :tier :label) (first skipped))))))
-          (finally (fs/delete-tree root)))))))
-
-(deftest links-leaving-the-memory-dirs-are-skipped-test
+(deftest links-in-memory-dirs-are-not-notes-test
   (when-not shared/windows-os?
     (test-helper/with-memory-root
       (fn [root]
         (let [db (test-db [])
               global (fs/create-dirs (memory/global-dir))
-              target (fs/path (fs/create-dirs (fs/path root "elsewhere")) "linked.md")
-              link (fs/path global "linked.md")
-              note "---\nname: %s\ndescription: D\n---\n\nbody\n"]
+              elsewhere (fs/create-dirs (fs/path root "elsewhere"))
+              note "---\nname: %s\ndescription: D\n---\n\nbody\n"
+              alias (fs/path global "alias.md")
+              outside-link (fs/path global "outside.md")]
           (spit (str (fs/path global "own.md")) (format note "Own"))
-          (spit (str target) (format note "Linked"))
-          (fs/create-sym-link link target)
+          (spit (str (fs/path elsewhere "outside.md")) (format note "Outside"))
+          (spit (str (fs/path elsewhere "nested.md")) (format note "Nested"))
+          (fs/create-sym-link alias (fs/path global "own.md"))
+          (fs/create-sym-link outside-link (fs/path elsewhere "outside.md"))
+          (fs/create-sym-link (fs/path global "linked-dir") elsewhere)
           (is (= ["Own"] (mapv :name (memory/scan-memories db)))
-              "memory-path? is false for the target, so it must not be indexed as a note")
+              "only the regular file is a note: file links and linked subdirs are not read")
           (let [skipped (memory/skipped-files db)]
-            (is (= [(str link)] (mapv :path skipped))
-                "the link is reported, because that is what the user can fix")
-            (is (string/includes? (:reason (first skipped)) (str target)))))))))
+            (is (= #{(str alias) (str outside-link)} (set (map :path skipped)))
+                "each file link is listed under its own path, so nothing disappears without a trace")
+            (is (every? #(string/starts-with? (:reason %) "not indexed: this is a link.") skipped))))))))
+
+(deftest linked-memory-dir-is-scanned-test
+  (when-not shared/windows-os?
+    (test-helper/with-memory-root
+      (fn [root]
+        (let [real (fs/create-dirs (fs/path root "synced-global"))]
+          (fs/create-sym-link (memory/global-dir) real)
+          (spit (str (fs/path real "note.md")) "---\nname: Synced\ndescription: D\n---\n\nbody\n")
+          (is (= [["Synced" (memory/abs-path (fs/path real "note.md"))]]
+                 (mapv (juxt :name :path) (memory/scan-memories (test-db []))))
+              "a linked memory dir is resolved before the scan, so its notes are read")
+          (is (empty? (memory/skipped-files (test-db [])))))))))
 
 (deftest unreadable-file-skip-reason-test
   (when-not shared/windows-os?
     (test-helper/with-memory-root
       (fn [_root]
-        (let [global (fs/create-dirs (memory/global-dir))]
-          ;; A link without a target: the file is listed, and reading it fails.
-          (fs/create-sym-link (fs/path global "gone.md") (fs/path global "no-such-target.md"))
-          (let [skipped (memory/skipped-files (test-db []))]
-            (is (= 1 (count skipped)))
-            (is (string/starts-with? (:reason (first skipped)) "cannot read file:")
-                "a read error is not reported as a YAML problem")))))))
+        (let [note (fs/path (fs/create-dirs (memory/global-dir)) "locked.md")]
+          (spit (str note) "---\nname: Locked\ndescription: D\n---\n\nbody\n")
+          (fs/set-posix-file-permissions note "-w-------")
+          (try
+            ;; A root user can read the file anyway; then there is nothing to check.
+            (when-not (fs/readable? note)
+              (let [skipped (memory/skipped-files (test-db []))]
+                (is (= [(memory/abs-path note)] (mapv :path skipped)))
+                (is (string/starts-with? (:reason (first skipped)) "cannot read file:")
+                    "a read error is not reported as a YAML problem")))
+            (finally
+              (fs/set-posix-file-permissions note "rw-------"))))))))
 
 (deftest memory-dirs-ordering-test
   (test-helper/with-memory-root
@@ -491,44 +483,6 @@
             (is (= ["p.md" "g.md"] (mapv #(fs/file-name (:path %)) entries))
                 "usage data must not reorder across group boundaries")
             (is (= [:personal :global] (mapv :tier entries)))))))))
-
-(deftest scan-uses-fingerprint-cache-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/repo/one")])
-            global-dir (fs/file root "global")
-            file-a (fs/file global-dir "a.md")
-            file-b (fs/file global-dir "b.md")
-            file-bad (fs/file global-dir "bad.md")]
-        (write-memory-file! file-a "---\nname: A\ndescription: D\n---\n\nbody a\n")
-        (write-memory-file! file-b "---\nname: B\ndescription: D\n---\n\nbody b\n")
-        ;; isolate from other tests sharing the process-wide cache
-        (reset! @#'memory/entry-cache* {})
-        (let [parse-calls* (atom [])
-              synthetic-parse (fn [f]
-                                (swap! parse-calls* conj (str f))
-                                (if (string/ends-with? (str f) "bad.md")
-                                  {:skip "mock reason"}
-                                  {:ok {:path (str f)
-                                        :name "n" :description "d"
-                                        :type "note" :tags [] :body ""}}))]
-          (with-redefs-fn {#'memory/parse-memory-file synthetic-parse}
-            (fn []
-              (let [scan #(memory/scan-memories db)]
-                (is (= 2 (count (scan))))
-                (is (= 2 (count @parse-calls*)) "first scan parses both files")
-                (scan)
-                (is (= 2 (count @parse-calls*)) "unchanged files are not re-parsed")
-                (write-memory-file! file-bad "---\nname: Bad\nno closing frontmatter\n")
-                (scan)
-                (is (= 3 (count @parse-calls*)))
-                (scan)
-                (is (= 3 (count @parse-calls*))
-                    "failed parses are cached too — broken files don't re-warn every scan")
-                (write-memory-file! file-a "---\nname: A\ndescription: D\n---\n\nan edited, longer body\n")
-                (is (= 2 (count (scan))))
-                (is (= 4 (count @parse-calls*))
-                    "only the edited file is re-parsed (mtime/size fingerprint changed)")))))))))
 
 (deftest pre-create-dirs-test
   (test-helper/with-memory-root

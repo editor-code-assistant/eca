@@ -223,15 +223,22 @@
                          (+ line-offset limit))))))
     "Reading file"))
 
+(def ^:private non-markdown-memory-error
+  (str "Memory directories hold only Markdown notes: use a file name that ends in `.md`, and retry."
+       " Files with other names are not read as memories."))
+
 (defn ^:private require-valid-memory-content
-  "Error result when `path` is inside one of the chat's memory dirs and
-   `content` would not be a valid memory file (YAML frontmatter mapping with
-   non-blank `name` and `description`), else nil. A malformed memory file
-   would be silently skipped by the memory index, so such writes are rejected
-   before any byte hits disk."
+  "Error result when `path` is inside one of the chat's memory dirs and the
+   write would not leave a note that the index reads, else nil: the file must
+   be a `.md` file, and `content` a valid memory file (YAML frontmatter
+   mapping with non-blank `name` and `description`). Such a file would be
+   silently missing from the memory index, so the write is rejected before any
+   byte hits disk. A directory move passes no content and is not checked."
   [path content ctx]
   (when (and path content (f.memory/memory-path? (:db ctx) (:config ctx) path))
-    (when-let [error (f.memory/memory-content-error content)]
+    (when-let [error (if (f.memory/markdown-file? path)
+                       (f.memory/memory-content-error content)
+                       non-markdown-memory-error)]
       (tools.util/single-text-content error :error))))
 
 (defn ^:private with-memory-hashes

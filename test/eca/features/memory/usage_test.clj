@@ -133,7 +133,7 @@
           (is (true? (memory/memory-path? db enabled-config personal))))
         (testing "a path in the global dir is a memory path"
           (is (true? (memory/memory-path? db enabled-config (str (fs/file root "global" "g.md"))))))
-        (testing "a repo-local .eca path is not (there is no team tier)"
+        (testing "a repo-local .eca path is not"
           (is (false? (memory/memory-path? db enabled-config
                                            (str (fs/file workspace-root ".eca" "memory" "team.md"))))))
         (testing "a path outside any memory dir is not"
@@ -153,9 +153,14 @@
         (usage/record-read! (ctx db) (str repo-local))
         (usage/record-write! (ctx db) (str repo-local))
         (is (empty? (disk-ledger))
-            "repo-local markdown is not a memory file (no shared tier)")
+            "repo-local markdown is not a memory file")
         (is (not (fs/exists? (usage/usage-file)))
             "nothing is persisted for a path outside the memory dirs")
+        (testing "a file that is not .md in a memory dir is not a memory"
+          (let [txt (fs/file root "global" "notes.txt")]
+            (write-md! txt)
+            (usage/record-read! (ctx db) (str txt))
+            (is (empty? (disk-ledger)))))
         (testing "disabled memory records nothing even for a memory path"
           (let [f (fs/file root "projects" (memory/project-slug (str workspace-root)) "note.md")
                 disabled {:chat-id "chat-1" :db db :config {:memory {:enabled false}}}]
@@ -398,7 +403,7 @@
               (.destroyForcibly process)
               (.waitFor process 5 java.util.concurrent.TimeUnit/SECONDS))))))))
 
-(deftest record-write-stamps-provenance-test
+(deftest record-write-stamps-a-pointer-test
   (test-helper/with-memory-root
     (fn [root]
       (let [db (test-db [(test-helper/file-path "/repo/one")])
@@ -406,42 +411,27 @@
                        (memory/project-slug (test-helper/file-path "/repo/one"))
                        "note.md")
             key (str (fs/absolutize (fs/file f)))
-            c (assoc (ctx db) :tool-call-id "tc-1")]
+            c (assoc (ctx db) :tool-call-id "tc-1")
+            last-write #(get-in (disk-ledger) [key :last-write])]
         (write-md! f)
         (usage/record-write! c (str f))
-        (let [last-write (get-in (disk-ledger) [key :last-write])]
-          (is (= "chat-1" (:chat-id last-write)))
-          (is (= "tc-1" (:tool-call-id last-write)))
-          (is (nil? (:parent-chat-id last-write)) "no parent for a top-level chat")
-          (is (number? (:at-ms last-write)))
-          (is (false? (:maintenance? last-write))))
+        (is (= {:chat-id "chat-1" :tool-call-id "tc-1"} (last-write))
+            "only the ids of the write, and no key without a value")
         (testing "a second write replaces the stamp instead of accumulating"
           (usage/record-write! (assoc c :tool-call-id "tc-2") (str f))
-          (is (= "tc-2" (get-in (disk-ledger) [key :last-write :tool-call-id]))))
+          (is (= {:chat-id "chat-1" :tool-call-id "tc-2"} (last-write))))
         (testing "a read afterwards preserves the write stamp"
           (usage/record-read! (ctx db) (str f))
           (is (= 1 (get-in (disk-ledger) [key :reads])))
-          (is (some? (get-in (disk-ledger) [key :last-write]))))))))
-
-(deftest record-write-maintenance-flag-test
-  (test-helper/with-memory-root
-    (fn [root]
-      (let [db (test-db [(test-helper/file-path "/repo/one")])
-            f (fs/file root "global" "note.md")
-            key (str (fs/absolutize (fs/file f)))]
-        (write-md! f)
-        (testing "the chat's own :memory-consolidating? flag marks the write"
-          (usage/record-write! (assoc-in (ctx db) [:db :chats "chat-1" :memory-consolidating?] true)
+          (is (= {:chat-id "chat-1" :tool-call-id "tc-2"} (last-write))))
+        (testing "a subagent's write also points to its parent chat"
+          (usage/record-write! (assoc-in c [:db :chats "chat-1" :parent-chat-id] "parent-1") (str f))
+          (is (= {:chat-id "chat-1" :tool-call-id "tc-1" :parent-chat-id "parent-1"} (last-write))))
+        (testing "unlike a read, a write during /memory-consolidate is recorded"
+          (usage/record-write! (-> (assoc c :tool-call-id "tc-3")
+                                   (assoc-in [:db :chats "chat-1" :memory-consolidating?] true))
                                (str f))
-          (is (true? (get-in (disk-ledger) [key :last-write :maintenance?]))))
-        (testing "the parent chat's flag marks a subagent write"
-          (let [db2 (-> db
-                        (assoc-in [:chats "chat-1" :parent-chat-id] "parent-1")
-                        (assoc-in [:chats "parent-1" :memory-consolidating?] true))]
-            (usage/record-write! (ctx db2) (str f))
-            (let [last-write (get-in (disk-ledger) [key :last-write])]
-              (is (true? (:maintenance? last-write)) "unlike reads, consolidating writes are recorded")
-              (is (= "parent-1" (:parent-chat-id last-write))))))))))
+          (is (= {:chat-id "chat-1" :tool-call-id "tc-3"} (last-write))))))))
 
 (deftest record-move-rekeys-entry-test
   (test-helper/with-memory-root

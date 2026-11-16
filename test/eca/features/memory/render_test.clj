@@ -30,6 +30,11 @@
           :path "/tmp/docker-ipv6.md"}
          overrides))
 
+(defn ^:private shown-names
+  "Names of the `entries` that the index `ctx` lists, in display order."
+  [ctx entries]
+  (mapv (into {} (map (juxt :path :name)) entries) (:shown-paths ctx)))
+
 (defn ^:private dirs []
   [{:dir "/home/u/.config/eca/memory/global" :tier :global :label "global"}
    {:dir "/home/u/.config/eca/memory/projects/-repo" :tier :personal :label "repo"}])
@@ -51,9 +56,8 @@
                                    :max-tokens 10000})]
     (is (string/includes? (:content ctx)
                           (str "- Docker IPv6 [gotcha] (" (date-of now) ") — CI fails on Alpine with localhost")))
-    (testing "entries are grouped under one heading per directory, no repeated source slug per line"
-      (is (string/includes? (:content ctx) "\n## one\n"))
-      (is (not (string/includes? (:content ctx) "source:"))))
+    (testing "entries are grouped under one heading per directory"
+      (is (string/includes? (:content ctx) "\n## one\n")))
     (testing "tags ride a per-group vocabulary line, not per-entry lines"
       (is (string/includes? (:content ctx) "Tags in use: ci, docker")
           "equal frequencies sort alphabetically"))))
@@ -85,7 +89,7 @@
       (is (some? line))
       (is (<= (count line) (* 0.2 300 4)) "20% of 300 tokens, at 4 chars per token")
       (is (string/ends-with? line "…") "the elided tail is signalled")
-      (is (= 1 (:item-count ctx)) "the entry still fits")))
+      (is (= 1 (count (:shown-paths ctx))) "the entry still fits")))
   (testing "a group that needs less leaves the rest of the share to the other group"
     (let [many-tags (mapv #(format "frequent-tag-%02d" %) (range 30))
           ctx (render/index-context {:entries [(entry :tags many-tags)
@@ -125,9 +129,7 @@
     (testing "within-group order is kept as given, NOT re-sorted by mtime"
       (is (< (.indexOf ^String content "- NewGlobal")
              (.indexOf ^String content "- OldGlobal"))
-          "NewGlobal is older but comes first in the (usage-ordered) input"))
-    (testing "the flat \"Memories:\" preamble is gone"
-      (is (not (string/includes? content "Memories:"))))))
+          "NewGlobal is older but comes first in the (usage-ordered) input"))))
 
 (deftest index-context-description-truncation-test
   (testing "descriptions are single-lined and truncated at 120 chars (enforcing the guidance rule)"
@@ -198,11 +200,7 @@
         ctx (render/index-context {:entries entries
                                    :max-entries 2
                                    :max-tokens 100000})]
-    (is (= 2 (:item-count ctx)))
-    (is (= ["E0" "E1"] (mapv :name (:items ctx))))
-    (is (= [{:name "E0" :type "gotcha" :source "one" :path "/tmp/e0.md"}
-            {:name "E1" :type "gotcha" :source "one" :path "/tmp/e1.md"}]
-           (:items ctx)))
+    (is (= ["/tmp/e0.md" "/tmp/e1.md"] (:shown-paths ctx)))
     (is (string/includes? (:content ctx) "Showing 2 of 5 memories. Tags marked * have memories not listed above. Before a task on a related topic, Grep"))
     (is (not (string/includes? (:content ctx) "- E2 [")))))
 
@@ -216,7 +214,6 @@
                                                    :max-entries 1
                                                    :max-tokens 10000}))]
       (is (string/includes? content "Tags in use: raylib(2)*, babashka*, seen\n"))
-      (is (not (string/includes? content "Not shown")) "one line only, no second summary")
       (is (string/includes? content "Showing 1 of 4 memories. Tags marked * have memories not listed above, and some memories without tags are not listed either. Before a task on a related topic, Grep"))))
   (testing "a tag whose entries are all shown has no marker"
     (let [entries [(entry :name "A" :path "/tmp/a.md" :tags ["shown-tag"])
@@ -264,7 +261,7 @@
     (let [entries [(entry :name "P" :path "/tmp/p.md" :label "repo" :tier :personal :tags ["eca"])
                    (entry :name "G" :path "/tmp/g.md" :label "global" :tier :global :tags ["jank"])]
           ctx (render/index-context {:entries entries :max-entries 0 :max-tokens 2000})]
-      (is (= 0 (:item-count ctx)))
+      (is (= 0 (count (:shown-paths ctx))))
       (is (string/includes? (:content ctx) "Tags in use: eca*"))
       (is (string/includes? (:content ctx) "Tags in use: jank*"))
       (is (string/includes? (:content ctx) "Showing 0 of 2 memories. Tags marked * have memories not listed above. Before a task on a related topic, Grep"))
@@ -277,33 +274,34 @@
         global (mapv #(entry :name (str "G" %) :path (str "/tmp/g" % ".md")
                              :label "global" :tier :global :tags [])
                      (range 10))
-        shown-names (fn [opts]
-                      (set (map :name (:items (render/index-context
-                                               (merge {:max-tokens 100000} opts))))))]
+        shown-set (fn [opts]
+                      (set (shown-names (render/index-context (merge {:max-tokens 100000} opts))
+                                        (:entries opts))))]
     (testing "a large project cannot take the whole count budget"
-      (let [names (shown-names {:entries (concat project global) :max-entries 10})]
+      (let [names (shown-set {:entries (concat project global) :max-entries 10})]
         (is (= 10 (count names)))
         (is (= #{"G0" "G1" "G2"} (set (filter #(string/starts-with? % "G") names)))
             "global keeps 30 percent, best entries first")
         (is (= (set (map #(str "P" %) (range 7)))
                (set (filter #(string/starts-with? % "P") names))))))
     (testing "unused global share flows back to the project"
-      (let [names (shown-names {:entries (concat project (take 1 global)) :max-entries 10})]
+      (let [names (shown-set {:entries (concat project (take 1 global)) :max-entries 10})]
         (is (= 9 (count (filter #(string/starts-with? % "P") names))))
         (is (contains? names "G0"))))
     (testing "unused project share flows to global"
-      (let [names (shown-names {:entries (concat (take 2 project) global) :max-entries 10})]
+      (let [names (shown-set {:entries (concat (take 2 project) global) :max-entries 10})]
         (is (= 8 (count (filter #(string/starts-with? % "G") names))))))
     (testing "display order stays project group first, then global"
-      (let [items (:items (render/index-context {:entries (concat project global)
-                                                 :max-entries 10
-                                                 :max-tokens 100000}))]
-        (is (= ["P0" "P1" "P2" "P3" "P4" "P5" "P6" "G0" "G1" "G2"] (mapv :name items)))))
+      (let [ctx (render/index-context {:entries (concat project global)
+                                       :max-entries 10
+                                       :max-tokens 100000})]
+        (is (= ["P0" "P1" "P2" "P3" "P4" "P5" "P6" "G0" "G1" "G2"]
+               (shown-names ctx (concat project global))))))
     (testing "the token budget is shared the same way and never exceeded"
       (let [ctx (render/index-context {:entries (concat project global)
                                        :max-entries 100
                                        :max-tokens 200})
-            names (map :name (:items ctx))]
+            names (shown-names ctx (concat project global))]
         (is (<= (:tokens ctx) 200))
         (is (some #(string/starts-with? % "G") names) "global is not squeezed out")
         (is (some #(string/starts-with? % "P") names))))))
@@ -318,27 +316,30 @@
                        :label "global" :tier :global :tags [] :score 0.1)]
         entries (concat root-a root-b global)]
     (testing "the best project note of a later root wins over the notes of the first root"
-      (is (= ["B0"] (mapv :name (:items (render/index-context {:entries entries
-                                                               :max-entries 1
-                                                               :max-tokens 100000}))))))
+      (is (= ["B0"] (shown-names (render/index-context {:entries entries
+                                                        :max-entries 1
+                                                        :max-tokens 100000})
+                                 entries))))
     (testing "display order stays per root, then global"
       (is (= ["A0" "B0" "G0"]
-             (mapv :name (:items (render/index-context {:entries entries
-                                                        :max-entries 3
-                                                        :max-tokens 100000}))))))
+             (shown-names (render/index-context {:entries entries
+                                                 :max-entries 3
+                                                 :max-tokens 100000})
+                          entries))))
     (testing "the token budget selects by score across roots too"
       (let [ctx (render/index-context {:entries entries
                                        :max-entries 100
                                        :max-tokens 150})
-            names (set (map :name (:items ctx)))]
-        (is (< (:item-count ctx) (count entries)))
+            names (set (shown-names ctx entries))]
+        (is (< (count (:shown-paths ctx)) (count entries)))
         (is (contains? names "B0"))))
     (testing "entries without a score keep their input order"
       (is (= ["A0"]
-             (mapv :name (:items (render/index-context
-                                  {:entries (map #(dissoc % :score) entries)
-                                   :max-entries 1
-                                   :max-tokens 100000}))))))))
+             (shown-names (render/index-context
+                           {:entries (map #(dissoc % :score) entries)
+                            :max-entries 1
+                            :max-tokens 100000})
+                          entries))))))
 
 (deftest index-context-small-entry-shares-test
   (let [project (mapv #(entry :name (str "P" %) :path (str "/tmp/p" % ".md")
@@ -353,15 +354,15 @@
                                 [3 ["P0" "P1" "G0"]]]]
         (let [ctx (render/index-context {:entries (concat project global)
                                          :max-entries limit :max-tokens 10000})]
-          (is (= limit (:item-count ctx)))
-          (is (= expected (mapv :name (:items ctx)))))))
+          (is (= limit (count (:shown-paths ctx))))
+          (is (= expected (shown-names ctx (concat project global)))))))
     (testing "unused positions go to the other tier, including single-tier stores"
       (doseq [[project-count global-count] [[1 1] [1 10] [10 1] [0 10] [10 0]]
               limit [1 2 3]]
         (let [ctx (render/index-context {:entries (concat (take project-count project)
                                                           (take global-count global))
                                          :max-entries limit :max-tokens 10000})]
-          (is (= (min limit (+ project-count global-count)) (:item-count ctx))
+          (is (= (min limit (+ project-count global-count)) (count (:shown-paths ctx)))
               (str "limit " limit ", project " project-count ", global " global-count)))))))
 
 (deftest index-context-max-tokens-caps-test
@@ -373,8 +374,8 @@
                                    :max-entries 100
                                    :max-tokens 300})]
     (is (<= (:tokens ctx) 300) "whole block stays within the token budget")
-    (is (< 0 (:item-count ctx) 20) "entries are truncated, not dropped")
-    (is (string/includes? (:content ctx) (str "Showing " (:item-count ctx) " of 20 memories.")))))
+    (is (< 0 (count (:shown-paths ctx)) 20) "entries are truncated, not dropped")
+    (is (string/includes? (:content ctx) (str "Showing " (count (:shown-paths ctx)) " of 20 memories.")))))
 
 (deftest index-context-small-budgets-test
   (doseq [budget [0 1 2 10]
@@ -582,90 +583,129 @@
         "absent `skipped` key renders no section")))
 
 (deftest memories-text-test
-  (let [project (snapshot-entry :tags ["docker" "ci"])
-        global (snapshot-entry :name "Team notes"
-                               :type "note"
-                               :label "global"
-                               :tier :global
-                               :description "How the team works"
-                               :path "/home/u/.config/eca/memory/global/team.md")
-        index-of-entries (fn [entries] {:items (mapv #(select-keys % [:path]) entries)})
+  (let [repo-dir "/home/u/.config/eca/memory/projects/-repo"
+        global-dir "/home/u/.config/eca/memory/global"
+        date (date-of (days-ago now 43))
+        gotcha (snapshot-entry :tags ["docker" "ci"])
+        decision (snapshot-entry :name "Use Alpine"
+                                 :type "decision"
+                                 :description "Why the CI image is Alpine"
+                                 :path (str repo-dir "/alpine.md"))
+        team (snapshot-entry :name "Team notes"
+                             :type "note"
+                             :label "global"
+                             :tier :global
+                             :description "How the team works"
+                             :path (str global-dir "/team.md"))
+        index-of-entries (fn [entries] {:shown-paths (mapv :path entries)})
         text-of (fn [opts]
                   (render/memories-text (merge {:dirs (snapshot-dirs)
-                                                :entries [project global]
+                                                :entries [gotcha decision team]
                                                 :skipped []
                                                 :max-entries 100
                                                 :max-tokens 2000}
                                                opts)))
-        project-lines (str "- Docker IPv6 [gotcha] (" (date-of (days-ago now 43)) ") — CI fails on Alpine with localhost\n"
-                           "  File: docker-ipv6.md, tags: docker, ci")
-        global-lines (str "- Team notes [note] (" (date-of (days-ago now 43)) ") — How the team works\n"
-                          "  File: team.md")]
-    (testing "every note is in the index"
-      (let [text (text-of {:index (index-of-entries [project global])})]
-        (is (string/starts-with? text "Memories in the index: 2 of 2.\n"))
-        (is (not (string/includes? text "Limits:")) "the caps are named only when they hide notes")
-        (is (string/includes? text (str "\n### repo (project)\n"
-                                        "Directory: /home/u/.config/eca/memory/projects/-repo\n"
-                                        project-lines "\n"))
-            "a project dir shows its label, its path and its notes with file and tags")
-        (is (string/ends-with? text (str "\n### global\n"
-                                         "Directory: /home/u/.config/eca/memory/global\n"
-                                         global-lines))
-            "a note without tags shows only its file")
-        (is (not (string/includes? text "Not in the index:")))
-        (is (not (string/includes? text "Skipped files")))))
-    (testing "the caps hide a note"
-      (let [text (text-of {:index (index-of-entries [project]) :max-entries 1})]
-        (is (string/starts-with?
-             text
-             (str "Memories in the index: 1 of 2."
+        gotcha-lines (str "- [gotcha] `Docker IPv6` (" date ")\n"
+                          "  CI fails on Alpine with localhost\n"
+                          "  docker-ipv6.md, tags: docker, ci")
+        decision-lines (str "- [decision] `Use Alpine` (" date ")\n"
+                            "  Why the CI image is Alpine\n"
+                            "  alpine.md")
+        team-lines (str "- [note] `Team notes` (" date ")\n"
+                        "  How the team works\n"
+                        "  team.md")]
+    (testing "every note is in the index: each dir with its path and its notes"
+      (is (= (str "Memories in the index: 3 of 3.\n"
+                  "\n"
+                  "### repo (project)\n"
+                  "`" repo-dir "`\n"
+                  "\n"
+                  decision-lines "\n"
+                  gotcha-lines "\n"
+                  "\n"
+                  "### global\n"
+                  "`" global-dir "`\n"
+                  "\n"
+                  team-lines)
+             (text-of {:index (index-of-entries [gotcha decision team])}))))
+    (testing "the caps hide notes: they come after all dirs, again per dir"
+      (is (= (str "Memories in the index: 1 of 3."
                   " Limits: `memory.index.maxEntries` 1, `memory.index.maxTokens` 2000."
-                  " The agent can still find the other memories with its file tools.\n")))
-        (is (string/includes? text (str "Directory: /home/u/.config/eca/memory/projects/-repo\n" project-lines "\n"))
-            "a listed note stays directly under its dir")
-        (is (string/ends-with? text (str "Directory: /home/u/.config/eca/memory/global\n"
-                                         "\n"
-                                         "Not in the index:\n"
-                                         global-lines))
-            "a hidden note comes under its own line")))
-    (testing "listed notes come before hidden notes of the same dir"
-      (let [hidden (snapshot-entry :name "Hidden" :path "/home/u/.config/eca/memory/projects/-repo/hidden.md")
-            text (text-of {:entries [hidden project] :index (index-of-entries [project])})]
-        (is (< (string/index-of text "- Docker IPv6")
-               (string/index-of text "Not in the index:")
-               (string/index-of text "- Hidden")))))
+                  " The agent can still find the other memories with its file tools.\n"
+                  "\n"
+                  "### repo (project)\n"
+                  "`" repo-dir "`\n"
+                  "\n"
+                  gotcha-lines "\n"
+                  "\n"
+                  "### global\n"
+                  "`" global-dir "`\n"
+                  "\n"
+                  "(none in the index)\n"
+                  "\n"
+                  "### Not in the index: repo (project)\n"
+                  "\n"
+                  decision-lines "\n"
+                  "\n"
+                  "### Not in the index: global\n"
+                  "\n"
+                  team-lines)
+             (text-of {:index (index-of-entries [gotcha]) :max-entries 1}))))
     (testing "no index at all"
       (let [text (text-of {:index nil :max-tokens 0})]
-        (is (string/starts-with? text "Memories in the index: 0 of 2. Limits:"))
-        (is (= 2 (count (re-seq #"Not in the index:" text))))))
+        (is (string/starts-with? text "Memories in the index: 0 of 3. Limits:"))
+        (is (= 2 (count (re-seq #"\(none in the index\)" text))))
+        (is (= 2 (count (re-seq #"### Not in the index: " text))))))
     (testing "an empty store still shows the dirs"
       (is (= (str "No memories saved yet.\n"
                   "\n"
                   "### repo (project)\n"
-                  "Directory: /home/u/.config/eca/memory/projects/-repo\n"
+                  "`" repo-dir "`\n"
+                  "\n"
                   "(no memories)\n"
                   "\n"
                   "### global\n"
-                  "Directory: /home/u/.config/eca/memory/global\n"
+                  "`" global-dir "`\n"
+                  "\n"
                   "(no memories)")
              (text-of {:entries [] :index nil}))))
     (testing "skipped files close the text"
-      (let [text (text-of {:index (index-of-entries [project global])
-                           :skipped [{:path "/home/u/.config/eca/memory/global/broken.md"
-                                      :reason "YAML frontmatter does not parse (boom)"}]})]
-        (is (string/ends-with?
-             text
-             (str "\n\n### Skipped files\n"
-                  "Not indexed. Fix or delete them, or run `/memory-consolidate`.\n"
-                  "- /home/u/.config/eca/memory/global/broken.md — YAML frontmatter does not parse (boom)")))))
-    (testing "a note is grouped by its label, like in the index"
-      (let [linked (snapshot-entry :name "Linked" :path "/home/u/.config/eca/memory/global/linked.md")
+      (is (string/ends-with?
+           (text-of {:index (index-of-entries [gotcha decision team])
+                     :skipped [{:path (str global-dir "/broken.md")
+                                :reason "YAML frontmatter does not parse (boom)"}]})
+           (str "\n\n### Skipped files\n"
+                "Not indexed. Fix or delete them, or run `/memory-consolidate`.\n"
+                "- `" global-dir "/broken.md`: YAML frontmatter does not parse (boom)"))))
+    (testing "notes are sorted by type, and inside a type the newest comes first"
+      (let [note (fn [name type updated-at-ms]
+                   (snapshot-entry :name name :type type :updated-at-ms updated-at-ms
+                                   :path (str repo-dir "/" name ".md")))
+            entries [(note "Z" "zeta" now)
+                     (note "Old decision" "decision" (days-ago now 50))
+                     (note "A" "alpha" now)
+                     (note "Undated decision" "decision" nil)
+                     (note "New decision" "decision" (days-ago now 1))
+                     (note "N" "note" now)
+                     (note "S" "solution" (days-ago now 90))]
+            text (text-of {:entries entries :index (index-of-entries entries)})]
+        (is (= ["S" "New decision" "Old decision" "Undated decision" "N" "A" "Z"]
+               (mapv second (re-seq #"- \[.+?\] `(.+?)`" text)))
+            "known types in the order of the write guidance, other types after them by name")
+        (is (string/includes? text "- [decision] `Undated decision`\n")
+            "a note without a date shows none")))
+    (testing "a backtick in a name cannot end the code span of the name"
+      (let [entries [(snapshot-entry :name "Use `rg` first")]]
+        (is (string/includes? (text-of {:entries entries :index (index-of-entries entries)})
+                              "- [gotcha] `Use 'rg' first` ("))))
+    (testing "a note sits under the dir of its label, like in the index"
+      (let [linked (snapshot-entry :name "Linked" :path (str global-dir "/linked.md"))
             text (text-of {:entries [linked] :index (index-of-entries [linked])})]
-        (is (string/includes? text (str "Directory: /home/u/.config/eca/memory/projects/-repo\n"
-                                        "- Linked [gotcha]"))
-            "the note sits under the dir it was scanned in")
-        (is (string/includes? text "  File: /home/u/.config/eca/memory/global/linked.md")
+        (is (string/includes? text (str "### repo (project)\n"
+                                        "`" repo-dir "`\n"
+                                        "\n"
+                                        "- [gotcha] `Linked` (" date ")\n")))
+        (is (string/includes? text (str "\n  " global-dir "/linked.md\n"))
             "a path outside that dir is shown in full")))))
 
 (deftest note-text-cannot-leave-the-block-test

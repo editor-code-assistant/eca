@@ -56,8 +56,8 @@
 
 (defn ^:private entry-line
   "One compact line: `- <name> [<type>] (<YYYY-MM-DD>) — <description>`.
-   No source slug: entries are grouped under one heading per directory
-   instead. Tags are deliberately NOT shown per-entry either: in real
+   The line does not name its directory: entries are grouped under one
+   heading per directory. Tags are deliberately NOT shown per-entry: in real
    entries they mostly duplicate words already in name/description, and the
    line's job is WHEN-recognition. Tags ride the per-group `Tags in use:`
    vocabulary line (see `tags-summary-line`), plus they stay in the files
@@ -298,8 +298,10 @@
    a large project cannot push all global entries out. Inside a tier the
    selection compares `:score` across groups, so the first workspace root
    cannot use the whole project budget. Display order stays the input order. Entries that do not fit are flagged with a `*` on their tags.
-   Returns nil when there is nothing to show: with zero memories a block buys
-   nothing, because the write targets live in the static guidance."
+   Returns `{:content <block text> :tokens <estimate> :shown-paths <paths of
+   the listed notes, in display order>}`, or nil when there is nothing to
+   show: with zero memories a block buys nothing, because the write targets
+   live in the static guidance."
   [{:keys [entries max-entries max-tokens]}]
   (let [entries (vec entries)]
     (when (seq entries)
@@ -337,13 +339,7 @@
         (when result
           {:content (:content result)
            :tokens (:tokens result)
-           :item-count (count (:shown result))
-           :items (mapv (fn [entry]
-                          {:name (:name entry)
-                           :type (:type entry)
-                           :source (:label entry)
-                           :path (:path entry)})
-                        (:shown result))})))))
+           :shown-paths (mapv :path (:shown result))})))))
 
 (defn ^:private change-line
   "One line of a change list: the entry line for a new or changed note,
@@ -521,32 +517,64 @@
                    ["" "_Note: reads and last-read ages count local `read_file` consultations only._"]))
      "No memory directories configured.")))
 
-(defn ^:private memories-entry-lines
-  "The lines of one note in the /memories text: its index line, then its file
-   (relative to its memory dir) and its tags."
-  [entry dir]
-  [(entry-line entry)
-   (str "  File: " (entry-relative-path dir (:path entry))
-        (when (seq (:tags entry))
-          (str ", tags: " (string/join ", " (:tags entry)))))])
+(def ^:private memory-type-order
+  "Order of the types in the /memories text: the types of the write guidance,
+   then `note` (a file without a type). Other types follow in alphabetical
+   order."
+  ["solution" "decision" "gotcha" "procedure" "fact" "preference" "metric" "note"])
+
+(defn ^:private memories-note-lines
+  "The lines of one note in the /memories text: type, name and date of last
+   change, then the description as the index shows it, then the file (relative
+   to its memory dir) and the tags. The type comes first, so the sort by type
+   shows as a column. Only the name is styled, as inline code like the item
+   names of other commands, because the reader finds a note by its name; a
+   backtick in the name becomes `'`, so it cannot end the code span."
+  [{:keys [name type description tags path updated-at-ms]} dir]
+  [(str "- [" (inline-text (or type "note")) "] `"
+        (string/replace (inline-text name) "`" "'") "`"
+        (when (some? updated-at-ms)
+          (str " (" (date-str updated-at-ms) ")")))
+   (str "  " (single-line-truncated description))
+   (str "  " (entry-relative-path dir path)
+        (when (seq tags)
+          (str ", tags: " (string/join ", " tags))))])
+
+(defn ^:private memories-note-list
+  "Lines of `notes` (notes of one memory dir) as one list, sorted by type
+   (`memory-type-order`, then other types by name) and, inside a type, newest
+   first. A note without a date comes last in its type."
+  [notes dir]
+  (let [rank (zipmap memory-type-order (range))]
+    (cons ""
+          (->> notes
+               (sort-by (fn [{:keys [type updated-at-ms]}]
+                          (let [type (or type "note")]
+                            [(get rank type (count rank))
+                             (if (contains? rank type) "" type)
+                             (- (long (or updated-at-ms 0)))])))
+               (mapcat #(memories-note-lines % dir))))))
 
 (defn memories-text
   "Chat text of the /memories command. It is for the user and is never sent to
-   the model. First how many notes the full index lists now, then each memory
-   dir with its notes in index order (the notes that the index does not list
-   come last, under their own line), and at the end the files that the scan
-   skipped.
+   the model. First how many notes the full index lists now. Then each memory
+   dir with its path and the notes that the index lists (see
+   `memories-note-list` for their order). Then, when the caps hide notes, the
+   same per dir for the notes that the index does not list. At the end the
+   files that the scan skipped.
 
    `entries` has the shape of `eca.features.memory.usage/ranked-memories` and
    `index` is their full index (see `index-context`), or nil when there is
    none. `max-entries` and `max-tokens` are the configured caps; they are
-   shown only when they hide notes. Notes are grouped by `:label`, like in the
-   index."
+   shown only when they hide notes. A note belongs to the dir of its `:label`,
+   like in the index."
   [{:keys [dirs entries skipped index max-entries max-tokens]}]
-  (let [listed? (comp (into #{} (map :path) (:items index)) :path)
+  (let [listed? (comp (set (:shown-paths index)) :path)
         by-label (group-by :label entries)
         total (count entries)
-        listed (count (filter listed? entries))]
+        listed (count (filter listed? entries))
+        title (fn [{:keys [label tier]}]
+                (str label (when (= :personal tier) " (project)")))]
     (string/join
      "\n"
      (concat
@@ -562,20 +590,23 @@
               " Limits: `memory.index.maxEntries` " max-entries
               ", `memory.index.maxTokens` " max-tokens "."
               " The agent can still find the other memories with its file tools."))]
-      (mapcat (fn [{:keys [dir label tier]}]
+      (mapcat (fn [{:keys [dir label] :as memory-dir}]
                 (let [notes (get by-label label)
-                      lines (fn [notes] (mapcat #(memories-entry-lines % dir) notes))]
-                  (concat ["" (str "### " label (when (= :personal tier) " (project)"))
-                           (str "Directory: " dir)]
-                          (if (seq notes)
-                            (concat (lines (filter listed? notes))
-                                    (when-let [hidden (seq (remove listed? notes))]
-                                      (concat ["" "Not in the index:"] (lines hidden))))
-                            ["(no memories)"]))))
+                      in-index (filter listed? notes)]
+                  (concat ["" (str "### " (title memory-dir)) (str "`" dir "`")]
+                          (cond
+                            (empty? notes) ["" "(no memories)"]
+                            (empty? in-index) ["" "(none in the index)"]
+                            :else (memories-note-list in-index dir)))))
+              dirs)
+      (mapcat (fn [{:keys [dir label] :as memory-dir}]
+                (when-let [hidden (seq (remove listed? (get by-label label)))]
+                  (concat ["" (str "### Not in the index: " (title memory-dir))]
+                          (memories-note-list hidden dir))))
               dirs)
       (when (seq skipped)
         (concat ["" "### Skipped files"
                  "Not indexed. Fix or delete them, or run `/memory-consolidate`."]
                 (map (fn [{:keys [path reason]}]
-                       (str "- " path " — " reason))
+                       (str "- `" path "`: " reason))
                      skipped)))))))

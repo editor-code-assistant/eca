@@ -42,14 +42,13 @@
   ([root messages] (turn root messages config))
   ([root messages config]
    (with-redefs [memory/memory-root-dir (constantly root)]
-     (delivery/turn-block {:chat-id "chat-1" :db db :config config
-                           :metrics (h/metrics) :window messages}))))
+     (delivery/turn-block {:chat-id "chat-1" :db db :config config :window messages}))))
 
-(defn ^:private block-text [result]
-  (get-in result [:block :text]))
+(defn ^:private block-text [block]
+  (:text block))
 
-(defn ^:private state [result]
-  (get-in result [:block :memory]))
+(defn ^:private state [block]
+  (:memory block))
 
 (defn ^:private window-with [state & extra]
   (vec (cons {:role "user" :content [{:type :text :text "hi"}] :memory state} extra)))
@@ -95,9 +94,7 @@
     (fn [root]
       (let [dirs (memory-dirs root)]
         (testing "an empty store sends nothing"
-          (let [result (turn root [])]
-            (is (some? result) "an empty store is not an error")
-            (is (nil? (:block result)))))
+          (is (nil? (turn root []))))
         (testing "after the first note the next prompt gets a full index"
           (write-note! (str (fs/file (get dirs :global) "a.md")) "Cache" "Cache notes" "body")
           (let [result (turn root [])]
@@ -109,8 +106,8 @@
       (let [dirs (memory-dirs root)]
         (write-note! (str (fs/file (get dirs :global) "a.md")) "Cache" "Cache notes" "body")
         (let [first-result (turn root [])]
-          (is (some? (:block first-result)))
-          (is (nil? (:block (turn root (window-with (state first-result)))))))))))
+          (is (some? first-result))
+          (is (nil? (turn root (window-with (state first-result))))))))))
 
 (deftest change-list-for-new-changed-and-deleted-test
   (h/with-memory-root
@@ -155,7 +152,7 @@
         (let [first-state (state (turn root []))]
           (testing "a tag-only rewrite sends no block"
             (write-note! a "Cache" "Cache notes" "body" :tags ["beta-gamma"])
-            (is (nil? (:block (turn root (window-with first-state))))))
+            (is (nil? (turn root (window-with first-state)))))
           (testing "a body rewrite is a change"
             (write-note! a "Cache" "Cache notes" "body with more" :tags ["beta-gamma"])
             (is (string/starts-with? (block-text (turn root (window-with first-state)))
@@ -185,8 +182,8 @@
     (fresh-write-store
      (fn [root _dirs a _b first-state]
        (write-note! a "Cache" "Cache notes" "body written by the chat")
-       (is (nil? (:block (turn root (window-with first-state
-                                                 (own-write "write_file" {"path" a} a)))))))))
+       (is (nil? (turn root (window-with first-state
+                                                 (own-write "write_file" {"path" a} a))))))))
   (testing "a move counts both ends as own writes"
     (fresh-write-store
      (fn [root _dirs a b first-state]
@@ -194,7 +191,7 @@
        (let [result (turn root (window-with
                                 first-state
                                 (own-write "move_file" {"source" a "destination" b} a b)))]
-         (is (nil? (:block result))
+         (is (nil? result)
              "no block: the chat caused both the deletion and the new note")))))
   (testing "the last own write of a path counts"
     (fresh-write-store
@@ -202,9 +199,9 @@
        (write-note! a "Cache" "Cache notes" "first own version")
        (let [first-write (own-write "write_file" {"path" a} a)]
          (write-note! a "Cache" "Cache notes" "second own version, longer")
-         (is (nil? (:block (turn root (window-with first-state
+         (is (nil? (turn root (window-with first-state
                                                    first-write
-                                                   (own-write "edit_file" {"path" a} a)))))))))))
+                                                   (own-write "edit_file" {"path" a} a))))))))))
 
 (deftest tool-output-without-hashes-is-not-an-own-write-test
   ;; A failed, rejected or non-writing call (preview_file_change) stamps no
@@ -224,7 +221,7 @@
    (fn [root _dirs a _b first-state]
      (write-note! a "Cache" "Cache notes" "version written by the chat")
      (let [window (window-with first-state (own-write "write_file" {"path" a} a))]
-       (is (nil? (:block (turn root window))) "the own write alone sends nothing")
+       (is (nil? (turn root window)) "the own write alone sends nothing")
        (write-note! a "Cache" "Cache notes corrected by the user" "version corrected by the user")
        (let [result (turn root window)]
          (is (string/starts-with? (block-text result) "<memory-changes description=")
@@ -247,7 +244,7 @@
        (let [first-state (state (turn root []))
              result (delivery/turn-block {:chat-id "chat-1"
                                           :db (assoc db :workspace-folders [])
-                                          :config config :metrics (h/metrics)
+                                          :config config
                                           :window (window-with first-state)})
              text (block-text result)]
          (is (fs/exists? note) "removing a workspace does not delete its notes")
@@ -263,7 +260,7 @@
      (let [alias (str (fs/file (fs/parent a) ".." "global" (fs/file-name a)))]
        (write-note! alias "Cache" "Cache notes" "body written through an alias")
        (let [window (window-with first-state (own-write "write_file" {"path" alias} alias))]
-         (is (nil? (:block (turn root window))) "new own writes use the scan's path key")
+         (is (nil? (turn root window)) "new own writes use the scan's path key")
          (write-note! a "Cache" "Corrected cache notes" "body corrected outside the chat")
          (is (string/includes? (block-text (turn root window)) "Corrected cache notes")))))))
 
@@ -327,7 +324,7 @@
   (let [entries [{:path "/m/a.md" :name "A" :type "fact" :label "global"
                   :description "d" :updated-at-ms 1 :tags []}]
         changes (render/changes-context [{:label "global" :name "A" :entry (first entries)}])]
-    (is (= {:text "<memory-index>fake</memory-index>" :kind "full"}
+    (is (= "<memory-index>fake</memory-index>"
            (#'delivery/choose-block entries #{"/m/a.md"} {}
                                     {:content "<memory-index>fake</memory-index>"
                                      :tokens (shared/estimate-tokens changes)} []))
@@ -349,5 +346,4 @@
           (is (nil? (delivery/turn-block {:chat-id "sub"
                                           :db (assoc-in db [:chats "sub" :subagent] true)
                                           :config config
-                                          :metrics (h/metrics)
                                           :window []}))))))))

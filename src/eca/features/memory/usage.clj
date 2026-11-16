@@ -27,13 +27,17 @@
   (io/file (memory/memory-root-dir) "usage.edn"))
 
 ;; abs-path-string -> {:reads long :last-read-at ms :body-hash string :changed-at ms
-;;                     :last-write {:chat-id :parent-chat-id :tool-call-id :at-ms :maintenance?}}
+;;                     :last-write {:chat-id :tool-call-id
+;;                                  :parent-chat-id (only for a subagent's write)}}
 ;;
-;; `:last-write` is provenance: the server (never the model) stamps it after a
-;; successful write/edit and re-keys it on move. The id doubles as an evidence
-;; pointer while `chatRetentionDays` keeps the chat on disk; after that a
-;; missing chat simply means "no evidence". `:maintenance?` marks writes made
-;; by /memory-consolidate itself so organic churn stays distinguishable.
+;; `:last-write` is a pointer to the tool call that last wrote the note: the
+;; server (never the model) stamps it after a successful write/edit and re-keys
+;; it on move. It holds ids only. What happened in that write (when, with which
+;; content, in a /memory-consolidate run or not) is in the stored chat. The
+;; pointer works while `chatRetentionDays` keeps the chat on disk; after that a
+;; missing chat simply means "no evidence". `/resume` moves a chat's messages
+;; under another chat id, so `:chat-id` can stop existing; the stored chats
+;; that hold the write are then found by `:tool-call-id`.
 ;;
 ;; `:body-hash`/`:changed-at` answer a different question than the file's
 ;; mtime: WHEN THE KNOWLEDGE CHANGED, not when the file was written. The two
@@ -100,12 +104,13 @@
    `:last-read-at`, using the latest disk entry under the update lock.
 
    No-op when memory is disabled, when the chat or its parent chat (subagent
-   escape hatch) is consolidating, or when `path` is not inside one of the
-   chat's memory dirs. Never throws."
+   escape hatch) is consolidating, or when `path` is not a `.md` file inside
+   one of the chat's memory dirs. Never throws."
   [{:keys [chat-id db config]} path]
   (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
     (try
       (when (and (not (db/memory-consolidating? db chat-id))
+                 (memory/markdown-file? path)
                  (memory/memory-path? db config path))
         (update-ledger!
          (fn [ledger]
@@ -121,15 +126,14 @@
         (logger/warn logger-tag "Failed to record memory read" (str path) e)))))
 
 (defn record-write!
-  "Record that the chat wrote `path`: replace `:last-write` with
-   `{:chat-id :parent-chat-id :tool-call-id :at-ms :maintenance?}`, using the
-   latest disk entry under the update lock.
+  "Record that the chat wrote `path`: replace `:last-write` with the pointer
+   `{:chat-id :tool-call-id}`, plus `:parent-chat-id` when a subagent wrote,
+   using the latest disk entry under the update lock. A key without a value is
+   left out.
 
-   Unlike reads, writes during /memory-consolidate ARE recorded and flagged
-   `:maintenance?` (true when the chat or its parent is consolidating), so
-   organic writes stay distinguishable from consolidation churn. No-op when
-   memory is disabled or `path` is not inside one of the chat's memory dirs.
-   Never throws."
+   Unlike reads, writes during /memory-consolidate are recorded too. No-op
+   when memory is disabled or `path` is not inside one of the chat's memory
+   dirs. Never throws."
   [{:keys [chat-id tool-call-id db config]} path]
   (let [parent-chat-id (db/parent-chat-id db chat-id)]
     (logger/with-chat-context chat-id parent-chat-id
@@ -138,11 +142,11 @@
           (update-ledger!
            (fn [ledger]
              (update ledger (memory/abs-path path) (fnil assoc {})
-                     :last-write {:chat-id chat-id
-                                  :parent-chat-id parent-chat-id
-                                  :tool-call-id tool-call-id
-                                  :at-ms (System/currentTimeMillis)
-                                  :maintenance? (db/memory-consolidating? db chat-id)}))))
+                     :last-write (into {}
+                                       (remove (comp nil? val))
+                                       {:chat-id chat-id
+                                        :tool-call-id tool-call-id
+                                        :parent-chat-id parent-chat-id})))))
         (catch Throwable e
           (logger/warn logger-tag "Failed to record memory write" (str path) e))))))
 

@@ -765,23 +765,19 @@
                                          (swap! db* assoc-in [:chats chat-id :messages] []))
               :prompt (f.prompt/init-prompt all-tools agent db config)}
       "memory-consolidate" (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
-                             ;; :eca-command dispatches never receive a memory
-                             ;; block (chat.clj gates it on :prompt-message), so the
+                             ;; A command prompt gets no memory block (chat.clj adds
+                             ;; it only to normal prompts and /prompt-show), so the
                              ;; dir list + usage snapshot go directly into the
                              ;; prompt text here, where db/config are available.
                              (let [{:keys [tier request] scope-label :label} (consolidate-scope args)
                                    args-text (string/join " " request)
                                    in-scope? #(or (nil? tier) (= tier (:tier %)))
-                                   snapshot (try
-                                              (f.memory.render/consolidate-snapshot-text
-                                               {:dirs (filterv in-scope? (f.memory/memory-dirs db))
-                                                :entries (f.memory.usage/ranked-memories db)
-                                                :skipped (filterv in-scope? (f.memory/skipped-files db))})
-                                              (catch Throwable e
-                                                (logger/warn "[commands]"
-                                                             "Could not build memory usage snapshot for /memory-consolidate"
-                                                             (ex-message e))
-                                                "usage snapshot unavailable"))
+                                   ;; A scan error reaches the command runner, which
+                                   ;; shows it and sends no request.
+                                   snapshot (f.memory.render/consolidate-snapshot-text
+                                             {:dirs (filterv in-scope? (f.memory/memory-dirs db))
+                                              :entries (f.memory.usage/ranked-memories db)
+                                              :skipped (filterv in-scope? (f.memory/skipped-files db))})
                                    prompt (str (f.prompt/memory-consolidate-prompt agent config)
                                                "\n\n## Memory directories and usage snapshot\n"
                                                "Scope: " scope-label "\n\n"

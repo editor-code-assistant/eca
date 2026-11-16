@@ -1540,8 +1540,8 @@
       (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})
                     f.prompt/compact-prompt (constantly "compact")
                     f.memory.delivery/turn-block
-                    (fn [_] {:block {:text "<memory-index description=\"fresh\">\n- Fresh\n</memory-index>"
-                                     :memory {"/m/new.md" {:hash "new" :name "Fresh" :label "global"}}}})
+                    (fn [_] {:text "<memory-index description=\"fresh\">\n- Fresh\n</memory-index>"
+                             :memory {"/m/new.md" {:hash "new" :name "Fresh" :label "global"}}})
                     f.chat/prompt-messages! (fn [user-messages prompt-type prompt-ctx]
                                               (swap! prompted* conj {:user-messages user-messages
                                                                      :prompt-type prompt-type

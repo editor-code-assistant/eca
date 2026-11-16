@@ -923,6 +923,15 @@
               (is (string/includes? (get-in result [:contents 0 :text]) "fix and retry")
                   "the error guides the model")
               (is (empty? @writes*))))))
+      (testing "write_file rejects a file that is not .md in memory dirs, even with valid content"
+        (let [writes* (atom {})]
+          (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]
+            (let [result ((handler "write_file")
+                          {"path" (str (fs/file memory-root "global" "notes.txt")) "content" valid-content}
+                          (ctx enabled-config))]
+              (is (match? {:error true} result))
+              (is (string/includes? (get-in result [:contents 0 :text]) "ends in `.md`"))
+              (is (empty? @writes*))))))
       (testing "write_file accepts valid memory content"
         (let [writes* (atom {})]
           (with-redefs [spit (fn [f content] (swap! writes* assoc f content))]

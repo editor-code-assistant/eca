@@ -13,7 +13,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.features.rules :as f.rules]
    [eca.features.skills :as f.skills]
-   [eca.logger :as logger]
    [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]])
@@ -648,29 +647,24 @@
             (is (has? prompt "## Additional instructions from the user\nglobl"))
             (is (has? prompt "project-note.md"))))))))
 
-(deftest handle-memory-consolidate-snapshot-error-isolation-test
-  (let [warns* (atom [])
-        db* (atom {:workspace-folders []})]
-    (with-redefs [memory/scan-memories (fn [& _] (throw (ex-info "ledger exploded" {})))
-                  logger/warn (fn [& args] (swap! warns* conj args))]
-      (let [result (f.commands/handle-command!
-                    "memory-consolidate"
-                    []
-                    {:chat-id "chat-1"
-                     :db* db*
-                     :config consolidate-config
-                     :messenger (h/messenger)
-                     :full-model "openai/gpt-5.2"
-                     :agent "code"
-                     :all-tools []
-                     :instructions {}
-                     :user-messages []
-                     :metrics (h/metrics)})]
-        (is (= :send-prompt (:type result)))
-        (is (string/includes? (:prompt result) "TEST: consolidate my memories"))
-        (is (string/includes? (:prompt result) "usage snapshot unavailable")
-            "snapshot failure degrades to a note, the command never crashes")
-        (is (seq @warns*) "the snapshot failure logs a warning")))))
+(deftest handle-memory-consolidate-scan-error-test
+  ;; The command runner shows the error and sends no request: a cleanup
+  ;; prompt without its snapshot would only tell the model to stop.
+  (with-redefs [memory/scan-memories (fn [& _] (throw (ex-info "scan exploded" {})))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"scan exploded"
+          (f.commands/handle-command!
+           "memory-consolidate"
+           []
+           {:chat-id "chat-1"
+            :db* (atom {:workspace-folders []})
+            :config consolidate-config
+            :messenger (h/messenger)
+            :full-model "openai/gpt-5.2"
+            :agent "code"
+            :all-tools []
+            :instructions {}
+            :user-messages []
+            :metrics (h/metrics)})))))
 
 (deftest default-memory-consolidate-prompt-test
   (let [resource (slurp (io/resource "prompts/memory_consolidate.md"))]
@@ -711,9 +705,9 @@
                 text (text-of result)]
             (is (= :chat-messages (:type result)) "the text goes to the chat, not to the model")
             (is (string/starts-with? text "Memories in the index: 2 of 2.\n"))
-            (is (string/includes? text (str "Directory: " (memory/abs-path personal-dir) "\n- Note [note]")))
-            (is (string/includes? text (str "Directory: " (memory/abs-path global-dir) "\n- Note [note]")))
-            (is (string/includes? text (str "- " (memory/abs-path (fs/file global-dir "broken.md")) " — ")))))
+            (is (string/includes? text (str "`" (memory/abs-path personal-dir) "`\n\n- [note] `Note`")))
+            (is (string/includes? text (str "`" (memory/abs-path global-dir) "`\n\n- [note] `Note`")))
+            (is (string/includes? text (str "- `" (memory/abs-path (fs/file global-dir "broken.md")) "`: ")))))
         (testing "the index caps of the config decide which notes are in the index"
           (let [text (text-of (run (assoc-in config [:memory :index :maxEntries] 1)))]
             (is (string/starts-with? text "Memories in the index: 1 of 2. Limits: `memory.index.maxEntries` 1,"))

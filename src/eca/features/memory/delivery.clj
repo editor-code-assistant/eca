@@ -15,7 +15,6 @@
    [eca.features.memory.render :as render]
    [eca.features.memory.usage :as usage]
    [eca.logger :as logger]
-   [eca.metrics :as metrics]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -87,16 +86,15 @@
      (remove current-paths external))))
 
 (defn ^:private choose-block
-  "The smaller of the change list for `external` (not empty) and the full
-   index; on a tie the full index wins, because it is never stale. Returns
-   `{:text <string> :kind <string>}`."
+  "Text of the smaller of the change list for `external` (not empty) and the
+   full index; on a tie the full index wins, because it is never stale."
   [entries external previous full-index skipped]
   (let [changes (render/changes-context (change-items entries external previous skipped))
         change-tokens (shared/estimate-tokens changes)
         full-tokens (:tokens full-index)]
     (if (and full-tokens (>= change-tokens full-tokens))
-      {:text (:content full-index) :kind "full"}
-      {:text changes :kind "changes"})))
+      (:content full-index)
+      changes)))
 
 (defn render-full-index
   "The full index of `entries` with the configured caps, or nil when nothing
@@ -108,13 +106,12 @@
                          :max-tokens (memory/index-max-tokens config)}))
 
 (defn turn-block
-  "Decide the memory block for the next normal user prompt of the chat.
-
-   `window` is what the model will see: `shared/messages-after-last-compact-marker`
-   of the chat messages. Returns
-   `{:block {:text <string> :memory <state map>} or nil}`,
-   or nil on any error: a memory problem must never stop a prompt (fail open)."
-  [{:keys [chat-id db config metrics window]}]
+  "The memory block for the next normal user prompt of the chat:
+   `{:text <string> :memory <state map>}`, or nil when there is nothing to
+   send. `window` is what the model will see:
+   `shared/messages-after-last-compact-marker` of the chat messages. Also nil
+   on any error: a memory problem must never stop a prompt (fail open)."
+  [{:keys [chat-id db config window]}]
   (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
     (try
       (when (memory/enabled-for-chat? db config chat-id)
@@ -123,23 +120,19 @@
               current (current-state entries)
               full-index (render-full-index entries config)
               [previous after-previous] (last-state window)
-              text+kind (if (nil? previous)
-                          (when (:content full-index)
-                            {:text (:content full-index) :kind "full"})
-                          (let [own (own-write-hashes after-previous)
-                                ;; Own only while the note is still what this chat
-                                ;; wrote: a later outside edit moves the hash.
-                                own? #(and (contains? own %)
-                                           (= (own %) (get-in current [% :hash])))
-                                external (into #{} (remove own?) (changed-paths previous current))]
-                            (when (seq external)
-                              (choose-block entries external previous full-index
-                                            (memory/skipped-files db)))))]
-          (when (and text+kind metrics)
-            (metrics/count-up! "memory-block-added" {:kind (:kind text+kind)} metrics))
-          {:block (when text+kind
-                    {:text (:text text+kind)
-                     :memory current})}))
+              text (if (nil? previous)
+                     (:content full-index)
+                     (let [own (own-write-hashes after-previous)
+                           ;; Own only while the note is still what this chat
+                           ;; wrote: a later outside edit moves the hash.
+                           own? #(and (contains? own %)
+                                      (= (own %) (get-in current [% :hash])))
+                           external (into #{} (remove own?) (changed-paths previous current))]
+                       (when (seq external)
+                         (choose-block entries external previous full-index
+                                       (memory/skipped-files db)))))]
+          (when text
+            {:text text :memory current})))
       (catch Throwable e
         (logger/warn logger-tag "Memory block failed; continuing without memory" e)
         nil))))

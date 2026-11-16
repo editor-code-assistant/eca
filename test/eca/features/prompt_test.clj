@@ -401,14 +401,6 @@
         (is (not (string/includes? static "## Memory write guidance")))
         (is (not (string/includes? static "### Permission")))
         (is (not (string/includes? static "mkdir")))))
-    (testing "configuration cannot replace the bundled memory guidance"
-      (let [config (assoc enabled-config
-                          :prompts {:memoryGuidance "GLOBAL OVERRIDE"}
-                          :agent {"code" {:prompts {:memoryGuidance "AGENT OVERRIDE"}}})
-            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" config "chat-1" write-tools (h/db))]
-        (is (string/includes? static "## Memory write guidance"))
-        (is (not (string/includes? static "GLOBAL OVERRIDE")))
-        (is (not (string/includes? static "AGENT OVERRIDE")))))
     (testing "absent when memory is disabled (default config)"
       (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" write-tools (h/db))]
         (is (not (string/includes? static "## Memory")))))

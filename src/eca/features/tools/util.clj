@@ -123,8 +123,8 @@
    when `memory.writeMode` is \"agent\", the chat is not consolidating, and the
    chat is not a subagent.
    Consolidation merges, rewrites and removes existing memories, so each of its
-   writes goes through the normal approval flow (the client shows the change)
-   instead of a plan the model writes itself. Explicit mode grants no extra
+   writes goes through the normal approval flow (the client shows the
+   change). Explicit mode grants no extra
    write trust; normal workspace rules, remembered approvals, and chat trust
    still apply. The instruction to write only when asked is a model policy.
    Subagents get no memory, so a subagent that knows a memory path must not
