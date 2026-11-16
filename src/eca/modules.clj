@@ -267,7 +267,9 @@
                   (if (and built-in? (fn-like? tools))
                     []
                     (map-of-problems ":tools" tools string? "a string" tool-problems))
-                  (map-of-problems ":commands" commands string? "a string" command-problems)
+                  (if (and built-in? (fn-like? commands))
+                    []
+                    (map-of-problems ":commands" commands string? "a string" command-problems))
                   (section-problems (:system-prompts module))
                   (map-of-problems ":providers" providers string? "a string" #(if (map? %) [] ["must be a map"]))
                   (map-of-problems ":apis" apis string? "a string"

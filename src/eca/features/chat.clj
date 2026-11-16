@@ -21,7 +21,6 @@
    [eca.metrics :as metrics]
    [eca.models :as models]
    [eca.modules.events :as events]
-   [eca.modules.mcp :as m.mcp]
    [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
@@ -68,81 +67,76 @@
 
 (declare prompt)
 
+(defn ^:private run-command!
+  "Runs the command typed as `/command args` and does what its result says.
+   `client-type` and `source-type` tell an MCP prompt (`:mcpPrompt`,
+   `:mcp-prompt`) from a command (nil, `:eca-command`)."
+  [{:keys [command args]} client-type source-type chat-ctx]
+  (let [{:keys [type on-finished-side-effect on-after-finish!] :as result}
+        (f.commands/handle-command! command args chat-ctx client-type)]
+    (case type
+      :chat-messages (do
+                       (when (:clear-before? result)
+                         (messenger/chat-cleared (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :messages true})
+                         (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :status :running}))
+                       (f.chat.steer/send-command-chat-messages! result chat-ctx)
+                       (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
+      :new-chat-status (f.chat.lifecycle/finish-chat-prompt! (:status result) (assoc chat-ctx :skip-post-request-hooks? true))
+      :delete-chat (let [{:keys [target-chat-id text]} result
+                         {:keys [db* messenger config metrics]} chat-ctx]
+                     (when text
+                       (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text text}))
+                     ;; Finish the turn BEFORE deleting: finish-chat-prompt!'s
+                     ;; status transition on a deleted chat would resurrect it
+                     ;; as a ghost record.
+                     (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true))
+                     (f.chat.ops/delete-chat {:chat-id target-chat-id} db* messenger config metrics))
+      :side-prompt (let [{:keys [target-chat-id target-title target-messages message notice-text]} result
+                         {:keys [chat-id db*]} chat-ctx]
+                     (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text notice-text})
+                     (when target-chat-id
+                       (let [target-ctx (assoc chat-ctx :chat-id target-chat-id)]
+                         (f.chat.replay/send-chat-contents! target-messages target-ctx)
+                         (f.chat.lifecycle/send-content! target-ctx :system (assoc-some {:type :metadata} :title target-title))))
+                     ;; Finish the /btw turn in the origin chat only when no prompt is
+                     ;; in flight there; finishing mid-run would set :prompt-finished?
+                     ;; and cancel the running turn.
+                     (when-not (contains? #{:running :stopping} (get-in @db* [:chats chat-id :status]))
+                       (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
+                     (when target-chat-id
+                       (prompt {:chat-id target-chat-id
+                                :message message
+                                :agent (:agent chat-ctx)
+                                :variant (:variant chat-ctx)}
+                               db*
+                               (:messenger chat-ctx)
+                               (:config chat-ctx)
+                               (:metrics chat-ctx))))
+      :send-prompt (let [prompt-contents (:prompt result)]
+                     ;; Keep original slash command in :message for hooks (already in parent chat-ctx)
+                     (f.chat.turn/prompt-messages! [{:role "user" :content prompt-contents}]
+                                                   source-type
+                                                   (assoc-some chat-ctx
+                                                               :on-finished-side-effect on-finished-side-effect
+                                                               :on-after-finish! on-after-finish!
+                                                               :compaction? (:compaction? result)
+                                                               :compaction-done? (:compaction-done? result))))
+      ;; an MCP prompt's messages
+      :send-messages (f.chat.turn/prompt-messages! (:messages result) source-type chat-ctx)
+      ;; e.g. why an MCP prompt failed; unlike :chat-messages, the post-request hooks run
+      :system-text (do (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text (:text result)})
+                       (f.chat.lifecycle/finish-chat-prompt! :idle chat-ctx))
+      nil)))
+
 (defn ^:private send-mcp-prompt!
-  [{:keys [prompt args] :as _decision}
-   {:keys [db*] :as chat-ctx}]
-  (let [{:keys [arguments]} (first (filter #(= prompt (:name %)) (m.mcp/all-prompts @db*)))
-        args-vals (zipmap (map :name arguments) args)
-        {:keys [messages error-message]} (m.mcp/get-prompt! prompt args-vals @db*)]
-    (cond
-      error-message
-      (do (f.chat.lifecycle/send-content! chat-ctx
-                                          :system
-                                          {:type :text
-                                           :text error-message})
-          (f.chat.lifecycle/finish-chat-prompt! :idle chat-ctx))
+  "Runs the MCP prompt typed as `/server:prompt args`. Unlike a command's,
+   its errors end the prompt as a normal prompt's do."
+  [decision chat-ctx]
+  (run-command! decision :mcpPrompt :mcp-prompt chat-ctx))
 
-      (seq messages)
-      (f.chat.turn/prompt-messages! messages :mcp-prompt chat-ctx)
-
-      :else
-      (do (f.chat.lifecycle/send-content! chat-ctx
-                                          :system
-                                          {:type :text
-                                           :text (format "No response from prompt '%s'." prompt)})
-          (f.chat.lifecycle/finish-chat-prompt! :idle chat-ctx)))))
-
-(defn ^:private handle-command! [{:keys [command args]} chat-ctx]
+(defn ^:private handle-command! [decision chat-ctx]
   (try
-    (let [{:keys [type on-finished-side-effect on-after-finish!] :as result} (f.commands/handle-command! command args chat-ctx)]
-      (case type
-        :chat-messages (do
-                         (when (:clear-before? result)
-                           (messenger/chat-cleared (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :messages true})
-                           (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id (:chat-id chat-ctx) :status :running}))
-                         (f.chat.steer/send-command-chat-messages! result chat-ctx)
-                         (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
-        :new-chat-status (f.chat.lifecycle/finish-chat-prompt! (:status result) (assoc chat-ctx :skip-post-request-hooks? true))
-        :delete-chat (let [{:keys [target-chat-id text]} result
-                           {:keys [db* messenger config metrics]} chat-ctx]
-                       (when text
-                         (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text text}))
-                       ;; Finish the turn BEFORE deleting: finish-chat-prompt!'s
-                       ;; status transition on a deleted chat would resurrect it
-                       ;; as a ghost record.
-                       (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true))
-                       (f.chat.ops/delete-chat {:chat-id target-chat-id} db* messenger config metrics))
-        :side-prompt (let [{:keys [target-chat-id target-title target-messages message notice-text]} result
-                           {:keys [chat-id db*]} chat-ctx]
-                       (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text notice-text})
-                       (when target-chat-id
-                         (let [target-ctx (assoc chat-ctx :chat-id target-chat-id)]
-                           (f.chat.replay/send-chat-contents! target-messages target-ctx)
-                           (f.chat.lifecycle/send-content! target-ctx :system (assoc-some {:type :metadata} :title target-title))))
-                       ;; Finish the /btw turn in the origin chat only when no prompt is
-                       ;; in flight there; finishing mid-run would set :prompt-finished?
-                       ;; and cancel the running turn.
-                       (when-not (contains? #{:running :stopping} (get-in @db* [:chats chat-id :status]))
-                         (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true)))
-                       (when target-chat-id
-                         (prompt {:chat-id target-chat-id
-                                  :message message
-                                  :agent (:agent chat-ctx)
-                                  :variant (:variant chat-ctx)}
-                                 db*
-                                 (:messenger chat-ctx)
-                                 (:config chat-ctx)
-                                 (:metrics chat-ctx))))
-        :send-prompt (let [prompt-contents (:prompt result)]
-                       ;; Keep original slash command in :message for hooks (already in parent chat-ctx)
-                       (f.chat.turn/prompt-messages! [{:role "user" :content prompt-contents}]
-                                                     :eca-command
-                                                     (assoc-some chat-ctx
-                                                                 :on-finished-side-effect on-finished-side-effect
-                                                                 :on-after-finish! on-after-finish!
-                                                                 :compaction? (:compaction? result)
-                                                                 :compaction-done? (:compaction-done? result))))
-        nil))
+    (run-command! decision nil :eca-command chat-ctx)
     (catch Exception e
       (logger/error e)
       (f.chat.lifecycle/send-content! chat-ctx :system {:type :text

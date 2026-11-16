@@ -6,6 +6,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.config :as config]
+   [eca.features.commands :as f.commands]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.shared :as shared]))
@@ -105,9 +106,30 @@
             (global-file-commands))
           (local-file-commands roots)))
 
+(defn ^:private get-custom-command [command args custom-cmds]
+  (when-let [raw-content (:content (first (filter #(= command (:name %))
+                                                  custom-cmds)))]
+    (f.commands/substitute-args raw-content args)))
+
+(defn ^:private commands
+  "Each custom command as a command: it sends its prompt with the typed args
+   and the files `@path` args name."
+  [{:keys [config db]}]
+  (let [custom-cmds (all config (:workspace-folders db))]
+    (for [{command-name :name :keys [description path arguments]} custom-cmds]
+      [command-name {:client-type :custom-prompt
+                     :description (or description path)
+                     :arguments arguments
+                     :handler (fn [{:keys [db*]} {:keys [argv]}]
+                                {:prompt (f.commands/add-file-context
+                                          (get-custom-command command-name argv custom-cmds)
+                                          argv
+                                          @db*)})}])))
+
 (def module
   {:id :eca/custom-commands
    :description "Commands from Markdown files and the commands config."
-   ;; read on every listing (~/.config/eca/commands, .eca/commands and config paths), so new
-   ;; files show up at once; they are listed and run after the modules' commands
-   :config-spec {:commands {:type :array :default []}}})
+   :config-spec {:commands {:type :array :default []}}
+   ;; read on every listing and run (~/.config/eca/commands, .eca/commands and config paths), so
+   ;; new files show up at once; listed last, run after the modules' own commands, before skills
+   :commands #'commands})

@@ -19,14 +19,10 @@
 
 (def ^:private allowed-module-requires
   "Core namespaces that still require a built-in module (the built-in list aside). Only shrinks."
-  '#{[eca.features.chat eca.modules.mcp]
-     [eca.features.chat eca.modules.repo-map]
+  '#{[eca.features.chat eca.modules.repo-map]
      [eca.features.chat eca.modules.rules]
      [eca.features.chat eca.modules.skills]
      [eca.features.chat.tool-batch eca.modules.mcp]
-     [eca.features.commands eca.modules.custom-commands]
-     [eca.features.commands eca.modules.mcp]
-     [eca.features.commands eca.modules.skills]
      [eca.features.context eca.modules.mcp]
      [eca.features.tools eca.modules.mcp]
      [eca.handlers eca.modules.mcp]
@@ -40,10 +36,7 @@
 
 (def ^:private allowed-id-checks
   "`(modules/active? config :eca/x)` calls in core, by namespace and id, with their count. Only shrinks."
-  '{[eca.features.commands :eca/custom-commands] 2
-    [eca.features.commands :eca/mcp] 1
-    [eca.features.commands :eca/skills] 2
-    [eca.features.tools :eca/mcp] 3
+  '{[eca.features.tools :eca/mcp] 3
     [eca.features.tools :eca/tool-search] 1
     [eca.handlers :eca/remote] 1
     [eca.server :eca/otel] 1})

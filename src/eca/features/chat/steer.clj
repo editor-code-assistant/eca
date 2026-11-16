@@ -34,14 +34,12 @@
         args (vec args)
         matched (or (get cmds-by-name command-name)
                     ;; a module command typed by its full id, e.g. /eca:compact
-                    (when command-name (f.commands/find-command command-name config)))]
+                    (when command-name (f.commands/find-command command-name db config)))]
     (cond
       (= :mcpPrompt (:type matched))
-      (let [[server prompt] (string/split command-name #":" 2)]
-        {:type :mcp-prompt
-         :server server
-         :prompt prompt
-         :args args})
+      {:type :mcp-prompt
+       :command (:name matched)
+       :args args}
 
       matched
       {:type :eca-command

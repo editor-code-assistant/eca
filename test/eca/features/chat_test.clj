@@ -2932,13 +2932,13 @@
           test-chat-ctx {:db* (atom {})}
           invoked? (atom nil)]
       (with-redefs [m.mcp/all-prompts (fn [_]
-                                        [{:name "awesome-prompt" :arguments test-arguments}])
+                                        [{:name "awesome-prompt" :server "srv" :arguments test-arguments}])
                     m.mcp/get-prompt! (fn [_ args-map _]
                                            (reset! prompt-args args-map)
                                            {:messages [{:role :user :content "test"}]})
                     f.chat.turn/prompt-messages! (fn [messages source-type ctx]
                                                    (reset! invoked? [messages source-type ctx]))]
-        (#'f.chat/send-mcp-prompt! {:prompt "awesome-prompt" :args [42 "yo"]} test-chat-ctx)
+        (#'f.chat/send-mcp-prompt! {:command "srv:awesome-prompt" :args [42 "yo"]} test-chat-ctx)
         (is (match?
              @prompt-args
              {"foo" 42 "bar" "yo"}))
@@ -2951,14 +2951,14 @@
           sent-content (atom nil)
           finished-status (atom nil)]
       (with-redefs [m.mcp/all-prompts (fn [_]
-                                        [{:name "failing-prompt" :arguments [{:name "arg1"}]}])
+                                        [{:name "failing-prompt" :server "srv" :arguments [{:name "arg1"}]}])
                     m.mcp/get-prompt! (fn [_ _ _]
                                            {:error-message "MCP error getting prompt: code=-32603 message=Invalid required argument: arg1"})
                     f.chat.lifecycle/send-content! (fn [_ctx _role content]
                                                      (reset! sent-content content))
                     f.chat.lifecycle/finish-chat-prompt! (fn [status _ctx]
                                                            (reset! finished-status status))]
-        (#'f.chat/send-mcp-prompt! {:prompt "failing-prompt" :args ["val1"]} test-chat-ctx)
+        (#'f.chat/send-mcp-prompt! {:command "srv:failing-prompt" :args ["val1"]} test-chat-ctx)
         (is (= :text (:type @sent-content)))
         (is (string/includes? (:text @sent-content) "MCP error getting prompt"))
         (is (= :idle @finished-status)))))
@@ -2968,13 +2968,13 @@
           sent-content (atom nil)
           finished-status (atom nil)]
       (with-redefs [m.mcp/all-prompts (fn [_]
-                                        [{:name "nil-prompt" :arguments []}])
+                                        [{:name "nil-prompt" :server "srv" :arguments []}])
                     m.mcp/get-prompt! (fn [_ _ _] nil)
                     f.chat.lifecycle/send-content! (fn [_ctx _role content]
                                                      (reset! sent-content content))
                     f.chat.lifecycle/finish-chat-prompt! (fn [status _ctx]
                                                            (reset! finished-status status))]
-        (#'f.chat/send-mcp-prompt! {:prompt "nil-prompt" :args []} test-chat-ctx)
+        (#'f.chat/send-mcp-prompt! {:command "srv:nil-prompt" :args []} test-chat-ctx)
         (is (= :text (:type @sent-content)))
         (is (string/includes? (:text @sent-content) "No response from prompt"))
         (is (= :idle @finished-status))))))
@@ -3048,14 +3048,12 @@
                                                 :server "server"}])]
     (testing "MCP prompt without args"
       (is (= {:type :mcp-prompt
-              :server "server"
-              :prompt "prompt"
+              :command "server:prompt"
               :args []}
              (#'f.chat.steer/message->decision "/server:prompt" {} {}))))
     (testing "MCP prompt with args"
       (is (= {:type :mcp-prompt
-              :server "server"
-              :prompt "prompt"
+              :command "server:prompt"
               :args ["arg1" "arg2"]}
              (#'f.chat.steer/message->decision "/server:prompt arg1 arg2" {} {}))))))
 

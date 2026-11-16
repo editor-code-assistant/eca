@@ -1273,6 +1273,29 @@
       (logger/warn logger-tag (format "Error calling prompt %s: %s" name e))
       {:error-message (str "Error calling prompt: " (.getMessage e))})))
 
+(defn ^:private prompt-result
+  "What running MCP prompt `prompt-name` with the typed `args` gives: the
+   messages to send to the model, or a text to show when it fails or has
+   none. The args fill the prompt's arguments by position."
+  [prompt-name args db]
+  (let [{:keys [arguments]} (first (filter #(= prompt-name (:name %)) (all-prompts db)))
+        {:keys [messages error-message]} (get-prompt! prompt-name (zipmap (map :name arguments) args) db)]
+    (cond
+      error-message {:type :system-text :text error-message}
+      (seq messages) {:type :send-messages :messages messages}
+      :else {:type :system-text :text (format "No response from prompt '%s'." prompt-name)})))
+
+(defn ^:private commands
+  "Each prompt of the servers as a command, `server:prompt`."
+  [{:keys [db]}]
+  (for [{:keys [server] prompt-name :name :as prompt} (all-prompts db)]
+    [(str server ":" prompt-name)
+     (-> prompt
+         (dissoc :server :name)
+         (assoc :client-type :mcpPrompt
+                :handler (fn [{:keys [db*]} {:keys [argv]}]
+                           (prompt-result prompt-name argv @db*))))]))
+
 (defn get-resource! [uri db]
   (when-let [mcp-client (->> (vals (:mcp-clients db))
                              (keep (fn [{:keys [client resources]}]
@@ -1433,4 +1456,6 @@
                  :mcpTimeoutSeconds {:type :number :default 60}
                  :mcpKeepAliveSeconds {:type :number :default 30}}
    :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
-                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]})
+                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]
+   ;; each prompt as a command, listed first
+   :commands #'commands})

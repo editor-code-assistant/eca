@@ -27,8 +27,8 @@
 
 (deftest commands-test
   (testing "/init and /skill-create come from eca/manage"
-    (is (= :eca/manage (:id (:entry (#'f.commands/find-module-command "init" {})))))
-    (is (= :eca/manage (:id (:entry (#'f.commands/find-module-command "skill-create" {}))))))
+    (is (= :eca/manage (:id (:entry (#'f.commands/find-module-command "init" nil {})))))
+    (is (= :eca/manage (:id (:entry (#'f.commands/find-module-command "skill-create" nil {}))))))
   (testing "eca/manage stays on without eca/skills, for its commands"
     (is (modules/active? {:modules {:eca/skills {:enabled false}}} :eca/manage))))
 

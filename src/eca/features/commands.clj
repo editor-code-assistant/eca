@@ -5,9 +5,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.logger :as logger]
    [eca.modules :as modules]
-   [eca.modules.custom-commands :as m.custom-commands]
-   [eca.modules.mcp :as m.mcp]
-   [eca.modules.skills :as m.skills]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -19,19 +16,36 @@
    "config" "doctor" "debug-chat" "repo-map-show" "rules" "prompt-show" "sync-system-prompt" "subagents"
    "plugins" "plugin-install" "plugin-update" "plugin-uninstall" "hooks" "modules"])
 
-(defn ^:private module-commands
-  "The active modules' commands, in the order clients list them: the built-in
+(defn ^:private command-entries
+  "`[entry command-name command]` for each command of the active modules, in
+   start order, then the ones modules register while they run. A module's
+   `:commands` is a map, or (built-ins) a function of ctx, `:config` and
+   `:db`, giving `[command-name command]` pairs in order."
+  [db config]
+  (concat (for [[entry commands] (modules/contributions config :commands)
+                [command-name command] (if (modules/fn-like? commands)
+                                         (commands (modules/module-ctx {:config config :db db} entry))
+                                         commands)]
+            [entry command-name command])
+          (modules/registrations config :commands)))
+
+(defn ^:private source-entry?
+  "Whether a built-in module gives the command for one of the sources
+   clients tell apart by its `:client-type`: `:mcpPrompt`, `:skill` or
+   `:custom-prompt`."
+  [[entry _command-name command]]
+  (boolean (and (:built-in? entry) (:client-type command))))
+
+(defn ^:private own-commands
+  "The modules' own commands, in the order clients list them: the built-in
    ones in `built-in-command-order`, then the others in module start order,
    the ones modules register while they run last. Each is
    `{:name :full-id :entry :command}`. `:name` is the command name, or its
    full id `<prefix>:<name>` when several modules have that name; the first
    module keeps a full id."
-  [config]
+  [entries]
   (let [order (zipmap built-in-command-order (range))
-        commands (->> (concat (for [[entry module-commands] (modules/contributions config :commands)
-                                    [command-name command] module-commands]
-                                [entry command-name command])
-                              (modules/registrations config :commands))
+        commands (->> entries
                       (map (fn [[entry command-name command]]
                              {:name command-name
                               :full-id (str (modules/prefix entry) ":" command-name)
@@ -52,54 +66,75 @@
          (map #(cond-> % (> (name-counts (:name %)) 1) (assoc :name (:full-id %))))
          (sort-by #(get order (:name %) Integer/MAX_VALUE)))))
 
-(defn ^:private find-module-command
-  "The module command typed as `command-name`: its name or its full id."
-  [command-name config]
+(defn ^:private module-commands
+  "The active modules' commands: `:own`, as `own-commands` lists them, and
+   `:sources`, the ones built-in modules give for MCP prompts, skills and
+   custom commands, each `{:name :entry :command}`, in order."
+  [db config]
+  (let [entries (command-entries db config)]
+    {:own (own-commands (remove source-entry? entries))
+     :sources (for [[entry command-name command :as e] entries
+                    :when (source-entry? e)]
+                {:name command-name :entry entry :command command})}))
+
+(defn ^:private find-own-command
+  "The command of `own` typed as `command-name`: its name or its full id."
+  [command-name own]
   (some #(when (or (= command-name (:name %)) (= command-name (:full-id %))) %)
-        (module-commands config)))
+        own))
+
+(defn ^:private find-source-command
+  "The command of `sources` typed as `command-name`, given for `client-type`."
+  [command-name client-type sources]
+  (some #(when (and (= command-name (:name %)) (= client-type (:client-type (:command %)))) %)
+        sources))
+
+(defn ^:private find-module-command
+  "The module's own command typed as `command-name`: its name or its full id."
+  [command-name db config]
+  (find-own-command command-name (:own (module-commands db config))))
+
+(defn ^:private own-client-command
+  "A module's own command as clients see it."
+  [{:keys [name entry command]}]
+  {:name name
+   :type (if (:built-in? entry) :native :module)
+   :description (:description command)
+   :arguments (or (:arguments command) [])})
 
 (defn find-command
   "The command `command-name` names, as `all-commands` lists it, also when
    typed by its full id (e.g. `eca:compact`); nil when no module has it."
-  [command-name config]
-  (when-let [{:keys [name entry command]} (find-module-command command-name config)]
-    {:name name
-     :type (if (:built-in? entry) :native :module)
-     :description (:description command)
-     :arguments (or (:arguments command) [])}))
+  [command-name db config]
+  (some-> (find-module-command command-name db config) own-client-command))
 
-(defn all-commands [db config]
-  (let [mcp-prompts (->> (when (modules/active? config :eca/mcp) (m.mcp/all-prompts db))
-                         (mapv #(-> %
-                                    (assoc :name (str (:server %) ":" (:name %))
-                                           :type :mcpPrompt)
-                                    (dissoc :server))))
-        eca-commands (map (fn [{:keys [name entry command]}]
-                            {:name name
-                             :type (if (:built-in? entry) :native :module)
-                             :description (:description command)
-                             :arguments (or (:arguments command) [])})
-                          (module-commands config))
-        custom-cmds (when (modules/active? config :eca/custom-commands)
-                      (map (fn [custom]
-                             {:name (:name custom)
-                              :type :custom-prompt
-                              :description (or (:description custom) (:path custom))
-                              :arguments (:arguments custom)})
-                           (m.custom-commands/all config (:workspace-folders db))))
-        skills-cmds (when (modules/active? config :eca/skills)
-                      (->> (m.skills/all config (:workspace-folders db))
-                           (mapv (fn [skill]
-                                   {:name (:name skill)
-                                    :type :skill
-                                    :description (:description skill)
-                                    :arguments (:arguments skill)}))))]
-    (concat mcp-prompts
-            eca-commands
-            skills-cmds
-            custom-cmds)))
+(defn ^:private source-client-command
+  "A command a built-in module gives for a source, as clients see it: its
+   keys but the handler, with its `:client-type` as `:type`."
+  [{:keys [name command]}]
+  (-> command
+      (dissoc :handler :client-type)
+      (assoc :name name :type (:client-type command))))
 
-(defn ^:private substitute-args [content args]
+(defn all-commands
+  "The commands clients list: MCP prompts, the modules' own commands, skills,
+   then custom commands."
+  [db config]
+  (let [{:keys [own sources]} (module-commands db config)
+        sources-of (fn [client-type]
+                     (for [source sources
+                           :when (= client-type (:client-type (:command source)))]
+                       (source-client-command source)))]
+    (concat (sources-of :mcpPrompt)
+            (map own-client-command own)
+            (sources-of :skill)
+            (sources-of :custom-prompt))))
+
+(defn substitute-args
+  "`content` with the typed `args` in its placeholders: its `{{name}}` ones
+   by position when it has any, else `$ARGS` and `$ARGUMENTS` (all of them),
+   `$ARGn` and `$n`."
+  [content args]
   (let [named (shared/named-arg-names content)]
     (if (seq named)
       (shared/safe-selmer-render content
@@ -116,17 +151,14 @@
                 content-with-args
                 (map-indexed vector args))))))
 
-(defn ^:private get-custom-command [command args custom-cmds]
-  (when-let [raw-content (:content (first (filter #(= command (:name %))
-                                                  custom-cmds)))]
-    (substitute-args raw-content args)))
-
 (defn ^:private file-context-arg [arg]
   (when (and (string/starts-with? arg "@")
              (< 1 (count arg)))
     (f.context/parse-context-reference (subs arg 1))))
 
-(defn ^:private add-file-context [prompt args db]
+(defn add-file-context
+  "`prompt`, followed by the files the `@path` args name, when there are any."
+  [prompt args db]
   (if-let [contexts-str (some-> (keep file-context-arg args)
                                 (f.context/raw-contexts->refined db)
                                 seq
@@ -134,34 +166,6 @@
     [{:type :text :text prompt}
      {:type :text :text contexts-str}]
     prompt))
-
-(defn ^:private custom-or-skill-command
-  "A custom command or a skill typed as a command."
-  [command args {:keys [db* config]}]
-  (let [db @db*
-        custom-cmds (when (modules/active? config :eca/custom-commands)
-                      (m.custom-commands/all config (:workspace-folders db)))
-        skills (when (modules/active? config :eca/skills)
-                 (m.skills/all config (:workspace-folders db)))]
-    (if-let [custom-command-prompt (get-custom-command command args custom-cmds)]
-      {:type :send-prompt
-       :prompt (add-file-context custom-command-prompt args db)}
-      (if-let [skill (first (filter #(= command (:name %)) skills))]
-        {:type :send-prompt
-         :prompt (cond
-                   ;; a module's skill may build its body when loaded, via
-                   ;; the `eca__skill` tool; the slash form just nudges the
-                   ;; LLM to load it.
-                   (modules/fn-like? (:body skill))
-                   (str "Load skill: " (:name skill))
-
-                   (seq args)
-                   (add-file-context (substitute-args (:body skill) args) args db)
-
-                   :else
-                   (str "Load skill: " (:name skill)))}
-        {:type :text
-         :text (str "Unknown command: " command)}))))
 
 (defn ^:private command-args
   "A module command's `args`: its declared arguments by name, `:raw`, the text
@@ -185,16 +189,29 @@
     :else {:type :new-chat-status :status :idle}))
 
 (defn handle-command!
-  "Runs the command typed as `/command args`: a module's command, else a
-   custom command or a skill."
-  [command args {:keys [chat-id config message] :as chat-ctx}]
-  (if-let [{:keys [entry] module-command :command} (find-module-command command config)]
-    (let [ctx (modules/module-ctx chat-ctx entry)
-          args (command-args module-command args message)
-          handler (:handler module-command)]
-      (command-result (if (:built-in? entry)
-                        (handler ctx args)
-                        (modules/invoke ctx entry (str "command " command) {} handler ctx args))
-                      entry
-                      chat-id))
-    (custom-or-skill-command command args chat-ctx)))
+  "Runs the command typed as `/command args`: a module's own command, else a
+   custom command, else a skill. With `client-type` `:mcpPrompt`, the MCP
+   prompt `command`."
+  ([command args chat-ctx]
+   (handle-command! command args chat-ctx nil))
+  ([command args {:keys [chat-id config db* message] :as chat-ctx} client-type]
+   (let [{:keys [own sources]} (module-commands (some-> db* deref) config)]
+     (if-let [{:keys [entry] module-command :command} (if (= :mcpPrompt client-type)
+                                                        (find-source-command command :mcpPrompt sources)
+                                                        (or (find-own-command command own)
+                                                            (find-source-command command :custom-prompt sources)
+                                                            (find-source-command command :skill sources)))]
+       (let [ctx (modules/module-ctx chat-ctx entry)
+             args (command-args module-command args message)
+             handler (:handler module-command)]
+         (command-result (if (:built-in? entry)
+                           (handler ctx args)
+                           (modules/invoke ctx entry (str "command " command) {} handler ctx args))
+                         entry
+                         chat-id))
+       (let [text (str "Unknown command: " command)]
+         ;; an MCP prompt may be gone since it was typed, its server stopping:
+         ;; say so and end the prompt, as when the server can't give it
+         (if (= :mcpPrompt client-type)
+           {:type :system-text :text text}
+           {:type :text :text text}))))))

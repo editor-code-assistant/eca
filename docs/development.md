@@ -32,7 +32,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/llm_util.clj`      | Streaming/event helpers shared by providers.
    `src/eca/features/`         | **Core capabilities exposed to the editor**
    ├─ `chat.clj` + `chat/`     | The chat engine: `chat.clj` is its entry (prompt, commands, tool-call answers, stop); `chat/` has a turn's requests (`turn`, their `callbacks`, `recovery`), `compaction`, the lifecycle (content, events, finish), the tool-call state machine and batches, steering, replay, chat operations and the system prompt.
-   ├─ `commands.clj`           | Core chat commands (`/login`, `/compact`, `/context`, ...) and running commands.
+   ├─ `commands.clj`           | Lists the modules' commands, with the skills, custom commands and MCP prompts they give, and runs the one typed.
    ├─ `context.clj`            | Contexts attached to prompts (files, repo map, ...).
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `login.clj`              | Provider auth flows.
@@ -43,6 +43,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
    `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`, which `eca.main` hands to the runtime
+   ├─ `core.clj`               | ECA's own commands (`/login`, `/compact`, `/context`, ...); the chat ones (`/fork`, `/resume`, `/export`, ...) are in `chat_management.clj`.
    ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...
    ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...).
    ├─ `agents.clj` + `agents/` | Agents from config and Markdown files, and the agents ECA ships; `subagents.clj` + `subagents/` likewise.

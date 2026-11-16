@@ -52,10 +52,24 @@
                   (for [tool-name (registered config :tools entry)]
                     (str prefix "__" tool-name))))))
 
-(defn ^:private contributions [{:keys [module] :as entry} {:keys [config] :as ctx}]
+(defn ^:private command-names
+  "The names of a module's own commands. For `:commands` functions, the ones
+   they give outside of a chat, without the ones a built-in gives for MCP
+   prompts, skills and custom commands (`:client-type`)."
+  [{:keys [module built-in?] :as entry} {:keys [config] :as ctx}]
+  (let [commands (:commands module)
+        commands (if (modules/fn-like? commands)
+                   (try (commands (modules/module-ctx ctx entry)) (catch Exception _ nil))
+                   commands)]
+    (sort (distinct (concat (for [[command-name command] commands
+                                  :when (not (and built-in? (:client-type command)))]
+                              command-name)
+                            (registered config :commands entry))))))
+
+(defn ^:private contributions [{:keys [module] :as entry} ctx]
   (let [{:keys [system-prompts providers apis event-handlers defines config-spec rpc]} module
         tools (tool-names entry ctx)
-        commands (sort (distinct (concat (keys (:commands module)) (registered config :commands entry))))]
+        commands (command-names entry ctx)]
     (remove nil?
             [(when (seq tools)
                (str "tools " (code-list tools)))

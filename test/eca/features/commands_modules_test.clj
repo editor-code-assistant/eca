@@ -55,7 +55,7 @@
         (is (= {:type :new-chat-status :status :idle}
                (f.commands/handle-command! "quiet" [] ctx))))
       (testing "the full id works too"
-        (is (match? {:name "greet"} (f.commands/find-command "eca:greet" {})))
+        (is (match? {:name "greet"} (f.commands/find-command "eca:greet" (h/db) {})))
         (is (match? {:type :chat-messages} (f.commands/handle-command! "eca:greet" ["bo"] ctx)))))))
 
 (deftest name-clash-test
@@ -71,3 +71,61 @@
         (is (not (contains? names "greet"))))
       (is (= "other" (get-in (f.commands/handle-command! "other:greet" [] {:chat-id "c1" :config {}})
                              [:chats "c1" :messages 0 :content 0 :text]))))))
+
+(def ^:private sources-module
+  "A built-in module whose `:commands` function gives its own commands and
+   ones for sources, as `:eca/skills`, `:eca/custom-commands` and `:eca/mcp`
+   do."
+  {:id :eca/test-sources
+   :commands (fn [_ctx]
+               [["srv:summarize" {:client-type :mcpPrompt
+                                  :description "An MCP prompt."
+                                  :arguments [{:name "topic"}]
+                                  :handler (fn [_ctx {:keys [argv]}]
+                                             {:type :send-messages
+                                              :messages [{:role "user" :content (str "About " (first argv))}]})}]
+                ["review" {:client-type :skill :description "A skill." :handler (fn [_ _] {:prompt "skill"})}]
+                ["review" {:client-type :custom-prompt :description "A custom command." :handler (fn [_ _] {:prompt "custom"})}]
+                ["tidy" {:client-type :skill :description "Another skill." :handler (fn [_ _] {:prompt "tidy skill"})}]
+                ["tidy" {:description "Its own command." :handler (fn [_ _] "own tidy")}]])})
+
+(deftest command-sources-test
+  (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with) sources-module))]
+    (let [config {:pureConfig true}
+          ctx {:chat-id "c1" :db* (h/db*) :config config}
+          commands (f.commands/all-commands (h/db) config)]
+      (testing "MCP prompts first, then the modules' own commands, skills and custom commands, typed by their :client-type"
+        (is (match? {:name "srv:summarize" :type :mcpPrompt :description "An MCP prompt." :arguments [{:name "topic"}]}
+                    (first commands)))
+        (is (match? [{:name "tidy" :type :native :description "Its own command."}
+                     {:name "review" :type :skill :description "A skill."}
+                     {:name "tidy" :type :skill}
+                     {:name "review" :type :custom-prompt :description "A custom command."}]
+                    (filter #(#{"tidy" "review"} (:name %)) commands)))
+        (is (not-any? #(or (contains? % :handler) (contains? % :client-type)) commands)))
+      (testing "a module's own command runs before a custom command, which runs before a skill"
+        (is (= "own tidy" (get-in (f.commands/handle-command! "tidy" [] ctx) [:chats "c1" :messages 0 :content 0 :text])))
+        (is (= {:type :send-prompt :prompt "custom"} (f.commands/handle-command! "review" [] ctx))))
+      (testing "an MCP prompt runs only as one, and its typed result passes"
+        (is (= {:type :send-messages :messages [{:role "user" :content "About tests"}]}
+               (f.commands/handle-command! "srv:summarize" ["tests"] ctx :mcpPrompt)))
+        (is (= {:type :text :text "Unknown command: srv:summarize"}
+               (f.commands/handle-command! "srv:summarize" ["tests"] ctx)))
+        (testing "gone since it was typed, it's shown as unknown"
+          (is (= {:type :system-text :text "Unknown command: srv:gone"}
+                 (f.commands/handle-command! "srv:gone" [] ctx :mcpPrompt)))))
+      (testing "only a module's own commands have a full id"
+        (is (match? {:name "tidy" :type :native} (f.commands/find-command "eca:tidy" (h/db) config)))
+        (is (nil? (f.commands/find-command "eca:review" (h/db) config)))))))
+
+(deftest external-client-type-test
+  (testing "an external module's :client-type is ignored: the command is its own"
+    (modules/add-external! "/tmp/mods/ext.clj"
+                           {:id :acme/ext
+                            :commands {"ext" {:client-type :skill :handler (fn [_ _] "ext")}}}
+                           {:kind :global :rank 3})
+    (try
+      (is (match? [{:name "ext" :type :module}]
+                  (filter #(= "ext" (:name %)) (f.commands/all-commands (h/db) {:pureConfig true}))))
+      (finally
+        (modules/reset-registry!)))))
