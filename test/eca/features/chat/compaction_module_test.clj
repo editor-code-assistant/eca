@@ -2,7 +2,7 @@
   ":eca/compact-as-summary owns compaction: disabled, ECA never compacts."
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.commands :as f.commands]
    [eca.shared :as shared]
    [eca.test-helper :as h]
@@ -22,13 +22,13 @@
   (let [config {:autoCompactPercentage 75}]
     (testing "the module's threshold triggers auto-compaction"
       (with-redefs [shared/usage-sumary (constantly {:session-tokens 90 :limit {:context 100}})]
-        (is (f.chat.lifecycle/auto-compact? "c1" "code" "anthropic/claude-sonnet-4-6" config (db-with-usage)))
-        (is (= 75 (f.chat.lifecycle/auto-compact-threshold config "code" 100)))))
+        (is (f.chat.compaction/auto-compact? "c1" "code" "anthropic/claude-sonnet-4-6" config (db-with-usage)))
+        (is (= 75 (f.chat.compaction/auto-compact-threshold config "code" 100)))))
     (testing "disabled: no auto-compaction, and no threshold for clients, even when configured"
       (with-redefs [shared/usage-sumary (constantly {:session-tokens 90 :limit {:context 100}})]
-        (is (not (f.chat.lifecycle/auto-compact? "c1" "code" "anthropic/claude-sonnet-4-6" (merge config disabled)
-                                                 (db-with-usage))))
-        (is (nil? (f.chat.lifecycle/auto-compact-threshold (merge config disabled) "code" 100)))))))
+        (is (not (f.chat.compaction/auto-compact? "c1" "code" "anthropic/claude-sonnet-4-6" (merge config disabled)
+                                                  (db-with-usage))))
+        (is (nil? (f.chat.compaction/auto-compact-threshold (merge config disabled) "code" 100)))))))
 
 (deftest compact-command-test
   (testing "disabled, /compact says no module handled it"

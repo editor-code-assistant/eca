@@ -40,7 +40,7 @@
 
 (def ^:private allowed-id-checks
   "`(modules/active? config :eca/x)` calls in core, by namespace and id, with their count. Only shrinks."
-  '{[eca.features.chat.lifecycle :eca/compact-as-summary] 1
+  '{[eca.features.chat.compaction :eca/compact-as-summary] 1
     [eca.features.commands :eca/custom-commands] 2
     [eca.features.commands :eca/mcp] 1
     [eca.features.commands :eca/skills] 2

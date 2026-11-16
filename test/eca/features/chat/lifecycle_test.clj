@@ -2,6 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
@@ -127,108 +128,108 @@
   (testing "zero context limit (e.g. models.dev returning 0 for image-only models) is treated as unknown and returns falsy"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 50}
                       {:limit {:context 0 :output 0}})]
-      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (not (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "nil context limit returns falsy"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 50}
                       {:limit {:context nil :output nil}})]
-      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (not (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "missing :limit map returns falsy"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 50}
                       {})]
-      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (not (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "unknown model (no entry in :models) returns falsy"
     (let [db {:chats {chat-id {:usage {:last-input-tokens 100 :last-output-tokens 50}}}}]
-      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))))
+      (is (not (f.chat.compaction/auto-compact? chat-id agent-name full-model config db))))))
 
 (deftest auto-compact?-with-positive-context-limit
   (testing "returns truthy when usage meets/exceeds the configured threshold"
     (let [db (db-with {:last-input-tokens 800 :last-output-tokens 0}
                       {:limit {:context 1000 :output 1000}})]
-      (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))
+      (is (f.chat.compaction/auto-compact? chat-id agent-name full-model config db))))
 
   (testing "returns false when usage is below the configured threshold"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 0}
                       {:limit {:context 1000 :output 1000}})]
-      (is (false? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (false? (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "respects per-agent autoCompactPercentage override"
     (let [db (db-with {:last-input-tokens 500 :last-output-tokens 0}
                       {:limit {:context 1000 :output 1000}})]
-      (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model
-                                          {:agent {agent-name {:autoCompactPercentage 40}}
-                                           :autoCompactPercentage 99}
-                                          db)))))
+      (is (f.chat.compaction/auto-compact? chat-id agent-name full-model
+                                           {:agent {agent-name {:autoCompactPercentage 40}}
+                                            :autoCompactPercentage 99}
+                                           db)))))
 
 (deftest auto-compact?-with-tokens-left
   (let [config {:autoCompactPercentage 75 :autoCompactTokensLeft 20000}
         big-model {:limit {:context 1000000 :output 32000}}]
     (testing "ignores the percentage while more than the configured tokens remain"
       (let [db (db-with {:last-input-tokens 800000 :last-output-tokens 0} big-model)]
-        (is (false? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+        (is (false? (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))))
 
     (testing "triggers once the remaining tokens reach the configured value"
       (let [db (db-with {:last-input-tokens 980000 :last-output-tokens 0} big-model)]
-        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))
+        (is (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))
       (let [db (db-with {:last-input-tokens 985000 :last-output-tokens 0} big-model)]
-        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))
+        (is (f.chat.compaction/auto-compact? chat-id agent-name full-model config db))))
 
     (testing "respects per-agent autoCompactTokensLeft override"
       (let [db (db-with {:last-input-tokens 900000 :last-output-tokens 0} big-model)]
-        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model
-                                            (assoc config :agent {agent-name {:autoCompactTokensLeft 150000}})
-                                            db))))
+        (is (f.chat.compaction/auto-compact? chat-id agent-name full-model
+                                             (assoc config :agent {agent-name {:autoCompactTokensLeft 150000}})
+                                             db))))
 
     (testing "falls back to autoCompactPercentage when the value is not below the context limit"
       (let [small-model {:limit {:context 128000 :output 16000}}
             config (assoc config :autoCompactTokensLeft 200000)]
-        (is (false? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config
-                                                    (db-with {:last-input-tokens 50000 :last-output-tokens 0} small-model))))
-        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config
-                                            (db-with {:last-input-tokens 100000 :last-output-tokens 0} small-model)))))))
+        (is (false? (f.chat.compaction/auto-compact? chat-id agent-name full-model config
+                                                     (db-with {:last-input-tokens 50000 :last-output-tokens 0} small-model))))
+        (is (f.chat.compaction/auto-compact? chat-id agent-name full-model config
+                                             (db-with {:last-input-tokens 100000 :last-output-tokens 0} small-model)))))))
 
 (deftest auto-compact-threshold-test
   (testing "returns the configured percentage when no absolute value is set"
-    (is (= 75 (f.chat.lifecycle/auto-compact-threshold config agent-name 1000000))))
+    (is (= 75 (f.chat.compaction/auto-compact-threshold config agent-name 1000000))))
 
   (testing "derives the effective percentage from autoCompactTokensLeft"
-    (is (= 98.0 (f.chat.lifecycle/auto-compact-threshold {:autoCompactTokensLeft 20000} agent-name 1000000)))
-    (is (= 87.5 (f.chat.lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 25000}
-                                                         agent-name 200000))))
+    (is (= 98.0 (f.chat.compaction/auto-compact-threshold {:autoCompactTokensLeft 20000} agent-name 1000000)))
+    (is (= 87.5 (f.chat.compaction/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 25000}
+                                                          agent-name 200000))))
 
   (testing "falls back to the percentage when the absolute value is not below the context limit"
-    (is (= 75 (f.chat.lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 200000}
-                                                       agent-name 128000))))
+    (is (= 75 (f.chat.compaction/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 200000}
+                                                        agent-name 128000))))
 
   (testing "nil when auto-compact is disabled"
-    (is (nil? (f.chat.lifecycle/auto-compact-threshold {} agent-name 1000000)))))
+    (is (nil? (f.chat.compaction/auto-compact-threshold {} agent-name 1000000)))))
 
 (deftest auto-compact-max-per-turn-test
   (testing "returns the global value"
-    (is (= 3 (f.chat.lifecycle/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
+    (is (= 3 (f.chat.compaction/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
 
   (testing "respects per-agent autoCompactMaxPerTurn override"
-    (is (= 1 (f.chat.lifecycle/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
-                                                          :autoCompactMaxPerTurn 3}
-                                                         agent-name))))
+    (is (= 1 (f.chat.compaction/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
+                                                           :autoCompactMaxPerTurn 3}
+                                                          agent-name))))
 
   (testing "nil when unset"
-    (is (nil? (f.chat.lifecycle/auto-compact-max-per-turn {} agent-name)))))
+    (is (nil? (f.chat.compaction/auto-compact-max-per-turn {} agent-name)))))
 
 (deftest auto-compact?-respects-in-progress-flags
   (testing "returns nil when chat is already compacting"
     (let [db (-> (db-with {:last-input-tokens 800 :last-output-tokens 0}
                           {:limit {:context 1000 :output 1000}})
                  (assoc-in [:chats chat-id :compacting?] true))]
-      (is (nil? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (nil? (f.chat.compaction/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "returns nil when chat is already auto-compacting"
     (let [db (-> (db-with {:last-input-tokens 800 :last-output-tokens 0}
                           {:limit {:context 1000 :output 1000}})
                  (assoc-in [:chats chat-id :auto-compacting?] true))]
-      (is (nil? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))))
+      (is (nil? (f.chat.compaction/auto-compact? chat-id agent-name full-model config db))))))
 
 (deftest ended-message-test
   (testing "a hook, named by its module with :by; a blank reason gives the short message"

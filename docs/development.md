@@ -31,7 +31,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/llm_api.clj`       | Public façade used by features to call an LLM, through the provider modules' APIs.
    `src/eca/llm_util.clj`      | Streaming/event helpers shared by providers.
    `src/eca/features/`         | **Core capabilities exposed to the editor**
-   ├─ `chat.clj` + `chat/`     | The chat engine: `chat.clj` runs a turn; `chat/` has its lifecycle (content, finish, compaction runtime), the tool-call state machine and batches, steering, replay, chat operations and the system prompt's cache signature.
+   ├─ `chat.clj` + `chat/`     | The chat engine: `chat.clj` is its entry (prompt, commands, tool-call answers, stop); `chat/` has a turn's requests (`turn`, their `callbacks`, `recovery`), `compaction`, the lifecycle (content, events, finish), the tool-call state machine and batches, steering, replay, chat operations and the system prompt.
    ├─ `commands.clj`           | Core chat commands (`/login`, `/compact`, `/context`, ...) and running commands.
    ├─ `context.clj`            | Contexts attached to prompts (files, repo map, ...).
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.

@@ -4,6 +4,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.history :as f.chat.history]
@@ -458,14 +459,14 @@
                       send-stopped! (fn [{:keys [ended-by stop-reason]}]
                                       (f.chat.lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
                       {:keys [blocked? reason stop-turn? ended-by instructions]}
-                      (when (f.chat.lifecycle/compaction-handled? config)
-                        (f.chat.lifecycle/run-pre-compact! chat-ctx "manual" custom-instructions))
+                      (when (f.chat.compaction/compaction-handled? config)
+                        (f.chat.compaction/run-pre-compact! chat-ctx "manual" custom-instructions))
                       ;; a module may compact the chat instead of :eca/compact-as-summary
-                      answer (when (and (f.chat.lifecycle/compaction-handled? config) (not blocked?))
-                               (f.chat.lifecycle/compact-with-module! chat-ctx "manual" instructions))]
+                      answer (when (and (f.chat.compaction/compaction-handled? config) (not blocked?))
+                               (f.chat.compaction/compact-with-module! chat-ctx "manual" instructions))]
                   (cond
                     ;; :eca/compact-as-summary owns compaction; disabled, only a module compacts
-                    (not (f.chat.lifecycle/compaction-handled? config))
+                    (not (f.chat.compaction/compaction-handled? config))
                     no-compaction
 
                     blocked?
@@ -477,12 +478,12 @@
                       {:type :new-chat-status :status :idle})
 
                     answer
-                    (let [{:keys [stop-turn?] :as result} (f.chat.lifecycle/finish-module-compaction! chat-ctx "manual" answer)]
+                    (let [{:keys [stop-turn?] :as result} (f.chat.compaction/finish-module-compaction! chat-ctx "manual" answer)]
                       (when stop-turn?
                         (send-stopped! result))
                       {:type :new-chat-status :status :idle})
 
-                    (not (f.chat.lifecycle/compaction-module-active? config))
+                    (not (f.chat.compaction/compaction-module-active? config))
                     no-compaction
 
                     :else
@@ -495,7 +496,7 @@
                        ;; a compaction's prompt, not a user request for modules
                        :compaction? true
                        :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
-                                                       (f.chat.lifecycle/complete-compact! chat-ctx "manual")]
+                                                       (f.chat.compaction/complete-compact! chat-ctx "manual")]
                                                    (when stop-turn?
                                                      (send-stopped! result))
                                                    {:stop-after-finish? (or stop-turn? (not compacted?))})
@@ -636,7 +637,7 @@
                    (let [_ (db/hydrate-chat! db* selected-chat-id metrics)
                          chat (get-in @db* [:chats selected-chat-id])]
                      (swap! db* assoc-in [:chats chat-id] (assoc chat :id chat-id))
-                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :compacting?)
+                     (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :continuing? :compacting?)
                      (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
                      ;; The resumed content now lives under chat-id; drop the
                      ;; old id from memory and cache, tombstoning it so peer
@@ -791,7 +792,7 @@
                       usage (shared/usage-sumary chat-id full-model db
                                                  {:subscription? (f.quota/subscription? provider db config)})
                       context-limit (get-in db [:models full-model :limit :context])
-                      compact-percentage (f.chat.lifecycle/auto-compact-threshold config agent context-limit)
+                      compact-percentage (f.chat.compaction/auto-compact-threshold config agent context-limit)
                       breakdown (shared/context-breakdown
                                  {:system-prompt (f.prompt/instructions->str instructions)
                                   :tools all-tools
@@ -874,7 +875,7 @@
                          replaced? (contains? (:chats db) imported-id)
                          model-available? (contains? (:models db) (:model chat))
                          imported-chat (-> chat
-                                           (dissoc :prompt-finished? :auto-compacting? :compacting?
+                                           (dissoc :prompt-finished? :auto-compacting? :continuing? :compacting?
                                                    :tool-calls :last-status-payload)
                                            (assoc :status :idle :prompt-finished? true))
                          summary (multi-str

@@ -5,6 +5,7 @@
    [eca.db :as db]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
+   [eca.features.chat.turn :as f.chat.turn]
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.shared :as shared]
@@ -135,8 +136,8 @@
   (testing "its data must be plain data"
     (is (thrown? Exception (eca/add-context! (chat-ctx) "Third." {:data {:f (fn [])}}))))
   (testing "they are taken once, by the next request"
-    (is (= 2 (count (#'f.chat/take-module-contexts! (h/db*) "chat-1"))))
-    (is (nil? (#'f.chat/take-module-contexts! (h/db*) "chat-1")))))
+    (is (= 2 (count (#'f.chat.turn/take-module-contexts! (h/db*) "chat-1"))))
+    (is (nil? (#'f.chat.turn/take-module-contexts! (h/db*) "chat-1")))))
 
 (deftest added-contexts-test
   (let [context (fn [module text & [data]]

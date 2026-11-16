@@ -563,7 +563,7 @@
                         (logger/warn logger-tag "Stopping the turn, tool call arguments are invalid again" {:chat-id chat-id})
                         (swap! db* update-in [:chats chat-id]
                                #(-> %
-                                    (dissoc :auto-compacting? :compacting?)
+                                    (dissoc :auto-compacting? :continuing? :compacting?)
                                     (assoc :prompt-error {:message message
                                                           :error-type :invalid-tool-arguments})))
                         (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" message)})

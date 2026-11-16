@@ -6,9 +6,11 @@
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.chat.tool-calls :as f.chat.tool-calls]
+   [eca.features.chat.turn :as f.chat.turn]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules.hooks :as m.hooks]
@@ -979,14 +981,14 @@
                                             {:exit 0
                                              :out "{\"additionalContext\":\"resume snapshot\"}"
                                              :err nil})]
-        (f.chat.lifecycle/run-after-compact! {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :full-model "openai/gpt"
-                                              :variant "low"}
-                                             "manual"
-                                             "summary"))
+        (f.chat.compaction/run-after-compact! {:db* (h/db*)
+                                               :config (h/config)
+                                               :chat-id "chat-1"
+                                               :agent "code"
+                                               :full-model "openai/gpt"
+                                               :variant "low"}
+                                              "manual"
+                                              "summary"))
       (is (= "postCompact" (:hook_type @input*)))
       (is (= "manual" (:triggered @input*)))
       (is (= "summary" (:compact_summary @input*)))
@@ -1033,12 +1035,12 @@
     (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "plain resume snapshot"
                                                      :err nil})]
-      (f.chat.lifecycle/run-after-compact! {:db* (h/db*)
-                                            :config (h/config)
-                                            :chat-id "chat-1"
-                                            :agent "code"}
-                                           "manual"
-                                           "summary"))
+      (f.chat.compaction/run-after-compact! {:db* (h/db*)
+                                             :config (h/config)
+                                             :chat-id "chat-1"
+                                             :agent "code"}
+                                            "manual"
+                                            "summary"))
     ;; Plain stdout is NOT converted to additionalContext
     (is (= [{:type :text :text "The conversation was compacted."}]
            (:content (last (get-in (h/db) [:chats "chat-1" :messages]))))))
@@ -1076,12 +1078,12 @@
                     m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"additionalContext\":\"resume snapshot\"}"
                                                        :err nil})]
-        (f.chat.lifecycle/run-after-compact! {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"}
-                                             "manual"
-                                             "summary"))
+        (f.chat.compaction/run-after-compact! {:db* (h/db*)
+                                               :config (h/config)
+                                               :chat-id "chat-1"
+                                               :agent "code"}
+                                              "manual"
+                                              "summary"))
       (is (= [{:role "assistant" :content [{:type :text :text "no marker"}]}]
              (get-in (h/db) [:chats "chat-1" :messages])))
       (is (some #(= "Skipping postCompact additionalContext: compact summary message not found" (second %))
@@ -1507,7 +1509,7 @@
                                                 {:exit 0
                                                  :out "after"
                                                  :err nil})))]
-        (#'f.chat/prompt-messages!
+        (#'f.chat.turn/prompt-messages!
          [{:role "user" :content [{:type :text :text "hello"}]}]
          :prompt-message
          {:db* (h/db*)
@@ -1533,7 +1535,7 @@
       (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                        :out nil
                                                        :err "blocked invisibly"})]
-        (#'f.chat/prompt-messages!
+        (#'f.chat.turn/prompt-messages!
          [{:role "user" :content [{:type :text :text "hello"}]}]
          :eca-command
          {:db* (h/db*)
@@ -2041,7 +2043,7 @@
     (let [sent* (atom [])]
       (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
                                                       (swap! sent* conj {:role role :content content}))]
-        (#'f.chat/finish-blocked-or-stopped-pre-request!
+        (#'f.chat.turn/finish-blocked-or-stopped-pre-request!
          {:db* (h/db*) :config (h/config) :chat-id "chat-1" :messenger (h/messenger)}
          {:blocked? false :stop-turn? true :stop-reason "policy violation"
           :ended-by {:module :eca/hooks :by "hook 'guard'"}}))
@@ -2056,7 +2058,7 @@
                                                       (swap! sent* conj {:role role :content content}))
                     f.chat.lifecycle/finish-chat-prompt-stopped! (fn [& _]
                                                                    (reset! finished* true))]
-        (#'f.chat/finish-blocked-or-stopped-pre-request!
+        (#'f.chat.turn/finish-blocked-or-stopped-pre-request!
          {:db* (h/db*) :config (h/config) :chat-id "chat-1" :messenger (h/messenger)}
          {:blocked? false :stop-turn? false}))
       (is (empty? @sent*))
@@ -2096,7 +2098,7 @@
     (let [sent* (atom [])]
       (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
                                                       (swap! sent* conj {:role role :content content}))]
-        (#'f.chat/finish-blocked-or-stopped-pre-request!
+        (#'f.chat.turn/finish-blocked-or-stopped-pre-request!
          {:db* (h/db*) :config (h/config) :chat-id "chat-1" :messenger (h/messenger)}
          {:blocked? true :block-reason true :ended-by {:module :eca/hooks :by "hook 'my-hook'"}}))
       ;; Exit 2 blocks and names the hook (for visible hooks the stderr lives in

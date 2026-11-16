@@ -3,6 +3,7 @@
    steered into a running turn."
   (:require
    [clojure.string :as string]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.replay :as f.chat.replay]
    [eca.features.commands :as f.commands]
@@ -100,7 +101,7 @@
    {:custom-instructions string :content-id string}; otherwise leaves the steer
    message pending and returns nil."
   [chat-id db* {:keys [config] :as chat-ctx}]
-  (when-let [{:keys [args steer-msg]} (and (f.chat.lifecycle/compaction-handled? config)
+  (when-let [{:keys [args steer-msg]} (and (f.chat.compaction/compaction-handled? config)
                                            (take-steered-command! chat-id db* config
                                                                   (fn [{:keys [type command]}]
                                                                     (and (= :eca-command type)

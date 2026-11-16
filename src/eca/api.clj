@@ -174,7 +174,7 @@
       (throw (ex-info "A checkpoint's :messages and :data must be plain data, to be saved with the chat"
                       {:module id})))
     (when (get-in @db* [:chats chat-id])
-      ((requiring-resolve 'eca.features.chat.lifecycle/write-checkpoint!)
+      ((requiring-resolve 'eca.features.chat.compaction/write-checkpoint!)
        (assoc ctx :chat-id chat-id :db* db* :config (config ctx))
        {:module id :label label :data data :messages messages}))
     nil))
@@ -197,7 +197,7 @@
          [_ new-db] (swap-vals! (db*-of ctx)
                                 (fn [db]
                                   (let [chat (get-in db [:chats chat-id])]
-                                    (if (or (nil? chat) (:compacting? chat) (:auto-compacting? chat))
+                                    (if (or (nil? chat) (:compacting? chat) (:auto-compacting? chat) (:continuing? chat))
                                       db
                                       (assoc-in db [:chats chat-id :compaction-request] request)))))]
      (identical? request (get-in new-db [:chats chat-id :compaction-request])))))

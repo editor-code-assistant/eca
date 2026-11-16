@@ -98,3 +98,62 @@
            (when (seq categories)
              (str " (" (string/join ", " categories) ")"))
            ", keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n"))))
+
+(defn chat-instructions
+  "The chat's system prompt for a prompt: the static part the chat cached,
+   when it still applies (same agent and model, and the same signature or a
+   change that doesn't re-sync: `chat.autoSyncSystemPrompt` off, or only
+   skills changed; the user hears of the change once), else a new one, which
+   the chat caches (the user hears what changed)."
+  [{:keys [db* chat-id agent config] :as chat-ctx} db full-model
+   {:keys [refined-contexts static-rules path-scoped-rules skills repo-map* all-tools]}]
+  (let [prompt-cache (get-in db [:chats chat-id :prompt-cache])
+        auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
+        static-signature (static-prompt-cache-signature
+                          refined-contexts static-rules path-scoped-rules skills repo-map*
+                          agent config chat-id all-tools db)
+        session-match? (and prompt-cache
+                            (= (:agent prompt-cache) agent)
+                            (= (:model prompt-cache) full-model))
+        signature-match? (= (:static-signature prompt-cache) static-signature)
+        ;; Skills changes (add/remove/rename/description) never re-sync an
+        ;; existing chat: the catalog is routing metadata and skill bodies
+        ;; are read from disk at tool-call time anyway, so invalidating the
+        ;; LLM prompt cache for them is not worth it.
+        skills-only-drift? (let [old-sig (:static-signature prompt-cache)]
+                             (and (map? old-sig)
+                                  (= (dissoc old-sig :skills)
+                                     (dissoc static-signature :skills))))]
+    (if (and session-match?
+             ;; When auto-sync is off, the system prompt is pinned for the
+             ;; chat's lifetime: signature drift keeps the cached static
+             ;; prompt (preserving the LLM prompt cache) and changes apply
+             ;; only to new chats or via /sync-system-prompt.
+             (or signature-match?
+                 (not auto-sync-system-prompt?)
+                 skills-only-drift?))
+      (do
+        (when (and (not signature-match?)
+                   (not= static-signature (:stale-signature prompt-cache)))
+          (f.chat.lifecycle/send-content!
+           chat-ctx :system
+           {:type :text
+            :text (pinned-system-prompt-changed-text
+                   (changed-system-prompt-categories prompt-cache static-signature agent full-model))})
+          (swap! db* assoc-in [:chats chat-id :prompt-cache :stale-signature] static-signature))
+        {:static (:static prompt-cache)
+         :dynamic (f.prompt/build-dynamic-instructions refined-contexts db config)})
+      (let [result (f.prompt/build-chat-instructions
+                    refined-contexts static-rules path-scoped-rules skills repo-map*
+                    agent config chat-id all-tools db)]
+        (when prompt-cache
+          (send-system-prompt-changed-notice!
+           chat-ctx
+           (changed-system-prompt-categories prompt-cache static-signature agent full-model)
+           ", prompt cache invalidated.\n"))
+        (swap! db* assoc-in [:chats chat-id :prompt-cache]
+               {:static (:static result)
+                :static-signature static-signature
+                :agent agent
+                :model full-model})
+        result))))

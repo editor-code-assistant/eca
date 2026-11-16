@@ -7,11 +7,14 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.history :as f.chat.history]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.ops :as f.chat.ops]
+   [eca.features.chat.recovery :as f.chat.recovery]
    [eca.features.chat.replay :as f.chat.replay]
    [eca.features.chat.steer :as f.chat.steer]
+   [eca.features.chat.turn :as f.chat.turn]
    [eca.features.context :as f.context]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
@@ -370,14 +373,14 @@
       (is (= {:type :progress :state :finished} (:content finished))))))
 
 (deftest provider-max-auto-continues-test
-  (is (= 3 (#'f.chat/provider-max-auto-continues {} "openai")))
-  (is (= 7 (#'f.chat/provider-max-auto-continues
+  (is (= 3 (#'f.chat.recovery/provider-max-auto-continues {} "openai")))
+  (is (= 7 (#'f.chat.recovery/provider-max-auto-continues
             {:providers {"openai" {:retry {:maxAutoContinues 7}}}}
             "openai")))
-  (is (= 0 (#'f.chat/provider-max-auto-continues
+  (is (= 0 (#'f.chat.recovery/provider-max-auto-continues
             {:providers {"openai" {:retry {:maxAutoContinues 0}}}}
             "openai")))
-  (is (= 3 (#'f.chat/provider-max-auto-continues
+  (is (= 3 (#'f.chat.recovery/provider-max-auto-continues
             {:providers {"openai" {:retry {:maxAutoContinues -1}}}}
             "openai"))))
 
@@ -406,7 +409,9 @@
       (is (match? [{:role "user" :content [{:type :text :text "Investigate the failure"}]}
                    {:role "assistant" :content [{:type :text :text "Recovered"}]}]
                   (get-in (h/db) [:chats chat-id :messages])))
-      (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))
+      (is (nil? (get-in (h/db) [:chats chat-id :prompt-error])))
+      (is (nil? (get-in (h/db) [:chats chat-id :continuing?]))
+          "the flag that kept the turn going between the two requests is gone"))))
 
 (deftest transient-tls-record-failure-recovery-test
   (testing "auto-continues after a partial response is interrupted by bad_record_mac"
@@ -655,6 +660,7 @@
 (deftest transient-tls-recovery-guards-test
   (doseq [[state reason] [[{:status :stopping} :stopping]
                           [{:auto-compacting? true} :compacting]
+                          [{:continuing? true} :compacting]
                           [{:compacting? true} :compacting]]]
     (testing (str "TLS recovery stays blocked by " state)
       (h/reset-components!)
@@ -678,6 +684,7 @@
                          first
                          last)))
         (is (nil? (get-in (h/db) [:chats chat-id :auto-compacting?])))
+        (is (nil? (get-in (h/db) [:chats chat-id :continuing?])))
         (is (nil? (get-in (h/db) [:chats chat-id :compacting?])))
         (when (= :stopping reason)
           (is (nil? (get-in (h/db) [:chats chat-id :prompt-error]))))))))
@@ -941,28 +948,28 @@
 (deftest conversation-title-transcript-test
   (testing "renders user/assistant messages as a plain-text transcript"
     (is (= "user: hi\n\nassistant: hello"
-           (#'f.chat/conversation->title-transcript
+           (#'f.chat.turn/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"}]}
              {:role "assistant" :content [{:type :text :text "hello"}]}]))))
   (testing "ignores non-text parts"
     (is (= "user: hi"
-           (#'f.chat/conversation->title-transcript
+           (#'f.chat.turn/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"}
                                      {:type :image :url "x"}]}]))))
   (testing "skips messages with no text content"
     (is (= "user: hi"
-           (#'f.chat/conversation->title-transcript
+           (#'f.chat.turn/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"}]}
              {:role "assistant" :content []}]))))
   (testing "truncates very long messages"
     (let [long-text (apply str (repeat 3000 "x"))
-          out (#'f.chat/conversation->title-transcript
+          out (#'f.chat.turn/conversation->title-transcript
                [{:role "user" :content [{:type :text :text long-text}]}])]
       (is (string/ends-with? out " …"))
       (is (< (count out) 2100))))
   (testing "accepts string content for robustness"
     (is (= "user: hi"
-           (#'f.chat/conversation->title-transcript
+           (#'f.chat.turn/conversation->title-transcript
             [{:role "user" :content "hi"}])))))
 
 (deftest title-generation-test
@@ -1191,10 +1198,10 @@
               :messages [{:role "user" :content [{:type :text :text "earlier question"}]}
                          {:role "assistant" :content [{:type :text :text "earlier answer"}]}]})
       (with-redefs-fn
-        {#'f.chat/trigger-auto-compact!
+        {#'f.chat.compaction/trigger-auto-compact!
          (fn [chat-ctx _all-tools user-messages]
            (swap! auto-compact-count* inc)
-           (#'f.chat/resume-after-compact! chat-ctx user-messages))}
+           (#'f.chat.compaction/resume-after-compact! chat-ctx user-messages))}
         (fn []
           (let [{:keys [_chat-id]}
                 (prompt!
@@ -1226,7 +1233,7 @@
     (let [api-call-count* (atom 0)
           auto-compact-count* (atom 0)]
       (with-redefs-fn
-        {#'f.chat/trigger-auto-compact! (fn [& _] (swap! auto-compact-count* inc))}
+        {#'f.chat.compaction/trigger-auto-compact! (fn [& _] (swap! auto-compact-count* inc))}
         (fn []
           (let [{:keys [chat-id]}
                 (prompt!
@@ -1391,7 +1398,7 @@
         (is (= :idle (get-in (h/db) [:chats chat-id :status])))))))
 
 (deftest strip-messages-images-test
-  (let [strip-messages-images #'f.chat/strip-messages-images]
+  (let [strip-messages-images #'f.chat.recovery/strip-messages-images]
     (testing "replaces user-attached and tool-result images with placeholders"
       (is (= {:stripped 2
               :messages [{:role "user"
@@ -1461,19 +1468,19 @@
       (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? true
                                                                 :reason "auto blocked"
                                                                 :hook-name "blocker"
-                                                                :stop-turn? true})
-                    f.chat/prompt-messages! (fn [user-messages prompt-type chat-ctx]
-                                              (reset! prompted* {:user-messages user-messages
-                                                                 :prompt-type prompt-type
-                                                                 :chat-ctx chat-ctx}))]
-        (#'f.chat/trigger-auto-compact!
+                                                                :stop-turn? true})]
+        (#'f.chat.compaction/trigger-auto-compact!
          {:db* (h/db*)
           :config (h/config)
           :chat-id "chat-1"
           :agent "code"
           :messenger (h/messenger)
           :metrics (h/metrics)
-          :parent-chat-id "parent-1"}
+          :parent-chat-id "parent-1"
+          :continue-turn-fn (fn [user-messages prompt-type chat-ctx]
+                              (reset! prompted* {:user-messages user-messages
+                                                 :prompt-type prompt-type
+                                                 :chat-ctx chat-ctx}))}
          []
          [{:role "user" :content [{:type :text :text "keep going"}]}]))
       (is (some #(= {:chat-id "chat-1"
@@ -1491,18 +1498,18 @@
       (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? true
                                                                 :reason nil
                                                                 :hook-name "guard"
-                                                                :stop-turn? false})
-                    f.chat/prompt-messages! (fn [user-messages prompt-type chat-ctx]
-                                              (reset! prompted* {:user-messages user-messages
-                                                                 :prompt-type prompt-type
-                                                                 :chat-ctx chat-ctx}))]
-        (#'f.chat/trigger-auto-compact!
+                                                                :stop-turn? false})]
+        (#'f.chat.compaction/trigger-auto-compact!
          {:db* (h/db*)
           :config (h/config)
           :chat-id "chat-1"
           :agent "code"
           :messenger (h/messenger)
-          :parent-chat-id "parent-1"}
+          :parent-chat-id "parent-1"
+          :continue-turn-fn (fn [user-messages prompt-type chat-ctx]
+                              (reset! prompted* {:user-messages user-messages
+                                                 :prompt-type prompt-type
+                                                 :chat-ctx chat-ctx}))}
          []
          [{:role "user" :content [{:type :text :text "keep going"}]}]))
       (is (match? {:chat-content-received
@@ -1544,7 +1551,7 @@
                     (make-tool-output-msg "2" small-text)
                     {:role "assistant" :content [{:type :text :text "done"}]}]
           db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 3000})]
+          freed (#'f.chat.compaction/prune-tool-results! db* "c1" {:protect-budget 3000})]
       (is (pos? freed))
       (let [pruned (get-in @db* [:chats "c1" :messages])]
         (is (= "[content cleared to reduce context size]"
@@ -1560,7 +1567,7 @@
                     (make-tool-output-msg "1" "short")
                     {:role "assistant" :content [{:type :text :text "ok"}]}]
           db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 40000})]
+          freed (#'f.chat.compaction/prune-tool-results! db* "c1" {:protect-budget 40000})]
       (is (zero? freed))
       (is (= messages (get-in @db* [:chats "c1" :messages])))))
 
@@ -1570,14 +1577,14 @@
                     (make-server-tool-result-msg "s1" large-text)
                     {:role "assistant" :content [{:type :text :text "searched"}]}]
           db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
+          freed (#'f.chat.compaction/prune-tool-results! db* "c1" {:protect-budget 0})]
       (is (pos? freed))
       (is (= "[content cleared to reduce context size]"
              (get-in (nth (get-in @db* [:chats "c1" :messages]) 1) [:content :raw-content 0 :text])))))
 
   (testing "handles empty message history"
     (let [db* (atom {:chats {"c1" {:messages []}}})]
-      (is (zero? (#'f.chat/prune-tool-results! db* "c1" {})))))
+      (is (zero? (#'f.chat.compaction/prune-tool-results! db* "c1" {})))))
 
   (testing "stops at compact_marker boundary, does not prune pre-compaction messages"
     (let [large-text (apply str (repeat 100000 "x"))
@@ -1588,7 +1595,7 @@
                     (make-tool-call-msg "new")
                     (make-tool-output-msg "new" large-text)]
           db* (atom {:chats {"c1" {:messages messages}}})
-          freed (#'f.chat/prune-tool-results! db* "c1" {:protect-budget 0})]
+          freed (#'f.chat.compaction/prune-tool-results! db* "c1" {:protect-budget 0})]
       (is (pos? freed))
       (let [pruned (get-in @db* [:chats "c1" :messages])]
         ;; Pre-compaction tool output should be untouched
@@ -1858,7 +1865,7 @@
         (is (not (string/includes? title-text "Notes index."))))))
   (testing "nor the transcript of a chat titled again"
     (is (= "user: hi\n<additionalContext>\nA hook's.\n</additionalContext>"
-           (#'f.chat/conversation->title-transcript
+           (#'f.chat.turn/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"} notes-context hook-context]}])))))
 
 (deftest reopened-chat-without-module-contexts-test
@@ -1875,12 +1882,12 @@
 (deftest resume-after-compact-without-module-contexts-test
   (testing "the request a compaction resumes goes without the contexts modules added: they were for the old window"
     (let [sent* (atom nil)]
-      (with-redefs-fn {#'f.chat/prompt-messages! (fn [user-messages source-type _]
-                                                   (reset! sent* [user-messages source-type])
-                                                   nil)}
-        #(#'f.chat/resume-after-compact! {} [{:role "user" :content [{:type :text :text "fix it"}
-                                                                      notes-context
-                                                                      hook-context]}]))
+      (#'f.chat.compaction/resume-after-compact! {:continue-turn-fn (fn [user-messages source-type _]
+                                                                      (reset! sent* [user-messages source-type])
+                                                                      nil)}
+                                                 [{:role "user" :content [{:type :text :text "fix it"}
+                                                                          notes-context
+                                                                          hook-context]}])
       (is (= [[{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
                {:role "user" :content [{:type :text :text "fix it"} hook-context]}]
               :auto-compact]
@@ -2927,8 +2934,8 @@
                     m.mcp/get-prompt! (fn [_ args-map _]
                                            (reset! prompt-args args-map)
                                            {:messages [{:role :user :content "test"}]})
-                    f.chat/prompt-messages! (fn [messages source-type ctx]
-                                              (reset! invoked? [messages source-type ctx]))]
+                    f.chat.turn/prompt-messages! (fn [messages source-type ctx]
+                                                   (reset! invoked? [messages source-type ctx]))]
         (#'f.chat/send-mcp-prompt! {:prompt "awesome-prompt" :args [42 "yo"]} test-chat-ctx)
         (is (match?
              @prompt-args

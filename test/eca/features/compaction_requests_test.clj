@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
@@ -93,7 +94,7 @@
   (let [request {:module :acme/compact :trigger :auto}
         take! (fn [ctx]
                 (swap! (h/db*) assoc-in [:chats chat-id :compaction-request] request)
-                [(#'f.chat/take-compaction-request! (merge {:db* (h/db*) :chat-id chat-id :prompt-id "p1" :config {}} ctx))
+                [(#'f.chat.compaction/take-compaction-request! (merge {:db* (h/db*) :chat-id chat-id :prompt-id "p1" :config {}} ctx))
                  (get-in (h/db) [:chats chat-id :compaction-request])])]
     (setup-chat!)
     (testing "it's taken off the chat"
@@ -179,7 +180,7 @@
                    :chat/compact summarize})
     (let [pruned* (atom 0)
           calls* (atom 0)]
-      (with-redefs-fn {#'f.chat/prune-tool-results! (fn [& _] (swap! pruned* inc) 0)}
+      (with-redefs-fn {#'f.chat.compaction/prune-tool-results! (fn [& _] (swap! pruned* inc) 0)}
         #(prompt! "hi" (fn [{:keys [on-error] :as opts}]
                          (if (= 1 (swap! calls* inc))
                            (on-error {:error/type :context-overflow :message "token limit exceeded"})
