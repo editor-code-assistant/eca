@@ -14,6 +14,7 @@
    [eca.modules.tools.filesystem.text-match :as m.filesystem.text-match]
    [eca.shared :as shared])
   (:import
+   [java.io BufferedReader]
    [java.util Base64 Locale]
    [java.util.concurrent.locks ReentrantLock]))
 
@@ -30,6 +31,8 @@
 (def ^:private directory-tree-max-depth 10)
 
 (def ^:private view-image-max-bytes (* 5 1024 1024))
+
+(def ^:private default-read-file-max-line-bytes (* 10 1024 1024))
 
 (defonce ^:private file-edit-locks (atom {}))
 
@@ -176,6 +179,77 @@
                 summary (format "%d directories, %d files" @dir-count* @file-count*)]
             (tools.util/single-text-content (str body "\n\n" summary)))))))
 
+(defn ^:private open-reader [path]
+  (io/reader (fs/file (fs/canonicalize path)) :encoding "UTF-8"))
+
+(defn ^:private read-bounded-line
+  [^BufferedReader reader ^StringBuilder sb ^long max-chars ^long line-number]
+  (.setLength sb 0)
+  (loop []
+    (when (Thread/interrupted)
+      (throw (InterruptedException. "Read file cancelled")))
+    (let [c (.read reader)]
+      (cond
+        (== c -1)
+        (if (pos? (.length sb))
+          (.toString sb)
+          nil)
+
+        (== c 10) ; \n
+        (.toString sb)
+
+        (== c 13) ; \r
+        (do
+          (.mark reader 1)
+          (let [next-c (.read reader)]
+            (when-not (== next-c 10)
+              (.reset reader)))
+          (.toString sb))
+
+        :else
+        (do
+          (when (>= (.length sb) max-chars)
+            (throw (ex-info (format "Line %d exceeds maximum allowed size of %d characters" line-number max-chars)
+                            {:read-file/error :oversized-line
+                             :line-number line-number
+                             :max-chars max-chars})))
+          (.append sb (char c))
+          (recur))))))
+
+(defn ^:private skip-bounded-lines
+  [^BufferedReader reader ^long n ^long max-chars]
+  (loop [skipped 0
+         line-chars 0]
+    (if (>= skipped n)
+      skipped
+      (do
+        (when (Thread/interrupted)
+          (throw (InterruptedException. "Read file cancelled")))
+        (let [c (.read reader)]
+          (cond
+            (== c -1)
+            skipped
+
+            (== c 10) ; \n
+            (recur (inc skipped) 0)
+
+            (== c 13) ; \r
+            (do
+              (.mark reader 1)
+              (let [next-c (.read reader)]
+                (when-not (== next-c 10)
+                  (.reset reader)))
+              (recur (inc skipped) 0))
+
+            :else
+            (do
+              (when (>= (inc line-chars) max-chars)
+                (throw (ex-info (format "Line %d exceeds maximum allowed size of %d characters" (inc skipped) max-chars)
+                                {:read-file/error :oversized-line
+                                 :line-number (inc skipped)
+                                 :max-chars max-chars})))
+              (recur skipped (inc line-chars)))))))))
+
 (defn ^:private read-file [{:strs [path] :as arguments} {:keys [db chat-id config] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
       (m.rules/require-fetched-path-scoped-rules-for-read path ctx)
@@ -186,25 +260,58 @@
                 "Use view_image to see it, or shell_command (file, identify, exiftool) to inspect it."
                 "Use shell_command (file, identify, exiftool) to inspect it."))
          :error))
-      (let [line-offset                   (or (get arguments "line_offset") 0)
-            limit                         (->> [(get arguments "limit")
-                                                (get-in config [:toolCall :readFile :maxLines])]
-                                               (filter number?)
-                                               (apply min))
-            full-content-lines            (string/split-lines (slurp (fs/file (fs/canonicalize path))))
-            maybe-truncated-content-lines (cond->> (drop line-offset full-content-lines)
-                                            limit (take limit))
-            was-truncated?                (not= (- (count full-content-lines) line-offset)
-                                                (count maybe-truncated-content-lines))
-            content                       (string/join "\n" maybe-truncated-content-lines)]
-        (tools.util/single-text-content (if was-truncated?
-                                          (str content "\n\n"
-                                               "[CONTENT TRUNCATED] Showing lines " (inc line-offset)
-                                               " to " (+ line-offset limit)
-                                               " of " (count full-content-lines) " total lines. "
-                                               "Use line_offset=" (+ line-offset limit)
-                                               " parameter to read more content.")
-                                          content)))))
+      (let [line-offset    (max 0 (long (or (get arguments "line_offset") 0)))
+            limits         (filterv number? [(get arguments "limit")
+                                             (get-in config [:toolCall :readFile :maxLines])])
+            limit          (when (seq limits)
+                             (max 0 (long (apply min limits))))
+            max-line-bytes (long (or (get-in config [:toolCall :readFile :maxLineBytes])
+                                     (get-in config [:toolCall :readFile :maxLineLength])
+                                     default-read-file-max-line-bytes))]
+        (try
+          (with-open [^BufferedReader reader (open-reader path)]
+            (let [sb (StringBuilder.)
+                  skipped (skip-bounded-lines reader line-offset max-line-bytes)]
+              (if (< skipped line-offset)
+                (tools.util/single-text-content "")
+                (loop [lines* (transient [])
+                       count-read 0]
+                  (if (and limit (>= count-read limit))
+                    (let [has-more? (boolean (read-bounded-line reader sb max-line-bytes (+ 1 line-offset (count lines*))))
+                          lines (persistent! lines*)
+                          content (string/join "\n" lines)
+                          from-line (if (pos? (count lines))
+                                      (inc line-offset)
+                                      line-offset)
+                          to-line (+ line-offset (count lines))
+                          next-offset (+ line-offset (count lines))]
+                      (tools.util/single-text-content
+                       (if has-more?
+                         (str content
+                              (when-not (string/blank? content) "\n\n")
+                              "[CONTENT TRUNCATED] Showing lines " from-line
+                              " to " to-line
+                              ". Use line_offset=" next-offset
+                              " parameter to read more content.")
+                         content)))
+                    (if-let [line (read-bounded-line reader sb max-line-bytes (+ 1 line-offset (count lines*)))]
+                      (recur (conj! lines* line) (inc count-read))
+                      (let [lines (persistent! lines*)
+                            content (string/join "\n" lines)]
+                        (tools.util/single-text-content content))))))))
+          (catch clojure.lang.ExceptionInfo e
+            (if (:read-file/error (ex-data e))
+              (tools.util/single-text-content
+               (format "Line %d in %s exceeds maximum allowed line length (%d bytes)"
+                       (or (:line-number (ex-data e)) (inc line-offset))
+                       path
+                       max-line-bytes)
+               :error)
+              (throw e)))
+          (catch java.io.IOException e
+            (tools.util/single-text-content
+             (format "Failed to read file %s: %s" path (.getMessage e))
+             :error))))))
 
 (defn ^:private read-file-summary [{:keys [args config]}]
   (if-let [path (get args "path")]
@@ -214,7 +321,7 @@
       (format "Reading %s %s"
               (fs/file-name (fs/file path))
               (str
-               (when sub-read
+               (when (and sub-read line-offset limit)
                  (format "(%s-%s)"
                          line-offset
                          (+ line-offset limit))))))
@@ -720,7 +827,8 @@
 (def module
   {:id :eca/filesystem
    :description "Read, write, edit, move and search files."
-   :config-spec {:toolCall {:readFile {:maxLines {:type :number :default 2000}}}}
+   :config-spec {:toolCall {:readFile {:maxLines {:type :number :default 2000}
+                                       :maxLineBytes {:type :number :default (* 10 1024 1024)}}}}
    :config-defaults {:toolCall {:approval {:allow {"eca__preview_file_change" {}
                                                    "eca__read_file" {}
                                                    "eca__directory_tree" {}

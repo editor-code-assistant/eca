@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Make read_file use bounded streaming prefix reads and oversized line guard to avoid memory exhaustion. #695
+
 - Add modular ECA: its features are now modules, which you can list, enable or disable, and extend with your own modules. #699
   - `/modules` lists them and enables or disables one for the session; `modules.<id>.enabled` does it in the config.
   - Write your own in Clojure, run with SCI: tools, commands, prompt sections and event handlers, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.

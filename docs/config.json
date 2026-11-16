@@ -1351,6 +1351,12 @@
               "description": "Maximum number of lines returned by read_file.",
               "markdownDescription": "Maximum number of lines returned by read_file.",
               "default": 2000
+            },
+            "maxLineBytes": {
+              "type": "integer",
+              "description": "Maximum bytes allowed per line in read_file before failing.",
+              "markdownDescription": "Maximum bytes allowed per line in read_file before failing.",
+              "default": 10485760
             }
           }
         },

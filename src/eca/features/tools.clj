@@ -595,9 +595,9 @@
             (swap! db* assoc-in [:chats chat-id :tool-calls tool-call-id :rollback-changes] r)
             (dissoc result :rollback-changes))
           result))
-      (catch Exception e
-        (let [error-msg (or (.getMessage e) (.getName (class e)))]
-          (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name error-msg (with-out-str (.printStackTrace e))))
+      (catch Throwable e
+        (let [error-msg (or (.getMessage ^Throwable e) (.getName (class e)))]
+          (logger/warn logger-tag (format "Error calling tool %s: %s\n%s" full-name error-msg (with-out-str (.printStackTrace ^Throwable e))))
           (metrics/count-up! "tool-called" {:name full-name :error true} metrics)
           {:error true
            :contents [{:type :text

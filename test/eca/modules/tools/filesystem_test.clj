@@ -120,52 +120,227 @@
             {"path" (h/file-path "/foo/dir")}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
   (testing "Readable path"
-    (is (match?
-         {:error false
-          :contents [{:type :text
-                      :text "fooo"}]}
-         (with-redefs [slurp (constantly "fooo")
-                       fs/exists? (constantly true)
-                       fs/readable? (constantly true)
-                       fs/directory? (constantly false)]
-           ((get-in m.filesystem/definitions ["read_file" :handler])
-            {"path" (h/file-path "/foo/qux")}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}
-             :config {:toolCall {:readFile {:maxLines 2000}}}})))))
+    (let [f (fs/create-temp-file {:prefix "eca-read-test" :suffix ".txt"})]
+      (try
+        (spit (fs/file f) "fooo")
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text "fooo"}]}
+             ((get-in m.filesystem/definitions ["read_file" :handler])
+              {"path" (str f)}
+              {:db {:workspace-folders [{:uri (shared/filename->uri (str (fs/parent f)))} :name "foo"]}})))
+        (finally
+          (fs/delete-if-exists f)))))
   (testing "with line_offset"
-    (is (match?
-         {:error false
-          :contents [{:type :text
-                      :text "line3\nline4\nline5"}]}
-         (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
-                       fs/exists? (constantly true)
-                       fs/readable? (constantly true)]
-           ((get-in m.filesystem/definitions ["read_file" :handler])
-            {"path" (h/file-path "/foo/qux") "line_offset" 2}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}
-             :config {:toolCall {:readFile {:maxLines 2000}}}})))))
+    (let [f (fs/create-temp-file {:prefix "eca-read-test" :suffix ".txt"})]
+      (try
+        (spit (fs/file f) "line1\nline2\nline3\nline4\nline5")
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text "line3\nline4\nline5"}]}
+             ((get-in m.filesystem/definitions ["read_file" :handler])
+              {"path" (str f) "line_offset" 2}
+              {:db {:workspace-folders [{:uri (shared/filename->uri (str (fs/parent f)))} :name "foo"]}})))
+        (finally
+          (fs/delete-if-exists f)))))
   (testing "with limit"
-    (is (match?
-         {:error false
-          :contents [{:type :text
-                      :text "line1\nline2\n\n[CONTENT TRUNCATED] Showing lines 1 to 2 of 5 total lines. Use line_offset=2 parameter to read more content."}]}
-         (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
-                       fs/exists? (constantly true)
-                       fs/readable? (constantly true)]
-           ((get-in m.filesystem/definitions ["read_file" :handler])
-            {"path" (h/file-path "/foo/qux") "limit" 2}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}})))))
+    (let [f (fs/create-temp-file {:prefix "eca-read-test" :suffix ".txt"})]
+      (try
+        (spit (fs/file f) "line1\nline2\nline3\nline4\nline5")
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text "line1\nline2\n\n[CONTENT TRUNCATED] Showing lines 1 to 2. Use line_offset=2 parameter to read more content."}]}
+             ((get-in m.filesystem/definitions ["read_file" :handler])
+              {"path" (str f) "limit" 2}
+              {:db {:workspace-folders [{:uri (shared/filename->uri (str (fs/parent f)))} :name "foo"]}})))
+        (finally
+          (fs/delete-if-exists f)))))
   (testing "with line_offset and limit"
-    (is (match?
-         {:error false
-          :contents [{:type :text
-                      :text "line3\nline4\n\n[CONTENT TRUNCATED] Showing lines 3 to 4 of 5 total lines. Use line_offset=4 parameter to read more content."}]}
-         (with-redefs [slurp (constantly "line1\nline2\nline3\nline4\nline5")
-                       fs/exists? (constantly true)
-                       fs/readable? (constantly true)]
-           ((get-in m.filesystem/definitions ["read_file" :handler])
-            {"path" (h/file-path "/foo/qux") "line_offset" 2 "limit" 2}
-            {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar/baz") :name "foo"}]}}))))))
+    (let [f (fs/create-temp-file {:prefix "eca-read-test" :suffix ".txt"})]
+      (try
+        (spit (fs/file f) "line1\nline2\nline3\nline4\nline5")
+        (is (match?
+             {:error false
+              :contents [{:type :text
+                          :text "line3\nline4\n\n[CONTENT TRUNCATED] Showing lines 3 to 4. Use line_offset=4 parameter to read more content."}]}
+             ((get-in m.filesystem/definitions ["read_file" :handler])
+              {"path" (str f) "line_offset" 2 "limit" 2}
+              {:db {:workspace-folders [{:uri (shared/filename->uri (str (fs/parent f)))} :name "foo"]}})))
+        (finally
+          (fs/delete-if-exists f))))))
+
+(deftest read-file-regression-test
+  (let [read-file (get-in m.filesystem/definitions ["read_file" :handler])
+        ctx (fn [f & [config]]
+              {:db {:workspace-folders [{:uri (shared/filename->uri (str (fs/parent f)))}]}
+               :config (or config {:toolCall {:readFile {:maxLines 2000}}})})]
+    (testing "Empty file returns empty content without truncation"
+      (let [f (fs/create-temp-file {:prefix "eca-empty" :suffix ".txt"})]
+        (try
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text ""}]}
+               (read-file {"path" (str f) "limit" 5} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Small file smaller than limit returns full content without truncation"
+      (let [f (fs/create-temp-file {:prefix "eca-small" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) "one\ntwo\nthree")
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "one\ntwo\nthree"}]}
+               (read-file {"path" (str f) "limit" 10} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Limit of 0 on non-empty file returns truncation notice"
+      (let [f (fs/create-temp-file {:prefix "eca-limit0" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) "first\nsecond")
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "[CONTENT TRUNCATED] Showing lines 0 to 0. Use line_offset=0 parameter to read more content."}]}
+               (read-file {"path" (str f) "limit" 0} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Limit of 1 returns exactly first line and next offset"
+      (let [f (fs/create-temp-file {:prefix "eca-limit1" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) "first\nsecond\nthird")
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "first\n\n[CONTENT TRUNCATED] Showing lines 1 to 1. Use line_offset=1 parameter to read more content."}]}
+               (read-file {"path" (str f) "limit" 1} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Line offset beyond file length returns empty string"
+      (let [f (fs/create-temp-file {:prefix "eca-beyond" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) "one\ntwo\nthree")
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text ""}]}
+               (read-file {"path" (str f) "line_offset" 100 "limit" 5} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Unicode text preserves multibyte characters"
+      (let [f (fs/create-temp-file {:prefix "eca-unicode" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) "Hello 🚀\n日本語\nCafé au lait\nGröße")
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "Hello 🚀\n日本語\nCafé au lait\nGröße"}]}
+               (read-file {"path" (str f) "limit" 5} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Different line endings (CRLF, LF, CR) are normalized"
+      (let [f (fs/create-temp-file {:prefix "eca-endings" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) "line1\r\nline2\nline3\rline4\r\n")
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "line1\nline2\nline3\nline4"}]}
+               (read-file {"path" (str f) "limit" 10} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Oversized single line returns safe error"
+      (let [f (fs/create-temp-file {:prefix "eca-oversized" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) (str "line1\n" (apply str (repeat 200 "x")) "\nline3"))
+          (is (match?
+               {:error true
+                :contents [{:type :text
+                            :text #"Line 2 in .* exceeds maximum allowed line length \(50 bytes\)"}]}
+               (read-file {"path" (str f) "limit" 5}
+                          (ctx f {:toolCall {:readFile {:maxLines 2000 :maxLineBytes 50}}}))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Oversized single line during offset skip returns safe error"
+      (let [f (fs/create-temp-file {:prefix "eca-oversized-skip" :suffix ".txt"})]
+        (try
+          (spit (fs/file f) (str (apply str (repeat 200 "x")) "\nline2\nline3"))
+          (is (match?
+               {:error true
+                :contents [{:type :text
+                            :text #"Line 1 in .* exceeds maximum allowed line length \(50 bytes\)"}]}
+               (read-file {"path" (str f) "line_offset" 2 "limit" 5}
+                          (ctx f {:toolCall {:readFile {:maxLines 2000 :maxLineBytes 50}}}))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Five-line read from large file with 200 MB unused suffix"
+      (let [f (fs/create-temp-file {:prefix "eca-200m" :suffix ".txt"})]
+        (try
+          (doto (java.io.RandomAccessFile. (fs/file f) "rw")
+            (.write (.getBytes "line1\nline2\nline3\nline4\nline5\nline6\n" "UTF-8"))
+            (.setLength (* 200 1024 1024))
+            (.close))
+          (is (= (* 200 1024 1024) (fs/size f)))
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "line1\nline2\nline3\nline4\nline5\n\n[CONTENT TRUNCATED] Showing lines 1 to 5. Use line_offset=5 parameter to read more content."}]}
+               (read-file {"path" (str f) "limit" 5} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Five-line read from large file with 500 MB unused suffix"
+      (let [f (fs/create-temp-file {:prefix "eca-500m" :suffix ".txt"})]
+        (try
+          (doto (java.io.RandomAccessFile. (fs/file f) "rw")
+            (.write (.getBytes "line1\nline2\nline3\nline4\nline5\nline6\n" "UTF-8"))
+            (.setLength (* 500 1024 1024))
+            (.close))
+          (is (= (* 500 1024 1024) (fs/size f)))
+          (is (match?
+               {:error false
+                :contents [{:type :text
+                            :text "line1\nline2\nline3\nline4\nline5\n\n[CONTENT TRUNCATED] Showing lines 1 to 5. Use line_offset=5 parameter to read more content."}]}
+               (read-file {"path" (str f) "limit" 5} (ctx f))))
+          (finally
+            (fs/delete-if-exists f)))))
+
+    (testing "Cancellation / interruption during read cleans up resources"
+      (let [f (fs/create-temp-file {:prefix "eca-cancel" :suffix ".txt"})
+            closed?* (atom false)
+            orig-open-reader @#'m.filesystem/open-reader]
+        (try
+          (spit (fs/file f) "line1\nline2\nline3\n")
+          (with-redefs [m.filesystem/open-reader
+                        (fn [p]
+                          (let [^java.io.BufferedReader actual (orig-open-reader p)]
+                            (proxy [java.io.BufferedReader] [actual]
+                              (close []
+                                (reset! closed?* true)
+                                (.close actual)))))]
+            (Thread/interrupted) ; clear any previous flag
+            (let [t (Thread/currentThread)]
+              (.interrupt t)
+              (is (thrown? InterruptedException
+                    (read-file {"path" (str f) "limit" 5} (ctx f))))
+              (Thread/interrupted) ; clear interrupted status
+              (is (true? @closed?*))))
+          (finally
+            (Thread/interrupted)
+            (fs/delete-if-exists f)))))))
 
 (deftest view-image-test
   (let [dir (fs/canonicalize (fs/create-temp-dir {:prefix "eca-view-image-test"}))
