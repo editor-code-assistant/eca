@@ -3,7 +3,6 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.features.background-tasks :as f.background-tasks]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.login :as f.login]
@@ -304,8 +303,7 @@
     ;; 2. Tell modules, the sessionEnd hooks last
     (events/emit! {:db* db* :metrics metrics :config config} :session/ended {})
 
-    ;; 3. Then shutdown
-    (f.background-tasks/cleanup-all!)
+    ;; 3. Then shutdown (stopping eca/shell kills the background jobs)
     (swap! db* assoc :stopping true)
     (try
       ;; the remote server and the OTel export run until ECA exits, as before
@@ -661,30 +659,6 @@
        (if-let [error-response# (:error-response (ex-data e#))]
          {:error error-response#}
          (throw e#)))))
-
-(defn jobs-list [{:keys [db* metrics]} _params]
-  (metrics/task metrics :eca/jobs-list
-    {:jobs (f.background-tasks/jobs-summary db*)}))
-
-(defn jobs-kill [{:keys [db* messenger metrics]} params]
-  (metrics/task metrics :eca/jobs-kill
-    (let [job-id (:job-id params)
-          killed? (f.background-tasks/kill-job! job-id)]
-      (when killed?
-        (messenger/notify! messenger "jobs/updated" {:jobs (f.background-tasks/jobs-summary db*)}))
-      {:killed killed?})))
-
-(defn jobs-read-output [{:keys [metrics]} params]
-  (metrics/task metrics :eca/jobs-read-output
-    (if-let [result (f.background-tasks/peek-output (:job-id params))]
-      {:lines (mapv (fn [{:keys [text stream]}]
-                      {:text text :stream (name stream)})
-                    (:lines result))
-       :status (:status result)
-       :exit-code (:exit-code result)}
-      {:lines []
-       :status nil
-       :exit-code nil})))
 
 (defn providers-list [{:keys [db* config metrics]} _params]
   (metrics/task metrics :eca/providers-list

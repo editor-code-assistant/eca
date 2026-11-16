@@ -1,9 +1,11 @@
-(ns eca.features.background-tasks-test
+(ns eca.modules.tools.shell.jobs-test
   (:require
    [babashka.process :as p]
    [clojure.test :refer [deftest is testing use-fixtures]]
-   [eca.features.background-tasks :as bg]
+   [eca.modules.events :as events]
    [eca.modules.tools.shell.background :as m.shell.background]
+   [eca.modules.tools.shell.jobs :as m.shell.jobs]
+   [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]])
   (:import
    [java.io ByteArrayInputStream]))
@@ -11,9 +13,9 @@
 (set! *warn-on-reflection* true)
 
 (defn reset-registry-fixture [f]
-  (reset! bg/registry* {:next-id 1 :jobs {}})
+  (reset! m.shell.jobs/registry* {:next-id 1 :jobs {}})
   (f)
-  (reset! bg/registry* {:next-id 1 :jobs {}}))
+  (reset! m.shell.jobs/registry* {:next-id 1 :jobs {}}))
 
 (use-fixtures :each reset-registry-fixture)
 
@@ -31,14 +33,14 @@
 (deftest register-shell-job-test
   (testing "generates unique sequential IDs"
     (with-redefs [p/destroy-tree (constantly nil)]
-      (let [j1 (bg/register-shell-job! {:label "cmd1" :process (mock-process) :working-directory "/tmp"})
-            j2 (bg/register-shell-job! {:label "cmd2" :process (mock-process) :working-directory "/tmp"})]
+      (let [j1 (m.shell.jobs/register-shell-job! {:label "cmd1" :process (mock-process) :working-directory "/tmp"})
+            j2 (m.shell.jobs/register-shell-job! {:label "cmd2" :process (mock-process) :working-directory "/tmp"})]
         (is (= "job-1" (:id j1)))
         (is (= "job-2" (:id j2))))))
 
   (testing "returns job with correct structure"
     (with-redefs [p/destroy-tree (constantly nil)]
-      (let [job (bg/register-shell-job! {:label "echo hi" :process (mock-process) :working-directory "/home"})]
+      (let [job (m.shell.jobs/register-shell-job! {:label "echo hi" :process (mock-process) :working-directory "/home"})]
         (is (match? {:id "job-3"
                      :type :shell
                      :label "echo hi"
@@ -50,26 +52,26 @@
   (testing "enforces max-jobs limit"
     (with-redefs [p/destroy-tree (constantly nil)]
       (dotimes [_ 10]
-        (bg/register-shell-job! {:label "fill" :process (mock-process) :working-directory "/tmp"}))
-      (is (= 10 (bg/running-count)))
-      (is (nil? (bg/register-shell-job! {:label "overflow" :process (mock-process) :working-directory "/tmp"}))))))
+        (m.shell.jobs/register-shell-job! {:label "fill" :process (mock-process) :working-directory "/tmp"}))
+      (is (= 10 (m.shell.jobs/running-count)))
+      (is (nil? (m.shell.jobs/register-shell-job! {:label "overflow" :process (mock-process) :working-directory "/tmp"}))))))
 
 (deftest get-job-test
   (testing "returns job by ID"
     (with-redefs [p/destroy-tree (constantly nil)]
-      (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})]
-        (is (= (:id job) (:id (bg/get-job (:id job))))))))
+      (let [job (m.shell.jobs/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})]
+        (is (= (:id job) (:id (m.shell.jobs/get-job (:id job))))))))
 
   (testing "returns nil for unknown ID"
-    (is (nil? (bg/get-job "job-999")))))
+    (is (nil? (m.shell.jobs/get-job "job-999")))))
 
 (deftest list-jobs-test
   (testing "returns all registered jobs"
     (with-redefs [p/destroy-tree (constantly nil)]
-      (bg/register-shell-job! {:label "a" :process (mock-process) :working-directory "/tmp"})
-      (bg/register-shell-job! {:label "b" :process (mock-process) :working-directory "/tmp"})
-      (is (= 2 (count (bg/list-jobs))))
-      (is (= #{"a" "b"} (set (map :label (bg/list-jobs))))))))
+      (m.shell.jobs/register-shell-job! {:label "a" :process (mock-process) :working-directory "/tmp"})
+      (m.shell.jobs/register-shell-job! {:label "b" :process (mock-process) :working-directory "/tmp"})
+      (is (= 2 (count (m.shell.jobs/list-jobs))))
+      (is (= #{"a" "b"} (set (map :label (m.shell.jobs/list-jobs))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Output: ring buffer, cursor-based reads
@@ -77,30 +79,30 @@
 
 (deftest read-output-basic-test
   (with-redefs [p/destroy-tree (constantly nil)]
-    (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
+    (let [job (m.shell.jobs/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
           output* (:output* job)
           out (fn [s] {:text s :stream :stdout})]
 
       (testing "first read returns all buffered lines"
         (reset! output* {:lines [(out "line1") (out "line2") (out "line3")] :total-lines 3})
-        (let [result (bg/read-output! (:id job))]
+        (let [result (m.shell.jobs/read-output! (:id job))]
           (is (= [(out "line1") (out "line2") (out "line3")] (:lines result)))
           (is (= 0 (:dropped result)))))
 
       (testing "second read with no new lines returns empty"
-        (let [result (bg/read-output! (:id job))]
+        (let [result (m.shell.jobs/read-output! (:id job))]
           (is (= [] (:lines result)))
           (is (= 0 (:dropped result)))))
 
       (testing "incremental read returns only new lines"
         (reset! output* {:lines [(out "line1") (out "line2") (out "line3") (out "line4") (out "line5")] :total-lines 5})
-        (let [result (bg/read-output! (:id job))]
+        (let [result (m.shell.jobs/read-output! (:id job))]
           (is (= [(out "line4") (out "line5")] (:lines result)))
           (is (= 0 (:dropped result))))))))
 
 (deftest read-output-ring-buffer-overflow-test
   (with-redefs [p/destroy-tree (constantly nil)]
-    (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
+    (let [job (m.shell.jobs/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
           output* (:output* job)
           out (fn [s] {:text s :stream :stdout})]
 
@@ -109,7 +111,7 @@
         ;; Cursor at 0 (never read) — 100 lines were dropped.
         (reset! output* {:lines (vec (map #(out (str %)) (range 100 200))) :total-lines 200})
         (reset! (:read-cursor* job) 0)
-        (let [result (bg/read-output! (:id job))]
+        (let [result (m.shell.jobs/read-output! (:id job))]
           (is (= 100 (count (:lines result))))
           (is (= "100" (:text (first (:lines result)))))
           (is (= 100 (:dropped result)))))
@@ -119,14 +121,14 @@
         ;; Should return lines 150-199 (50 lines), 0 dropped.
         (reset! output* {:lines (vec (map #(out (str %)) (range 100 200))) :total-lines 200})
         (reset! (:read-cursor* job) 150)
-        (let [result (bg/read-output! (:id job))]
+        (let [result (m.shell.jobs/read-output! (:id job))]
           (is (= 50 (count (:lines result))))
           (is (= "150" (:text (first (:lines result)))))
           (is (= 0 (:dropped result))))))))
 
 (deftest read-output-nonexistent-test
   (testing "returns nil for non-existent job"
-    (is (nil? (bg/read-output! "job-nonexistent")))))
+    (is (nil? (m.shell.jobs/read-output! "job-nonexistent")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Output capture with InputStreams
@@ -134,17 +136,17 @@
 
 (deftest start-output-capture-test
   (with-redefs [p/destroy-tree (constantly nil)]
-    (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
+    (let [job (m.shell.jobs/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})
           out-data "hello\nworld\n"
           err-data "warning\n"
           out-stream (ByteArrayInputStream. (.getBytes out-data "UTF-8"))
           err-stream (ByteArrayInputStream. (.getBytes err-data "UTF-8"))
-          threads (bg/start-output-capture! job out-stream err-stream)]
+          threads (m.shell.jobs/start-output-capture! job out-stream err-stream)]
 
       (testing "capture threads read lines into output buffer with stream tags"
         ;; Wait for threads to finish reading
         (doseq [^Thread t threads] (.join t 2000))
-        (let [result (bg/read-output! (:id job))
+        (let [result (m.shell.jobs/read-output! (:id job))
               lines (:lines result)]
           (is (= 3 (count lines)))
           (is (= #{"hello" "world" "warning"} (set (map :text lines))))
@@ -158,30 +160,30 @@
 (deftest kill-job-test
   (with-redefs [p/destroy-tree (constantly nil)]
     (testing "kills a running job"
-      (let [job (bg/register-shell-job! {:label "server" :process (mock-process) :working-directory "/tmp"})]
-        (is (true? (bg/kill-job! (:id job))))
-        (is (= :killed (:status (bg/get-job (:id job)))))))
+      (let [job (m.shell.jobs/register-shell-job! {:label "server" :process (mock-process) :working-directory "/tmp"})]
+        (is (true? (m.shell.jobs/kill-job! (:id job))))
+        (is (= :killed (:status (m.shell.jobs/get-job (:id job)))))))
 
     (testing "returns false for already-killed job"
-      (let [job (bg/register-shell-job! {:label "server2" :process (mock-process) :working-directory "/tmp"})]
-        (bg/kill-job! (:id job))
-        (is (false? (bg/kill-job! (:id job))))))
+      (let [job (m.shell.jobs/register-shell-job! {:label "server2" :process (mock-process) :working-directory "/tmp"})]
+        (m.shell.jobs/kill-job! (:id job))
+        (is (false? (m.shell.jobs/kill-job! (:id job))))))
 
     (testing "returns false for non-existent job"
-      (is (false? (bg/kill-job! "job-nonexistent"))))))
+      (is (false? (m.shell.jobs/kill-job! "job-nonexistent"))))))
 
 (deftest cleanup-all-test
   (with-redefs [p/destroy-tree (constantly nil)]
     (testing "kills all running jobs"
-      (bg/register-shell-job! {:label "a" :process (mock-process) :working-directory "/tmp"})
-      (bg/register-shell-job! {:label "b" :process (mock-process) :working-directory "/tmp"})
-      (bg/cleanup-all!)
-      (is (= 0 (bg/running-count)))
-      (is (every? #(= :killed (:status %)) (bg/list-jobs))))
+      (m.shell.jobs/register-shell-job! {:label "a" :process (mock-process) :working-directory "/tmp"})
+      (m.shell.jobs/register-shell-job! {:label "b" :process (mock-process) :working-directory "/tmp"})
+      (m.shell.jobs/cleanup-all!)
+      (is (= 0 (m.shell.jobs/running-count)))
+      (is (every? #(= :killed (:status %)) (m.shell.jobs/list-jobs))))
 
     (testing "is idempotent"
-      (bg/cleanup-all!)
-      (is (= 0 (bg/running-count))))))
+      (m.shell.jobs/cleanup-all!)
+      (is (= 0 (m.shell.jobs/running-count))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Monitor process exit: status updates
@@ -191,30 +193,30 @@
   (with-redefs [p/destroy-tree (constantly nil)]
     (testing "updates status to :completed on zero exit"
       (let [exit-promise (promise)
-            job (bg/register-shell-job! {:label "test" :process exit-promise :working-directory "/tmp"})
-            ^Thread t (bg/monitor-process-exit! (:id job) exit-promise)]
+            job (m.shell.jobs/register-shell-job! {:label "test" :process exit-promise :working-directory "/tmp"})
+            ^Thread t (m.shell.jobs/monitor-process-exit! (:id job) exit-promise)]
         (deliver exit-promise {:exit 0})
         (.join t 2000)
-        (is (= :completed (:status (bg/get-job (:id job)))))
-        (is (= 0 (:exit-code (bg/get-job (:id job)))))))
+        (is (= :completed (:status (m.shell.jobs/get-job (:id job)))))
+        (is (= 0 (:exit-code (m.shell.jobs/get-job (:id job)))))))
 
     (testing "updates status to :failed on non-zero exit"
       (let [exit-promise (promise)
-            job (bg/register-shell-job! {:label "test" :process exit-promise :working-directory "/tmp"})
-            ^Thread t (bg/monitor-process-exit! (:id job) exit-promise)]
+            job (m.shell.jobs/register-shell-job! {:label "test" :process exit-promise :working-directory "/tmp"})
+            ^Thread t (m.shell.jobs/monitor-process-exit! (:id job) exit-promise)]
         (deliver exit-promise {:exit 1})
         (.join t 2000)
-        (is (= :failed (:status (bg/get-job (:id job)))))
-        (is (= 1 (:exit-code (bg/get-job (:id job)))))))
+        (is (= :failed (:status (m.shell.jobs/get-job (:id job)))))
+        (is (= 1 (:exit-code (m.shell.jobs/get-job (:id job)))))))
 
     (testing "does not overwrite :killed status"
       (let [exit-promise (promise)
-            job (bg/register-shell-job! {:label "test" :process exit-promise :working-directory "/tmp"})
-            ^Thread t (bg/monitor-process-exit! (:id job) exit-promise)]
-        (bg/kill-job! (:id job))
+            job (m.shell.jobs/register-shell-job! {:label "test" :process exit-promise :working-directory "/tmp"})
+            ^Thread t (m.shell.jobs/monitor-process-exit! (:id job) exit-promise)]
+        (m.shell.jobs/kill-job! (:id job))
         (deliver exit-promise {:exit 137})
         (.join t 2000)
-        (is (= :killed (:status (bg/get-job (:id job)))))))))
+        (is (= :killed (:status (m.shell.jobs/get-job (:id job)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Elapsed string
@@ -224,17 +226,17 @@
   (testing "formats seconds"
     (let [now (java.time.Instant/now)
           job {:started-at (.minusSeconds now 45) :ended-at now}]
-      (is (= "45s" (bg/elapsed-str job)))))
+      (is (= "45s" (m.shell.jobs/elapsed-str job)))))
 
   (testing "formats minutes and seconds"
     (let [now (java.time.Instant/now)
           job {:started-at (.minusSeconds now 125) :ended-at now}]
-      (is (= "2m5s" (bg/elapsed-str job)))))
+      (is (= "2m5s" (m.shell.jobs/elapsed-str job)))))
 
   (testing "formats hours and minutes"
     (let [now (java.time.Instant/now)
           job {:started-at (.minusSeconds now 3725) :ended-at now}]
-      (is (= "1h2m" (bg/elapsed-str job))))))
+      (is (= "1h2m" (m.shell.jobs/elapsed-str job))))))
 
 ;; ---------------------------------------------------------------------------
 ;; bg_job tool handler
@@ -250,14 +252,14 @@
                     (handler {"action" "list"} {}))))
 
       (testing "list shows registered jobs"
-        (bg/register-shell-job! {:label "npm run dev" :process (mock-process) :working-directory "/tmp"})
+        (m.shell.jobs/register-shell-job! {:label "npm run dev" :process (mock-process) :working-directory "/tmp"})
         (let [result (handler {"action" "list"} {})]
           (is (match? {:error false
                        :contents [{:type :text :text #"job-\d+.*npm run dev"}]}
                       result))))
 
       (testing "list includes quoted job name when summary is set"
-        (bg/register-shell-job! {:label "npm test" :summary "dev-server" :process (mock-process) :working-directory "/tmp"})
+        (m.shell.jobs/register-shell-job! {:label "npm test" :summary "dev-server" :process (mock-process) :working-directory "/tmp"})
         (let [result (handler {"action" "list"} {})]
           (is (match? {:error false
                        :contents [{:type :text :text #"\"dev-server\" \(job-\d+\).*npm test"}]}
@@ -278,7 +280,7 @@
                     (handler {"action" "read_output" "job_id" "job-999"} {}))))
 
       (testing "read_output for existing job"
-        (let [job (bg/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})]
+        (let [job (m.shell.jobs/register-shell-job! {:label "test" :process (mock-process) :working-directory "/tmp"})]
           (reset! (:output* job) {:lines [{:text "hello" :stream :stdout}
                                           {:text "oops" :stream :stderr}] :total-lines 2})
           (is (match? {:error false
@@ -286,7 +288,7 @@
                       (handler {"action" "read_output" "job_id" (:id job)} {})))))
 
       (testing "read_output header includes quoted job name when summary is set"
-        (let [job (bg/register-shell-job! {:label "test" :summary "my-job" :process (mock-process) :working-directory "/tmp"})]
+        (let [job (m.shell.jobs/register-shell-job! {:label "test" :summary "my-job" :process (mock-process) :working-directory "/tmp"})]
           (reset! (:output* job) {:lines [{:text "hi" :stream :stdout}] :total-lines 1})
           (is (match? {:error false
                        :contents [{:type :text :text #"Job \"my-job\" \(job-\d+\) — running"}]}
@@ -307,27 +309,27 @@
                     (handler {"action" "kill" "job_id" "job-999"} {}))))
 
       (testing "kill running job"
-        (let [job (bg/register-shell-job! {:label "server" :process (mock-process) :working-directory "/tmp"})]
+        (let [job (m.shell.jobs/register-shell-job! {:label "server" :process (mock-process) :working-directory "/tmp"})]
           (is (match? {:error false
                        :contents [{:type :text :text #"killed"}]}
                       (handler {"action" "kill" "job_id" (:id job)} {})))))
 
       (testing "kill already-stopped job"
-        (let [job (bg/register-shell-job! {:label "server2" :process (mock-process) :working-directory "/tmp"})]
-          (bg/kill-job! (:id job))
+        (let [job (m.shell.jobs/register-shell-job! {:label "server2" :process (mock-process) :working-directory "/tmp"})]
+          (m.shell.jobs/kill-job! (:id job))
           (is (match? {:error true
                        :contents [{:type :text :text #"not running"}]}
                       (handler {"action" "kill" "job_id" (:id job)} {})))))
 
       (testing "kill running job with summary includes name in output"
-        (let [job (bg/register-shell-job! {:label "server3" :summary "my-server" :process (mock-process) :working-directory "/tmp"})]
+        (let [job (m.shell.jobs/register-shell-job! {:label "server3" :summary "my-server" :process (mock-process) :working-directory "/tmp"})]
           (is (match? {:error false
                        :contents [{:type :text :text #"Background job \"my-server\" \(job-\d+\) killed\."}]}
                       (handler {"action" "kill" "job_id" (:id job)} {})))))
 
       (testing "kill already-stopped job with summary"
-        (let [job (bg/register-shell-job! {:label "server4" :summary "another-server" :process (mock-process) :working-directory "/tmp"})]
-          (bg/kill-job! (:id job))
+        (let [job (m.shell.jobs/register-shell-job! {:label "server4" :summary "another-server" :process (mock-process) :working-directory "/tmp"})]
+          (m.shell.jobs/kill-job! (:id job))
           (is (match? {:error true
                        :contents [{:type :text :text #"Background job \"another-server\" \(job-\d+\) is not running"}]}
                       (handler {"action" "kill" "job_id" (:id job)} {}))))))))
@@ -338,3 +340,33 @@
       (is (match? {:error true
                    :contents [{:type :text :text #"Unknown action"}]}
                   (handler {"action" "invalid"} {}))))))
+
+;; ---------------------------------------------------------------------------
+;; Finished jobs reach the model at the tool loop's next round
+;; ---------------------------------------------------------------------------
+
+(deftest take-job-notes-test
+  (testing "the chat's finished jobs, once each, as the model learns about them; they leave the jobs list"
+    (let [db* (atom {:chats {"c1" {:pending-job-notifications
+                                   [{:job-id "job-1" :status :completed :exit-code 0 :label "make"
+                                     :output-tail ["ok" "done"]}
+                                    {:job-id "job-2" :status :failed :exit-code 2 :label "make test"
+                                     :output-tail []}]}}})]
+      (swap! m.shell.jobs/registry* update :jobs assoc
+             "job-1" {:id "job-1" :status :completed}
+             "job-2" {:id "job-2" :status :failed})
+      (is (= ["Background job job-1 (`make`) completed with exit code 0.\nLast 20 lines of output:\nok\ndone"
+              "Background job job-2 (`make test`) failed with exit code 2."]
+             (m.shell.jobs/take-job-notes! db* "c1")))
+      (is (= [] (get-in @db* [:chats "c1" :pending-job-notifications])))
+      (is (empty? (:jobs @m.shell.jobs/registry*)))
+      (is (nil? (m.shell.jobs/take-job-notes! db* "c1"))))))
+
+(deftest next-round-event-test
+  (testing "eca/shell adds the chat's finished jobs to :chat/next-round's notes"
+    (let [db* (atom {:chats {"c1" {:pending-job-notifications
+                                   [{:job-id "job-1" :status :killed :exit-code nil :label "sleep 9"
+                                     :output-tail []}]}}})]
+      (is (match? {:notes ["Another module's note." "Background job job-1 (`sleep 9`) killed with exit code ."]}
+                  (events/emit! {:config (h/config) :db* db*} :chat/next-round
+                                {:chat-id "c1" :notes ["Another module's note."]}))))))

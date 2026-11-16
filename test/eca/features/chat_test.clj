@@ -29,6 +29,7 @@
    [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
+   [eca.modules.tools.shell.jobs :as m.shell.jobs]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -2640,6 +2641,34 @@
                   (:chat-content-received (h/messages))))
       (is (nil? (get-in (h/db) [:chats chat-id :steer-message])))
       (is (not-any? #(= "compact_marker" (:role %)) (get-in (h/db) [:chats chat-id :messages]))))))
+
+(deftest finished-background-job-test
+  (testing "a background job that finished reaches the model at the tool-call boundary, after the steered message"
+    (h/reset-components!)
+    (let [chat-id "finished-background-job-chat"
+          continuation* (atom nil)]
+      (prompt!
+       {:message "Build it" :chat-id chat-id}
+       {:all-tools-mock (constantly steered-compact-tools)
+        :call-tool-mock steered-compact-call-tool-mock
+        :api-mock
+        (fn [{:keys [on-first-response-received on-message-received
+                     on-prepare-tool-call on-tools-called]}]
+          (on-first-response-received {:type :text :text "Reading"})
+          (on-message-received {:type :text :text "Reading"})
+          (on-prepare-tool-call {:id "call-1" :full-name "eca__read_file" :arguments-text "{\"path\":\"/foo\"}"})
+          (f.chat/prompt-steer {:chat-id chat-id :message "also check the tests"}
+                               (h/db*) (h/messenger) (h/config) (h/metrics))
+          (m.shell.jobs/enqueue-job-notification! (h/db*) chat-id {:job-id "job-1" :status :completed :exit-code 0
+                                                                   :label "make" :output-tail ["built"]})
+          (reset! continuation* (on-tools-called [{:id "call-1" :full-name "eca__read_file" :arguments {"path" "/foo"}}]))
+          (on-message-received {:type :text :text "Done"})
+          (on-message-received {:type :finish}))})
+      (is (match? [{:role "user" :content [{:type :text :text "also check the tests"}]}
+                   {:role "user" :content [{:type :text :text (str "Background job job-1 (`make`) completed with exit code 0."
+                                                                   "\nLast 20 lines of output:\nbuilt")}]}]
+                  (take-last 2 (:new-messages @continuation*))))
+      (is (empty? (get-in (h/db) [:chats chat-id :pending-job-notifications]))))))
 
 (deftest steered-native-command-test
   (testing "a steer-safe native command steered while the turn runs is executed at the tool-call boundary instead of reaching the LLM as text, then the task resumes (#610)"

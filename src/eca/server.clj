@@ -168,9 +168,6 @@
    "mcp/updateServer"                    {:kind :request :thread? true :handler #'handlers/mcp-update-server}
    "mcp/addServer"                       {:kind :request :thread? true :handler #'handlers/mcp-add-server}
    "mcp/removeServer"                    {:kind :request :thread? true :handler #'handlers/mcp-remove-server}
-   "jobs/list"                           {:kind :request :thread? true :handler #'handlers/jobs-list}
-   "jobs/kill"                           {:kind :request :thread? true :handler #'handlers/jobs-kill}
-   "jobs/readOutput"                     {:kind :request :thread? true :handler #'handlers/jobs-read-output}
    "providers/list"                      {:kind :request :thread? true :handler #'handlers/providers-list}
    "providers/login"                     {:kind :request :thread? true :handler #'handlers/providers-login}
    "providers/loginInput"                {:kind :request :thread? true :handler #'handlers/providers-login-input}

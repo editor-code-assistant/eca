@@ -120,6 +120,10 @@
                                         "a string for a text; the client keeps the original.")
                            :additional-context "Added to the result for the model."
                            :stop "Ends the turn after this batch of tool calls, with this reason."}}
+   :chat/next-round {:kind :notify
+                     :doc "In the tool loop: after a response's tools ran, before the model gets their results."
+                     :accepts {:notes (str "Texts the chat's history gets first, each a user message: the event's "
+                                           "and yours. E.g. eca/shell's finished background jobs.")}}
    :chat/before-compact {:kind :transform
                          :doc "Before a compaction."
                          :payload {:trigger ":manual, :auto or :overflow." :instructions "Extra instructions."}

@@ -1,9 +1,10 @@
-(ns eca.features.background-tasks
+(ns eca.modules.tools.shell.jobs
   "Registry and lifecycle management for background jobs (shell processes,
    future subagents). Jobs live independently of the tool calls that spawn them
-   and are cleaned up on ECA shutdown."
+   and are cleaned up when the shell module stops, at ECA shutdown."
   (:require
    [babashka.process :as p]
+   [clojure.string :as string]
    [eca.logger :as logger])
   (:import
    [java.io BufferedReader InputStream InputStreamReader]
@@ -261,6 +262,29 @@
            (update reg :jobs
                    (fn [jobs]
                      (into {} (remove (fn [[_ job]] (:notified job))) jobs))))))
+
+(defn take-job-notes!
+  "Reads and clears the chat's pending job notifications in a single swap:
+   what the model learns about each finished job, a text. Marks the jobs
+   :notified and evicts them from the registry."
+  [db* chat-id]
+  (let [notifications* (volatile! nil)]
+    (swap! db* (fn [db]
+                 (if-let [notifs (seq (get-in db [:chats chat-id :pending-job-notifications]))]
+                   (do (vreset! notifications* (vec notifs))
+                       (assoc-in db [:chats chat-id :pending-job-notifications] []))
+                   db)))
+    (when-let [notifications @notifications*]
+      (doseq [{:keys [job-id]} notifications]
+        (swap! registry* assoc-in [:jobs job-id :notified] true))
+      (evict-notified-jobs!)
+      (mapv (fn [{:keys [job-id status exit-code label output-tail]}]
+              (str "Background job " job-id " (`" label "`) "
+                   (name status) " with exit code " exit-code "."
+                   (when (seq output-tail)
+                     (str "\nLast 20 lines of output:\n"
+                          (string/join "\n" output-tail)))))
+            notifications))))
 
 (defn ^:private evict-stale-jobs!
   "Remove finished jobs older than max-finished-age-ms from the registry."

@@ -6,7 +6,6 @@
   (:require
    [cheshire.core :as json]
    [clojure.string :as string]
-   [eca.features.background-tasks :as bg]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.recovery :as f.chat.recovery]
@@ -19,6 +18,7 @@
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -211,36 +211,21 @@
                                                 :arguments-text arguments-text
                                                 :summary (f.tools/tool-call-summary all-tools resolved-full-name nil config @db*)}))))
 
-(defn ^:private consume-pending-job-notifications!
-  "Reads and clears any pending job notifications for the chat in a single swap.
-   For each notification, adds a user message to history so the LLM is aware.
-   Marks each job as :notified true and evicts them from the registry."
-  [chat-id db* add-to-history!]
-  (let [notifications* (volatile! nil)]
-    (swap! db* (fn [db]
-                 (if-let [notifs (seq (get-in db [:chats chat-id :pending-job-notifications]))]
-                   (do (vreset! notifications* (vec notifs))
-                       (assoc-in db [:chats chat-id :pending-job-notifications] []))
-                   db)))
-    (when-let [notifications @notifications*]
-      (doseq [{:keys [job-id status exit-code label output-tail]} notifications]
-        (let [text (str "Background job " job-id " (`" label "`) "
-                        (name status) " with exit code " exit-code "."
-                        (when (seq output-tail)
-                          (str "\nLast 20 lines of output:\n"
-                               (string/join "\n" output-tail))))
-              user-message {:role "user"
-                            :content [{:type :text :text text}]
-                            :content-id (str (random-uuid))}]
-          (add-to-history! user-message)))
-      (doseq [{:keys [job-id]} notifications]
-        (swap! bg/registry* assoc-in [:jobs job-id :notified] true))
-      (bg/evict-notified-jobs!))))
+(defn ^:private next-round-notes!
+  "Runs `:chat/next-round`: the notes modules give go into the history, each
+   a user message, before the model gets the tool results (e.g. eca/shell's
+   finished background jobs)."
+  [chat-ctx add-to-history!]
+  (doseq [note (:notes (events/emit! chat-ctx :chat/next-round (f.chat.lifecycle/chat-event chat-ctx {})))
+          :when (and (string? note) (not (string/blank? note)))]
+    (add-to-history! {:role "user"
+                      :content [{:type :text :text note}]
+                      :content-id (str (random-uuid))})))
 
 (defn ^:private next-tool-round
   "After the tools of a response ran (`:continue-fn` of the tool batch): the
    next request of the LLM's tool loop, `{:tools :new-messages}` with the
-   steered message and finished background jobs, or nil when the turn ends
+   steered message and the modules' notes (`:chat/next-round`), or nil when the turn ends
    or goes on otherwise (a `/compact` steered meanwhile, a compaction a
    module asked for)."
   [{:keys [chat-ctx auto-continue-count* add-to-history!]} tc-all-tools tc-user-messages]
@@ -248,7 +233,7 @@
   (let [{:keys [db* chat-id full-model] :as chat-ctx} (assoc chat-ctx :auto-continue-count 0)
         continue-round (fn []
                          (f.chat.steer/consume-steer-message! chat-id db* chat-ctx add-to-history!)
-                         (consume-pending-job-notifications! chat-id db* add-to-history!)
+                         (next-round-notes! chat-ctx add-to-history!)
                          {:tools tc-all-tools
                           :new-messages (f.chat.recovery/messages-to-send @db* chat-id full-model)})]
     (cond
