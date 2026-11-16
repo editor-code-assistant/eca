@@ -193,6 +193,29 @@
       (when (and (map? answer) (or (:retry answer) (:compact answer)))
         answer))))
 
+(defn usage-updated!
+  "Emits `:chat/usage-updated` for `usage`, the chat's usage as clients get
+   it, in a context of `context-limit` tokens. Returns the auto-compaction
+   threshold modules gave, in percent of the context limit, or nil."
+  [chat-ctx usage context-limit]
+  (let [session-tokens (:session-tokens usage)
+        percentage (:auto-compact-percentage
+                    (events/emit! chat-ctx :chat/usage-updated
+                                  {:chat-id (:chat-id chat-ctx)
+                                   :parent-chat-id (:parent-chat-id chat-ctx)
+                                   :agent (:agent chat-ctx)
+                                   :model (:full-model chat-ctx)
+                                   :variant (:variant chat-ctx)
+                                   :usage usage
+                                   :session-tokens session-tokens
+                                   :context-limit context-limit
+                                   :context-used (when (and (number? session-tokens)
+                                                            (number? context-limit)
+                                                            (pos? context-limit))
+                                                   (double (/ session-tokens context-limit)))}))]
+    (when (number? percentage)
+      percentage)))
+
 (defn ended-by
   "Who ended an event's chain of handlers with a `:block` or `:stop`, as
    `ended-message` names them: `{:module id}`, with `:by` when the module

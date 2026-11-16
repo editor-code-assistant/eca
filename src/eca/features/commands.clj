@@ -448,7 +448,7 @@
 (defn run-built-in!
   "Runs the built-in command `command`, which a built-in module declares (see
    `eca.features.built-in-command`). The typed arguments are in `:argv`."
-  [command {:keys [chat-id db* config messenger provider full-model agent all-tools instructions user-messages metrics] :as chat-ctx} {args :argv}]
+  [command {:keys [chat-id db* config messenger provider full-model all-tools instructions user-messages metrics] :as chat-ctx} {args :argv}]
   (let [db @db*]
     (case command
       "compact" (let [custom-instructions (string/join " " args)
@@ -461,11 +461,10 @@
                       {:keys [blocked? reason stop-turn? ended-by instructions]}
                       (when (f.chat.compaction/compaction-handled? config)
                         (f.chat.compaction/run-pre-compact! chat-ctx "manual" custom-instructions))
-                      ;; a module may compact the chat instead of :eca/compact-as-summary
                       answer (when (and (f.chat.compaction/compaction-handled? config) (not blocked?))
                                (f.chat.compaction/compact-with-module! chat-ctx "manual" instructions))]
                   (cond
-                    ;; :eca/compact-as-summary owns compaction; disabled, only a module compacts
+                    ;; only modules compact
                     (not (f.chat.compaction/compaction-handled? config))
                     no-compaction
 
@@ -477,30 +476,30 @@
                         (f.chat.lifecycle/send-ended! chat-ctx "Compaction blocked" ended-by reason))
                       {:type :new-chat-status :status :idle})
 
+                    ;; the module compacts with a request of the chat
+                    (:request answer)
+                    (let [{:keys [prompt done? apply!]} (:request answer)
+                          compact-prompt (prompt instructions all-tools)]
+                      (swap! db* assoc-in [:chats chat-id :compacting?] true)
+                      {:type :send-prompt
+                       ;; a compaction's prompt, not a user request for modules
+                       :compaction? true
+                       :compaction-done? done?
+                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
+                                                       (f.chat.compaction/complete-compaction! chat-ctx "manual" apply!)]
+                                                   (when stop-turn?
+                                                     (send-stopped! result))
+                                                   {:stop-after-finish? (or stop-turn? (not compacted?))})
+                       :prompt compact-prompt})
+
                     answer
                     (let [{:keys [stop-turn?] :as result} (f.chat.compaction/finish-module-compaction! chat-ctx "manual" answer)]
                       (when stop-turn?
                         (send-stopped! result))
                       {:type :new-chat-status :status :idle})
 
-                    (not (f.chat.compaction/compaction-module-active? config))
-                    no-compaction
-
                     :else
-                    (do
-                      (swap! db* update-in [:chats chat-id]
-                             #(-> %
-                                  (dissoc :last-summary :compact-done?)
-                                  (assoc :compacting? true)))
-                      {:type :send-prompt
-                       ;; a compaction's prompt, not a user request for modules
-                       :compaction? true
-                       :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
-                                                       (f.chat.compaction/complete-compact! chat-ctx "manual")]
-                                                   (when stop-turn?
-                                                     (send-stopped! result))
-                                                   {:stop-after-finish? (or stop-turn? (not compacted?))})
-                       :prompt (f.prompt/compact-prompt instructions all-tools agent config db)})))
+                    no-compaction))
       "login" (do
                 (messenger/chat-content-received
                  messenger
@@ -792,7 +791,7 @@
                       usage (shared/usage-sumary chat-id full-model db
                                                  {:subscription? (f.quota/subscription? provider db config)})
                       context-limit (get-in db [:models full-model :limit :context])
-                      compact-percentage (f.chat.compaction/auto-compact-threshold config agent context-limit)
+                      compact-percentage (f.chat.lifecycle/usage-updated! chat-ctx usage context-limit)
                       breakdown (shared/context-breakdown
                                  {:system-prompt (f.prompt/instructions->str instructions)
                                   :tools all-tools

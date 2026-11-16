@@ -59,6 +59,7 @@
    :extraConfigs []
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
+   :autoCompactMaxPerTurn 3
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
                               "Type `/` to see all commands"

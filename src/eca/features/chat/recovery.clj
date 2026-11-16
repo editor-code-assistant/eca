@@ -161,15 +161,20 @@
                                                      reason (quot delay-ms 1000) attempt max-retries))})))
 
 (defn ^:private compact-as-module-asked!
-  "A module asked to compact, then go on with the task. As on the built-in
-   overflow path, an overflow first prunes old tool outputs."
+  "A module asked to compact, then go on with the task. A context overflow
+   is shown, and first prunes old tool outputs."
   [{:keys [user-messages all-tools]} {:keys [db* chat-id] :as chat-ctx} {:keys [error-type module-answer]}]
-  (let [opts (:compact module-answer)
-        chat-ctx (assoc chat-ctx :module-recovery-attempted? true)]
-    (logger/info logger-tag "Compacting after a failed request, as a module asked"
-                 {:chat-id chat-id :error-type error-type})
-    (when (= :context-overflow error-type)
-      (f.chat.compaction/prune-tool-results! db* chat-id {}))
+  (let [opts (:compact module-answer)]
+    (if (= :context-overflow error-type)
+      (do
+        (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
+                     {:chat-id chat-id})
+        (f.chat.lifecycle/send-content! chat-ctx :system
+                                        {:type :text
+                                         :text "Context window exceeded. Auto-compacting conversation..."})
+        (f.chat.compaction/prune-tool-results! db* chat-id {}))
+      (logger/info logger-tag "Compacting after a failed request, as a module asked"
+                   {:chat-id chat-id :error-type error-type}))
     (f.chat.compaction/trigger-requested-compact! chat-ctx all-tools user-messages
                                                   {:trigger (or (when (map? opts) (:trigger opts))
                                                                 (when (= :context-overflow error-type) :overflow))
@@ -187,16 +192,6 @@
                    {:chat-id chat-id :changes (:retry module-answer)}))
     (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text "\nRetrying the request, as a module asked...\n"})
     (continue-turn! chat-ctx retry-messages :module-retry (assoc chat-ctx :module-recovery-attempted? true))))
-
-(defn ^:private compact-on-overflow!
-  [{:keys [user-messages all-tools]} {:keys [db* chat-id] :as chat-ctx}]
-  (logger/warn logger-tag "Context overflow detected, pruning tool results and auto-compacting"
-               {:chat-id chat-id})
-  (f.chat.lifecycle/send-content! chat-ctx :system
-                                  {:type :text
-                                   :text "Context window exceeded. Auto-compacting conversation..."})
-  (f.chat.compaction/prune-tool-results! db* chat-id {})
-  (f.chat.compaction/trigger-auto-compact! (assoc chat-ctx :compact-trigger :overflow) all-tools user-messages))
 
 (defn ^:private retry-without-images!
   "The provider rejected an image in the request (e.g. an MCP tool returned
@@ -407,20 +402,15 @@
       (logger/info logger-tag "Ignoring error for finished or superseded prompt"
                    {:chat-id chat-id :message message})
 
-      ;; only a chat with history can compact (#491)
+      ;; only a chat with history can compact (#491), and no more than the
+      ;; turn may (see `auto-compact-suppressed?`)
       (and (:compact module-answer)
-           (or (not= :context-overflow error-type) compactable?))
+           (or (not= :context-overflow error-type) compactable?)
+           (not (f.chat.compaction/auto-compact-suppressed? chat-ctx)))
       (compact-as-module-asked! turn chat-ctx failure)
 
       (:retry module-answer)
       (retry-as-module-asked! turn chat-ctx failure)
-
-      (and (= :context-overflow error-type)
-           (not compacting?)
-           (not (f.chat.compaction/auto-compact-suppressed? chat-ctx))
-           compactable?
-           (f.chat.compaction/compaction-module-active? config))
-      (compact-on-overflow! turn chat-ctx)
 
       (and (= :invalid-image error-type)
            (not compacting?)

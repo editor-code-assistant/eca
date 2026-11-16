@@ -29,7 +29,6 @@
    [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
-   [eca.shared :as shared]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -1199,8 +1198,8 @@
               :messages [{:role "user" :content [{:type :text :text "earlier question"}]}
                          {:role "assistant" :content [{:type :text :text "earlier answer"}]}]})
       (with-redefs-fn
-        {#'f.chat.compaction/trigger-auto-compact!
-         (fn [chat-ctx _all-tools user-messages]
+        {#'f.chat.compaction/trigger-requested-compact!
+         (fn [chat-ctx _all-tools user-messages _request _on-blocked]
            (swap! auto-compact-count* inc)
            (#'f.chat.compaction/resume-after-compact! chat-ctx user-messages))}
         (fn []
@@ -1234,7 +1233,7 @@
     (let [api-call-count* (atom 0)
           auto-compact-count* (atom 0)]
       (with-redefs-fn
-        {#'f.chat.compaction/trigger-auto-compact! (fn [& _] (swap! auto-compact-count* inc))}
+        {#'f.chat.compaction/trigger-requested-compact! (fn [& _] (swap! auto-compact-count* inc))}
         (fn []
           (let [{:keys [chat-id]}
                 (prompt!
@@ -1470,20 +1469,21 @@
                                                                 :reason "auto blocked"
                                                                 :hook-name "blocker"
                                                                 :stop-turn? true})]
-        (#'f.chat.compaction/trigger-auto-compact!
-         {:db* (h/db*)
-          :config (h/config)
-          :chat-id "chat-1"
-          :agent "code"
-          :messenger (h/messenger)
-          :metrics (h/metrics)
-          :parent-chat-id "parent-1"
-          :continue-turn-fn (fn [user-messages prompt-type chat-ctx]
-                              (reset! prompted* {:user-messages user-messages
-                                                 :prompt-type prompt-type
-                                                 :chat-ctx chat-ctx}))}
-         []
-         [{:role "user" :content [{:type :text :text "keep going"}]}]))
+        (let [ctx {:db* (h/db*)
+                   :config (h/config)
+                   :chat-id "chat-1"
+                   :agent "code"
+                   :messenger (h/messenger)
+                   :metrics (h/metrics)
+                   :parent-chat-id "parent-1"
+                   :continue-turn-fn (fn [user-messages prompt-type chat-ctx]
+                                       (reset! prompted* {:user-messages user-messages
+                                                          :prompt-type prompt-type
+                                                          :chat-ctx chat-ctx}))}
+              user-messages [{:role "user" :content [{:type :text :text "keep going"}]}]]
+          (#'f.chat.compaction/trigger-requested-compact!
+           ctx [] user-messages {:module :eca/compact-as-summary :trigger :auto}
+           (f.chat.compaction/retry-without-compaction ctx user-messages))))
       (is (some #(= {:chat-id "chat-1"
                      :parent-chat-id "parent-1"
                      :role :system
@@ -1500,19 +1500,20 @@
                                                                 :reason nil
                                                                 :hook-name "guard"
                                                                 :stop-turn? false})]
-        (#'f.chat.compaction/trigger-auto-compact!
-         {:db* (h/db*)
-          :config (h/config)
-          :chat-id "chat-1"
-          :agent "code"
-          :messenger (h/messenger)
-          :parent-chat-id "parent-1"
-          :continue-turn-fn (fn [user-messages prompt-type chat-ctx]
-                              (reset! prompted* {:user-messages user-messages
-                                                 :prompt-type prompt-type
-                                                 :chat-ctx chat-ctx}))}
-         []
-         [{:role "user" :content [{:type :text :text "keep going"}]}]))
+        (let [ctx {:db* (h/db*)
+                   :config (h/config)
+                   :chat-id "chat-1"
+                   :agent "code"
+                   :messenger (h/messenger)
+                   :parent-chat-id "parent-1"
+                   :continue-turn-fn (fn [user-messages prompt-type chat-ctx]
+                                       (reset! prompted* {:user-messages user-messages
+                                                          :prompt-type prompt-type
+                                                          :chat-ctx chat-ctx}))}
+              user-messages [{:role "user" :content [{:type :text :text "keep going"}]}]]
+          (#'f.chat.compaction/trigger-requested-compact!
+           ctx [] user-messages {:module :eca/compact-as-summary :trigger :auto}
+           (f.chat.compaction/retry-without-compaction ctx user-messages))))
       (is (match? {:chat-content-received
                    [{:chat-id "chat-1"
                      :parent-chat-id "parent-1"
@@ -1966,11 +1967,11 @@
                               (string/includes? (request-text user-msgs* (dec (count @user-msgs*))) "A-v1"))]
           (is (not (sent-in-full? "two")))
           (testing "after compaction"
-            (shared/compact-side-effect! {:chat-id chat-id
-                                          :full-model "openai/gpt-5.2"
-                                          :db* (h/db*)
-                                          :messenger (h/messenger)}
-                                         false)
+            (#'m.compact-as-summary/write-summary! {:chat-id chat-id
+                                                    :full-model "openai/gpt-5.2"
+                                                    :db* (h/db*)
+                                                    :messenger (h/messenger)}
+                                                   false)
             (is (sent-in-full? "three")))
           (testing "after rollback"
             (f.chat.ops/rollback-chat {:chat-id chat-id

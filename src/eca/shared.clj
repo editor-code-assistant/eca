@@ -8,7 +8,6 @@
    [clojure.walk :as walk]
    [eca.cache :as cache]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]
    [selmer.parser :as selmer])
   (:import
    [java.lang ProcessHandle]
@@ -707,47 +706,6 @@
                  messages
                  (subvec messages (inc last-idx)))]
     (vec (remove #(= "flag" (:role %)) result))))
-
-(defn compact-side-effect!
-  "Performs side effects after chat compaction: appends a compact_marker tombstone
-   and summary to history, zeros token usage, and notifies the user."
-  [{:keys [chat-id full-model db* messenger] :as chat-ctx} auto-compact?]
-  ;; Append compact marker tombstone + summary to preserve full history
-  (swap! db* (fn [db]
-               (let [summary (get-in db [:chats chat-id :last-summary])
-                     messages (get-in db [:chats chat-id :messages] [])
-                     now (System/currentTimeMillis)]
-                 (assoc-in db [:chats chat-id :messages]
-                           (conj messages
-                                 {:role "compact_marker"
-                                  :content {:auto? (boolean auto-compact?)}
-                                  :created-at now}
-                                 {:role "user"
-                                  :content [{:type :text
-                                             :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                        summary)}]
-                                  :created-at now})))))
-
-  ;; Zero chat usage and clear transient per-chat rule validations.
-  ;; Drop :last-editor-state and :sent-attached-contexts so the cursor and the
-  ;; attached contexts are re-sent next turn, since the pre-marker history
-  ;; holding them is no longer in context. #683
-  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules :last-editor-state :sent-attached-contexts)
-  (messenger/chat-content-received
-   messenger
-   {:chat-id chat-id
-    :role :system
-    :content {:type :text
-              :text (if auto-compact?
-                      "Auto-compacted chat"
-                      "Compacted chat")}})
-  (when-let [usage (usage-sumary chat-id full-model @db* (select-keys chat-ctx [:subscription?]))]
-    (messenger/chat-content-received
-     messenger
-     {:chat-id chat-id
-      :role :system
-      :content (merge {:type :usage}
-                      usage)})))
 
 (defn normalize-code-result
   "Normalize code removing any markdown wrapper"

@@ -47,11 +47,13 @@
                         :doc "A message was added to a chat's history."
                         :payload {:message "The message: :role and :content."}}
    :chat/usage-updated {:kind :notify
-                        :doc "A response reported its token usage."
+                        :doc "A response reported its token usage, or /context refreshed it."
                         :payload {:usage "The chat's usage, as clients get it: tokens, costs and limits."
                                   :session-tokens "Tokens the chat's context holds."
                                   :context-limit "The model's context limit."
-                                  :context-used "From 0 to 1."}}
+                                  :context-used "From 0 to 1."}
+                        :accepts {:auto-compact-percentage (str "Where the chat compacts on its own, in percent of "
+                                                                "the context limit, shown to clients.")}}
    :chat/input {:kind :transform
                 :doc "Text the user sent, before command and skill expansion."
                 :payload {:text "The text." :source ":user or :module."}
@@ -140,10 +142,13 @@
                         :accepts {:additional-context "Added after the checkpoint."
                                   :stop "Ends the turn, with this reason."}}
    :chat/title {:kind :handle
-                :doc "Give a chat its title."
-                :payload {:messages "The chat's user and assistant messages since the last checkpoint."
-                          :retitle? "Whether the chat is titled again, at its third prompt, with more context."}
-                :accepts {:title "The title."}}
+                :doc "Asked at every request of a chat the user didn't name: the first answer titles it."
+                :payload {:messages (str "The chat's user and assistant messages since the last checkpoint, "
+                                         "the new request's last.")
+                          :prompt-messages "The new request's messages, without the attached contexts."
+                          :prompt-count "The chat's requests, this one included."
+                          :title "The chat's title, or nil."}
+                :accepts {:title "The title; nil keeps the chat's."}}
    :shell/before-exec {:kind :transform
                        :doc (str "Before every shell command ECA runs: the shell and git tools, custom tools, "
                                  "shell hooks and eca.api/shell!.")

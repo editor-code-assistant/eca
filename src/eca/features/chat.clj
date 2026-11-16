@@ -140,7 +140,8 @@
                                                      (assoc-some chat-ctx
                                                                  :on-finished-side-effect on-finished-side-effect
                                                                  :on-after-finish! on-after-finish!
-                                                                 :compaction? (:compaction? result))))
+                                                                 :compaction? (:compaction? result)
+                                                                 :compaction-done? (:compaction-done? result))))
         nil))
     (catch Exception e
       (logger/error e)

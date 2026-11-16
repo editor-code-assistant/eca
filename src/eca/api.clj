@@ -202,6 +202,19 @@
                                       (assoc-in db [:chats chat-id :compaction-request] request)))))]
      (identical? request (get-in new-db [:chats chat-id :compaction-request])))))
 
+(defn cancel-compaction!
+  "Drops the compaction this module asked for with `request-compaction!`,
+   if it hasn't run yet. Returns nil."
+  [ctx]
+  (let [id (owner ctx)
+        chat-id (chat-id-of ctx)]
+    (swap! (db*-of ctx)
+           (fn [db]
+             (cond-> db
+               (= id (get-in db [:chats chat-id :compaction-request :module]))
+               (update-in [:chats chat-id] dissoc :compaction-request))))
+    nil))
+
 (defn send-prompt!
   "Sends `text` to the chat as the user's next message: a new turn when the
    chat is idle, else once the running turn reaches its next step, as when the

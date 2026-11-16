@@ -180,9 +180,7 @@
     (logger/info logger-tag "Superseding active prompt" {:chat-id chat-id
                                                          :status (get-in @db* [:chats chat-id :status])}))
   (swap! db* assoc-in [:chats chat-id :status] :running)
-  ;; :compact-done? is consumed when its compaction is applied; one left behind by a
-  ;; compaction stopped before that would end this turn at its first tool call.
-  (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error :compact-done?)
+  (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
   (when (and run-hooks? (:user-content-id chat-ctx))
     ;; Kept until the LLM responds, so a turn that is stopped, fails or is
     ;; superseded before that doesn't lose what the user typed.
@@ -373,7 +371,7 @@
    first, and only a :prompt-message may be rewritten. Compaction and
    recovery send the turn's next request with `:continue-turn-fn`, this
    function, in chat-ctx."
-  [user-messages source-type {:keys [db* config chat-id provider model full-model agent] :as chat-ctx}]
+  [user-messages source-type {:keys [db* config chat-id provider model full-model] :as chat-ctx}]
   (when-not full-model
     (throw (ex-info llm-api/no-available-model-error-msg {})))
   (let [run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
@@ -398,10 +396,6 @@
           (f.chat.compaction/run-requested-compaction! chat-ctx all-tools user-messages
                                                        (f.chat.compaction/retry-without-compaction chat-ctx user-messages))
           nil
-
-          (and (f.chat.compaction/auto-compact? chat-id agent full-model config @db*)
-               (not (f.chat.compaction/auto-compact-suppressed? chat-ctx)))
-          (f.chat.compaction/trigger-auto-compact! chat-ctx all-tools user-messages)
 
           :else
           (start-prompt-worker! chat-ctx #(send-request! turn)))))))

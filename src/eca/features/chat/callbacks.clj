@@ -19,7 +19,6 @@
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
-   [eca.modules.events :as events]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -46,42 +45,30 @@
 
 (defn ^:private on-usage-updated
   [{:keys [chat-ctx all-tools]} usage]
-  (let [{:keys [db* config chat-id agent full-model instructions]} chat-ctx]
+  (let [{:keys [db* chat-id full-model instructions]} chat-ctx]
     (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
-      (f.chat.compaction/release-post-compact-guard! chat-ctx)
-      ;; Never let the context-breakdown (a display-only
-      ;; aid) throw into the streaming path, or the error
-      ;; gets misclassified as a retryable provider error.
-      (let [breakdown (try
-                        (shared/context-breakdown
-                         {:system-prompt (f.prompt/instructions->str instructions)
-                          :tools (f.tools/tools-for-llm all-tools)
-                          :messages (get-in @db* [:chats chat-id :messages] [])
-                          :context-limit (get-in usage [:limit :context])
-                          :session-tokens (:session-tokens usage)})
-                        (catch Throwable e
-                          (logger/warn logger-tag "Failed to compute context breakdown" e)
-                          nil))]
-        (f.chat.lifecycle/send-content! chat-ctx :system
-                                        (merge {:type :usage} usage
-                                               (when breakdown {:context-breakdown breakdown})
-                                               (when-let [pct (f.chat.compaction/auto-compact-threshold config agent (get-in usage [:limit :context]))]
-                                                 {:auto-compact-percentage pct}))))
       (let [context-limit (get-in usage [:limit :context])
-            session-tokens (:session-tokens usage)]
-        (events/emit! chat-ctx :chat/usage-updated
-                      {:chat-id chat-id
-                       :parent-chat-id (:parent-chat-id chat-ctx)
-                       :agent agent
-                       :model full-model
-                       :variant (:variant chat-ctx)
-                       :usage usage
-                       :session-tokens session-tokens
-                       :context-limit context-limit
-                       :context-used (when (and (number? session-tokens)
-                                                (number? context-limit)
-                                                (pos? context-limit))
-                                       (double (/ session-tokens context-limit)))})))))
+            ;; modules hear of it first, and give the auto-compaction threshold
+            percentage (f.chat.lifecycle/usage-updated! chat-ctx usage context-limit)]
+        (f.chat.compaction/release-post-compact-guard! chat-ctx (:session-tokens usage) context-limit percentage)
+        ;; Never let the context-breakdown (a display-only
+        ;; aid) throw into the streaming path, or the error
+        ;; gets misclassified as a retryable provider error.
+        (let [breakdown (try
+                          (shared/context-breakdown
+                           {:system-prompt (f.prompt/instructions->str instructions)
+                            :tools (f.tools/tools-for-llm all-tools)
+                            :messages (get-in @db* [:chats chat-id :messages] [])
+                            :context-limit context-limit
+                            :session-tokens (:session-tokens usage)})
+                          (catch Throwable e
+                            (logger/warn logger-tag "Failed to compute context breakdown" e)
+                            nil))]
+          (f.chat.lifecycle/send-content! chat-ctx :system
+                                          (merge {:type :usage} usage
+                                                 (when breakdown {:context-breakdown breakdown})
+                                                 (when percentage
+                                                   {:auto-compact-percentage percentage}))))))))
 
 (defn ^:private on-history-sanitized
   "History keeps the foreign entries (only the request is filtered), so they
@@ -255,20 +242,22 @@
    next request of the LLM's tool loop, `{:tools :new-messages}` with the
    steered message and finished background jobs, or nil when the turn ends
    or goes on otherwise (a `/compact` steered meanwhile, a compaction a
-   module asked for, the auto-compaction)."
+   module asked for)."
   [{:keys [chat-ctx auto-continue-count* add-to-history!]} tc-all-tools tc-user-messages]
   (reset! auto-continue-count* 0)
-  (let [{:keys [db* config chat-id agent full-model] :as chat-ctx} (assoc chat-ctx :auto-continue-count 0)
+  (let [{:keys [db* chat-id full-model] :as chat-ctx} (assoc chat-ctx :auto-continue-count 0)
         continue-round (fn []
                          (f.chat.steer/consume-steer-message! chat-id db* chat-ctx add-to-history!)
                          (consume-pending-job-notifications! chat-id db* add-to-history!)
                          {:tools tc-all-tools
                           :new-messages (f.chat.recovery/messages-to-send @db* chat-id full-model)})]
     (cond
-      ;; Manual /compact maintenance prompt: skip postRequest hooks
-      ;; (postCompact provides compact_summary; postRequest would
-      ;; just see the trailing "Compacted successfully!" tool result).
-      (get-in @db* [:chats chat-id :compact-done?])
+      ;; A compaction's request is done (the summary was written with
+      ;; compact_chat): skip postRequest hooks (postCompact provides
+      ;; compact_summary; postRequest would just see the trailing
+      ;; "Compacted successfully!" tool result).
+      (when-let [done? (:compaction-done? chat-ctx)]
+        (done? chat-ctx))
       (do (f.chat.lifecycle/finish-chat-prompt! :idle
                                                 (assoc chat-ctx :skip-post-request-hooks? true))
           nil)
@@ -292,10 +281,7 @@
                                      chat-ctx tc-all-tools tc-user-messages
                                      continue-round)]
             result
-            (if (and (f.chat.compaction/auto-compact? chat-id agent full-model config @db*)
-                     (not (f.chat.compaction/auto-compact-suppressed? chat-ctx)))
-              (f.chat.compaction/trigger-auto-compact! chat-ctx tc-all-tools tc-user-messages)
-              (continue-round))))))))
+            (continue-round)))))))
 
 (defn ^:private on-reason
   [{:keys [chat-ctx reasonings* add-to-history!]} {:keys [status id text external-id delta-reasoning? redacted? data]}]

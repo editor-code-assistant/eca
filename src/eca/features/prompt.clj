@@ -1,6 +1,5 @@
 (ns eca.features.prompt
   (:require
-   [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
@@ -17,13 +16,6 @@
   (slurp (io/resource (str "prompts/" filename))))
 
 (def ^:private load-builtin-prompt (memoize load-builtin-prompt*))
-
-(defn ^:private compact-prompt-template* [file-path]
-  (if (fs/relative? file-path)
-    (slurp (io/resource file-path))
-    (slurp (io/file file-path))))
-
-(def ^:private compact-prompt-template (memoize compact-prompt-template*))
 
 (defn get-config-prompt
   "The prompt `key` of the `prompts` config: the agent's own, else the
@@ -419,19 +411,6 @@
                                               full-text
                                               "```"))})
                                "rewrite-prompt")))
-
-(defn compact-prompt [additional-input all-tools agent-name config db]
-  (shared/safe-selmer-render
-   (or (:compactPrompt config) ;; legacy
-       (get-config-prompt :compact agent-name config)
-       (compact-prompt-template (:compactPromptFile config)) ;; legacy
-       )
-   (merge
-    (->base-selmer-ctx all-tools db)
-    {:additionalUserInput (if additional-input
-                            (format "You MUST respect this user input in the summarization: %s." additional-input)
-                            "")})
-   "compact-prompt"))
 
 (defn inline-completion-prompt [config]
   (let [legacy-config-file-prompt (get-in config [:completion :systemPromptFile])

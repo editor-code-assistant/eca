@@ -8,6 +8,7 @@
   - Optional modules, off by default: `eca/repl` (`--repl`), `eca/remote` and `eca/otel`; `remote.enabled` and `otlp` still enable these two.
   - New `eca-manage` skill, to change ECA itself, from its config to modules, following the docs at eca.dev.
 - Add `toolCall.approval.insideWorkspace`: folders outside the workspace that file and shell tools treat as inside it, so your approval rules decide for them.
+- Fix a compaction blocked by a preCompact hook in the middle of a turn sending the user's message to the model again.
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
