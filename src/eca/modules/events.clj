@@ -13,7 +13,8 @@
   (:require
    [clojure.string :as string]
    [eca.logger :as logger]
-   [eca.modules :as modules]))
+   [eca.modules :as modules]
+   [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -57,10 +58,11 @@
                 :accepts {:text "Replaces the text."
                           :handled "A reply string, or true: the model isn't called."}}
    :chat/before-request {:kind :transform
-                         :doc "Once per user message, before the first LLM request."
-                         :payload {:prompt "The user's prompt."}
-                         :accepts {:prompt "Replaces the prompt."
-                                   :additional-context "Added to the request."
+                         :doc (str "Once per user message, before the first LLM request. Not for /compact: "
+                                   "its summary request isn't a user request.")
+                         :payload {:prompt "The user's prompt; for a command or an MCP prompt, what was typed."}
+                         :accepts {:prompt "Replaces the prompt; not for commands and MCP prompts."
+                                   :additional-context "Added to the request: a string, or {:text .. :data ..}."
                                    :block "Skips the request, with this reason."
                                    :stop "Ends the turn, with this reason."}}
    :llm/before-request {:kind :transform
@@ -226,21 +228,39 @@
   [match event]
   (every? (fn [[k expected]] (value-matches? expected (get event k))) match))
 
+(defn ^:private context-text
+  "The text of an `:additional-context` change, a string or a map's `:text`;
+   nil when blank or neither."
+  [v]
+  (shared/not-blank (if (map? v) (:text v) v)))
+
 (defn merge-changes
   "Merges a handler's changes into the event: `:additional-context` adds up
-   (strings only), other keys replace; a nil or false `:stop` or `:block` is
-   no change. With `accepted`, other keys are ignored."
+   (a string, or a map's `:text`), other keys replace; a nil or false `:stop`
+   or `:block` is no change. With `accepted`, other keys are ignored."
   [event changes accepted]
   (reduce-kv (fn [event k v]
                (cond
                  (and accepted (not (contains? accepted k))) event
                  (and (#{:stop :block} k) (not v)) event
-                 (= :additional-context k) (if (or (not (string? v)) (string/blank? v))
-                                             event
-                                             (update event k #(if (string/blank? %) v (str % "\n" v))))
+                 (= :additional-context k) (if-let [text (context-text v)]
+                                             (update event k #(if (string/blank? %) text (str % "\n" text)))
+                                             event)
                  :else (assoc event k v)))
              event
              changes))
+
+(defn ^:private module-context
+  "The context module `id` added with an `:additional-context` change, as
+   `{:module :content :data}`, or nil. `:data` comes from a map's `:data`,
+   when it's plain data."
+  [id v]
+  (when-let [text (context-text v)]
+    (let [data (when (map? v) (:data v))]
+      (when (and (some? data) (not (shared/plain-data? data)))
+        (logger/warn logger-tag (format "Module %s gave context :data that isn't plain data, leaving it out" id)))
+      (cond-> {:module id :content text}
+        (and (some? data) (shared/plain-data? data)) (assoc :data data)))))
 
 ;; --- Tracing, for eca.api.debug/trace!
 
@@ -310,6 +330,8 @@
                    (= :notify (:kind definition)) #{}
                    :else nil)
         hs (get handlers event-id)
+        ;; `{:module :content :data}` of each handler's :additional-context
+        contexts* (volatile! [])
         result (if (= :handle (:kind definition))
                  (some (fn [h]
                          (when (matches? (:match h) event)
@@ -329,11 +351,18 @@
 
                                  :else
                                  (let [changed (merge-changes event changes accepted)]
+                                   (when-let [context (when (or (nil? accepted) (contains? accepted :additional-context))
+                                                        (module-context (:id (:entry h)) (:additional-context changes)))]
+                                     (vswap! contexts* conj context))
                                    (if (or (and (:block changed) (not (:block event)))
                                            (and (contains? changed :stop) (not (contains? event :stop))))
                                      (reduced (assoc changed ::ended-by (:id (:entry h))))
                                      changed))))))
                          event
-                         hs))]
+                         hs))
+        ;; each module's context, besides the joined text, on the result only:
+        ;; handlers don't see it
+        result (cond-> result
+                 (seq @contexts*) (assoc ::contexts @contexts*))]
     (trace-event! ctx event-id (:kind definition) event result)
     result))

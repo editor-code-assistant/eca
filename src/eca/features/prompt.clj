@@ -221,15 +221,21 @@
   [:eca/agent-prompt :eca/rules :eca/skills :eca/deferred-tools :eca/additional-info
    :eca/workspace-roots :eca/path-resolution :eca/context])
 
+(defn ^:private section-items
+  "The active modules' sections of one part (static or dynamic), as
+   `{:entry :section}`, in module order."
+  [config dynamic?]
+  (for [[entry sections] (modules/contributions config :system-prompts)
+        section sections
+        :when (= (boolean dynamic?) (boolean (:dynamic? section)))]
+    {:entry entry :section section}))
+
 (defn ^:private place-sections
   "The active modules' sections of one part (static or dynamic), in order:
    built-in ones in `built-in-order`; the others right before or after the
    section their `:before`/`:after` names, else at the end, in module order."
   [config dynamic? built-in-order]
-  (let [sections (for [[entry sections] (modules/contributions config :system-prompts)
-                       section sections
-                       :when (= (boolean dynamic?) (boolean (:dynamic? section)))]
-                   {:entry entry :section section})
+  (let [sections (section-items config dynamic?)
         order (zipmap built-in-order (range))
         {built-ins true others false} (group-by #(contains? order (:id (:section %))) sections)]
     (reduce (fn [placed {:keys [entry section] :as item}]
@@ -261,22 +267,51 @@
                                  {:timeout-ms (modules/timeout-for entry nil modules/default-handler-timeout-ms)}
                                  content module-ctx))))
 
+(defn ^:private static-prompt-ctx
+  "The prompt ctx static sections get."
+  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  {:refined-contexts refined-contexts
+   :static-rules static-rules
+   :path-scoped-rules path-scoped-rules
+   :skills skills
+   :repo-map* repo-map*
+   :agent agent-name
+   :config config
+   :chat-id chat-id
+   :all-tools all-tools
+   :db db
+   :selmer-ctx (->base-selmer-ctx all-tools chat-id db)})
+
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix, from the active modules'
    static `:system-prompts` sections."
   [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
-  (let [ctx {:refined-contexts refined-contexts
-             :static-rules static-rules
-             :path-scoped-rules path-scoped-rules
-             :skills skills
-             :repo-map* repo-map*
-             :agent agent-name
-             :config config
-             :chat-id chat-id
-             :all-tools all-tools
-             :db db
-             :selmer-ctx (->base-selmer-ctx all-tools chat-id db)}]
+  (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills repo-map* agent-name
+                               config chat-id all-tools db)]
     (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
+
+(defn uncategorized-static-sections
+  "What the static prompt holds that the cache signature's categories
+   (prompt, contexts, rules, skills, tools) don't follow, or nil when that's
+   nothing: `:sections`, `[id before after text]` of each static section
+   that isn't a built-in module's built-in section, its text as it renders
+   now, and `:missing`, the built-in sections no active module gives, e.g.
+   when `eca/skills` is turned off."
+  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  (let [items (section-items config false)
+        built-in-ids (set built-in-static-sections)
+        categorized? (fn [{:keys [entry section]}]
+                       (boolean (and (:built-in? entry) (built-in-ids (:id section)))))
+        given (into #{} (comp (filter categorized?) (map (comp :id :section))) items)
+        others (remove categorized? items)
+        missing (filterv (complement given) built-in-static-sections)]
+    (when (or (seq others) (seq missing))
+      (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills repo-map* agent-name
+                                   config chat-id all-tools db)]
+        {:sections (mapv (fn [{:keys [section] :as item}]
+                           [(:id section) (:before section) (:after section) (section-part ctx item)])
+                         others)
+         :missing missing}))))
 
 (def ^:private built-in-dynamic-sections
   "The order of the built-in dynamic sections."

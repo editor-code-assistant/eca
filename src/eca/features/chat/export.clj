@@ -11,27 +11,33 @@
    [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
-   [eca.config :as config]))
+   [eca.config :as config]
+   [eca.message-sanitize :as message-sanitize]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private export-version 1)
 
 (def ^:private exported-chat-keys
-  "Chat fields preserved on export. Excludes live/transient state
-   (:tool-calls promises/futures, :last-status-payload) and the
-   machine/provider-specific :prompt-cache."
+  "Chat fields preserved on export, the modules' chat state included.
+   Excludes live/transient state (:tool-calls promises/futures,
+   :last-status-payload) and the machine/provider-specific :prompt-cache."
   [:id :title :title-custom? :status :created-at :updated-at :login-provider
    :model :variant :last-api :trust :prompt-id :user-prompt-count :subagent
-   :parent-chat-id :startup-context :messages :usage :task])
+   :parent-chat-id :startup-context :messages :usage :task :modules])
 
 (defn build-export
-  "Build the export envelope map for chat-id from the in-memory db."
+  "Build the export envelope map for chat-id from the in-memory db. The
+   contexts modules added are left out: they come from this ECA's state,
+   e.g. notes on this machine, and the modules of the ECA that imports the
+   chat add their own."
   [db chat-id]
-  {:eca/version (config/eca-version)
-   :eca/export-version export-version
-   :exported-at (System/currentTimeMillis)
-   :chat (select-keys (get-in db [:chats chat-id]) exported-chat-keys)})
+  (let [chat (select-keys (get-in db [:chats chat-id]) exported-chat-keys)]
+    {:eca/version (config/eca-version)
+     :eca/export-version export-version
+     :exported-at (System/currentTimeMillis)
+     :chat (cond-> chat
+             (:messages chat) (update :messages #(mapv message-sanitize/without-module-contexts %)))}))
 
 (defn export->edn [export]
   (binding [*print-namespace-maps* false]

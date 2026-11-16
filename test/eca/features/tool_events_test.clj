@@ -115,11 +115,12 @@
     (with-module! {:tool/after-call (constantly {:result 42})})
     (let [{:keys [outputs]} (run-tools! [(tool-call "call-1" "eca__tool_a")])]
       (is (= {"call-1" {:error false :contents [{:type :text :text "ok"}]}} outputs))))
-  (testing "context goes to the model only"
+  (testing "context goes to the model only, with the module's id"
     (with-module! {:tool/after-call (constantly {:additional-context "Lint: 2 warnings."})})
     (let [{:keys [outputs called]} (run-tools! [(tool-call "call-1" "eca__tool_a")])]
       (is (= {"call-1" {:error false :contents [{:type :text :text "ok"}
-                                                {:type :text :text (context-text "Lint: 2 warnings.")}]}}
+                                                {:type :text :text (context-text "Lint: 2 warnings.")
+                                                 :module :acme/tools}]}}
              outputs))
       (is (= {"call-1" [{:type :text :text "ok"}]} called))))
   (testing "a module stops the turn after the batch, and the postToolCall hooks don't run"
@@ -140,11 +141,12 @@
     (is (not-any? #(contains? % :result) @events*))))
 
 (deftest tool-before-call-additional-context-test
-  (testing "the context is added to the output of a call that runs"
+  (testing "the context is added to the output of a call that runs, with the module's id"
     (with-module! {:tool/before-call (constantly {:additional-context "Prefer small edits."})})
     (let [{:keys [outputs called]} (run-tools! [(tool-call "call-1" "eca__tool_a")])]
       (is (= {"call-1" {:error false :contents [{:type :text :text "ok"}
-                                                {:type :text :text (context-text "Prefer small edits.")}]}}
+                                                {:type :text :text (context-text "Prefer small edits.")
+                                                 :module :acme/tools}]}}
              outputs))
       (is (= {"call-1" [{:type :text :text "ok"}]} called))))
   (testing "after the :tool/after-call context"

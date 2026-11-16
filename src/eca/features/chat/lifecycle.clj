@@ -387,6 +387,16 @@
   (format "<additionalContext>\n%s\n</additionalContext>"
           content))
 
+(defn context-block
+  "The content block of a context for the model, `{:type :text :text ..}`
+   wrapped in `<additionalContext>`. A module's context, `{:module ..}`,
+   keeps the module's id and its `:data`, which no provider gets (see
+   `eca.message-sanitize`); a hook's has neither."
+  [{:keys [content module data]}]
+  (cond-> {:type :text :text (wrap-additional-context content)}
+    module (assoc :module module)
+    (some? data) (assoc :data data)))
+
 (defn ^:private compact-hook-data
   [db chat-ctx trigger extra]
   (merge (m.hooks/chat-hook-data db chat-ctx)
@@ -480,15 +490,13 @@
 
 (defn ^:private append-post-compact-contexts!
   "Append additionalContext entries to the compact summary message that follows
-   the latest compact_marker. If no marker/summary is present, emit a warning
-   and leave history untouched."
+   the latest compact_marker, as `context-block`s. If no marker/summary is
+   present, emit a warning and leave history untouched."
   [db* chat-id additional-contexts]
   (when (seq additional-contexts)
     (let [summary-idx (post-compact-summary-index (get-in @db* [:chats chat-id :messages]))]
       (if summary-idx
-        (let [entries (mapv (fn [{:keys [content]}]
-                              {:type :text :text (wrap-additional-context content)})
-                            additional-contexts)]
+        (let [entries (mapv context-block additional-contexts)]
           (swap! db* update-in [:chats chat-id :messages]
                  (fn [messages]
                    (let [messages (vec messages)]
@@ -618,8 +626,8 @@
   (let [event (events/emit! chat-ctx :chat/after-compact
                             (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
                                                   :checkpoint (last-checkpoint (get-in @db* [:chats chat-id :messages]))}))]
-    (when-let [context (shared/not-blank (:additional-context event))]
-      (append-post-compact-contexts! db* chat-id [{:hook-name "modules" :content context}]))
+    (when-let [contexts (seq (::events/contexts event))]
+      (append-post-compact-contexts! db* chat-id contexts))
     (if (contains? event :stop)
       {:stop-turn? true :stop-reason (shared/not-blank (:stop event)) :stop-module (::events/ended-by event)}
       (run-post-compact-hooks! chat-ctx trigger compact-summary))))

@@ -497,6 +497,8 @@
                                   (dissoc :last-summary :compact-done?)
                                   (assoc :compacting? true)))
                       {:type :send-prompt
+                       ;; a compaction's prompt, not a user request for modules
+                       :compaction? true
                        :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
                                                        (lifecycle/complete-compact! chat-ctx "manual")]
                                                    (when stop-turn?

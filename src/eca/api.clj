@@ -13,6 +13,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
    [eca.modules.data :as modules.data]
@@ -125,24 +126,17 @@
 
 (defn chat-state
   "The module's state in this chat: what `swap-chat-state!` left, or nil.
-   It's saved with the chat, so it survives a restart, and copied when the
-   chat is forked."
+   It's saved with the chat, so it survives a restart, copied when the chat
+   is forked or exported, and dropped when the chat is cleared. A rollback
+   or a compaction doesn't change it: keep what depends on the messages in
+   the messages, e.g. as the `:data` of a context (`add-context!`)."
   [ctx]
   (when-let [chat-id (:chat-id ctx)]
     (get-in (db ctx) [:chats chat-id :modules (:module-id ctx)])))
 
-(defn ^:private plain-data?
-  "Whether `x` can be saved with a chat: nil, strings, numbers, booleans,
-   keywords, symbols, UUIDs, dates, and maps, vectors, lists and sets of
-   those."
-  [x]
-  (cond
-    (or (nil? x) (string? x) (number? x) (boolean? x) (keyword? x) (symbol? x) (char? x)
-        (uuid? x) (instance? java.util.Date x)) true
-    (record? x) false
-    (map? x) (every? (fn [[k v]] (and (plain-data? k) (plain-data? v))) x)
-    (or (vector? x) (list? x) (set? x) (seq? x)) (every? plain-data? x)
-    :else false))
+(def ^:private plain-data?
+  "Whether `x` can be saved with a chat, see `shared/plain-data?`."
+  shared/plain-data?)
 
 (defn swap-chat-state!
   "Swaps the module's state in this chat with `(apply f state args)`, and
@@ -231,18 +225,50 @@
 (defn add-context!
   "Adds `text` to the context of the chat's next user request, as a shell
    hook's additionalContext: after the user's message, wrapped in
-   `<additionalContext>`."
-  [ctx text]
-  (let [id (owner ctx)
-        chat-id (chat-id-of ctx)]
-    (when-not (string/blank? text)
-      (swap! (db*-of ctx)
-             (fn [db]
-               (cond-> db
-                 (get-in db [:chats chat-id])
-                 (update-in [:chats chat-id :module-contexts] (fnil conj [])
-                            {:module (str (symbol id)) :content (str text)})))))
-    nil))
+   `<additionalContext>`. It's the module's context: see `added-contexts`.
+   `opts`: `:data`, plain data kept with it for the module, which the model
+   doesn't see."
+  ([ctx text] (add-context! ctx text nil))
+  ([ctx text {:keys [data]}]
+   (let [id (owner ctx)
+         chat-id (chat-id-of ctx)]
+     (when-not (plain-data? data)
+       (throw (ex-info (str "The :data of a context of " id " must be plain data, to be saved with the chat")
+                       {:module id})))
+     (when-not (string/blank? text)
+       (swap! (db*-of ctx)
+              (fn [db]
+                (cond-> db
+                  (get-in db [:chats chat-id])
+                  (update-in [:chats chat-id :module-contexts] (fnil conj [])
+                             (shared/assoc-some {:module id :content (str text)} :data data))))))
+     nil)))
+
+(defn added-contexts
+  "The contexts this module added to the chat's messages, oldest first, as
+   `{:text ..}` with its `:data`, if any: from `add-context!` and the
+   `:additional-context` of its event handlers. With `{:since-checkpoint?
+   true}`, only the ones after the last checkpoint: what the model sees.
+   ECA keeps them out of titles, exports and what the user sees, and a
+   compaction's resumed request goes without them."
+  ([ctx] (added-contexts ctx nil))
+  ([ctx opts]
+   (let [id (owner ctx)
+         prefix "<additionalContext>\n"
+         suffix "\n</additionalContext>"
+         unwrap (fn [^String text]
+                  (if (and (string/starts-with? text prefix) (string/ends-with? text suffix))
+                    (subs text (count prefix) (- (count text) (count suffix)))
+                    text))]
+     (into []
+           (comp (mapcat (fn [{:keys [content]}]
+                           (cond
+                             (sequential? content) content
+                             (sequential? (get-in content [:output :contents])) (get-in content [:output :contents]))))
+                 (filter #(and (message-sanitize/module-context? %) (= id (:module %))))
+                 (map (fn [{:keys [text data]}]
+                        (shared/assoc-some {:text (unwrap (str text))} :data data))))
+           (messages ctx opts)))))
 
 ;; --- UI
 

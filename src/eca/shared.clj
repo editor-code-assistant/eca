@@ -784,3 +784,16 @@
 (defn not-blank [s]
   (when (and (string? s) (not (string/blank? s)))
     s))
+
+(defn plain-data?
+  "Whether `x` can be saved with a chat: nil, strings, numbers, booleans,
+   keywords, symbols, UUIDs, dates, and maps, vectors, lists and sets of
+   those."
+  [x]
+  (cond
+    (or (nil? x) (string? x) (number? x) (boolean? x) (keyword? x) (symbol? x) (char? x)
+        (uuid? x) (instance? java.util.Date x)) true
+    (record? x) false
+    (map? x) (every? (fn [[k v]] (and (plain-data? k) (plain-data? v))) x)
+    (or (vector? x) (list? x) (set? x) (seq? x)) (every? plain-data? x)
+    :else false))

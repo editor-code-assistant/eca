@@ -44,3 +44,25 @@
         (is (< (index-of prompt "## Workspace Roots") (index-of prompt "AT-END") (index-of prompt "NOWHERE"))))
       (testing "a nil section is left out"
         (is (not (string/includes? prompt "nil")))))))
+
+(defn- uncategorized [config]
+  (f.prompt/uncategorized-static-sections [] [] [] skills (delay nil) "code" config "chat-1" [] (h/db)))
+
+(deftest uncategorized-static-sections-test
+  (testing "the built-in sections are all followed by the cache signature's categories"
+    (is (nil? (uncategorized {}))))
+  (testing "a module's static section isn't: its text, as it renders now, and placement"
+    (let [conventions* (atom "Use tabs.")]
+      (modules/add-external! "/tmp/acme-prompt.clj"
+                             {:id :acme/prompt
+                              :system-prompts [{:id :acme/conventions :after :eca/skills
+                                                :content (fn [_] @conventions*)}
+                                               {:id :acme/live :dynamic? true :content "Not static."}]})
+      (is (= {:sections [[:acme/conventions nil :eca/skills "Use tabs."]] :missing []}
+             (uncategorized {})))
+      (reset! conventions* "Use spaces.")
+      (is (= [[:acme/conventions nil :eca/skills "Use spaces."]] (:sections (uncategorized {}))))))
+  (testing "nor is a built-in section that's gone, its module turned off"
+    (modules/reset-registry!)
+    (is (= {:sections [] :missing [:eca/skills]}
+           (uncategorized {:modules {:eca/skills {:enabled false}}})))))
