@@ -1,7 +1,7 @@
 (ns eca.features.chat.lifecycle-test
   (:require
    [cheshire.core :as json]
-   [clojure.test :refer [are deftest is testing]]
+   [clojure.test :refer [deftest is testing]]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
@@ -230,78 +230,20 @@
                  (assoc-in [:chats chat-id :auto-compacting?] true))]
       (is (nil? (lifecycle/auto-compact? chat-id agent-name full-model config db))))))
 
-(deftest format-hook-output-test
-  ;; [hook-type parsed raw-output => expected]
-  (are [hook-type parsed raw-output expected]
-       (= expected (#'lifecycle/format-hook-output hook-type parsed raw-output))
-    ;; postToolCall replacedOutput is surfaced for visible hooks
-    :postToolCall {"replacedOutput" "redacted"} nil "Hook executed\nReplacedOutput: \"redacted\""
-    ;; replacedOutput is ignored for non-postToolCall hook types
-    :postRequest {"replacedOutput" "redacted"} nil "Hook executed"
-    ;; preToolCall updatedInput is surfaced as a structural effect line
-    :preToolCall {"updatedInput" {"recursive" true}} nil "Hook executed\nUpdatedInput: {\"recursive\" true}"
-    ;; updatedInput is ignored for non-preToolCall hook types
-    :postToolCall {"updatedInput" {"recursive" true}} nil "Hook executed"
-    ;; non-string replacedOutput is not rendered
-    :postToolCall {"replacedOutput" 42} nil "Hook executed"
-    ;; blank additive fields are not rendered as structural effect lines
-    :preRequest {"replacedPrompt" "   " "additionalContext" ""} nil "Hook executed"
-    :postRequest {"followUp" ""} nil "Hook executed"
-    ;; empty replacedOutput remains a meaningful explicit replacement
-    :postToolCall {"replacedOutput" ""} nil "Hook executed\nReplacedOutput: \"\""
-    ;; systemMessage is NOT part of the block text (surfaced standalone instead)
-    :postToolCall {"systemMessage" "all good" "additionalContext" "extra"} nil "Hook executed\nAdditionalContext: extra"
-    ;; falls back to raw-output when there is no parsed JSON
-    :postToolCall nil "raw text" "raw text"
-    ;; no parsed JSON and no raw-output yields nil (no block body)
-    :postToolCall nil nil nil))
-
-(deftest hook-system-text-test
-  (testing "prefixes the hook name and ends with a blank line so it never glues to a following stream"
-    (is (= "Hook 'my-hook': all good\n\n"
-           (lifecycle/hook-system-text "my-hook" "all good")))))
-
-(deftest turn-stopped-by-hook-message-test
-  (testing "blank stopReason uses the generic message"
+(deftest ended-message-test
+  (testing "a hook, named by its module with :by; a blank reason gives the short message"
     (is (= "Turn stopped by hook 'guard'."
-           (lifecycle/turn-stopped-by-hook-message "guard" "")))
+           (lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "")))
     (is (= "Turn stopped by hook 'guard'."
-           (lifecycle/turn-stopped-by-hook-message "guard" "   ")))))
-
-(deftest compaction-blocked-by-hook-message-test
-  (testing "names the blocking hook when known"
+           (lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "   ")))
     (is (= "Compaction blocked by hook 'guard'."
-           (lifecycle/compaction-blocked-by-hook-message "guard"))))
+           (lifecycle/ended-message "Compaction blocked" {:module :eca/hooks :by "hook 'guard'"} nil))))
 
-  (testing "falls back to the generic message when the hook name is unknown"
-    (is (= "Compaction blocked by hook."
-           (lifecycle/compaction-blocked-by-hook-message nil)))
-    (is (= "Compaction blocked by hook."
-           (lifecycle/compaction-blocked-by-hook-message "")))))
-
-(deftest process-pre-compact-hook-result-test
-  (testing "exit 2 blocks compaction and remembers the first blocking hook name (no stderr reason)"
-    (let [acc {:blocked? false :reason nil :hook-name nil :stop-turn? false}
-          result {:exit 2 :name "first" :raw-error "stderr should not be a reason"}]
-      (is (match? {:blocked? true
-                   :hook-name "first"
-                   :reason nil
-                   :stop-turn? false}
-                  (#'lifecycle/process-pre-compact-hook-result acc result)))))
-
-  (testing "exit 2 keeps the first hook name when a second hook also blocks"
-    (let [acc {:blocked? true :reason nil :hook-name "first" :stop-turn? false}
-          result {:exit 2 :name "second"}]
-      (is (= "first" (:hook-name (#'lifecycle/process-pre-compact-hook-result acc result))))))
-
-  (testing "successful continue:false blocks, stops the turn and records its hook name"
-    (let [acc {:blocked? false :reason nil :hook-name nil :stop-turn? false}
-          result {:exit 0 :name "stopper" :parsed {"continue" false "stopReason" "no compacting now"}}]
-      (is (match? {:blocked? true
-                   :hook-name "stopper"
-                   :reason "no compacting now"
-                   :stop-turn? true}
-                  (#'lifecycle/process-pre-compact-hook-result acc result))))))
+  (testing "a module, by its id, with the reason"
+    (is (= "Request blocked by module 'acme/x': too risky"
+           (lifecycle/ended-message "Request blocked" {:module :acme/x} "too risky")))
+    (is (= "Turn stopped by module '?'."
+           (lifecycle/ended-message "Turn stopped" nil nil)))))
 
 (defn- dispatch-ctx
   "Build a chat-ctx for dispatch-finish-callbacks! whose callbacks record their

@@ -17,7 +17,6 @@
    [eca.metrics :as metrics]
    [eca.models :as models]
    [eca.modules :as modules]
-   [eca.modules.hooks :as m.hooks]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.plugins :as m.plugins]
    [eca.modules.remote :as m.remote]
@@ -267,14 +266,9 @@
                                           (warn-unknown-config-keys! db* messenger config))
                                         (notify-chat-config-state! db* messenger))}))
         (warn-unknown-config-keys! db* messenger config)
-        ;; Trigger sessionStart before delivering plugins-resolved so it
-        ;; completes before any chatStart hook can fire (chatStart waits
-        ;; on await-plugins-resolved!).
-        (m.hooks/trigger-if-matches! :sessionStart
-                                     (m.hooks/base-hook-data @db*)
-                                     {}
-                                     @db*
-                                     config)
+        ;; Before delivering plugins-resolved, so the sessionStart hooks finish
+        ;; before any chatStart hook can fire (chatStart waits on
+        ;; await-plugins-resolved!).
         (events/emit! {:db* db* :messenger messenger :metrics metrics :config config}
                       :session/started
                       {:workspaces (:workspace-folders @db*)})
@@ -308,12 +302,7 @@
     ;; 1. Save cache BEFORE hook so db-cache-path contains current state
     (db/save-all-chats! @db* metrics)
 
-    ;; 2. Trigger sessionEnd hook
-    (m.hooks/trigger-if-matches! :sessionEnd
-                                 (m.hooks/base-hook-data @db*)
-                                 {}
-                                 @db*
-                                 config)
+    ;; 2. Tell modules, the sessionEnd hooks last
     (events/emit! {:db* db* :metrics metrics :config config} :session/ended {})
 
     ;; 3. Then shutdown

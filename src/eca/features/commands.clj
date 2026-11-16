@@ -455,11 +455,9 @@
                                      :chats {chat-id {:messages [{:role "system"
                                                                   :content [{:type :text
                                                                              :text "No compaction module handled this chat."}]}]}}}
-                      send-stopped! (fn [{:keys [stop-module stop-hook-name stop-reason]}]
-                                      (if stop-module
-                                        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
-                                        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
-                      {:keys [blocked? reason hook-name stop-turn? module instructions]}
+                      send-stopped! (fn [{:keys [ended-by stop-reason]}]
+                                      (lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
+                      {:keys [blocked? reason stop-turn? ended-by instructions]}
                       (when (lifecycle/compaction-handled? config)
                         (lifecycle/run-pre-compact! chat-ctx "manual" custom-instructions))
                       ;; a module may compact the chat instead of :eca/compact-as-summary
@@ -474,11 +472,8 @@
                     (do
                       ;; continue:false stops the turn; exit 2 blocks compaction only.
                       (if stop-turn?
-                        (send-stopped! {:stop-module module :stop-hook-name hook-name :stop-reason reason})
-                        (lifecycle/send-content! chat-ctx :system {:type :text
-                                                                   :text (if module
-                                                                           (lifecycle/compaction-blocked-by-module-message module reason)
-                                                                           (lifecycle/compaction-blocked-by-hook-message hook-name))}))
+                        (send-stopped! {:ended-by ended-by :stop-reason reason})
+                        (lifecycle/send-ended! chat-ctx "Compaction blocked" ended-by reason))
                       {:type :new-chat-status :status :idle})
 
                     answer

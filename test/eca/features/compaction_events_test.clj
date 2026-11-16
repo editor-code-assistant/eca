@@ -164,7 +164,7 @@
     (let [hooks* (atom [])
           result (with-redefs [m.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
                    (lifecycle/complete-compact! (ctx) "auto"))]
-      (is (match? {:compacted? true :stop-turn? true :stop-reason "Review first." :stop-module :acme/compact} result))
+      (is (match? {:compacted? true :stop-turn? true :stop-reason "Review first." :ended-by {:module :acme/compact}} result))
       (is (not-any? #{:postCompact} @hooks*)))
     (is (match? [[:chat/after-compact {:trigger :auto
                                        :checkpoint {:marker {:role "compact_marker" :content {:auto? true}}

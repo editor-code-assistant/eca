@@ -83,7 +83,7 @@
       #(is (match? {:decision :deny
                     :stop-turn? true
                     :stop-reason "Budget reached."
-                    :stop-hook-name ":eca/test-approval"
+                    :ended-by {:module :eca/test-approval}
                     :reason {:code :hook-stopped}}
                    (decide (config-by-default "allow"))))))
   (testing "a module may change the arguments"

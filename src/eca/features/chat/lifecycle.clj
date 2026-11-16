@@ -8,7 +8,6 @@
    [eca.messenger :as messenger]
    [eca.modules :as modules]
    [eca.modules.events :as events]
-   [eca.modules.hooks :as m.hooks]
    [eca.shared :as shared :refer [assoc-some]]))
 
 (set! *warn-on-reflection* true)
@@ -253,126 +252,28 @@
       (when (and (map? answer) (or (:retry answer) (:compact answer)))
         answer))))
 
-(defn ^:private module-name [module-id]
-  (if module-id (str (symbol module-id)) "?"))
+(defn ended-by
+  "Who ended an event's chain of handlers with a `:block` or `:stop`, as
+   `ended-message` names them: `{:module id}`, with `:by` when the module
+   named who acted for it (e.g. \"hook 'lint'\"); nil when none did."
+  [event]
+  (when-let [module (::events/ended-by event)]
+    (assoc-some {:module module} :by (::events/by event))))
 
-(defn turn-stopped-by-module-message
-  "User-facing message when a module's event handler stops the turn."
-  [module-id stop-reason]
-  (if (shared/not-blank stop-reason)
-    (str "Turn stopped by module '" (module-name module-id) "': " stop-reason)
-    (str "Turn stopped by module '" (module-name module-id) "'.")))
+(defn ended-message
+  "The user-facing message when `ended-by` ended something, `what`, e.g.
+   \"Turn stopped by hook 'lint': too risky\" or \"Request blocked by module
+   'acme/x'.\". A stop's reason is never sent to the model."
+  [what {:keys [module by]} reason]
+  (str what " by " (or by (str "module '" (if module (str (symbol module)) "?") "'"))
+       (if-let [reason (shared/not-blank reason)]
+         (str ": " reason)
+         ".")))
 
-(defn send-turn-stopped-by-module!
-  [chat-ctx module-id reason]
-  (send-content! chat-ctx :system
-                 {:type :text
-                  :text (turn-stopped-by-module-message module-id reason)}))
-
-(defn request-blocked-by-module-message
-  "User-facing message when a module's event handler blocks the request."
-  [module-id reason]
-  (if (shared/not-blank reason)
-    (str "Request blocked by module '" (module-name module-id) "': " reason)
-    (str "Request blocked by module '" (module-name module-id) "'.")))
-
-(defn hook-system-text
-  "User-facing standalone message attributed to a hook by name.
-   Ends with a blank line so the message renders as its own paragraph and never
-   visually glues to a following assistant stream (e.g. a preRequest systemMessage
-   emitted right before the model's reply)."
-  [hook-name text]
-  (str "Hook '" hook-name "': " text "\n\n"))
-
-(defn turn-stopped-by-hook-message
-  "Canonical user-facing message when a hook stops the current turn.
-   stopReason is never sent to the LLM; this is the user-only explanation."
-  [hook-name stop-reason]
-  (if (shared/not-blank stop-reason)
-    (str "Turn stopped by hook '" hook-name "': " stop-reason)
-    (str "Turn stopped by hook '" hook-name "'.")))
-
-(defn send-turn-stopped-by-hook!
-  "Surface the canonical turn-stopped message to the user as a system text."
-  [chat-ctx hook-name reason]
-  (send-content! chat-ctx :system
-                 {:type :text
-                  :text (turn-stopped-by-hook-message hook-name reason)}))
-
-(defn request-blocked-by-hook-message
-  "Canonical user-facing message when a preRequest hook blocks the prompt."
-  [hook-name reason]
-  (if (shared/not-blank reason)
-    (str "Request blocked by hook '" hook-name "': " reason)
-    (str "Request blocked by hook '" hook-name "'.")))
-
-(defn compaction-blocked-by-hook-message
-  "Canonical user-facing message when a preCompact hook (exit 2) blocks
-   compaction without stopping the turn. Names the blocking hook when known."
-  [hook-name]
-  (if (shared/not-blank hook-name)
-    (str "Compaction blocked by hook '" hook-name "'.")
-    "Compaction blocked by hook."))
-
-(defn compaction-blocked-by-module-message
-  "User-facing message when a module's `:chat/before-compact` handler blocks
-   a compaction without stopping the turn."
-  [module-id reason]
-  (if (shared/not-blank reason)
-    (str "Compaction blocked by module '" (module-name module-id) "': " reason)
-    (str "Compaction blocked by module '" (module-name module-id) "'.")))
-
-(defn ^:private format-hook-output
-  "Format the hook execution block's text: 'Hook executed' (or raw plain-text
-   stdout when the hook emitted no JSON) plus structural effect lines.
-   systemMessage is intentionally NOT included here - it is surfaced as a
-   standalone user-facing message by notify-after-hook-action!, never as the
-   block's text. Tool hooks correlate with their tool widget via the structured
-   :tool-call-id sent on hookActionFinished, not via the block text."
-  [hook-type {:strs [replacedPrompt additionalContext followUp replacedOutput updatedInput] :as parsed} raw-output]
-  (let [replaced-prompt (shared/not-blank replacedPrompt)
-        additional-context (shared/not-blank additionalContext)
-        follow-up (shared/not-blank followUp)]
-    (if parsed
-      (cond-> "Hook executed"
-        (and (= :preRequest hook-type) replaced-prompt) (str "\nReplacedPrompt: " (pr-str replaced-prompt))
-        (and (= :preToolCall hook-type) (some? updatedInput)) (str "\nUpdatedInput: " (pr-str updatedInput))
-        (and (#{:postRequest :subagentPostRequest} hook-type) follow-up) (str "\nFollowUp: " follow-up)
-        (and (= :postToolCall hook-type) (string? replacedOutput)) (str "\nReplacedOutput: " (pr-str replacedOutput))
-        additional-context (str "\nAdditionalContext: " additional-context))
-      (not-empty raw-output))))
-
-(defn notify-before-hook-action! [chat-ctx {:keys [id name type visible?]}]
-  (when visible?
-    (send-content! chat-ctx :system
-                   {:type :hookActionStarted
-                    :action-type type
-                    :name name
-                    :id id})))
-
-(defn notify-after-hook-action! [chat-ctx {:keys [id name parsed raw-output raw-error exit type hook-type visible? tool-call-id]}]
-  (let [advisory-chat-hook? (contains? #{:chatEnd :chatStatusChanged} hook-type)
-        ;; JSON output fields are only honored on exit 0 (and never for advisory chat hooks).
-        parsed-effects (when (and (not advisory-chat-hook?) (zero? exit)) parsed)
-        suppress? (boolean (get parsed-effects "suppressOutput"))]
-    ;; Two independent channels:
-    ;; 1. Execution block, gated by `visible?`. If a started event was sent we must
-    ;;    send a matching finished (same id) so the client closes the spinner.
-    ;;    `suppressOutput` drops only the body, not the block. Never carries systemMessage.
-    (when visible?
-      (send-content! chat-ctx :system
-                     (cond-> (assoc-some {:type :hookActionFinished
-                                          :action-type type
-                                          :id id
-                                          :name name
-                                          :status exit}
-                                         :tool-call-id tool-call-id)
-                       (not suppress?) (assoc :output (format-hook-output hook-type parsed-effects raw-output)
-                                              :error raw-error))))
-
-    ;; 2. systemMessage: standalone message, independent of visible/suppressOutput.
-    (when-let [system-message (shared/not-blank (get parsed-effects "systemMessage"))]
-      (send-content! chat-ctx :system {:type :text :text (hook-system-text name system-message)}))))
+(defn send-ended!
+  "Shows the user `ended-message` as a system text."
+  [chat-ctx what ended-by reason]
+  (send-content! chat-ctx :system {:type :text :text (ended-message what ended-by reason)}))
 
 (defn strip-hook-callbacks
   "Remove finish side-effect callbacks so abort/stop paths do not resume
@@ -396,80 +297,6 @@
   (cond-> {:type :text :text (wrap-additional-context content)}
     module (assoc :module module)
     (some? data) (assoc :data data)))
-
-(defn ^:private compact-hook-data
-  [db chat-ctx trigger extra]
-  (merge (m.hooks/chat-hook-data db chat-ctx)
-         {:triggered trigger}
-         extra))
-
-(defn ^:private compact-block-reason
-  "Extract the user-facing stopReason from a continue:false hook result, or nil.
-   Exit 2 never produces a user-facing reason here."
-  [{:keys [parsed exit]}]
-  (when (zero? exit)
-    (shared/not-blank (get parsed "stopReason"))))
-
-(defn ^:private compact-hook-options
-  [chat-ctx after-fn]
-  {:on-before-action (partial notify-before-hook-action! chat-ctx)
-   :on-after-action (fn [result]
-                      (notify-after-hook-action! chat-ctx result)
-                      (after-fn result))})
-
-(defn ^:private process-pre-compact-hook-result
-  "Pure function: fold a single hook result into accumulated state.
-
-   acc is {:blocked? false, :reason nil, :hook-name nil, :stop-turn? false}"
-  [acc result]
-  (let [parsed (:parsed result)
-        success? (zero? (:exit result))
-        exit-code-2? (= m.hooks/hook-rejection-exit-code (:exit result))
-        stop-turn-result? (and success? (false? (get parsed "continue" true)))]
-    (cond
-      ;; continue:false blocks compaction and stops the turn (with optional stopReason).
-      stop-turn-result?
-      (merge acc {:blocked? true
-                  :reason (compact-block-reason result)
-                  :hook-name (:name result)
-                  :stop-turn? true})
-
-      ;; Exit 2 blocks only compaction (no user-facing reason from stderr), but we
-      ;; still remember the first blocking hook's name for provenance in the
-      ;; user-facing "Compaction blocked by hook '<name>'." message.
-      exit-code-2?
-      (cond-> (assoc acc :blocked? true)
-        (nil? (:hook-name acc)) (assoc :hook-name (:name result)))
-
-      :else acc)))
-
-(defn run-pre-compact-hooks!
-  "Run preCompact hooks. Returns {:blocked? boolean :reason string-or-nil :stop-turn? boolean}.
-   Hooks match on triggered: \"manual\" or \"auto\". Compaction is blocked when
-   a hook returns {\"continue\":false} or exits with code 2; only continue:false
-   also requests stopping the current turn. :reason is only set for continue:false
-   (from stopReason); exit 2 does not produce a user-facing reason."
-  [{:keys [db* config] :as chat-ctx} trigger custom-instructions]
-  (let [hook-state* (atom {:blocked? false
-                           :reason nil
-                           :hook-name nil
-                           :stop-turn? false})
-        db @db*]
-    (m.hooks/trigger-if-matches!
-     :preCompact
-     (compact-hook-data db chat-ctx trigger
-                        {:custom-instructions (or custom-instructions "")})
-     (compact-hook-options
-      chat-ctx
-      (fn [result]
-        (swap! hook-state* process-pre-compact-hook-result result)))
-     db
-     config)
-    (let [{:keys [blocked? reason hook-name stop-turn?]} @hook-state*]
-      {:blocked? blocked?
-       :reason reason
-       :hook-name hook-name
-       :stop-turn? stop-turn?})))
 
 (defn ^:private post-compact-summary-index
   "Find the compact summary message inserted by compact-side-effect!.
@@ -513,45 +340,6 @@
             (logger/warn logger-tag "Skipping postCompact additionalContext: compact summary message not found"
                          {:chat-id chat-id})))))))
 
-(defn run-post-compact-hooks!
-  "Run postCompact hooks after ECA has added the compact marker and compact
-   summary message. Collects additionalContext entries from successful hooks
-   and applies them to the compact summary message in history.
-
-   Returns {:stop-turn? boolean} when no additionalContext was produced; when
-   one or more entries were produced, also returns :additional-contexts so
-   callers/tests can inspect what was appended."
-  [{:keys [db* config chat-id] :as chat-ctx} trigger compact-summary]
-  (let [db @db*
-        hook-state* (atom {:stop-turn? false
-                           :stop-reason nil
-                           :stop-hook-name nil
-                           :additional-contexts []})]
-    (m.hooks/trigger-if-matches!
-     :postCompact
-     (compact-hook-data db chat-ctx trigger
-                        {:compact-summary (or compact-summary "")})
-     (compact-hook-options
-      chat-ctx
-      (fn [{:keys [parsed exit name] :as _result}]
-        (when (zero? exit)
-          (when (false? (get parsed "continue" true))
-            (swap! hook-state* assoc
-                   :stop-turn? true
-                   :stop-reason (shared/not-blank (get parsed "stopReason"))
-                   :stop-hook-name name))
-          (when-let [additional-context (shared/not-blank (get parsed "additionalContext"))]
-            (swap! hook-state* update :additional-contexts conj
-                   {:hook-name name :content additional-context})))))
-     db
-     config)
-    (let [{:keys [stop-turn? stop-reason stop-hook-name additional-contexts]} @hook-state*]
-      (append-post-compact-contexts! db* chat-id additional-contexts)
-      (cond-> {:stop-turn? stop-turn?
-               :stop-reason stop-reason
-               :stop-hook-name stop-hook-name}
-        (seq additional-contexts) (assoc :additional-contexts additional-contexts)))))
-
 (defn ^:private compact-event-trigger
   "The trigger compaction events report: `:manual`, `:auto`, or the chat
    ctx's `:compact-trigger` (`:overflow` when the request was too long for
@@ -560,28 +348,26 @@
   (if (= "manual" trigger) :manual (or (:compact-trigger chat-ctx) :auto)))
 
 (defn run-pre-compact!
-  "Runs the `:chat/before-compact` event, then the preCompact shell hooks,
-   modules first (4.17). Returns `run-pre-compact-hooks!`'s result plus
-   `:instructions`, which modules may replace. A module's `:block` skips the
-   compaction and its `:stop` ends the turn too; then no hook runs, and
-   `:module` names it."
+  "Runs the `:chat/before-compact` event, the preCompact shell hooks last
+   (4.17). Returns `{:blocked? :stop-turn? :reason :ended-by :instructions}`:
+   a `:block` skips the compaction, a `:stop` ends the turn too, `:ended-by`
+   says who did, and `:instructions` are what the handlers left."
   [chat-ctx trigger instructions]
   (let [event (events/emit! chat-ctx :chat/before-compact
                             (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
                                                   :instructions (shared/not-blank instructions)}))
-        module (::events/ended-by event)
         instructions (if (string? (:instructions event)) (:instructions event) instructions)]
     (cond
       (contains? event :stop)
-      {:blocked? true :stop-turn? true :reason (shared/not-blank (:stop event)) :module module
+      {:blocked? true :stop-turn? true :reason (shared/not-blank (:stop event)) :ended-by (ended-by event)
        :instructions instructions}
 
       (:block event)
-      {:blocked? true :stop-turn? false :reason (shared/not-blank (:block event)) :module module
+      {:blocked? true :stop-turn? false :reason (shared/not-blank (:block event)) :ended-by (ended-by event)
        :instructions instructions}
 
       :else
-      (assoc (run-pre-compact-hooks! chat-ctx trigger instructions) :instructions instructions))))
+      {:blocked? false :stop-turn? false :instructions instructions})))
 
 (defn compaction-handled?
   "Whether something can compact the chat: `:eca/compact-as-summary` is
@@ -618,25 +404,25 @@
 
 (defn run-after-compact!
   "After a compaction wrote its checkpoint: runs the `:chat/after-compact`
-   event, then the postCompact shell hooks, modules first (4.17). A module's
-   context goes on the summary, before the hooks'; its `:stop` ends the turn,
-   and then no hook runs. Returns `run-post-compact-hooks!`'s result, or
-   `{:stop-turn? true :stop-reason .. :stop-module ..}`."
+   event, with `compact-summary`, the postCompact shell hooks last (4.17).
+   The handlers' contexts go on the summary, in their order; a `:stop` ends
+   the turn. Returns `{:stop-turn? :stop-reason :ended-by}`."
   [{:keys [db* chat-id] :as chat-ctx} trigger compact-summary]
   (let [event (events/emit! chat-ctx :chat/after-compact
                             (chat-event chat-ctx {:trigger (compact-event-trigger chat-ctx trigger)
-                                                  :checkpoint (last-checkpoint (get-in @db* [:chats chat-id :messages]))}))]
+                                                  :checkpoint (last-checkpoint (get-in @db* [:chats chat-id :messages]))
+                                                  :summary compact-summary}))]
     (when-let [contexts (seq (::events/contexts event))]
       (append-post-compact-contexts! db* chat-id contexts))
     (if (contains? event :stop)
-      {:stop-turn? true :stop-reason (shared/not-blank (:stop event)) :stop-module (::events/ended-by event)}
-      (run-post-compact-hooks! chat-ctx trigger compact-summary))))
+      {:stop-turn? true :stop-reason (shared/not-blank (:stop event)) :ended-by (ended-by event)}
+      {:stop-turn? false})))
 
 (defn finish-module-compaction!
   "After a module answered `:chat/compact`: shows its `:message` and, when it
    wrote a checkpoint, runs `run-after-compact!` with the checkpoint's text
    as the summary hooks get. Returns `{:compacted? :stop-turn? :stop-reason
-   :stop-hook-name :stop-module}`."
+   :ended-by}`."
   [{:keys [db* chat-id] :as chat-ctx} trigger {:keys [status message checkpoint?]}]
   (when-let [message (or (shared/not-blank message)
                          (when (= :failed status) "Compaction failed. The conversation was not compacted."))]
@@ -649,9 +435,8 @@
     {:compacted? (= :done status)}))
 
 (defn complete-compact!
-  "Apply ECA's compact side effects, then the `:chat/after-compact` event and
-   the postCompact hooks (which internally append any returned
-   additionalContext to the compact summary)."
+  "Apply ECA's compact side effects, then `run-after-compact!` with the
+   model's summary."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (let [{:keys [compact-done? last-summary]} (get-in @db* [:chats chat-id])]
     (if (and compact-done? (string? last-summary))
@@ -709,75 +494,17 @@
                                                   :content (merge {:type :usage} usage)}))
     nil))
 
-(defn ^:private run-post-request-shell-hooks!
-  "Run postRequest (for primary chats) and subagentPostRequest (for subagents) hooks.
-   Returns {:follow-up-text string-or-nil :stop-turn? boolean
-            :stop-reason string-or-nil :stop-hook-name string-or-nil}.
-
-   postRequest/subagentPostRequest exit 2 with stderr is treated as followUp:
-   stderr becomes the followUp text, analogous to how preToolCall/postToolCall
-   exit 2 makes stderr LLM-visible payload. This is because these hooks run
-   after the prompt finished, so exit 2 cannot 'block' the request; instead it
-   contributes a continuation instruction."
-  [chat-ctx db* config chat-id response]
-  (let [db @db*
-        results* (atom [])
-        subagent? (some? (get-in db [:chats chat-id :subagent]))
-        follow-up-active? (get-in db [:chats chat-id :follow-up-active?])
-        ;; follow-up-active is always sent as a boolean (documented contract),
-        ;; so hook authors can rely on the key being present as true or false.
-        base-hook-data (assoc-some (m.hooks/chat-hook-data db chat-ctx)
-                                   :response response
-                                   :follow-up-active (boolean follow-up-active?))
-        cb {:on-before-action (partial notify-before-hook-action! chat-ctx)
-            :on-after-action (fn [result]
-                               (notify-after-hook-action! chat-ctx result)
-                               (swap! results* conj result))}
-        ;; postRequest is primary-only. Subagent chats use subagentPostRequest.
-        _ (if subagent?
-            (m.hooks/trigger-if-matches! :subagentPostRequest
-                                         (assoc base-hook-data :parent-chat-id (db/parent-chat-id db chat-id))
-                                         cb
-                                         db
-                                         config)
-            (m.hooks/trigger-if-matches! :postRequest base-hook-data cb db config))
-        hook-results @results*
-        follow-ups (->> hook-results
-                        (keep (fn [{:keys [parsed exit raw-error]}]
-                                (cond
-                                  (zero? exit)
-                                  (shared/not-blank (get parsed "followUp"))
-
-                                  (= m.hooks/hook-rejection-exit-code exit)
-                                  (shared/not-blank raw-error))))
-                        seq)
-        follow-up-text (some->> follow-ups (string/join "\n\n"))
-        stop-result (some (fn [{:keys [parsed name] :as result}]
-                            (when (m.hooks/successful-continue-false? result)
-                              {:stop-reason (shared/not-blank (get parsed "stopReason"))
-                               :stop-hook-name name}))
-                          hook-results)]
-    {:follow-up-text follow-up-text
-     :stop-turn? (boolean stop-result)
-     :stop-reason (:stop-reason stop-result)
-     :stop-hook-name (:stop-hook-name stop-result)}))
-
-(defn ^:private run-post-request-hooks!
-  "Runs the `:chat/after-request` event, then the postRequest shell hooks
-   (`run-post-request-shell-hooks!`), modules first, as their handlers run
-   before `:eca/hooks`' (4.17). A module's `:follow-up` comes before the
-   hooks' ones; its `:stop` ends the turn without running them. Returns the
-   hooks' result, with `:stop-module` when a module stopped the turn."
-  [{:keys [db* config chat-id response] :as chat-ctx}]
+(defn ^:private run-after-request!
+  "Runs the `:chat/after-request` event, the postRequest shell hooks last
+   (4.17). Returns `{:follow-up-text}`, what the handlers want sent next, or
+   `{:stop-turn? true :stop-reason .. :ended-by ..}`."
+  [{:keys [response] :as chat-ctx}]
   (let [event (events/emit! chat-ctx :chat/after-request (chat-event chat-ctx {:response response}))]
     (if (contains? event :stop)
-      {:follow-up-text nil
-       :stop-turn? true
+      {:stop-turn? true
        :stop-reason (:stop event)
-       :stop-module (::events/ended-by event)}
-      (let [result (run-post-request-shell-hooks! chat-ctx db* config chat-id response)
-            follow-ups (remove nil? [(shared/not-blank (:follow-up event)) (:follow-up-text result)])]
-        (assoc result :follow-up-text (some->> (seq follow-ups) (string/join "\n\n")))))))
+       :ended-by (ended-by event)}
+      {:follow-up-text (shared/not-blank (:follow-up event))})))
 
 (defn ^:private chat-status-payload
   "Build the aggregate chatStatusChanged hook payload from a db snapshot."
@@ -808,50 +535,35 @@
                                          "userQuestion")))))
 
 (defn trigger-chat-status-hook!
-  "Trigger the advisory chatStatusChanged hook when the aggregate chat status
-   payload changed since the last trigger.
+  "Emits `:chat/status-changed` (the chatStatusChanged hooks are its last
+   handler) when the chat's aggregate status changed since the last time.
 
    The protocol `chat/statusChanged` notification is emitted separately and
-   carries only the chat id and status. This hook receives the aggregate status,
-   including awaiting-user-input and tool-call ids.
+   carries only the chat id and status; the event has the aggregate status,
+   including the tool-call ids waiting or running.
 
    Dedup state is stored at [:chats chat-id :last-status-payload]. Missing chats
    are ignored."
   [{:keys [db* chat-id config] :as chat-ctx}]
-  (let [hooks? (some #(= :chatStatusChanged (keyword (:type %))) (vals (m.hooks/active-hooks config)))
-        handlers? (seq (events/handlers config :chat/status-changed))]
-    (when (or hooks? handlers?)
-      (let [path [:chats chat-id :last-status-payload]
-            ;; Compute inside the swap so the stored payload matches the db snapshot.
-            [old-db new-db] (swap-vals! db* (fn [db]
-                                              (if (get-in db [:chats chat-id])
-                                                (assoc-in db path (chat-status-payload db chat-id))
-                                                db)))
-            payload (get-in new-db path)]
-        (when (and (get-in new-db [:chats chat-id])
-                   (not= (get-in old-db path) payload))
-          (let [parent-chat-id (when (get-in new-db [:chats chat-id :subagent])
-                                 (db/parent-chat-id new-db chat-id))]
-            (when handlers?
-              (events/emit! chat-ctx :chat/status-changed
-                            (assoc-some {:chat-id chat-id
-                                         :status (:status payload)
-                                         :pending-approval-ids (:pending-approval-tool-call-ids payload)
-                                         :pending-question-ids (:pending-question-tool-call-ids payload)
-                                         :running-tool-ids (:running-tool-call-ids payload)}
-                                        :waiting-reason (:waiting-reason payload)
-                                        :parent-chat-id parent-chat-id)))
-            (when hooks?
-              (m.hooks/trigger-if-matches!
-               :chatStatusChanged
-               (merge (m.hooks/chat-hook-data new-db chat-ctx)
-                      (when parent-chat-id
-                        {:parent-chat-id parent-chat-id})
-                      (dissoc payload :chat-id))
-               ;; No action callbacks: advisory hooks do not render in the chat UI.
-               {}
-               new-db
-               config))))))))
+  (when (seq (events/handlers config :chat/status-changed))
+    (let [path [:chats chat-id :last-status-payload]
+          ;; Compute inside the swap so the stored payload matches the db snapshot.
+          [old-db new-db] (swap-vals! db* (fn [db]
+                                            (if (get-in db [:chats chat-id])
+                                              (assoc-in db path (chat-status-payload db chat-id))
+                                              db)))
+          payload (get-in new-db path)]
+      (when (and (get-in new-db [:chats chat-id])
+                 (not= (get-in old-db path) payload))
+        (events/emit! chat-ctx :chat/status-changed
+                      (assoc-some {:chat-id chat-id
+                                   :status (:status payload)
+                                   :pending-approval-ids (:pending-approval-tool-call-ids payload)
+                                   :pending-question-ids (:pending-question-tool-call-ids payload)
+                                   :running-tool-ids (:running-tool-call-ids payload)}
+                                  :waiting-reason (:waiting-reason payload)
+                                  :parent-chat-id (when (get-in new-db [:chats chat-id :subagent])
+                                                    (db/parent-chat-id new-db chat-id))))))))
 
 (defn ^:private finished-error
   "The error that ended the turn (a provider or network error, a context
@@ -943,22 +655,20 @@
     (when-not (and prompt-id (not= prompt-id (get-in @db* [:chats chat-id :prompt-id])))
       (flush-reason-group! chat-ctx)
       (let [auto-compacting? (get-in @db* [:chats chat-id :auto-compacting?])
-            {:keys [follow-up-text stop-turn? stop-reason stop-hook-name stop-module]}
+            {:keys [follow-up-text stop-turn? stop-reason ended-by]}
             (when (and (not auto-compacting?) (not skip-post-request-hooks?))
-              (run-post-request-hooks! chat-ctx))
+              (run-after-request! chat-ctx))
             stopping? (identical? :stopping (get-in @db* [:chats chat-id :status]))]
         (when-not auto-compacting?
           (swap! db* assoc-in [:chats chat-id :prompt-finished?] true)
           (swap! db* update-in [:chats chat-id] dissoc :steer-message)
           (record-unsent-user-messages! db* chat-id chat-ctx)
           (apply-status-transition! chat-ctx status))
-        ;; A postRequest hook that returned continue:false stops the turn and
-        ;; cancels followUp; surface the reason to the user (prefixed with the
-        ;; hook name), consistent with the other turn-stopping hooks.
+        ;; A stop from the :chat/after-request handlers (a postRequest hook's
+        ;; continue:false) ends the turn and cancels the follow-up; the user
+        ;; sees why, as for the other turn stops.
         (when stop-turn?
-          (if stop-module
-            (send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
-            (send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
+          (send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
         (dispatch-finish-callbacks! chat-ctx {:follow-up-text follow-up-text
                                               :stop-turn? stop-turn?
                                               :stopping? stopping?})

@@ -32,7 +32,6 @@
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :user-config-allow
@@ -57,7 +56,6 @@
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false}
                       plan))))))
@@ -80,7 +78,6 @@
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :user-config-deny
@@ -113,7 +110,6 @@
           (is (= 1 @hook-call-count))
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
-                       :approval-override "ask"
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false}
                       plan))))))
@@ -141,22 +137,18 @@
                        (#'tc/decide-tool-call-action tool-call all-tools (h/db) config :default "test-chat")))]
       ;; deny wins over ask and allow
       (is (match? {:decision :deny
-                   :approval-override "deny"
                    :tool-call-rejected-by-hook? true
                    :reason {:code :hook-rejected :text "Tool call rejected by hook"}}
                   (run-plan :allow ["allow" "deny" "ask"])))
       ;; ask wins over allow
       (is (match? {:decision :ask
-                   :approval-override "ask"
                    :tool-call-rejected-by-hook? false}
                   (run-plan :allow ["allow" "ask"])))
       ;; a hook "allow" never loosens a stricter config decision (ask/deny)
       (is (match? {:decision :ask
-                   :approval-override "allow"
                    :tool-call-rejected-by-hook? false}
                   (run-plan :ask ["allow"])))
       (is (match? {:decision :deny
-                   :approval-override "allow"
                    :tool-call-rejected-by-hook? false
                    :reason {:code :user-config-deny}}
                   (run-plan :deny ["allow"])))))
@@ -185,7 +177,6 @@
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? true
                        :arguments-modified? false
                        :reason {:code :hook-rejected
@@ -352,7 +343,6 @@
         (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
                        :arguments {"foo" "bar" "baz" "qux"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? true}
                       plan))))))
@@ -376,9 +366,9 @@
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {} :exit 0}))))]
-        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
-                                      {:on-after-hook-action (fn [result] (reset! notified* result))})
+                                                      (on-after {:parsed {} :exit 0}))))
+                    m.hooks/notify-after-hook-action! (fn [_chat-ctx result] (reset! notified* result))]
+        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)
         ;; tool-call-id correlates the hook with its tool widget; clients can
         ;; use it to associate the hook block with the tool call.
         (is (match? {:tool-call-id "call-1"}
@@ -709,7 +699,7 @@
           (is (not-any? #{"eca__tool_b"} @called-tools*)
               "the second tool must not run after a current-turn stop")
           ;; A turn-stop message carrying the hook's reason is surfaced to the user.
-          ;; The exact wording is covered by lifecycle/turn-stopped-by-hook-message-test.
+          ;; The exact wording is covered by lifecycle-test/ended-message-test.
           (is (some #(some-> (get-in % [:content :text]) (string/includes? "halt")) @sent*)
               "a turn-stopped message must be shown"))))))
 
@@ -839,24 +829,26 @@
     ;; [tool-calls => expected stop info]
     (are [tool-calls expected] (= expected (#'tc/post-tool-call-stop-info tool-calls prompt-id))
       ;; empty tool-calls map reports no stop
-      {} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      {} {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; no hook requested a stop
-      {"t1" {:status :completed}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      {"t1" {:status :completed}} {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; stale stop from an older prompt is ignored
       {"t1" {:post-tool-call-stop? true
              :post-tool-call-stop-prompt-id "prompt-1"
              :post-tool-call-stop-reason "old halt"
-             :post-tool-call-stop-hook-name "old-redact"}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+             :post-tool-call-stop-ended-by {:module :eca/hooks :by "hook 'old-redact'"}}}
+      {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; stop without prompt id is ignored; postToolCall stops are current-turn only
-      {"t1" {:post-tool-call-stop? true}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      {"t1" {:post-tool-call-stop? true}} {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; current prompt stop requested without a reason
       {"t1" {:post-tool-call-stop? true
-             :post-tool-call-stop-prompt-id prompt-id}} {:stop-turn? true :stop-reason nil :stop-hook-name nil}
+             :post-tool-call-stop-prompt-id prompt-id}} {:stop-turn? true :stop-reason nil :ended-by nil}
       ;; current prompt stop requested with a reason
       {"t1" {:post-tool-call-stop? true
              :post-tool-call-stop-prompt-id prompt-id
              :post-tool-call-stop-reason "halt"
-             :post-tool-call-stop-hook-name "redact"}} {:stop-turn? true :stop-reason "halt" :stop-hook-name "redact"})
+             :post-tool-call-stop-ended-by {:module :eca/hooks :by "hook 'redact'"}}}
+      {:stop-turn? true :stop-reason "halt" :ended-by {:module :eca/hooks :by "hook 'redact'"}})
 
     (testing "reason is found even when it lives on a different current-prompt tool-call than the first stop flag"
       (is (match? {:stop-turn? true :stop-reason "halt"}
@@ -869,7 +861,7 @@
                    prompt-id))))
 
     (testing "old prompt stop does not leak when a later tool call has no stop"
-      (is (= {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      (is (= {:stop-turn? false :stop-reason nil :ended-by nil}
              (#'tc/post-tool-call-stop-info
               (array-map "old" {:post-tool-call-stop? true
                                 :post-tool-call-stop-prompt-id "prompt-1"
@@ -877,26 +869,27 @@
                          "current" {:status :completed})
               prompt-id))))))
 
-(deftest trigger-post-tool-call-hook-tags-stop-with-prompt-id-test
-  (testing "postToolCall continue:false stop state is scoped to the current prompt"
+(deftest emit-tool-called-tags-stop-with-prompt-id-test
+  (testing "a postToolCall continue:false stop state is scoped to the current prompt"
     (h/reset-components!)
     (let [db* (h/db*)]
       (swap! db* assoc-in [:chats "chat-1" :tool-calls "tool-1"] {:status :completed})
-      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (constantly {:stop-turn? true
-                                                                   :stop-reason "halt"
-                                                                   :stop-hook-name "guard"})}
+      (with-redefs-fn {#'m.hooks/post-tool-call (constantly {:stop "halt" :by "hook 'guard'"})}
         (fn []
-          (#'tc/execute-action! :trigger-post-tool-call-hook
+          (#'tc/execute-action! :emit-tool-called
                                 db*
                                 {:chat-id "chat-1"
                                  :prompt-id "prompt-2"
+                                 :db* db*
+                                 :config (h/config)
                                  :messenger (h/messenger)}
                                 "tool-1"
-                                {:outputs [{:type :text :text "ok"}]})))
+                                {:full-name "eca__shell_command" :server "eca" :arguments {}
+                                 :outputs [{:type :text :text "ok"}]})))
       (is (match? {:post-tool-call-stop? true
                    :post-tool-call-stop-prompt-id "prompt-2"
                    :post-tool-call-stop-reason "halt"
-                   :post-tool-call-stop-hook-name "guard"}
+                   :post-tool-call-stop-ended-by {:module :eca/hooks :by "hook 'guard'"}}
                   (get-in @db* [:chats "chat-1" :tool-calls "tool-1"]))))))
 
 (deftest cleanup-signal-follows-hooks-test

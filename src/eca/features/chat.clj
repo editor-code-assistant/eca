@@ -27,7 +27,6 @@
    [eca.models :as models]
    [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
-   [eca.modules.hooks :as m.hooks]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
@@ -505,195 +504,39 @@
             :else
             (default-model db config))))))
 
-(defn ^:private update-pre-request-state
-  "Pure function to compute new state from hook result."
-  [{:keys [final-prompt additional-contexts stop-turn? blocked? blocked-reasons stop-reason stop-hook-name]}
-   {:keys [parsed exit]}
-   action-name]
-  (let [replaced-prompt (shared/not-blank (get parsed "replacedPrompt"))
-        additional-context (shared/not-blank (get parsed "additionalContext"))
-        success? (= 0 exit)
-        stop-turn-result? (and success? (false? (get parsed "continue" true)))]
-    {:final-prompt (if (and replaced-prompt success?)
-                     replaced-prompt
-                     final-prompt)
-     :additional-contexts (if (and additional-context success?)
-                            (conj additional-contexts
-                                  {:hook-name action-name :content additional-context})
-                            additional-contexts)
-     :stop-turn? (or stop-turn? stop-turn-result?)
-     :blocked? blocked?
-     :blocked-reasons blocked-reasons
-     :stop-reason (if stop-turn-result?
-                    (or stop-reason (shared/not-blank (get parsed "stopReason")))
-                    stop-reason)
-     :stop-hook-name (if stop-turn-result?
-                       (or stop-hook-name action-name)
-                       stop-hook-name)}))
-
-(defn ^:private pre-request-block-reason
-  "Stderr text of a preRequest exit-2 block, or nil when empty. The user-facing
-   wrapper (lifecycle/request-blocked-by-hook-message) supplies the fallback."
-  [{:keys [raw-error]}]
-  (some-> raw-error str string/trim not-empty))
-
 (defn ^:private finish-blocked-or-stopped-pre-request!
-  [chat-ctx {:keys [blocked? stop-turn? stop-reason stop-hook-name stop-module blocked-reasons blocked-hook-name]}]
+  "Ends the turn of a request the `:chat/before-request` handlers blocked or
+   stopped, telling the user who did and why."
+  [chat-ctx {:keys [blocked? block-reason stop-turn? stop-reason ended-by]}]
   (when (or stop-turn? blocked?)
-    (cond
-      stop-module (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
-      stop-turn? (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)
-      blocked?   (if (seq blocked-reasons)
-                   (doseq [reason blocked-reasons]
-                     (lifecycle/send-content! chat-ctx :system {:type :text :text reason}))
-                   ;; Visible hooks already showed their stderr in their block; just name the hook.
-                   (lifecycle/send-content! chat-ctx :system
-                                            {:type :text
-                                             :text (lifecycle/request-blocked-by-hook-message blocked-hook-name nil)})))
+    (if blocked?
+      (lifecycle/send-ended! chat-ctx "Request blocked" ended-by block-reason)
+      (lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
     (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)))
 
-(defn ^:private run-pre-request-action!
-  "Run a single preRequest hook action, updating the accumulator state.
-
-  State is a map:
-  - :final-prompt
-  - :additional-contexts
-  - :stop-turn? (true when any hook requests current-turn stop via continue:false)
-  - :stop-reason
-  - :blocked? (true when any hook blocks the request via exit 2)
-  - :blocked-reasons"
-  [db chat-ctx hook hook-name idx action state]
-  (if (:stop-turn? state)
-    state
-    (let [id (str (random-uuid))
-          action-type (:type action)
-          action-name (if (> (count (:actions hook)) 1)
-                        (str hook-name "-" (inc idx))
-                        hook-name)
-          visible? (get hook :visible true)]
-      (lifecycle/notify-before-hook-action! chat-ctx {:id id
-                                                      :visible? visible?
-                                                      :name action-name
-                                                      :type action-type})
-      ;; Run the hook action
-      (if-let [result (m.hooks/run-hook-action! action
-                                                action-name
-                                                :preRequest
-                                                (merge (m.hooks/chat-hook-data db chat-ctx)
-                                                       {:prompt (:final-prompt state)})
-                                                db
-                                                chat-ctx)]
-        (let [{:keys [raw-error exit]} result
-              exit-2? (= m.hooks/hook-rejection-exit-code exit)]
-          ;; Notify after action
-          (lifecycle/notify-after-hook-action! chat-ctx (merge result
-                                                               {:id id
-                                                                :name action-name
-                                                                :type action-type
-                                                                :visible? visible?
-                                                                :status exit
-                                                                :hook-type :preRequest
-                                                                :error raw-error}))
-          ;; Exit 2 blocks the prompt but does not stop remaining preRequest
-          ;; hooks; only successful continue:false short-circuits processing.
-          ;; The actual prompt finish happens once after reduction completes.
-          ;; Only collect stderr from INVISIBLE hooks; visible hooks already
-          ;; surface stderr through hookActionFinished :error, so duplicating
-          ;; it as a separate chat message would be noisy.
-          (if exit-2?
-            (cond-> (assoc state :blocked? true)
-              ;; Remember the first blocking hook so the user-facing message can
-              ;; name it even for visible hooks (consistent with turn-stopped).
-              (not (:blocked-hook-name state)) (assoc :blocked-hook-name action-name)
-              (not visible?) (update :blocked-reasons conj
-                                     (lifecycle/request-blocked-by-hook-message
-                                      action-name
-                                      (pre-request-block-reason result))))
-            (update-pre-request-state state
-                                      result
-                                      action-name)))
-        ;; No result from action
-        (do
-          (lifecycle/notify-after-hook-action! chat-ctx {:id id
-                                                         :name action-name
-                                                         :visible? visible?
-                                                         :type action-type
-                                                         :hook-type :preRequest
-                                                         :exit 1
-                                                         :status 1})
-          state)))))
-
-(defn ^:private run-pre-request-hook!
-  "Run all actions for a single preRequest hook, threading state."
-  [db chat-ctx state [hook-name hook]]
-  (reduce
-   (fn [s [idx action]]
-     (if (:stop-turn? s)
-       (reduced s)
-       (run-pre-request-action! db chat-ctx hook (name hook-name) idx action s)))
-   state
-   (map-indexed vector (:actions hook))))
-
-(defn ^:private run-pre-request-hooks!
-  "Run preRequest hooks with chaining support.
-
-  Returns a map with:
-  - :final-prompt
-  - :additional-contexts (vector of {:hook-name name :content context})
-  - :stop-turn? (true when any hook requests current-turn stop via continue:false)
-  - :stop-reason
-  - :blocked? (true when any hook blocks the request via exit 2)
-  - :blocked-reasons"
-  [{:keys [db* config message] :as chat-ctx}]
-  (let [db @db*]
-    (reduce
-     (fn [state hook-entry]
-       (if (:stop-turn? state)
-         (reduced state)
-         (run-pre-request-hook! db chat-ctx state hook-entry)))
-     {:final-prompt message
-      :additional-contexts []
-      :stop-turn? false
-      :blocked? false
-      :blocked-reasons []
-      :blocked-hook-name nil
-      :stop-reason nil
-      :stop-hook-name nil}
-     (->> (m.hooks/active-hooks config)
-          ;; This function owns preRequest chaining, so it must select legacy
-          ;; prePrompt hooks itself; hook-matches? only normalizes legacy types
-          ;; for the generic trigger-if-matches! path.
-          (filter #({"preRequest" "prePrompt"} (:type (val %))))
-          (sort-by key)))))
-
 (defn ^:private run-pre-request!
-  "Runs the `:chat/before-request` event, then the preRequest shell hooks,
-   modules first, as their handlers run before `:eca/hooks`' (4.17). A module
-   may rewrite the prompt (when `modify-allowed?`), which the hooks then see,
-   add context before theirs, or block or stop the request, and then no hook
-   runs. Returns the hooks' state (`run-pre-request-hooks!`), with
-   `:stop-module` when a module stopped the turn.
+  "Runs the `:chat/before-request` event, the preRequest shell hooks last
+   (4.17): handlers may rewrite the prompt (when `modify-allowed?`), add
+   context, or block or stop the request. Returns `{:final-prompt
+   :additional-contexts}`, the contexts as `{:module :content :data}` in the
+   handlers' order (a hook's has no `:module`), or `:blocked?` with the
+   `:block-reason`, or `:stop-turn?` with the `:stop-reason`, and `:ended-by`.
    A compaction's prompt (`/compact`, `:compaction?` in `chat-ctx`) isn't a
-   user request for modules: only the hooks run, as before modules."
+   user request: only the handlers asking for it get it, the shell hooks."
   [chat-ctx original-text modify-allowed?]
-  (let [event (when-not (:compaction? chat-ctx)
-                (events/emit! chat-ctx :chat/before-request
-                              (lifecycle/chat-event chat-ctx {:prompt original-text})))
-        module (::events/ended-by event)]
+  (let [event (events/emit! chat-ctx :chat/before-request
+                            (lifecycle/chat-event chat-ctx (cond-> {:prompt original-text}
+                                                             (:compaction? chat-ctx) (assoc :compaction? true))))]
     (cond
       (:block event)
-      {:blocked? true
-       :blocked-reasons [(lifecycle/request-blocked-by-module-message module (:block event))]}
+      {:blocked? true :block-reason (:block event) :ended-by (lifecycle/ended-by event)}
 
       (contains? event :stop)
-      {:stop-turn? true :stop-reason (:stop event) :stop-module module}
+      {:stop-turn? true :stop-reason (:stop event) :ended-by (lifecycle/ended-by event)}
 
       :else
-      (let [prompt (if (and modify-allowed? (string? (:prompt event))) (:prompt event) original-text)
-            ;; each module's context, `{:module :content :data}`
-            module-contexts (::events/contexts event)]
-        (cond-> (run-pre-request-hooks! (assoc chat-ctx :message prompt))
-          (seq module-contexts) (update :additional-contexts #(into (vec module-contexts) %)))))))
+      {:final-prompt (if (and modify-allowed? (string? (:prompt event))) (:prompt event) original-text)
+       :additional-contexts (vec (::events/contexts event))})))
 
 (declare prompt prompt-messages! delete-chat)
 
@@ -763,12 +606,10 @@
    so the resume continuation does not fire."
   [{:keys [db* chat-id] :as chat-ctx} trigger]
   (swap! db* update-in [:chats chat-id] dissoc :auto-compacting?)
-  (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name stop-module]} (lifecycle/complete-compact! chat-ctx trigger)
+  (let [{:keys [compacted? stop-turn? stop-reason ended-by]} (lifecycle/complete-compact! chat-ctx trigger)
         current-prompt-ctx (assoc chat-ctx :prompt-id (get-in @db* [:chats chat-id :prompt-id]))]
     (when stop-turn?
-      (if stop-module
-        (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
-        (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason)))
+      (lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
     (when (or stop-turn? (not compacted?))
       (lifecycle/finish-chat-prompt-stopped! :idle current-prompt-ctx))
     {:stop-after-finish? (or stop-turn? (not compacted?))}))
@@ -837,35 +678,28 @@
    user-messages
    {:keys [trigger custom-instructions on-blocked event-trigger]}]
   (let [compact-ctx (cond-> chat-ctx event-trigger (assoc :compact-trigger event-trigger))
-        {:keys [blocked? reason hook-name stop-turn? module instructions]}
+        {:keys [blocked? reason stop-turn? ended-by instructions]}
         (lifecycle/run-pre-compact! compact-ctx trigger custom-instructions)]
     (if blocked?
       (do
         (logger/info logger-tag "Compaction blocked" {:chat-id chat-id
                                                       :trigger trigger
                                                       :stop-turn? stop-turn?
-                                                      :module module})
+                                                      :module (:module ended-by)})
         (if stop-turn?
-          (do (if module
-                (lifecycle/send-turn-stopped-by-module! chat-ctx module reason)
-                (lifecycle/send-turn-stopped-by-hook! chat-ctx hook-name reason))
+          (do (lifecycle/send-ended! chat-ctx "Turn stopped" ended-by reason)
               (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx)
               nil)
-          (do (lifecycle/send-content! chat-ctx :system {:type :text
-                                                         :text (if module
-                                                                 (lifecycle/compaction-blocked-by-module-message module reason)
-                                                                 (lifecycle/compaction-blocked-by-hook-message hook-name))})
+          (do (lifecycle/send-ended! chat-ctx "Compaction blocked" ended-by reason)
               (on-blocked))))
       (if-let [answer (lifecycle/compact-with-module! compact-ctx trigger instructions)]
-        (let [{:keys [compacted? stop-turn? stop-reason stop-hook-name stop-module]}
+        (let [{:keys [compacted? stop-turn? stop-reason ended-by]}
               (lifecycle/finish-module-compaction! compact-ctx trigger answer)]
           (logger/info logger-tag "Chat compacted by a module" {:chat-id chat-id :trigger trigger
                                                                 :status (:status answer)})
           (cond
             stop-turn?
-            (do (if stop-module
-                  (lifecycle/send-turn-stopped-by-module! chat-ctx stop-module stop-reason)
-                  (lifecycle/send-turn-stopped-by-hook! chat-ctx stop-hook-name stop-reason))
+            (do (lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason)
                 (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))
 
             (not compacted?)
@@ -2278,66 +2112,24 @@
                                                  :text (str "Error: " (ex-message e) "\n\nCheck ECA stderr for more details.")})
       (lifecycle/finish-chat-prompt-stopped! :idle chat-ctx))))
 
-(defn ^:private run-start-shell-hooks!
-  "Runs chatStart (or subagentStart for subagent chats) hooks for this chat's
-   first prompt. Collects additionalContext from successful hooks, after
-   `module-context`, into :startup-context so build-chat-instructions and
-   /prompt-show pick it up, and returns {:stop-turn? boolean :stop-reason
-   string-or-nil} when a hook returns {\"continue\":false} on exit 0.
-   db-before-hooks is the stable snapshot used for hook reads; db* is mutated
-   only for hook side effects."
-  [{:keys [db* chat-id agent messenger variant]} db-before-hooks resumed? full-model config module-context]
-  (let [hook-results* (atom [])
-        subagent? (some? (get-in db-before-hooks [:chats chat-id :subagent]))
-        hook-ctx (cond-> {:messenger messenger :chat-id chat-id}
-                   subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id)))
-        hook-type (if subagent? :subagentStart :chatStart)
-        hook-data (cond-> (m.hooks/chat-hook-data db-before-hooks {:chat-id chat-id
-                                                                   :agent agent
-                                                                   :full-model full-model
-                                                                   :variant variant})
-                    subagent? (assoc :parent-chat-id (db/parent-chat-id db-before-hooks chat-id))
-                    (not subagent?) (assoc :resumed resumed?))]
-    (m.hooks/trigger-if-matches! hook-type
-                                 hook-data
-                                 {:on-before-action (partial lifecycle/notify-before-hook-action! hook-ctx)
-                                  :on-after-action (fn [result]
-                                                     (lifecycle/notify-after-hook-action! hook-ctx result)
-                                                     (swap! hook-results* conj result))}
-                                 db-before-hooks
-                                 config)
-    (when-let [additional-contexts (seq (concat (some-> module-context vector)
-                                                (keep (fn [{:keys [parsed exit]}]
-                                                        (when (zero? exit)
-                                                          (shared/not-blank (get parsed "additionalContext"))))
-                                                      @hook-results*)))]
-      (swap! db* assoc-in [:chats chat-id :startup-context]
-             (string/join "\n\n" additional-contexts)))
-    ;; Note: :chat-start-fired is set by prompt* (via swap-vals!) before this
-    ;; runs, since prompt* is what decides whether start hooks fire at all.
-    (let [stop-result (some (fn [{:keys [parsed name] :as result}]
-                              (when (m.hooks/successful-continue-false? result)
-                                {:stop-turn? true
-                                 :stop-reason (shared/not-blank (get parsed "stopReason"))
-                                 :stop-hook-name name}))
-                            @hook-results*)]
-      (or stop-result {:stop-turn? false}))))
-
 (defn ^:private run-start-hooks!
-  "Runs the `:chat/started` event, then the chatStart shell hooks
-   (`run-start-shell-hooks!`), modules first, as their handlers run before
-   `:eca/hooks`' (4.17). A module's `:additional-context` joins the chat's
-   startup context before the hooks' ones; its `:stop` ends the turn without
-   running them, with `:stop-module` in the result."
-  [chat-ctx db-before-hooks resumed? full-model]
+  "Runs the `:chat/started` event at the chat's first prompt, the chatStart
+   (or subagentStart) shell hooks last (4.17). The handlers' context goes in
+   the chat's system prompt (`:startup-context`, which build-chat-instructions
+   and /prompt-show read); a `:stop` ends the turn: the result has
+   `:stop-turn?`, `:stop-reason` and `:ended-by`."
+  [{:keys [db* chat-id] :as chat-ctx} db-before-hooks resumed? full-model]
   (config/await-plugins-resolved!)
   (let [config (config/all db-before-hooks)
         event (events/emit! (assoc chat-ctx :config config) :chat/started
                             (lifecycle/chat-event (assoc chat-ctx :full-model full-model) {:resumed? (boolean resumed?)}))]
+    ;; Note: :chat-start-fired is set by prompt* (via swap-vals!) before this
+    ;; runs, since prompt* is what decides whether the start event fires at all.
+    (when-let [context (shared/not-blank (:additional-context event))]
+      (swap! db* assoc-in [:chats chat-id :startup-context] context))
     (if (contains? event :stop)
-      {:stop-turn? true :stop-reason (:stop event) :stop-module (::events/ended-by event)}
-      (run-start-shell-hooks! chat-ctx db-before-hooks resumed? full-model config
-                              (shared/not-blank (:additional-context event))))))
+      {:stop-turn? true :stop-reason (:stop event) :ended-by (lifecycle/ended-by event)}
+      {:stop-turn? false})))
 
 (defn ^:private mark-editor-open!
   "Records that the editor has this chat open this run, so the remote endpoint
@@ -2370,11 +2162,7 @@
                             (run-start-hooks! base-chat-ctx db-before-hooks resumed? full-model))]
     (if (:stop-turn? start-hook-result)
       (do
-        (if-let [module (:stop-module start-hook-result)]
-          (lifecycle/send-turn-stopped-by-module! base-chat-ctx module (:stop-reason start-hook-result))
-          (lifecycle/send-turn-stopped-by-hook! base-chat-ctx
-                                                (:stop-hook-name start-hook-result)
-                                                (:stop-reason start-hook-result)))
+        (lifecycle/send-ended! base-chat-ctx "Turn stopped" (:ended-by start-hook-result) (:stop-reason start-hook-result))
         (lifecycle/finish-chat-prompt-stopped! :idle base-chat-ctx)
         {:chat-id chat-id
          :model full-model
@@ -2980,17 +2768,8 @@
   (let [db @db*]
     (logger/with-chat-context chat-id (db/parent-chat-id db chat-id)
       (when-let [chat (get-in db [:chats chat-id])]
-        ;; Trigger chatEnd hook BEFORE deleting (chat still exists in cache)
-        (let [{:keys [agent model variant]} chat
-              hook-data (m.hooks/chat-hook-data db {:chat-id    chat-id
-                                                    :agent      agent
-                                                    :full-model model
-                                                    :variant    variant})]
-          (m.hooks/trigger-if-matches! :chatEnd
-                                       hook-data
-                                       {}
-                                       db
-                                       config)
+        ;; BEFORE deleting, so the chatEnd hooks find the chat in the cache
+        (let [{:keys [agent model variant]} chat]
           (events/emit! {:db* db* :messenger messenger :metrics metrics :config config :chat-id chat-id}
                         :chat/ended
                         (assoc-some {:chat-id chat-id :agent agent :model model}

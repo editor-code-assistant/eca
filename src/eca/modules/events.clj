@@ -59,7 +59,8 @@
                           :handled "A reply string, or true: the model isn't called."}}
    :chat/before-request {:kind :transform
                          :doc (str "Once per user message, before the first LLM request. Not for /compact: "
-                                   "its summary request isn't a user request.")
+                                   "its summary request isn't a user request; only built-in handlers with "
+                                   ":compaction? true get it, with :compaction? true.")
                          :payload {:prompt "The user's prompt; for a command or an MCP prompt, what was typed."}
                          :accepts {:prompt "Replaces the prompt; not for commands and MCP prompts."
                                    :additional-context "Added to the request: a string, or {:text .. :data ..}."
@@ -107,6 +108,16 @@
                      :accepts {:result "Replaces the result: a result map, or a string for a text result."
                                :additional-context "Added to the result for the model only."
                                :stop "Ends the turn after this batch of tool calls, with this reason."}}
+   :tool/called {:kind :transform
+                 :doc (str "After the client got a tool call's result, before the model sees it; the postToolCall "
+                           "hooks run here. Not when a :tool/after-call handler stopped the turn.")
+                 :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."
+                           :result "The result: {:error :contents}." :error? "Whether it failed."
+                           :tool-call-id "The tool call's id."}
+                 :accepts {:result (str "Replaces what the model sees of the result, a result map's :contents or "
+                                        "a string for a text; the client keeps the original.")
+                           :additional-context "Added to the result for the model."
+                           :stop "Ends the turn after this batch of tool calls, with this reason."}}
    :chat/before-compact {:kind :transform
                          :doc "Before a compaction."
                          :payload {:trigger ":manual, :auto or :overflow." :instructions "Extra instructions."}
@@ -124,7 +135,8 @@
    :chat/after-compact {:kind :notify
                         :doc "After a compaction wrote a checkpoint."
                         :payload {:trigger ":manual, :auto or :overflow."
-                                  :checkpoint "The checkpoint: its :marker and the :messages after it."}
+                                  :checkpoint "The checkpoint: its :marker and the :messages after it."
+                                  :summary "The compaction's summary, as text."}
                         :accepts {:additional-context "Added after the checkpoint."
                                   :stop "Ends the turn, with this reason."}}
    :chat/title {:kind :handle
@@ -182,6 +194,8 @@
                     :entry entry
                     :handler (:handler h)
                     :match (:match h)
+                    ;; a built-in's handler of :chat/before-request may also take a compaction's request
+                    :compaction? (boolean (and (:built-in? entry) (:compaction? h)))
                     :timeout-ms (:timeout-ms h)
                     :priority (if (integer? (:priority h)) (:priority h) (:priority entry))
                     :index i})]
@@ -229,15 +243,18 @@
   (every? (fn [[k expected]] (value-matches? expected (get event k))) match))
 
 (defn ^:private context-text
-  "The text of an `:additional-context` change, a string or a map's `:text`;
-   nil when blank or neither."
+  "The text of an `:additional-context` change, a string, a map's `:text` or
+   a list of them, one per line; nil when blank or none."
   [v]
-  (shared/not-blank (if (map? v) (:text v) v)))
+  (if (sequential? v)
+    (shared/not-blank (string/join "\n" (keep context-text v)))
+    (shared/not-blank (if (map? v) (:text v) v))))
 
 (defn merge-changes
   "Merges a handler's changes into the event: `:additional-context` adds up
-   (a string, or a map's `:text`), other keys replace; a nil or false `:stop`
-   or `:block` is no change. With `accepted`, other keys are ignored."
+   (a string, a map's `:text` or a list of them), other keys replace; a nil
+   or false `:stop` or `:block` is no change. With `accepted`, other keys are
+   ignored."
   [event changes accepted]
   (reduce-kv (fn [event k v]
                (cond
@@ -250,17 +267,27 @@
              event
              changes))
 
-(defn ^:private module-context
-  "The context module `id` added with an `:additional-context` change, as
-   `{:module :content :data}`, or nil. `:data` comes from a map's `:data`,
-   when it's plain data."
-  [id v]
-  (when-let [text (context-text v)]
-    (let [data (when (map? v) (:data v))]
-      (when (and (some? data) (not (shared/plain-data? data)))
-        (logger/warn logger-tag (format "Module %s gave context :data that isn't plain data, leaving it out" id)))
-      (cond-> {:module id :content text}
-        (and (some? data) (shared/plain-data? data)) (assoc :data data)))))
+(defn ^:private module-contexts
+  "The contexts module `entry` added with an `:additional-context` change,
+   one per string or map of a list, as `{:module :content :data}`. `:data`
+   comes from a map's `:data`, when it's plain data. A built-in module's map
+   with `:label? false` gives a context without the module, `{:content ..}`,
+   which ECA keeps like the user's text, as the shell hooks' are."
+  [entry v]
+  (if (sequential? v)
+    (into [] (mapcat #(module-contexts entry %)) v)
+    (when-let [text (context-text v)]
+      (let [id (:id entry)
+            data (when (map? v) (:data v))]
+        (cond
+          (and (:built-in? entry) (map? v) (false? (:label? v)))
+          [{:content text}]
+
+          :else
+          (do (when (and (some? data) (not (shared/plain-data? data)))
+                (logger/warn logger-tag (format "Module %s gave context :data that isn't plain data, leaving it out" id)))
+              [(cond-> {:module id :content text}
+                 (and (some? data) (shared/plain-data? data)) (assoc :data data))]))))))
 
 ;; --- Tracing, for eca.api.debug/trace!
 
@@ -318,8 +345,11 @@
    what handlers get as their ctx (`:db*`, `:messenger`, `:chat-id`...).
    - notify and transform events return the event with the handlers' accepted
      changes merged; the first `:block` or `:stop` ends the chain, and
-     `::ended-by` names the module that ended it.
-   - handle events return the first non-nil answer, or nil."
+     `::ended-by` names the module that ended it. A built-in module may name
+     who acted for it with `:by` (e.g. \"hook 'lint'\"), kept in `::by`.
+   - handle events return the first non-nil answer, or nil.
+   An event with `:compaction? true`, a compaction's request, only reaches
+   the handlers registered with `:compaction? true`."
   [ctx event-id event]
   (let [{:keys [definitions handlers]} (index (:config ctx))
         definition (get definitions event-id)
@@ -329,7 +359,8 @@
                    (:accepts definition) (set (keys (:accepts definition)))
                    (= :notify (:kind definition)) #{}
                    :else nil)
-        hs (get handlers event-id)
+        hs (cond->> (get handlers event-id)
+             (:compaction? event) (filterv :compaction?))
         ;; `{:module :content :data}` of each handler's :additional-context
         contexts* (volatile! [])
         result (if (= :handle (:kind definition))
@@ -350,13 +381,15 @@
                                      event)
 
                                  :else
-                                 (let [changed (merge-changes event changes accepted)]
-                                   (when-let [context (when (or (nil? accepted) (contains? accepted :additional-context))
-                                                        (module-context (:id (:entry h)) (:additional-context changes)))]
-                                     (vswap! contexts* conj context))
+                                 (let [built-in? (:built-in? (:entry h))
+                                       by (when built-in? (shared/not-blank (:by changes)))
+                                       changed (merge-changes event (cond-> changes built-in? (dissoc :by)) accepted)]
+                                   (when (or (nil? accepted) (contains? accepted :additional-context))
+                                     (vswap! contexts* into (module-contexts (:entry h) (:additional-context changes))))
                                    (if (or (and (:block changed) (not (:block event)))
                                            (and (contains? changed :stop) (not (contains? event :stop))))
-                                     (reduced (assoc changed ::ended-by (:id (:entry h))))
+                                     (reduced (cond-> (assoc changed ::ended-by (:id (:entry h)))
+                                                by (assoc ::by by)))
                                      changed))))))
                          event
                          hs))

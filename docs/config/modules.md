@@ -228,7 +228,7 @@ There are three kinds of events:
 - **transform**: the handler can change the event, or stop it with `{:block "reason"}` or `{:stop "reason"}`.
 - **handle**: the first handler that answers wins.
 
-A handler is a function `(fn [ctx event])`, a vector of them, or a map with `:handler` and optional `:match`, `:priority` and `:timeout-ms`. `:match` filters events by key, with a value, a set or a regex. Module handlers run before your [shell hooks](hooks.md); when a module blocks or stops something, the hooks don't run.
+A handler is a function `(fn [ctx event])`, a vector of them, or a map with `:handler` and optional `:match`, `:priority` and `:timeout-ms`. `:match` filters events by key, with a value, a set or a regex. Your [shell hooks](hooks.md) are `eca/hooks`' handlers, at priority `-1000`, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run.
 
 Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:parent-chat-id` in a subagent's chat.
 
@@ -249,14 +249,15 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used` | — |
 | `:tool/before-call` | transform | `:tool` (full name), `:server`, `:arguments`, `:approval`, `:tool-call-id` | `:arguments`, `:approval`, `:reason`, `:block`, `:stop`, `:additional-context` (added to the call's output for the model) |
 | `:tool/after-call` | transform | `:tool`, `:server`, `:arguments`, `:result`, `:error?`, `:tool-call-id`. Runs before the model, the editor and postToolCall hooks see the result. | `:result` (a result map or a string), `:additional-context` (for the model only), `:stop` (after this batch of calls) |
+| `:tool/called` | transform | `:tool`, `:server`, `:arguments`, `:result`, `:error?`, `:tool-call-id`. Runs once the editor got the result, before the model sees it; postToolCall hooks run here. Not when a `:tool/after-call` handler stopped the turn. | `:result` (what the model sees of it: a result map's `:contents` or a string), `:additional-context`, `:stop` (after this batch of calls) |
 | `:chat/before-compact` | transform | `:trigger` (`:manual`, `:auto` or `:overflow`), `:instructions` | `:block` (skips the compaction), `:stop`, `:instructions` |
 | `:chat/compact` | handle | `:trigger`, `:instructions`. Asked before `eca/compact-as-summary` writes its summary. | `{:status :done :resume? true :message ".."}`, or `:status :failed`. Write the result with `checkpoint!`. An interrupted turn goes on unless `:resume? false`. |
-| `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
+| `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`), `:summary` (its text). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, named by `:tool`, `:hook` and `:hook-type`, or `:module`). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and `eca/shell!`. | `:command`, `:cwd`, `:env` |
 | `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. | `:config`, except its `modules` key |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
 
-`:additional-context` is a string, or `{:text "..." :data {...}}` to keep plain data with it. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.
+`:additional-context` is a string, `{:text "..." :data {...}}` to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.
 
 A module can also define its own events in `:defines` and send them with `(eca/emit! ctx event-id event)`.
 

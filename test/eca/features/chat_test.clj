@@ -9,7 +9,6 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as history]
    [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.chat.tool-calls :as tc]
    [eca.features.context :as f.context]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
@@ -18,6 +17,7 @@
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
+   [eca.modules.hooks :as m.hooks]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
@@ -1455,10 +1455,10 @@
   (testing "preCompact continue:false stops the turn with the prefixed reason and does not resume"
     (h/reset-components!)
     (let [prompted* (atom nil)]
-      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? true
-                                                                  :reason "auto blocked"
-                                                                  :hook-name "blocker"
-                                                                  :stop-turn? true})
+      (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? true
+                                                                :reason "auto blocked"
+                                                                :hook-name "blocker"
+                                                                :stop-turn? true})
                     f.chat/prompt-messages! (fn [user-messages prompt-type chat-ctx]
                                               (reset! prompted* {:user-messages user-messages
                                                                  :prompt-type prompt-type
@@ -1485,10 +1485,10 @@
   (testing "preCompact exit 2 blocks compaction without stop-turn and resumes the original task"
     (h/reset-components!)
     (let [prompted* (atom nil)]
-      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? true
-                                                                  :reason nil
-                                                                  :hook-name "guard"
-                                                                  :stop-turn? false})
+      (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? true
+                                                                :reason nil
+                                                                :hook-name "guard"
+                                                                :stop-turn? false})
                     f.chat/prompt-messages! (fn [user-messages prompt-type chat-ctx]
                                               (reset! prompted* {:user-messages user-messages
                                                                  :prompt-type prompt-type
@@ -2159,7 +2159,7 @@
                       :prompts {:compact "Summarize the chat."}}
                      config))
    (swap! (h/db*) assoc-in [:models "openai/gpt-5.2"] {:tools true :limit {:context 1000}})
-   (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+   (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? false})]
      (prompt!
       {:message "Long task" :chat-id chat-id}
       {:all-tools-mock (constantly steered-compact-tools)
@@ -2398,10 +2398,10 @@
     (let [chat-id "steered-compact-chat"
           api-calls* (atom [])
           pre-compact-hook-args* (atom nil)]
-      (with-redefs [lifecycle/run-pre-compact-hooks! (fn [_chat-ctx trigger custom-instructions]
-                                                        (reset! pre-compact-hook-args* {:trigger trigger
-                                                                                        :custom-instructions custom-instructions})
-                                                        {:blocked? false})]
+      (with-redefs [m.hooks/run-pre-compact-hooks! (fn [_chat-ctx trigger custom-instructions]
+                                                      (reset! pre-compact-hook-args* {:trigger trigger
+                                                                                      :custom-instructions custom-instructions})
+                                                      {:blocked? false})]
         (prompt!
          {:message "Rename rfq to query" :chat-id chat-id}
          {:all-tools-mock (constantly steered-compact-tools)
@@ -2477,7 +2477,7 @@
   (h/config! {:prompts {:compact "Summarize the chat. {{additionalUserInput}}"}})
   (let [chat-id "steered-compact-text-only-chat"
         api-calls* (atom [])]
-    (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? false})]
+    (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? false})]
       (prompt!
        {:message "Rename rfq to query" :chat-id chat-id}
        {:all-tools-mock (constantly steered-compact-tools)
@@ -2529,10 +2529,9 @@
     (h/config! {:prompts {:compact "Summarize the chat."}})
     (let [chat-id "stopped-compaction-chat"
           continuation* (atom ::not-called)]
-      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (fn [_db* _chat-ctx tool-call-id _event-data]
-                                                        (if (= "compact-1" tool-call-id)
-                                                          {:stop-turn? true :stop-reason "halt" :stop-hook-name "guard"}
-                                                          {:stop-turn? false}))}
+      (with-redefs-fn {#'m.hooks/post-tool-call (fn [_ctx {:keys [tool-call-id]}]
+                                                  (when (= "compact-1" tool-call-id)
+                                                    {:stop "halt" :by "hook 'guard'"}))}
         (fn []
           (prompt!
            {:message "/compact" :chat-id chat-id}
@@ -2566,10 +2565,10 @@
     (let [chat-id "steered-compact-blocked-chat"
           api-call-count* (atom 0)
           continuation* (atom nil)]
-      (with-redefs [lifecycle/run-pre-compact-hooks! (constantly {:blocked? true
-                                                                  :reason nil
-                                                                  :hook-name "guard"
-                                                                  :stop-turn? false})]
+      (with-redefs [m.hooks/run-pre-compact-hooks! (constantly {:blocked? true
+                                                                :reason nil
+                                                                :hook-name "guard"
+                                                                :stop-turn? false})]
         (prompt!
          {:message "Rename rfq to query" :chat-id chat-id}
          {:all-tools-mock (constantly steered-compact-tools)

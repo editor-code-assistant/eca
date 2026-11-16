@@ -5,7 +5,6 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat :as f.chat]
    [eca.features.chat.lifecycle :as lifecycle]
    [eca.features.chat.tool-calls :as tc]
    [eca.features.tools :as f.tools]
@@ -265,7 +264,7 @@
       (testing "preRequest hooks too"
         (reset! opts* [])
         (reset! events* [])
-        (#'f.chat/run-pre-request-hooks! {:db* (h/db*) :config (h/config) :chat-id "chat-1"
-                                          :messenger (h/messenger) :message "hi"})
+        (#'m.hooks/run-pre-request-hooks! {:db* (h/db*) :config (h/config) :chat-id "chat-1"
+                                           :messenger (h/messenger) :message "hi"})
         (is (match? [{:script "sandbox check-prompt"}] @opts*))
         (is (match? [{:source :hook :hook "check" :hook-type :preRequest :timeout-ms 30000}] @events*))))))
