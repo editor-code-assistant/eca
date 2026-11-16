@@ -785,6 +785,43 @@
   (when (and (string? s) (not (string/blank? s)))
     s))
 
+(def additive-config-lists
+  "Config lists that add up when config layers and modules' defaults merge:
+   a later list adds its entries to the earlier one instead of replacing
+   it. `:ANY` stands for any key, e.g. an agent's name."
+  [[:toolCall :approval :insideWorkspace]
+   [:agent :ANY :toolCall :approval :insideWorkspace]])
+
+(defn ^:private additive-list-paths
+  "The paths of `m` to lists of `additive-config-lists`. With `strings?`, the
+   keys of `m` are strings, as in config JSON."
+  [m strings?]
+  (for [pattern additive-config-lists
+        path (reduce (fn [paths k]
+                       (if (= :ANY k)
+                         (for [path paths
+                               k' (let [v (get-in m path)] (when (map? v) (keys v)))]
+                           (conj path k'))
+                         (map #(conj % (if strings? (name k) k)) paths)))
+                     [[]]
+                     pattern)
+        :when (sequential? (get-in m path))]
+    path))
+
+(defn add-up-config-lists
+  "`merged`, `layer` merged over `base`, with the lists of
+   `additive-config-lists` in `layer` added to `base`'s, without repeats,
+   instead of replacing them. With `strings?`, the maps' keys are strings,
+   as in config JSON."
+  ([merged base layer] (add-up-config-lists merged base layer false))
+  ([merged base layer strings?]
+   (reduce (fn [merged path]
+             (let [earlier (get-in base path)]
+               (assoc-in merged path (vec (distinct (concat (when (sequential? earlier) earlier)
+                                                            (get-in layer path)))))))
+           merged
+           (additive-list-paths layer strings?))))
+
 (defn plain-data?
   "Whether `x` can be saved with a chat: nil, strings, numbers, booleans,
    keywords, symbols, UUIDs, dates, and maps, vectors, lists and sets of

@@ -202,7 +202,11 @@
       (is (= {:roots 2} (modules/default-config {} {:workspace-folders [{} {}]})))))
   (testing "disabled modules add nothing"
     (with-built-ins [{:id :acme/a :config-defaults {:a 1}}]
-      (is (= {} (modules/default-config {:modules {:acme/a {:enabled false}}} nil))))))
+      (is (= {} (modules/default-config {:modules {:acme/a {:enabled false}}} nil)))))
+  (testing "the modules' insideWorkspace lists add up"
+    (with-built-ins [{:id :acme/a :config-defaults {:toolCall {:approval {:insideWorkspace ["/a"]}}}}
+                     {:id :acme/b :config-defaults {:toolCall {:approval {:insideWorkspace ["/b" "/a"]}}}}]
+      (is (= ["/a" "/b"] (get-in (modules/default-config {} nil) [:toolCall :approval :insideWorkspace]))))))
 
 (deftest config-integration-test
   (reset! config/initialization-config* {:pureConfig true})

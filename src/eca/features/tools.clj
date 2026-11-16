@@ -81,6 +81,10 @@
          native-tools (filter #(= :native (:origin %)) all-tools)
          {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
                                                      (get-in config [:agent agent-name :toolCall :approval]))
+         ;; unlike the rules, an agent's folders add to the global ones
+         inside-workspace (tools.util/inside-workspace-folders
+                           (concat (get-in config [:toolCall :approval :insideWorkspace])
+                                   (get-in config [:agent agent-name :toolCall :approval :insideWorkspace])))
          match-rule (fn [rules source]
                       (when-let [match (some #(approval-match % (:name server) name args native-tools) rules)]
                         (assoc match :source source)))
@@ -91,7 +95,8 @@
              (when remembered?
                {:decision :allow :rule {:source :session-remember}})
 
-             (when (and require-approval-fn (require-approval-fn args {:db db}))
+             (when (and require-approval-fn
+                        (require-approval-fn args {:db db :inside-workspace inside-workspace}))
                {:decision :ask :rule {:source :tool-built-in-check}})
 
              (when-let [rule (match-rule ask :config-ask)]

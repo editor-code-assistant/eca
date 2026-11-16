@@ -384,6 +384,22 @@
                                           "models" {"gpt-5" {}}
                                           "httpClient" {"version" "http1.1"}}}})))))
 
+(deftest inside-workspace-lists-add-up-test
+  (testing "a config layer's insideWorkspace adds to the lists of the layers under it, an agent's too"
+    (is (= {:toolCall {:approval {:insideWorkspace ["~/a" "~/b"] :byDefault "ask"}}
+            :agent {"plan" {:toolCall {:approval {:insideWorkspace ["~/p" "~/q"]}}}}}
+           (#'config/merge-config
+            {:toolCall {:approval {:insideWorkspace ["~/a"] :byDefault "ask"}}
+             :agent {"plan" {:toolCall {:approval {:insideWorkspace ["~/p"]}}}}}
+            {"toolCall" {"approval" {"insideWorkspace" ["~/b" "~/a"]}}
+             "agent" {"plan" {"toolCall" {"approval" {"insideWorkspace" ["~/q"]}}}}}))))
+  (testing "also between the config files of several workspace roots, merged as one layer"
+    (is (= ["~/a" "~/b"]
+           (get-in (#'config/merge-config-layers merge {}
+                                                 [{"toolCall" {"approval" {"insideWorkspace" ["~/a"]}}}
+                                                  {"toolCall" {"approval" {"insideWorkspace" ["~/b"]}}}])
+                   [:toolCall :approval :insideWorkspace])))))
+
 (deftest optional-modules-stay-on-test
   (testing "nothing turns them on before their config does"
     (is (= {} (#'config/enable-optional-modules {}))))
