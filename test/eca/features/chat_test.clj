@@ -7,8 +7,11 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
-   [eca.features.chat.history :as history]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.history :as f.chat.history]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.ops :as f.chat.ops]
+   [eca.features.chat.replay :as f.chat.replay]
+   [eca.features.chat.steer :as f.chat.steer]
    [eca.features.context :as f.context]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
@@ -34,7 +37,7 @@
     (let [db {:chats {"c1" {:title "With id" :messages [{} {}] :updated-at 2}
                       "c2" {:id "stale-id" :title "Mismatched" :messages [{}] :updated-at 1}
                       "c3" {:title "Subagent" :subagent true :messages [{}] :updated-at 3}}}
-          {:keys [chats]} (f.chat/list-chats db {})]
+          {:keys [chats]} (f.chat.ops/list-chats db {})]
       (is (= 2 (count chats)))
       (is (every? :id chats))
       (is (= ["c1" "c2"] (mapv :id chats)))))
@@ -43,14 +46,14 @@
     (let [db {:chats {"c1" {:title "a" :messages [] :updated-at 3}
                       "c2" {:title "b" :messages [] :updated-at 2}
                       "c3" {:title "c" :messages [] :updated-at 1}}}
-          {:keys [chats]} (f.chat/list-chats db {:limit 2})]
+          {:keys [chats]} (f.chat.ops/list-chats db {:limit 2})]
       (is (= 2 (count chats)))
       (is (= ["c1" "c2"] (mapv :id chats)))))
 
   (testing "tags inline chats with :kind"
     (let [db {:chats {"c1" {:title "regular" :messages [] :updated-at 2}
                       "c2" {:title "inline: q" :kind :inline :messages [] :updated-at 1}}}
-          {:keys [chats]} (f.chat/list-chats db {})]
+          {:keys [chats]} (f.chat.ops/list-chats db {})]
       (is (= [nil :inline] (mapv :kind chats)))
       (is (not (contains? (first chats) :kind))))))
 
@@ -913,27 +916,27 @@
 
 (deftest sanitize-title-test
   (testing "strips markdown headers"
-    (is (= "My Title" (#'f.chat/sanitize-title "## My Title")))
-    (is (= "My Title" (#'f.chat/sanitize-title "### My Title"))))
+    (is (= "My Title" (#'f.chat.ops/sanitize-title "## My Title")))
+    (is (= "My Title" (#'f.chat.ops/sanitize-title "### My Title"))))
   (testing "takes first non-blank line"
-    (is (= "First Line" (#'f.chat/sanitize-title "\n\n  First Line\nSecond Line"))))
+    (is (= "First Line" (#'f.chat.ops/sanitize-title "\n\n  First Line\nSecond Line"))))
   (testing "skips a bare markdown header line when more content follows"
     ;; Regression: Opus in planning mode sometimes answers the title prompt with
     ;; '## Understand' as the first line. Skip bare headers when a real line follows.
-    (is (= "actual body line" (#'f.chat/sanitize-title "## Understand\n\nactual body line")))
-    (is (= "the real title" (#'f.chat/sanitize-title "# Explore\nthe real title"))))
+    (is (= "actual body line" (#'f.chat.ops/sanitize-title "## Understand\n\nactual body line")))
+    (is (= "the real title" (#'f.chat.ops/sanitize-title "# Explore\nthe real title"))))
   (testing "keeps a single-line header when nothing else follows"
-    (is (= "Only Title" (#'f.chat/sanitize-title "## Only Title"))))
+    (is (= "Only Title" (#'f.chat.ops/sanitize-title "## Only Title"))))
   (testing "strips control characters"
-    (is (= "clean text" (#'f.chat/sanitize-title "clean\u0000 \u001ftext"))))
+    (is (= "clean text" (#'f.chat.ops/sanitize-title "clean\u0000 \u001ftext"))))
   (testing "collapses whitespace"
-    (is (= "hello world" (#'f.chat/sanitize-title "hello   world"))))
+    (is (= "hello world" (#'f.chat.ops/sanitize-title "hello   world"))))
   (testing "truncates to 40 chars"
-    (is (= 40 (count (#'f.chat/sanitize-title (apply str (repeat 60 "a")))))))
+    (is (= 40 (count (#'f.chat.ops/sanitize-title (apply str (repeat 60 "a")))))))
   (testing "returns empty string for blank input"
-    (is (= "" (#'f.chat/sanitize-title "  \n  \n  "))))
+    (is (= "" (#'f.chat.ops/sanitize-title "  \n  \n  "))))
   (testing "returns nil for nil input"
-    (is (nil? (#'f.chat/sanitize-title nil)))))
+    (is (nil? (#'f.chat.ops/sanitize-title nil)))))
 
 (deftest conversation-title-transcript-test
   (testing "renders user/assistant messages as a plain-text transcript"
@@ -1069,7 +1072,7 @@
       (is (= 1 (count @sync-prompt-calls*)))
 
         ;; Manual rename
-      (f.chat/update-chat {:chat-id chat-id :title "My Custom Title"} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/update-chat {:chat-id chat-id :title "My Custom Title"} (h/db*) (h/messenger) (h/metrics))
       (is (= "My Custom Title" (get-in (h/db) [:chats chat-id :title])))
       (is (true? (get-in (h/db) [:chats chat-id :title-custom?])))
 
@@ -1087,7 +1090,7 @@
     (let [chat-id* (atom nil)
           sync-mock (fn [_]
                       ;; The client renames the chat before the title arrives.
-                      (f.chat/update-chat {:chat-id @chat-id* :title "Set By Client"}
+                      (f.chat.ops/update-chat {:chat-id @chat-id* :title "Set By Client"}
                                           (h/db*) (h/messenger) (h/metrics))
                       {:output-text "Auto Title"})
           _ (reset! chat-id* "rename-race-chat")
@@ -1117,21 +1120,21 @@
     (h/reset-components!)
     (let [chat-id "trust-chat"]
       (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id})
-      (f.chat/update-chat {:chat-id chat-id :trust true} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/update-chat {:chat-id chat-id :trust true} (h/db*) (h/messenger) (h/metrics))
       (is (true? (get-in (h/db) [:chats chat-id :trust])))))
 
   (testing "update-chat sets trust to false"
     (h/reset-components!)
     (let [chat-id "trust-chat"]
       (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :trust true})
-      (f.chat/update-chat {:chat-id chat-id :trust false} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/update-chat {:chat-id chat-id :trust false} (h/db*) (h/messenger) (h/metrics))
       (is (false? (get-in (h/db) [:chats chat-id :trust])))))
 
   (testing "update-chat without trust does not change existing trust"
     (h/reset-components!)
     (let [chat-id "trust-chat"]
       (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :trust true})
-      (f.chat/update-chat {:chat-id chat-id :title "New Title"} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/update-chat {:chat-id chat-id :title "New Title"} (h/db*) (h/messenger) (h/metrics))
       (is (true? (get-in (h/db) [:chats chat-id :trust])))
       (is (= "New Title" (get-in (h/db) [:chats chat-id :title])))))
 
@@ -1139,7 +1142,7 @@
     (h/reset-components!)
     (let [chat-id "trust-chat"]
       (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id})
-      (f.chat/update-chat {:chat-id chat-id :title "My Chat" :trust true} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/update-chat {:chat-id chat-id :title "My Chat" :trust true} (h/db*) (h/messenger) (h/metrics))
       (is (true? (get-in (h/db) [:chats chat-id :trust])))
       (is (= "My Chat" (get-in (h/db) [:chats chat-id :title]))))))
 
@@ -1861,10 +1864,10 @@
 (deftest reopened-chat-without-module-contexts-test
   (testing "a reopened chat shows the user's message without the contexts modules added, as it was shown live"
     (is (match? [{:role "user" :content {:type :text :text "\nhi\n<additionalContext>\nA hook's.\n</additionalContext>"}}]
-                (#'f.chat/message-content->chat-content "user" [{:type :text :text "hi"} notes-context hook-context] nil))))
+                (#'f.chat.replay/message-content->chat-content "user" [{:type :text :text "hi"} notes-context hook-context] nil))))
   (testing "and a tool call's output without them"
     (is (match? [{} {} {:content {:type :toolCalled :outputs [{:type :text :text "ok"}]}}]
-                (#'f.chat/message-content->chat-content
+                (#'f.chat.replay/message-content->chat-content
                  "tool_call_output"
                  {:id "t1" :name "tool_a" :output {:error false :contents [{:type :text :text "ok"} notes-context]}}
                  nil)))))
@@ -1962,13 +1965,13 @@
                                          false)
             (is (sent-in-full? "three")))
           (testing "after rollback"
-            (f.chat/rollback-chat {:chat-id chat-id
+            (f.chat.ops/rollback-chat {:chat-id chat-id
                                    :include ["messages"]
                                    :content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])}
                                   (h/db*) (h/messenger) (h/metrics))
             (is (sent-in-full? "four")))
           (testing "after clear"
-            (f.chat/clear-chat {:chat-id chat-id :messages true} (h/db*) (h/messenger) (h/metrics))
+            (f.chat.ops/clear-chat {:chat-id chat-id :messages true} (h/db*) (h/messenger) (h/metrics))
             (is (sent-in-full? "five"))))))))
 
 (deftest attached-contexts-tracked-for-unanswered-turn-test
@@ -2674,7 +2677,7 @@
                    (swap! (h/db*) assoc-in [:chats "chat-1"]
                           (cond-> {:id "chat-1" :status :running}
                             steer-message (assoc :steer-message steer-message)))
-                   (#'f.chat/consume-steered-compact! "chat-1" (h/db*)
+                   (#'f.chat.steer/consume-steered-compact! "chat-1" (h/db*)
                                                       {:chat-id "chat-1" :db* (h/db*) :messenger (h/messenger) :config (h/config)}))]
     (testing "a pending /compact without instructions is consumed with empty instructions"
       (is (match? {:custom-instructions "" :content-id string?}
@@ -2698,7 +2701,7 @@
                    (swap! (h/db*) assoc-in [:chats "chat-1"]
                           (cond-> {:id "chat-1" :status :running :prompt-cache {:static "cached"}}
                             steer-message (assoc :steer-message steer-message)))
-                   (#'f.chat/consume-steered-native-command! "chat-1" (h/db*)
+                   (#'f.chat.steer/consume-steered-native-command! "chat-1" (h/db*)
                                                              {:chat-id "chat-1" :db* (h/db*) :messenger (h/messenger) :config (h/config)}))]
     (testing "a pending steer-safe native command is consumed, echoed and run with its output shown"
       (is (nil? (consume! "/sync-system-prompt")))
@@ -2942,10 +2945,10 @@
                                         [{:name "failing-prompt" :arguments [{:name "arg1"}]}])
                     m.mcp/get-prompt! (fn [_ _ _]
                                            {:error-message "MCP error getting prompt: code=-32603 message=Invalid required argument: arg1"})
-                    lifecycle/send-content! (fn [_ctx _role content]
-                                              (reset! sent-content content))
-                    lifecycle/finish-chat-prompt! (fn [status _ctx]
-                                                    (reset! finished-status status))]
+                    f.chat.lifecycle/send-content! (fn [_ctx _role content]
+                                                     (reset! sent-content content))
+                    f.chat.lifecycle/finish-chat-prompt! (fn [status _ctx]
+                                                           (reset! finished-status status))]
         (#'f.chat/send-mcp-prompt! {:prompt "failing-prompt" :args ["val1"]} test-chat-ctx)
         (is (= :text (:type @sent-content)))
         (is (string/includes? (:text @sent-content) "MCP error getting prompt"))
@@ -2958,10 +2961,10 @@
       (with-redefs [m.mcp/all-prompts (fn [_]
                                         [{:name "nil-prompt" :arguments []}])
                     m.mcp/get-prompt! (fn [_ _ _] nil)
-                    lifecycle/send-content! (fn [_ctx _role content]
-                                              (reset! sent-content content))
-                    lifecycle/finish-chat-prompt! (fn [status _ctx]
-                                                    (reset! finished-status status))]
+                    f.chat.lifecycle/send-content! (fn [_ctx _role content]
+                                                     (reset! sent-content content))
+                    f.chat.lifecycle/finish-chat-prompt! (fn [status _ctx]
+                                                           (reset! finished-status status))]
         (#'f.chat/send-mcp-prompt! {:prompt "nil-prompt" :args []} test-chat-ctx)
         (is (= :text (:type @sent-content)))
         (is (string/includes? (:text @sent-content) "No response from prompt"))
@@ -3006,32 +3009,32 @@
   (testing "plain prompt message"
     (is (= {:type :prompt-message
             :message "Hello world"}
-           (#'f.chat/message->decision "Hello world" {} {}))))
+           (#'f.chat.steer/message->decision "Hello world" {} {}))))
   (testing "message starting with a absolute path"
     (is (= {:type :prompt-message
             :message "/path/to/file check this out"}
-           (#'f.chat/message->decision "/path/to/file check this out" {} {}))))
+           (#'f.chat.steer/message->decision "/path/to/file check this out" {} {}))))
   (testing "ECA command without args"
     (is (= {:type :eca-command
             :command "doctor"
             :command-type :native
             :args []}
-           (#'f.chat/message->decision "/doctor" {} {}))))
+           (#'f.chat.steer/message->decision "/doctor" {} {}))))
   (testing "ECA command with args"
     (is (= {:type :eca-command
             :command "login"
             :command-type :native
             :args ["foo" "bar"]}
-           (#'f.chat/message->decision "/login foo bar" {} {}))))
+           (#'f.chat.steer/message->decision "/login foo bar" {} {}))))
   (testing "ECA command with args with spaces in quotes"
     (is (= {:type :eca-command
             :command "login"
             :command-type :native
             :args ["foo bar" "baz" "qux bla blow"]}
-           (#'f.chat/message->decision "/login \"foo bar\" baz \"qux bla blow\"" {} {}))))
+           (#'f.chat.steer/message->decision "/login \"foo bar\" baz \"qux bla blow\"" {} {}))))
   (testing "quoted file arguments with spaces remain one token"
     (is (= ["review" "@/dir/My File.clj"]
-           (#'f.chat/tokenize-args "review \"@/dir/My File.clj\""))))
+           (#'f.chat.steer/tokenize-args "review \"@/dir/My File.clj\""))))
   (with-redefs [m.mcp/all-prompts (constantly [{:name "prompt"
                                                 :server "server"}])]
     (testing "MCP prompt without args"
@@ -3039,13 +3042,13 @@
               :server "server"
               :prompt "prompt"
               :args []}
-             (#'f.chat/message->decision "/server:prompt" {} {}))))
+             (#'f.chat.steer/message->decision "/server:prompt" {} {}))))
     (testing "MCP prompt with args"
       (is (= {:type :mcp-prompt
               :server "server"
               :prompt "prompt"
               :args ["arg1" "arg2"]}
-             (#'f.chat/message->decision "/server:prompt arg1 arg2" {} {}))))))
+             (#'f.chat.steer/message->decision "/server:prompt arg1 arg2" {} {}))))))
 
 (deftest rollback-persists-to-cache-test
   (testing "rollback flushes the trimmed history to disk so it survives an ECA restart"
@@ -3062,7 +3065,7 @@
           first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])
           save-calls* (atom 0)]
       (with-redefs [db/save-chat! (fn [& _] (swap! save-calls* inc))]
-        (f.chat/rollback-chat {:chat-id chat-id
+        (f.chat.ops/rollback-chat {:chat-id chat-id
                                :include ["messages" "tools"]
                                :content-id first-content-id}
                               (h/db*) (h/messenger) (h/metrics)))
@@ -3116,7 +3119,7 @@
 
         ;; Rollback to second message (keep first 2 messages, remove last 2)
         (h/reset-messenger!)
-        (is (= {} (f.chat/rollback-chat
+        (is (= {} (f.chat.ops/rollback-chat
                    {:chat-id chat-id
                     :include ["messages" "tools"]
                     :content-id second-content-id} (h/db*) (h/messenger) (h/metrics))))
@@ -3168,7 +3171,7 @@
     (let [chat-id (two-turn-chat!)
           second-content-id (get-in (h/db) [:chats chat-id :messages 2 :content-id])]
       (h/reset-messenger!)
-      (f.chat/rollback-chat {:chat-id chat-id
+      (f.chat.ops/rollback-chat {:chat-id chat-id
                              :include ["messages"]
                              :content-id second-content-id}
                             (h/db*) (h/messenger) (h/metrics))
@@ -3182,7 +3185,7 @@
     (let [chat-id (two-turn-chat!)]
       (h/reset-messenger!)
       (is (match? {:error {:code "content_not_found"}}
-                  (f.chat/rollback-chat {:chat-id chat-id
+                  (f.chat.ops/rollback-chat {:chat-id chat-id
                                          :include ["messages"]
                                          :content-id "missing"}
                                         (h/db*) (h/messenger) (h/metrics))))
@@ -3215,7 +3218,7 @@
                  (spit file "after")
                  (seed-compacted-chat! file))
         rollback! (fn [params]
-                    (f.chat/rollback-chat (merge {:chat-id "c1" :include ["messages" "tools"]} params)
+                    (f.chat.ops/rollback-chat (merge {:chat-id "c1" :include ["messages" "tools"]} params)
                                           (h/db*) (h/messenger) (h/metrics)))]
     (try
       (doseq [[desc params code] [["null" {:content-id nil} "invalid_request"]
@@ -3272,7 +3275,7 @@
     (let [chat-id (two-turn-chat!)
           first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])]
       (h/reset-messenger!)
-      (f.chat/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
+      (f.chat.ops/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
                        (h/db*) (h/messenger) (h/metrics))
       (is (match? [{:role "user"} {:role "flag" :content {:text "here"}}
                    {:role "assistant"} {:role "user"} {:role "assistant"}]
@@ -3292,7 +3295,7 @@
     (let [chat-id (two-turn-chat!)
           first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])]
       (h/reset-messenger!)
-      (f.chat/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
+      (f.chat.ops/add-flag {:chat-id chat-id :content-id first-content-id :text "here"}
                        (h/db*) (h/messenger) (h/metrics))
       (let [flag-id (get-in (h/db) [:chats chat-id :messages 1 :content-id])]
         (is (some? flag-id))
@@ -3635,7 +3638,7 @@
                              (on-message-received {:type :finish}))}
           {:keys [chat-id]} (prompt! {:message "Hi" :model "openai/gpt-5.2"} mocks)]
       (is (some? (get-in (h/db) [:chats chat-id :prompt-cache])))
-      (f.chat/clear-chat {:chat-id chat-id :messages true} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/clear-chat {:chat-id chat-id :messages true} (h/db*) (h/messenger) (h/metrics))
       (is (nil? (get-in (h/db) [:chats chat-id :prompt-cache]))
           "Clearing messages drops the prompt cache")
       (swap! (h/db*) update :models #(merge % {"anthropic/claude-opus-4" {:tools true}}))
@@ -3751,7 +3754,7 @@
               :title "My Opus thread"
               :model "anthropic/claude-opus-4"
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (let [result (f.chat/open-chat! {:chat-id chat-id}
+      (let [result (f.chat.ops/open-chat! {:chat-id chat-id}
                                       (h/db*) (h/messenger) (h/config))]
         (is (match? {:found true
                      :chat-id chat-id
@@ -3787,7 +3790,7 @@
                               :variant "low"
                               :trust true
                               :messages []}})
-      (let [result (f.chat/open-chat! {:chat-id chat-id}
+      (let [result (f.chat.ops/open-chat! {:chat-id chat-id}
                                       (h/db*) (h/messenger) (h/config))]
         (is (= {:model "anthropic/claude-sonnet-4-5"
                 :agent "plan"
@@ -3809,7 +3812,7 @@
                               :model "anthropic/claude-sonnet-4-5"
                               :variant "max"
                               :messages []}})
-      (let [result (f.chat/open-chat! {:chat-id chat-id}
+      (let [result (f.chat.ops/open-chat! {:chat-id chat-id}
                                       (h/db*) (h/messenger) (h/config))]
         (is (= "high" (get-in result [:selection :variant]))))))
 
@@ -3819,7 +3822,7 @@
       (swap! (h/db*) assoc-in [:chats chat-id]
              {:id chat-id
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (let [result (f.chat/open-chat! {:chat-id chat-id}
+      (let [result (f.chat.ops/open-chat! {:chat-id chat-id}
                                       (h/db*) (h/messenger) (h/config))]
         (is (= {:model nil
                 :agent "code"
@@ -3839,7 +3842,7 @@
              {:id chat-id
               :model "anthropic/claude-opus-4"
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (let [result (f.chat/open-chat! {:chat-id chat-id}
+      (let [result (f.chat.ops/open-chat! {:chat-id chat-id}
                                       (h/db*) (h/messenger) (h/config))]
         (is (nil? (get-in result [:selection :model])))
         (is (= [] (get-in result [:selection :variants])))
@@ -3856,7 +3859,7 @@
              {:id chat-id
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
       (is (not (contains? (:editor-open-chats @(h/db*)) chat-id)))
-      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (f.chat.ops/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (contains? (:editor-open-chats @(h/db*)) chat-id)))))
 
 (deftest open-chat-restores-selected-trust-test
@@ -3868,7 +3871,7 @@
               :title "YOLO thread"
               :trust true
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (f.chat.ops/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (match? {:config-updated [{:chat-id chat-id
                                      :chat {:select-trust true}}]}
                   (h/messages)))))
@@ -3882,7 +3885,7 @@
              {:id chat-id
               :trust false
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (f.chat.ops/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (match? {:config-updated [{:chat-id chat-id
                                      :chat {:select-trust false}}]}
                   (h/messages)))))
@@ -3894,7 +3897,7 @@
       (swap! (h/db*) assoc-in [:chats chat-id]
              {:id chat-id
               :messages [{:role "user" :content [{:type :text :text "hi"}]}]})
-      (f.chat/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+      (f.chat.ops/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
       (is (match? {:config-updated [{:chat-id chat-id
                                      :chat {:select-trust false}}]}
                   (h/messages))))))
@@ -3909,16 +3912,16 @@
                         (keep #(some-> (get-in % [:content :text]) string/trim) contents))]
     (testing "unknown chat returns an error"
       (h/reset-components!)
-      (is (= "chat_not_found" (get-in (f.chat/fetch-history {:chat-id "nope"} (h/db*)) [:error :code]))))
+      (is (= "chat_not_found" (get-in (f.chat.ops/fetch-history {:chat-id "nope"} (h/db*)) [:error :code]))))
 
     (testing "subagent chat is not fetchable"
       (h/reset-components!)
       (swap! (h/db*) assoc-in [:chats "sub"] {:id "sub" :subagent true :messages []})
-      (is (= "chat_not_found" (get-in (f.chat/fetch-history {:chat-id "sub"} (h/db*)) [:error :code]))))
+      (is (= "chat_not_found" (get-in (f.chat.ops/fetch-history {:chat-id "sub"} (h/db*)) [:error :code]))))
 
     (testing "returns transformed content items plus meta"
       (let [chat-id (seed! "c1" [(text-msg "m0" 1) (text-msg "m1" 2) (text-msg "m2" 3)])
-            result (f.chat/fetch-history {:chat-id chat-id :limit 2} (h/db*))]
+            result (f.chat.ops/fetch-history {:chat-id chat-id :limit 2} (h/db*))]
         (is (= ["m1" "m2"] (content-texts result)))
         (is (every? #(= chat-id (:chat-id %)) (:contents result)))
         (is (= 3 (get-in result [:meta :total])))
@@ -3928,8 +3931,8 @@
 
     (testing "before cursor pages older"
       (let [chat-id (seed! "c1" [(text-msg "m0" 1) (text-msg "m1" 2) (text-msg "m2" 3)])
-            before (get-in (f.chat/fetch-history {:chat-id chat-id :limit 2} (h/db*)) [:meta :before-cursor])
-            result (f.chat/fetch-history {:chat-id chat-id :limit 2 :before before} (h/db*))]
+            before (get-in (f.chat.ops/fetch-history {:chat-id chat-id :limit 2} (h/db*)) [:meta :before-cursor])
+            result (f.chat.ops/fetch-history {:chat-id chat-id :limit 2 :before before} (h/db*))]
         ;; first page was [m1 m2]; older-than-m1 is just [m0]
         (is (= ["m0"] (content-texts result)))))
 
@@ -3938,14 +3941,14 @@
                                  {:role "compact_marker" :content {:auto? false} :created-at 2}
                                  (text-msg "summary" 3)
                                  (text-msg "m3" 4)])
-            result (f.chat/fetch-history {:chat-id chat-id :after "lastCompaction"} (h/db*))]
+            result (f.chat.ops/fetch-history {:chat-id chat-id :after "lastCompaction"} (h/db*))]
         (is (= ["summary" "m3"] (content-texts result)))
         (is (some? (get-in result [:meta :compaction-cursor])))))
 
     (testing "stale cursor returns cursor_expired"
       (let [chat-id (seed! "c1" [(text-msg "m0" 1)])]
         (is (= "cursor_expired"
-               (get-in (f.chat/fetch-history {:chat-id chat-id :before "bogus"} (h/db*)) [:error :code])))))))
+               (get-in (f.chat.ops/fetch-history {:chat-id chat-id :before "bogus"} (h/db*)) [:error :code])))))))
 
 (deftest open-chat-windowed-test
   (let [msg (fn [t n] {:role "user" :content [{:type :text :text t}] :created-at n})
@@ -3957,7 +3960,7 @@
       (h/reset-components!)
       (swap! (h/db*) assoc-in [:chats "full"]
              {:id "full" :messages [(msg "m0" 1) (msg "m1" 2) (msg "m2" 3)]})
-      (let [result (f.chat/open-chat! {:chat-id "full"} (h/db*) (h/messenger) (h/config))]
+      (let [result (f.chat.ops/open-chat! {:chat-id "full"} (h/db*) (h/messenger) (h/config))]
         (is (nil? (:meta result)))
         (is (= ["m0" "m1" "m2"] (replayed-texts)))))
 
@@ -3965,7 +3968,7 @@
       (h/reset-components!)
       (swap! (h/db*) assoc-in [:chats "win"]
              {:id "win" :messages [(msg "m0" 1) (msg "m1" 2) (msg "m2" 3)]})
-      (let [result (f.chat/open-chat! {:chat-id "win" :limit 2} (h/db*) (h/messenger) (h/config))]
+      (let [result (f.chat.ops/open-chat! {:chat-id "win" :limit 2} (h/db*) (h/messenger) (h/config))]
         (is (match? {:found true :chat-id "win"
                      :meta {:total 3 :returned 2 :after-cursor nil}}
                     result))
@@ -3976,7 +3979,7 @@
       (h/reset-components!)
       (swap! (h/db*) assoc-in [:chats "exp"]
              {:id "exp" :messages [(msg "m0" 1)]})
-      (let [result (f.chat/open-chat! {:chat-id "exp" :before "bogus"} (h/db*) (h/messenger) (h/config))]
+      (let [result (f.chat.ops/open-chat! {:chat-id "exp" :before "bogus"} (h/db*) (h/messenger) (h/config))]
         (is (= "cursor_expired" (get-in result [:error :code])))
         (is (= {} (h/messages)) "no notifications emitted on expired cursor")))))
 
@@ -4057,7 +4060,7 @@
            :content {:type :image
                      :media-type "image/png"
                      :base64 "AAA"}}]
-         (#'f.chat/message-content->chat-content
+         (#'f.chat.replay/message-content->chat-content
           "image_generation_call"
           {:id "ig_1" :media-type "image/png" :base64 "AAA"}
           nil))))
@@ -4070,12 +4073,12 @@
            :content {:type :image
                      :media-type "image/png"
                      :base64 "BBB"}}]
-         (#'f.chat/message-content->chat-content
+         (#'f.chat.replay/message-content->chat-content
           "user"
           [{:type :image :media-type "image/png" :base64 "BBB"}]
           nil))))
   (testing "User-role mixed text + image history collapses text and emits one image content"
-    (let [result (#'f.chat/message-content->chat-content
+    (let [result (#'f.chat.replay/message-content->chat-content
                   "user"
                   [{:type :text :text "look at this:"}
                    {:type :image :media-type "image/png" :base64 "CCC"}]
@@ -4088,7 +4091,7 @@
     (is (match?
          [{:role "user" :content {:type :image :base64 "X"}}
           {:role "user" :content {:type :image :base64 "Y"}}]
-         (#'f.chat/message-content->chat-content
+         (#'f.chat.replay/message-content->chat-content
           "user"
           [{:type :image :media-type "image/png" :base64 "X"}
            {:type :image :media-type "image/png" :base64 "Y"}]
@@ -4097,7 +4100,7 @@
     (is (match?
          [{:role "user"
            :content {:type :text}}]
-         (#'f.chat/message-content->chat-content
+         (#'f.chat.replay/message-content->chat-content
           "user"
           [{:type :text :text "hello"}]
           nil)))))
@@ -4428,19 +4431,19 @@
                       :content [{:type :text :text "q"}]
                       :content-id "m1"}]})
   (testing "returns the new chat id"
-    (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "c1" :content-id "m1"}
+    (let [{:keys [chat-id]} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "m1"}
                                               (h/db*) (h/messenger) (h/metrics))]
       (is (string? chat-id))
       (is (some? (get-in (h/db) [:chats chat-id])))))
   (testing "unknown content-id returns an empty map"
-    (is (= {} (f.chat/fork-chat {:chat-id "c1" :content-id "nope"}
+    (is (= {} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "nope"}
                                 (h/db*) (h/messenger) (h/metrics))))))
 
 (deftest messages->contents-merges-adjacent-reasons-test
   (let [reason (fn [id text ms] {:role "reason" :content {:id id :external-id (str "enc-" id) :text text :total-time-ms ms}})
         assistant {:role "assistant" :content [{:type :text :text "Hi"}]}
         contents (fn [messages]
-                   (mapv :content (f.chat/messages->contents messages {:chat-id "c1" :db {}})))]
+                   (mapv :content (f.chat.replay/messages->contents messages {:chat-id "c1" :db {}})))]
     (testing "a run of reasons renders as one block with the first id, joined texts and summed time"
       (is (= [{:type :reasonStarted :id "r1"}
               {:type :reasonText :id "r1" :text "Plan\n\nAct"}
@@ -4473,13 +4476,13 @@
                 (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :title "Orig" :messages messages}))]
     (testing "a flag added on a merged block lands after the whole run"
       (seed!)
-      (f.chat/add-flag {:chat-id "c1" :content-id "r1" :text "checkpoint"} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/add-flag {:chat-id "c1" :content-id "r1" :text "checkpoint"} (h/db*) (h/messenger) (h/metrics))
       (is (= ["user" "reason" "reason" "flag" "assistant"]
              (mapv :role (get-in (h/db) [:chats "c1" :messages])))))
 
     (testing "a fork from a merged block keeps the whole run"
       (seed!)
-      (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "c1" :content-id "r1"} (h/db*) (h/messenger) (h/metrics))]
+      (let [{:keys [chat-id]} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "r1"} (h/db*) (h/messenger) (h/metrics))]
         (is (= ["user" "reason" "reason"]
                (mapv :role (get-in (h/db) [:chats chat-id :messages]))))))))
 
@@ -4529,7 +4532,7 @@
   (testing "incremental clients get only the declared page size, with paging meta"
     (h/reset-messenger!)
     (enable-incremental-updates! {:history-page-size 2})
-    (let [{:keys [chat-id meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+    (let [{:keys [chat-id meta]} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "m3"}
                                                    (h/db*) (h/messenger) (h/metrics))]
       (is (match? [{:chat-id chat-id :history {:total 4 :returned 2}}]
                   (:chat-opened (h/messages))))
@@ -4544,32 +4547,32 @@
       (testing "the before cursor pages the older kept messages"
         (is (match? {:contents [{:content {:content-id "m0"}}
                                 {:content {:content-id "m1"}}]}
-                    (f.chat/fetch-history {:chat-id chat-id
+                    (f.chat.ops/fetch-history {:chat-id chat-id
                                            :before (:before-cursor meta)}
                                           (h/db*)))))))
   (testing "rolling the fork back to its first loaded message keeps older pages loadable"
     (h/reset-messenger!)
     (enable-incremental-updates! {:history-page-size 2})
-    (let [{:keys [chat-id meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+    (let [{:keys [chat-id meta]} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "m3"}
                                                    (h/db*) (h/messenger) (h/metrics))]
-      (f.chat/rollback-chat {:chat-id chat-id :content-id "m2" :include ["messages"]}
+      (f.chat.ops/rollback-chat {:chat-id chat-id :content-id "m2" :include ["messages"]}
                             (h/db*) (h/messenger) (h/metrics))
       (is (match? {:contents [{:content {:content-id "m0"}}
                               {:content {:content-id "m1"}}]
                    :meta {:before-cursor nil}}
-                  (f.chat/fetch-history {:chat-id chat-id :before (:before-cursor meta)}
+                  (f.chat.ops/fetch-history {:chat-id chat-id :before (:before-cursor meta)}
                                         (h/db*))))))
   (testing "incremental clients without a page size get the default"
     (h/reset-messenger!)
-    (with-redefs [history/default-history-page-size 3]
+    (with-redefs [f.chat.history/default-history-page-size 3]
       (enable-incremental-updates!)
-      (let [{:keys [meta]} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+      (let [{:keys [meta]} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "m3"}
                                              (h/db*) (h/messenger) (h/metrics))]
         (is (match? {:total 4 :returned 3} meta))))
     (swap! (h/db*) update :client-capabilities dissoc :code-assistant))
   (testing "other clients get the whole kept history and no meta"
     (h/reset-messenger!)
-    (let [{:keys [chat-id] :as res} (f.chat/fork-chat {:chat-id "c1" :content-id "m3"}
+    (let [{:keys [chat-id] :as res} (f.chat.ops/fork-chat {:chat-id "c1" :content-id "m3"}
                                                       (h/db*) (h/messenger) (h/metrics))]
       (is (not (contains? res :meta)))
       (is (= ["m0" "m1" "m2" "m3"]
@@ -4647,7 +4650,7 @@
                                        :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}
                                  "c2" {:id "c2"
                                        :remembered-approvals {"eca__write_file" {:remember-to-approve? true}}}})
-    (f.chat/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
+    (f.chat.ops/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
     (is (nil? (db/remembered-approvals (h/db) "c1")))
     (is (= {"eca__write_file" {:remember-to-approve? true}}
            (db/remembered-approvals (h/db) "c2"))
@@ -4662,7 +4665,7 @@
       (swap! (h/db*) assoc :chats {"c1" (merge {:id "c1" :messages [{:role "user" :content [{:type :text :text "hi"}]}]}
                                                module-data)
                                    "c2" (merge {:id "c2"} module-data)})
-      (f.chat/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
+      (f.chat.ops/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
       (is (not-any? #(contains? (get-in (h/db) [:chats "c1"]) %) [:modules :module-contexts :compaction-request]))
       (is (= module-data (select-keys (get-in (h/db) [:chats "c2"]) (keys module-data)))
           "other chats keep theirs"))))

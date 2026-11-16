@@ -6,7 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.models :as models]
@@ -62,11 +62,11 @@
   (setup-chat!)
   (let [request {:past-messages (subvec history 2) :user-messages [] :instructions "Be nice." :tools [{:name "t"}]}]
     (testing "without handlers the request is returned as is"
-      (is (identical? request (lifecycle/before-llm-request (chat-ctx) request))))
+      (is (identical? request (f.chat.lifecycle/before-llm-request (chat-ctx) request))))
     (testing "modules see the request and the history, and change what the model sees"
       (with-module! {:llm/before-request (fn [_ {:keys [request]}]
                                            {:request (update request :past-messages #(mapv redact %))})})
-      (let [sent (lifecycle/before-llm-request (chat-ctx) request)]
+      (let [sent (f.chat.lifecycle/before-llm-request (chat-ctx) request)]
         (is (= "[REDACTED]" (get-in sent [:past-messages 4 :content :output :contents 0 :text])))
         (is (= (dissoc request :past-messages) (dissoc sent :past-messages)))
         (is (= history (get-in (h/db) [:chats "chat-1" :messages])) "the history doesn't change"))
@@ -79,17 +79,17 @@
                   @events*)))
     (testing "new user messages count in the turn"
       (with-module! {:llm/before-request (constantly nil)})
-      (lifecycle/before-llm-request (chat-ctx) (assoc request :user-messages [(text "and add a test")]))
+      (f.chat.lifecycle/before-llm-request (chat-ctx) (assoc request :user-messages [(text "and add a test")]))
       (is (match? [{:turn [(text "and add a test")]
                     :since-checkpoint (conj (subvec history 2) (text "and add a test"))}]
                   @events*)))
     (testing "changes of the wrong type, and model changes, are ignored"
       (with-module! {:llm/before-request (fn [_ {:keys [request]}]
                                            {:request (assoc request :tools "all" :instructions 42 :model "openai/o3")})})
-      (is (= request (lifecycle/before-llm-request (chat-ctx) request))))
+      (is (= request (f.chat.lifecycle/before-llm-request (chat-ctx) request))))
     (testing "a request that isn't a map is ignored"
       (with-module! {:llm/before-request (constantly {:request "nope"})})
-      (is (= request (lifecycle/before-llm-request (chat-ctx) request))))))
+      (is (= request (f.chat.lifecycle/before-llm-request (chat-ctx) request))))))
 
 (deftest chat-requests-go-through-the-event-test
   (with-module! {:llm/before-request (fn [_ {:keys [request]}]

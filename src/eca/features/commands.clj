@@ -6,8 +6,8 @@
    [eca.db :as db]
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
-   [eca.features.chat.history :as history]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.history :as f.chat.history]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.context :as f.context]
    [eca.features.login :as f.login]
    [eca.features.modules :as f.modules]
@@ -86,13 +86,13 @@
                         ;; the modules' chat state goes with the chat
                         (select-keys chat (conj (vec extra-copied-keys) :modules)))
         messages (:messages new-chat)
-        page (history/server-created-page @db* messages)]
+        page (f.chat.history/server-created-page @db* messages)]
     (swap! db* assoc-in [:chats new-id] new-chat)
     (db/save-chat! @db* new-id metrics)
     (messenger/chat-opened messenger
                            (shared/assoc-some {:chat-id new-id :title new-title}
                                               :history (when page
-                                                         (history/page-meta page messages))))
+                                                         (f.chat.history/page-meta page messages))))
     {:chat new-chat
      :replay-messages (if page (:messages page) messages)}))
 
@@ -456,16 +456,16 @@
                                                                   :content [{:type :text
                                                                              :text "No compaction module handled this chat."}]}]}}}
                       send-stopped! (fn [{:keys [ended-by stop-reason]}]
-                                      (lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
+                                      (f.chat.lifecycle/send-ended! chat-ctx "Turn stopped" ended-by stop-reason))
                       {:keys [blocked? reason stop-turn? ended-by instructions]}
-                      (when (lifecycle/compaction-handled? config)
-                        (lifecycle/run-pre-compact! chat-ctx "manual" custom-instructions))
+                      (when (f.chat.lifecycle/compaction-handled? config)
+                        (f.chat.lifecycle/run-pre-compact! chat-ctx "manual" custom-instructions))
                       ;; a module may compact the chat instead of :eca/compact-as-summary
-                      answer (when (and (lifecycle/compaction-handled? config) (not blocked?))
-                               (lifecycle/compact-with-module! chat-ctx "manual" instructions))]
+                      answer (when (and (f.chat.lifecycle/compaction-handled? config) (not blocked?))
+                               (f.chat.lifecycle/compact-with-module! chat-ctx "manual" instructions))]
                   (cond
                     ;; :eca/compact-as-summary owns compaction; disabled, only a module compacts
-                    (not (lifecycle/compaction-handled? config))
+                    (not (f.chat.lifecycle/compaction-handled? config))
                     no-compaction
 
                     blocked?
@@ -473,16 +473,16 @@
                       ;; continue:false stops the turn; exit 2 blocks compaction only.
                       (if stop-turn?
                         (send-stopped! {:ended-by ended-by :stop-reason reason})
-                        (lifecycle/send-ended! chat-ctx "Compaction blocked" ended-by reason))
+                        (f.chat.lifecycle/send-ended! chat-ctx "Compaction blocked" ended-by reason))
                       {:type :new-chat-status :status :idle})
 
                     answer
-                    (let [{:keys [stop-turn?] :as result} (lifecycle/finish-module-compaction! chat-ctx "manual" answer)]
+                    (let [{:keys [stop-turn?] :as result} (f.chat.lifecycle/finish-module-compaction! chat-ctx "manual" answer)]
                       (when stop-turn?
                         (send-stopped! result))
                       {:type :new-chat-status :status :idle})
 
-                    (not (lifecycle/compaction-module-active? config))
+                    (not (f.chat.lifecycle/compaction-module-active? config))
                     no-compaction
 
                     :else
@@ -495,7 +495,7 @@
                        ;; a compaction's prompt, not a user request for modules
                        :compaction? true
                        :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
-                                                       (lifecycle/complete-compact! chat-ctx "manual")]
+                                                       (f.chat.lifecycle/complete-compact! chat-ctx "manual")]
                                                    (when stop-turn?
                                                      (send-stopped! result))
                                                    {:stop-after-finish? (or stop-turn? (not compacted?))})
@@ -791,7 +791,7 @@
                       usage (shared/usage-sumary chat-id full-model db
                                                  {:subscription? (f.quota/subscription? provider db config)})
                       context-limit (get-in db [:models full-model :limit :context])
-                      compact-percentage (lifecycle/auto-compact-threshold config agent context-limit)
+                      compact-percentage (f.chat.lifecycle/auto-compact-threshold config agent context-limit)
                       breakdown (shared/context-breakdown
                                  {:system-prompt (f.prompt/instructions->str instructions)
                                   :tools all-tools
@@ -800,10 +800,10 @@
                                   :session-tokens (:session-tokens usage)})]
                   ;; Refresh the client's live usage payload so the header-line
                   ;; context bar reflects the latest breakdown immediately.
-                  (lifecycle/send-content! chat-ctx :system
-                                           (merge {:type :usage} usage {:context-breakdown breakdown}
-                                                  (when compact-percentage
-                                                    {:auto-compact-percentage compact-percentage})))
+                  (f.chat.lifecycle/send-content! chat-ctx :system
+                                                  (merge {:type :usage} usage {:context-breakdown breakdown}
+                                                         (when compact-percentage
+                                                           {:auto-compact-percentage compact-percentage})))
                   {:type :chat-messages
                    :chats {chat-id {:messages [{:role "system"
                                                 :content [{:type :text

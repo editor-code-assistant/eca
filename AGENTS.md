@@ -5,7 +5,7 @@ ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/
 - Architecture (request flow: editor → JSON-RPC stdio → `handlers` → `features` and modules → `llm_api` → provider modules → streamed back via `messenger`):
   - `src/eca/server.clj` / `src/eca/main.clj`: stdio server entrypoint / CLI interface.
   - `src/eca/handlers.clj`: entrypoint for all protocol methods, dispatches to features.
-  - `src/eca/features/`: core capabilities — `chat.clj` (+ `chat/` lifecycle, history, tool-calls), `tools.clj` (tool pipeline and approval rules, + `tools/util.clj`), `commands.clj` (core commands), `context.clj`, `prompt.clj`, `login.clj`, `providers.clj`, `modules.clj` (`/modules`).
+  - `src/eca/features/`: core capabilities — `chat.clj` (+ `chat/`: `lifecycle`, `tool_calls` (the tool-call state machine), `tool_batch`, `steer`, `replay`, `ops`, `system_prompt`, `history`, `export`, `debug`), `tools.clj` (tool pipeline and approval rules, + `tools/util.clj`), `commands.clj` (core commands), `context.clj`, `prompt.clj`, `login.clj`, `providers.clj`, `modules.clj` (`/modules`).
   - `src/eca/modules/`: the module runtime (`modules.clj`, `events`, `loader`, `config_spec`, `data`) and the built-in modules, one namespace each, listed in `built_in.clj` (`eca.main` hands that list to the runtime): `tools/` (filesystem, shell, git, editor, task…), `providers/` (each provider, with its API when it has its own), `agents`, `subagents`, `skills`, `rules`, `mcp`, `hooks`, `plugins`, `remote`, `otel`, `repl`…
   - Core vs modules (`docs/development.md`, "Core and modules"): core is layered and requires no built-in module; modules extend it through module keys and events, never through core calling them, checking their ids or multimethods. `test/eca/architecture_test.clj` checks it; its allowlists only shrink: move code into the module instead of adding to them.
   - `src/eca/api.clj` + `src/eca/api/`: the module API, all that external modules see.
@@ -36,7 +36,7 @@ ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/
   - One file per `ns`; always `(set! *warn-on-reflection* true)` near top.
   - Group `:require` as: Clojure stdlib, third‑party, then `eca.*`; sort within groups.
   - Prefer `:as` aliases; avoid `:refer` except in tests (`clojure.test` and what you use).
-  - Alias a module namespace `m.<module>` (`[eca.modules.tools.filesystem :as m.filesystem]`) and a module's helper namespace `m.<module>.<helper>` (`m.shell.parser`); the module runtime keeps plain names (`modules`, `events`, `loader`).
+  - Alias a module namespace `m.<module>` (`[eca.modules.tools.filesystem :as m.filesystem]`) and a module's helper namespace `m.<module>.<helper>` (`m.shell.parser`); the module runtime keeps plain names (`modules`, `events`, `loader`). Alias a chat engine namespace `f.chat.<feature>` (`[eca.features.chat.lifecycle :as f.chat.lifecycle]`).
 
 - Naming/types/data:
   - Internal Clojure names and domain keys use kebab-case (`chat-id`, `tool-call-id`, `parent-chat-id`).

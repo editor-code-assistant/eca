@@ -6,7 +6,8 @@
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
    [eca.features.chat :as f.chat]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.replay :as f.chat.replay]
    [eca.features.commands :as f.commands]
    [eca.modules :as modules]
    [eca.modules.hooks :as m.hooks]
@@ -98,12 +99,12 @@
 (deftest checkpoint-replay-test
   (testing "a module's checkpoint shows its label when the chat is opened again"
     (is (match? [{:role :system :content {:text "── Compacted (acme) ──"}}]
-                (#'f.chat/message-content->chat-content "compact_marker" {:module :acme/compact :label "Compacted (acme)"} nil))))
+                (#'f.chat.replay/message-content->chat-content "compact_marker" {:module :acme/compact :label "Compacted (acme)"} nil))))
   (testing "markers of older chats show as before"
     (is (match? [{:content {:text "── Chat auto-compacted ──"}}]
-                (#'f.chat/message-content->chat-content "compact_marker" {:auto? true} nil)))
+                (#'f.chat.replay/message-content->chat-content "compact_marker" {:auto? true} nil)))
     (is (match? [{:content {:text "── Chat compacted ──"}}]
-                (#'f.chat/message-content->chat-content "compact_marker" {:auto? false} nil)))))
+                (#'f.chat.replay/message-content->chat-content "compact_marker" {:auto? false} nil)))))
 
 (deftest compact-command-with-a-module-test
   (testing "a module compacts the chat on /compact, even with eca/compact-as-summary disabled"
@@ -163,7 +164,7 @@
     (with-module! {:chat/after-compact (constantly {:additional-context "Keep the plan." :stop "Review first."})})
     (let [hooks* (atom [])
           result (with-redefs [m.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
-                   (lifecycle/complete-compact! (ctx) "auto"))]
+                   (f.chat.lifecycle/complete-compact! (ctx) "auto"))]
       (is (match? {:compacted? true :stop-turn? true :stop-reason "Review first." :ended-by {:module :acme/compact}} result))
       (is (not-any? #{:postCompact} @hooks*)))
     (is (match? [[:chat/after-compact {:trigger :auto
@@ -197,14 +198,14 @@
       (let [resumed* (atom false)
             finished* (atom false)]
         (with-redefs-fn {#'f.chat/resume-after-compact! (fn [& _] (reset! resumed* true) nil)
-                         #'lifecycle/finish-chat-prompt! (fn [& _] (reset! finished* true) nil)}
+                         #'f.chat.lifecycle/finish-chat-prompt! (fn [& _] (reset! finished* true) nil)}
           #(#'f.chat/trigger-auto-compact! (ctx) [] []))
         (is (= [resumes? (not resumes?)] [@resumed* @finished*]) (pr-str answer)))))
   (testing "a failed compaction stops the turn"
     (setup-chat!)
     (with-module! {:chat/compact (constantly {:status :failed :message "The summarizer is down."})})
     (let [stopped* (atom false)]
-      (with-redefs [lifecycle/finish-chat-prompt-stopped! (fn [& _] (reset! stopped* true))]
+      (with-redefs [f.chat.lifecycle/finish-chat-prompt-stopped! (fn [& _] (reset! stopped* true))]
         (#'f.chat/trigger-auto-compact! (ctx) [] []))
       (is @stopped*)
       (is (some #{"The summarizer is down."} (system-texts)))

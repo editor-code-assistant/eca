@@ -10,7 +10,7 @@
    [eca.api.http :as api.http]
    [eca.api.json :as api.json]
    [eca.db :as db]
-   [eca.features.chat :as f.chat]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.features.commands :as f.commands]
    [eca.features.modules :as f.modules]
    [eca.llm-api :as llm-api]
@@ -75,7 +75,7 @@
       (is (fs/directory? chat-dir)))
     (testing "the chat's folders go with the chat"
       (spit (str (fs/path chat-dir "notes.md")) "notes")
-      (f.chat/delete-chat {:chat-id "chat-1"} (h/db*) (h/messenger) {} (h/metrics))
+      (f.chat.ops/delete-chat {:chat-id "chat-1"} (h/db*) (h/messenger) {} (h/metrics))
       (is (not (fs/exists? chat-dir)))
       (is (fs/directory? module-dir)))
     (testing "also when old chats are cleaned up"

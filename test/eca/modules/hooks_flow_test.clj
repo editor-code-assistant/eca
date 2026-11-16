@@ -8,6 +8,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
@@ -460,7 +461,7 @@
     (fresh!)
     (let [{:keys [chat-id]} (prompt! "hello" {:hooks {"e" (hook "chatEnd")}})]
       (is (empty? (runs)))
-      (with-hooks* {} #(f.chat/delete-chat {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics)))
+      (with-hooks* {} #(f.chat.ops/delete-chat {:chat-id chat-id} (h/db*) (h/messenger) (h/config) (h/metrics)))
       (is (= [["e" "chatEnd"]] (runs)))
       (is (match? {"chat_id" chat-id "agent" "code"} (run-input "e"))))))
 

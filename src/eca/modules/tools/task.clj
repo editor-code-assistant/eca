@@ -2,7 +2,7 @@
   "The `:eca/task` module. A task list the model keeps for each chat."
   (:require
    [clojure.string :as str]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]))
 
@@ -540,11 +540,11 @@
   [{:keys [db* chat-id] :as ctx} _event]
   (when-let [cleared-details (auto-clear-completed! db* chat-id)]
     (logger/info "[TASK]" "Auto-cleared completed task list" {:chat-id chat-id})
-    (lifecycle/send-content! ctx :assistant
-                             {:type :toolCalled
-                              :server "eca"
-                              :name "task"
-                              :details cleared-details}))
+    (f.chat.lifecycle/send-content! ctx :assistant
+                                    {:type :toolCalled
+                                     :server "eca"
+                                     :name "task"
+                                     :details cleared-details}))
   nil)
 
 (def module

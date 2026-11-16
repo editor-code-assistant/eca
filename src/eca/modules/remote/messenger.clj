@@ -6,7 +6,7 @@
    clients get the full-replay equivalent of incremental notifications
    (truncation, positioned flags and paged server-created chats)."
   (:require
-   [eca.features.chat :as f.chat]
+   [eca.features.chat.replay :as f.chat.replay]
    [eca.messenger :as messenger]
    [eca.modules.remote.sse :as m.remote.sse]
    [eca.shared :as shared]))
@@ -21,7 +21,7 @@
   [sse-connections* db chat-id messages]
   ;; Skip building the payloads when nobody listens: replays cost O(chat).
   (when (seq @sse-connections*)
-    (doseq [payload (f.chat/messages->contents messages {:chat-id chat-id :db db})]
+    (doseq [payload (f.chat.replay/messages->contents messages {:chat-id chat-id :db db})]
       (m.remote.sse/broadcast! sse-connections* "chat:content-received" (->camel payload)))))
 
 (defn ^:private broadcast-replay!

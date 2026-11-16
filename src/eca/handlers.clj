@@ -5,6 +5,7 @@
    [eca.db :as db]
    [eca.features.background-tasks :as f.background-tasks]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.features.completion :as f.completion]
    [eca.features.login :as f.login]
    [eca.features.modules :as f.modules]
@@ -366,40 +367,40 @@
 
 (defn chat-delete [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-delete
-    (f.chat/delete-chat params db* messenger config metrics)
+    (f.chat.ops/delete-chat params db* messenger config metrics)
     {}))
 
 (defn chat-clear [{:keys [db* messenger metrics]} params]
   (metrics/task metrics :eca/chat-clear
-    (f.chat/clear-chat params db* messenger metrics)
+    (f.chat.ops/clear-chat params db* messenger metrics)
     {}))
 
 (defn chat-rollback [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-rollback
-    (f.chat/rollback-chat params db* messenger metrics)))
+    (f.chat.ops/rollback-chat params db* messenger metrics)))
 
 (defn chat-add-flag [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-add-flag
-    (f.chat/add-flag params db* messenger metrics)))
+    (f.chat.ops/add-flag params db* messenger metrics)))
 
 (defn chat-remove-flag [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-remove-flag
-    (f.chat/remove-flag params db* metrics)))
+    (f.chat.ops/remove-flag params db* metrics)))
 
 (defn chat-fork [{:keys [db* metrics messenger]} params]
   (metrics/task metrics :eca/chat-fork
-    (f.chat/fork-chat params db* messenger metrics)))
+    (f.chat.ops/fork-chat params db* messenger metrics)))
 
 (defn chat-update [{:keys [db* messenger metrics]} params]
   (metrics/task metrics :eca/chat-update
-    (f.chat/update-chat params db* messenger metrics)))
+    (f.chat.ops/update-chat params db* messenger metrics)))
 
 (defn chat-list
   "Return a summary list of persisted chats for the current DB.
    Supports optional :limit and :sort-by params (see `f.chat/list-chats`)."
   [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-list
-    (f.chat/list-chats @db* params)))
+    (f.chat.ops/list-chats @db* params)))
 
 (defn chat-open
   "Replay a persisted chat over the wire for the client to render.
@@ -408,7 +409,7 @@
    to restore the chat's stored selection. Returns `{:found bool ...}`."
   [{:keys [db* messenger config metrics]} params]
   (metrics/task metrics :eca/chat-open
-    (f.chat/open-chat! params db* messenger config metrics)))
+    (f.chat.ops/open-chat! params db* messenger config metrics)))
 
 (defn chat-history
   "Fetch a window of a chat's history (request/response, no streaming).
@@ -417,7 +418,7 @@
    `{:error {:code :message}}`."
   [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-history
-    (f.chat/fetch-history params db* metrics)))
+    (f.chat.ops/fetch-history params db* metrics)))
 
 (defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
   (metrics/task metrics :eca/mcp-stop-server

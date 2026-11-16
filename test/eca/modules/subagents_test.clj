@@ -4,7 +4,9 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
-   [eca.features.chat.tool-calls :as tool-calls]
+   [eca.features.chat.ops :as f.chat.ops]
+   [eca.features.chat.replay :as f.chat.replay]
+   [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.commands :as f.commands]
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
@@ -435,7 +437,7 @@
                       (fn [{:keys [on-first-response-received on-message-received
                                    on-prepare-tool-call on-tools-called]}]
                         (on-first-response-received {:type :text :text "start"})
-                        (f.chat/update-chat {:chat-id "parent" :trust toggled-trust}
+                        (f.chat.ops/update-chat {:chat-id "parent" :trust toggled-trust}
                                             (h/db*) (h/messenger) (h/metrics))
                         (on-prepare-tool-call {:id "lookup" :full-name "eca__lookup" :arguments-text "{}"})
                         (on-tools-called [{:id "lookup" :full-name "eca__lookup" :arguments {}}])
@@ -1293,7 +1295,7 @@
                             :details (merge {:type :subagent :agent-name "explorer" :subagent-chat-id id} details)
                             :output {:contents [{:type :text :text "Tool result"}]}}})
         child-texts (fn [message]
-                      (->> (f.chat/messages->contents [message] {:chat-id "parent" :db db})
+                      (->> (f.chat.replay/messages->contents [message] {:chat-id "parent" :db db})
                            (filter #(= id (:chat-id %)))
                            (keep #(get-in % [:content :text]))
                            (map string/trim)))]
@@ -1588,8 +1590,8 @@
             context {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
                      :chat-id "parent" :tool-call-id "cancel" :call-state-fn #(deref call-state*)}
             handler (spawn-handler)
-            transition tool-calls/transition-tool-call!
-            active tool-calls/get-active-tool-calls
+            transition f.chat.tool-calls/transition-tool-call!
+            active f.chat.tool-calls/get-active-tool-calls
             ;; Ignore cancellation only until the test explicitly releases old work.
             wait! (fn [] (loop []
                            (let [result (try (deref release 30000 ::timeout)
@@ -1611,10 +1613,10 @@
                       f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
                                                       :server {:name "eca"} :origin :native}])
                       f.tools/approval (constantly :allow)
-                      tool-calls/get-active-tool-calls (fn [db chat-id]
-                                                        (when (realized? stopped) (deliver joining true))
-                                                        (active db chat-id))
-                      tool-calls/transition-tool-call!
+                      f.chat.tool-calls/get-active-tool-calls (fn [db chat-id]
+                                                               (when (realized? stopped) (deliver joining true))
+                                                               (active db chat-id))
+                      f.chat.tool-calls/transition-tool-call!
                       (fn [db* ctx tool-id event & data]
                         (try
                           (let [result (apply transition db* ctx tool-id event data)]

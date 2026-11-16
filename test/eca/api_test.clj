@@ -4,6 +4,7 @@
    [eca.api :as eca]
    [eca.db :as db]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.shared :as shared]
@@ -108,7 +109,7 @@
 (deftest chat-state-forked-test
   (add-chat! {:messages [{:role "user" :content [{:type :text :text "hi"}] :content-id "c1"}]
               :modules {:acme/x {:on? true}}})
-  (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "chat-1" :content-id "c1"} (h/db*) (h/messenger) (h/metrics))]
+  (let [{:keys [chat-id]} (f.chat.ops/fork-chat {:chat-id "chat-1" :content-id "c1"} (h/db*) (h/messenger) (h/metrics))]
     (is (= {:acme/x {:on? true}} (get-in (h/db) [:chats chat-id :modules])))))
 
 (deftest send-prompt-test

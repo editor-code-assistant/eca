@@ -23,7 +23,7 @@
      [eca.features.chat eca.modules.repo-map]
      [eca.features.chat eca.modules.rules]
      [eca.features.chat eca.modules.skills]
-     [eca.features.chat.tool-calls eca.modules.mcp]
+     [eca.features.chat.tool-batch eca.modules.mcp]
      [eca.features.commands eca.modules.custom-commands]
      [eca.features.commands eca.modules.mcp]
      [eca.features.commands eca.modules.skills]

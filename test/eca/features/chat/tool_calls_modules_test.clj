@@ -3,7 +3,7 @@
    the approval from the config rules, then other modules may change it."
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.tool-calls :as tc]
+   [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules :as modules]
@@ -19,7 +19,7 @@
 
 (defn- decide [config]
   (with-redefs [m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-    (#'tc/decide-tool-call-action tool-call all-tools (h/db) config "code" "chat-1")))
+    (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools (h/db) config "code" "chat-1")))
 
 (defn- with-module [module f]
   (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with :eca/approval) module))]

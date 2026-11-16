@@ -2,7 +2,7 @@
   (:require
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -42,10 +42,10 @@
                    :pending-approval-tool-call-ids ["tool-a" "tool-z"]
                    :pending-question-tool-call-ids ["question"]
                    :running-tool-call-ids ["other-question" "running"]}
-                  (#'lifecycle/chat-status-payload db chat-id)))))
+                  (#'f.chat.lifecycle/chat-status-payload db chat-id)))))
 
   (testing "omits waiting reason when nothing is awaiting user input"
-    (let [payload (#'lifecycle/chat-status-payload
+    (let [payload (#'f.chat.lifecycle/chat-status-payload
                    {:chats {chat-id {:status :idle
                                       :tool-calls {"done" {:status :completed}}}}}
                    chat-id)]
@@ -87,8 +87,8 @@
                       (if (= "a-stop" hook-name)
                         {:exit 0 :out "{\"continue\":false,\"systemMessage\":\"ignored\"}" :err nil}
                         {:exit 0 :out "after" :err nil})))]
-      (lifecycle/trigger-chat-status-hook! ctx)
-      (lifecycle/trigger-chat-status-hook! ctx)
+      (f.chat.lifecycle/trigger-chat-status-hook! ctx)
+      (f.chat.lifecycle/trigger-chat-status-hook! ctx)
       (is (nil? (:chat-status-changed (h/messages)))
           "hook-only helper does not emit the protocol notification")
       (is (= ["a-stop"] @calls*)
@@ -111,7 +111,7 @@
 
       (swap! db* assoc-in [:chats chat-id]
              {:id chat-id :status :idle :tool-calls {}})
-      (lifecycle/trigger-chat-status-hook! ctx)
+      (f.chat.lifecycle/trigger-chat-status-hook! ctx)
       (is (= ["a-stop" "a-stop"] @calls*)
           "an actual aggregate change fires the hooks again")
       (is (match? {:status "idle"
@@ -127,123 +127,123 @@
   (testing "zero context limit (e.g. models.dev returning 0 for image-only models) is treated as unknown and returns falsy"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 50}
                       {:limit {:context 0 :output 0}})]
-      (is (not (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "nil context limit returns falsy"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 50}
                       {:limit {:context nil :output nil}})]
-      (is (not (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "missing :limit map returns falsy"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 50}
                       {})]
-      (is (not (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "unknown model (no entry in :models) returns falsy"
     (let [db {:chats {chat-id {:usage {:last-input-tokens 100 :last-output-tokens 50}}}}]
-      (is (not (lifecycle/auto-compact? chat-id agent-name full-model config db))))))
+      (is (not (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))))
 
 (deftest auto-compact?-with-positive-context-limit
   (testing "returns truthy when usage meets/exceeds the configured threshold"
     (let [db (db-with {:last-input-tokens 800 :last-output-tokens 0}
                       {:limit {:context 1000 :output 1000}})]
-      (is (lifecycle/auto-compact? chat-id agent-name full-model config db))))
+      (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))
 
   (testing "returns false when usage is below the configured threshold"
     (let [db (db-with {:last-input-tokens 100 :last-output-tokens 0}
                       {:limit {:context 1000 :output 1000}})]
-      (is (false? (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (false? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "respects per-agent autoCompactPercentage override"
     (let [db (db-with {:last-input-tokens 500 :last-output-tokens 0}
                       {:limit {:context 1000 :output 1000}})]
-      (is (lifecycle/auto-compact? chat-id agent-name full-model
-                                   {:agent {agent-name {:autoCompactPercentage 40}}
-                                    :autoCompactPercentage 99}
-                                   db)))))
+      (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model
+                                          {:agent {agent-name {:autoCompactPercentage 40}}
+                                           :autoCompactPercentage 99}
+                                          db)))))
 
 (deftest auto-compact?-with-tokens-left
   (let [config {:autoCompactPercentage 75 :autoCompactTokensLeft 20000}
         big-model {:limit {:context 1000000 :output 32000}}]
     (testing "ignores the percentage while more than the configured tokens remain"
       (let [db (db-with {:last-input-tokens 800000 :last-output-tokens 0} big-model)]
-        (is (false? (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+        (is (false? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
 
     (testing "triggers once the remaining tokens reach the configured value"
       (let [db (db-with {:last-input-tokens 980000 :last-output-tokens 0} big-model)]
-        (is (lifecycle/auto-compact? chat-id agent-name full-model config db)))
+        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))
       (let [db (db-with {:last-input-tokens 985000 :last-output-tokens 0} big-model)]
-        (is (lifecycle/auto-compact? chat-id agent-name full-model config db))))
+        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))
 
     (testing "respects per-agent autoCompactTokensLeft override"
       (let [db (db-with {:last-input-tokens 900000 :last-output-tokens 0} big-model)]
-        (is (lifecycle/auto-compact? chat-id agent-name full-model
-                                     (assoc config :agent {agent-name {:autoCompactTokensLeft 150000}})
-                                     db))))
+        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model
+                                            (assoc config :agent {agent-name {:autoCompactTokensLeft 150000}})
+                                            db))))
 
     (testing "falls back to autoCompactPercentage when the value is not below the context limit"
       (let [small-model {:limit {:context 128000 :output 16000}}
             config (assoc config :autoCompactTokensLeft 200000)]
-        (is (false? (lifecycle/auto-compact? chat-id agent-name full-model config
-                                             (db-with {:last-input-tokens 50000 :last-output-tokens 0} small-model))))
-        (is (lifecycle/auto-compact? chat-id agent-name full-model config
-                                     (db-with {:last-input-tokens 100000 :last-output-tokens 0} small-model)))))))
+        (is (false? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config
+                                                    (db-with {:last-input-tokens 50000 :last-output-tokens 0} small-model))))
+        (is (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config
+                                            (db-with {:last-input-tokens 100000 :last-output-tokens 0} small-model)))))))
 
 (deftest auto-compact-threshold-test
   (testing "returns the configured percentage when no absolute value is set"
-    (is (= 75 (lifecycle/auto-compact-threshold config agent-name 1000000))))
+    (is (= 75 (f.chat.lifecycle/auto-compact-threshold config agent-name 1000000))))
 
   (testing "derives the effective percentage from autoCompactTokensLeft"
-    (is (= 98.0 (lifecycle/auto-compact-threshold {:autoCompactTokensLeft 20000} agent-name 1000000)))
-    (is (= 87.5 (lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 25000}
-                                                  agent-name 200000))))
+    (is (= 98.0 (f.chat.lifecycle/auto-compact-threshold {:autoCompactTokensLeft 20000} agent-name 1000000)))
+    (is (= 87.5 (f.chat.lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 25000}
+                                                         agent-name 200000))))
 
   (testing "falls back to the percentage when the absolute value is not below the context limit"
-    (is (= 75 (lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 200000}
-                                                agent-name 128000))))
+    (is (= 75 (f.chat.lifecycle/auto-compact-threshold {:autoCompactPercentage 75 :autoCompactTokensLeft 200000}
+                                                       agent-name 128000))))
 
   (testing "nil when auto-compact is disabled"
-    (is (nil? (lifecycle/auto-compact-threshold {} agent-name 1000000)))))
+    (is (nil? (f.chat.lifecycle/auto-compact-threshold {} agent-name 1000000)))))
 
 (deftest auto-compact-max-per-turn-test
   (testing "returns the global value"
-    (is (= 3 (lifecycle/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
+    (is (= 3 (f.chat.lifecycle/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
 
   (testing "respects per-agent autoCompactMaxPerTurn override"
-    (is (= 1 (lifecycle/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
-                                                   :autoCompactMaxPerTurn 3}
-                                                  agent-name))))
+    (is (= 1 (f.chat.lifecycle/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
+                                                          :autoCompactMaxPerTurn 3}
+                                                         agent-name))))
 
   (testing "nil when unset"
-    (is (nil? (lifecycle/auto-compact-max-per-turn {} agent-name)))))
+    (is (nil? (f.chat.lifecycle/auto-compact-max-per-turn {} agent-name)))))
 
 (deftest auto-compact?-respects-in-progress-flags
   (testing "returns nil when chat is already compacting"
     (let [db (-> (db-with {:last-input-tokens 800 :last-output-tokens 0}
                           {:limit {:context 1000 :output 1000}})
                  (assoc-in [:chats chat-id :compacting?] true))]
-      (is (nil? (lifecycle/auto-compact? chat-id agent-name full-model config db)))))
+      (is (nil? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db)))))
 
   (testing "returns nil when chat is already auto-compacting"
     (let [db (-> (db-with {:last-input-tokens 800 :last-output-tokens 0}
                           {:limit {:context 1000 :output 1000}})
                  (assoc-in [:chats chat-id :auto-compacting?] true))]
-      (is (nil? (lifecycle/auto-compact? chat-id agent-name full-model config db))))))
+      (is (nil? (f.chat.lifecycle/auto-compact? chat-id agent-name full-model config db))))))
 
 (deftest ended-message-test
   (testing "a hook, named by its module with :by; a blank reason gives the short message"
     (is (= "Turn stopped by hook 'guard'."
-           (lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "")))
+           (f.chat.lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "")))
     (is (= "Turn stopped by hook 'guard'."
-           (lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "   ")))
+           (f.chat.lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "   ")))
     (is (= "Compaction blocked by hook 'guard'."
-           (lifecycle/ended-message "Compaction blocked" {:module :eca/hooks :by "hook 'guard'"} nil))))
+           (f.chat.lifecycle/ended-message "Compaction blocked" {:module :eca/hooks :by "hook 'guard'"} nil))))
 
   (testing "a module, by its id, with the reason"
     (is (= "Request blocked by module 'acme/x': too risky"
-           (lifecycle/ended-message "Request blocked" {:module :acme/x} "too risky")))
+           (f.chat.lifecycle/ended-message "Request blocked" {:module :acme/x} "too risky")))
     (is (= "Turn stopped by module '?'."
-           (lifecycle/ended-message "Turn stopped" nil nil)))))
+           (f.chat.lifecycle/ended-message "Turn stopped" nil nil)))))
 
 (defn- dispatch-ctx
   "Build a chat-ctx for dispatch-finish-callbacks! whose callbacks record their
@@ -259,23 +259,23 @@
 (deftest dispatch-finish-callbacks!-test
   (testing "on-finished-side-effect always runs, then on-after-finish! in the default path"
     (let [calls* (atom [])]
-      (#'lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {})
       (is (= [:side-effect :after-finish] @calls*))))
 
   (testing "stopping? halts continuations but the side-effect still runs"
     (let [calls* (atom [])]
-      (#'lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {:stopping? true})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {:stopping? true})
       (is (= [:side-effect] @calls*))))
 
   (testing "stop-turn? halts continuations but the side-effect still runs"
     (let [calls* (atom [])]
-      (#'lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {:stop-turn? true})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {:stop-turn? true})
       (is (= [:side-effect] @calls*))))
 
   (testing "follow-up text fires on-follow-up (not on-after-finish!) and flags the chat"
     (let [calls* (atom [])
           ctx (dispatch-ctx calls* {})]
-      (#'lifecycle/dispatch-finish-callbacks! ctx {:follow-up-text "do more"})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! ctx {:follow-up-text "do more"})
       (is (= [:side-effect [:follow-up "do more"]] @calls*))
       (is (true? (get-in @(:db* ctx) [:chats chat-id :follow-up-active?])))
       (is (nil? (get-in @(:db* ctx) [:chats chat-id :auto-compacting?])))
@@ -283,34 +283,34 @@
 
   (testing "stop-turn? takes precedence over follow-up text"
     (let [calls* (atom [])]
-      (#'lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {})
-                                              {:follow-up-text "do more" :stop-turn? true})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {})
+                                                     {:follow-up-text "do more" :stop-turn? true})
       (is (= [:side-effect] @calls*))))
 
   (testing "follow-up text with no on-follow-up callback fires nothing else (no fallback to on-after-finish!)"
     (let [calls* (atom [])]
-      (#'lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {:on-follow-up nil})
-                                              {:follow-up-text "do more"})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {:on-follow-up nil})
+                                                     {:follow-up-text "do more"})
       (is (= [:side-effect] @calls*))))
 
   (testing "stop-after-finish? from opts suppresses on-after-finish!"
     (let [calls* (atom [])]
-      (#'lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {:stop-after-finish? true})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! (dispatch-ctx calls* {}) {:stop-after-finish? true})
       (is (= [:side-effect] @calls*))))
 
   (testing "stop-after-finish? requested by the side-effect result suppresses on-after-finish!"
     (let [calls* (atom [])
           ctx (dispatch-ctx calls* {:on-finished-side-effect
                                     (fn [] (swap! calls* conj :side-effect) {:stop-after-finish? true})})]
-      (#'lifecycle/dispatch-finish-callbacks! ctx {})
+      (#'f.chat.lifecycle/dispatch-finish-callbacks! ctx {})
       (is (= [:side-effect] @calls*)))))
 
 (deftest finish-chat-prompt-stopped!-test
   (testing "skips postRequest hooks and strips finish side-effect callbacks (keeps on-follow-up)"
     (let [captured* (atom nil)]
-      (with-redefs [lifecycle/finish-chat-prompt! (fn [status ctx]
-                                                    (reset! captured* {:status status :ctx ctx}))]
-        (lifecycle/finish-chat-prompt-stopped!
+      (with-redefs [f.chat.lifecycle/finish-chat-prompt! (fn [status ctx]
+                                                           (reset! captured* {:status status :ctx ctx}))]
+        (f.chat.lifecycle/finish-chat-prompt-stopped!
          :idle
          {:chat-id "c1"
           :skip-post-request-hooks? false
@@ -350,7 +350,7 @@
                         (if (= "aaa-exit2" hook-name)
                           {:exit 2 :out nil :err "something went wrong"}
                           {:exit 0 :out nil :err nil})))]
-        (lifecycle/trigger-chat-status-hook! ctx)
+        (f.chat.lifecycle/trigger-chat-status-hook! ctx)
         (is (= ["aaa-exit2" "bbb-after"] @calls*)
             "exit 2 does not stop later hooks in the chain")
         (is (nil? (:chat-content-received (h/messages)))
@@ -362,7 +362,7 @@
                  (h/reset-components!)
                  (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :status :running})
                  {:chat-id chat-id :db* (h/db*) :messenger (h/messenger)})
-        send! (fn [ctx role content] (lifecycle/send-content! ctx role content))]
+        send! (fn [ctx role content] (f.chat.lifecycle/send-content! ctx role content))]
     (testing "adjacent blocks render as one block with the first id, empty or not"
       (let [ctx (setup!)]
         (send! ctx :assistant {:type :reasonStarted :id "r1"})
@@ -453,9 +453,9 @@
              :metrics (h/metrics)
              :agent "default"}]
     (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running})
-    (lifecycle/send-content! ctx :assistant {:type :reasonStarted :id "r1"})
-    (lifecycle/send-content! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 42})
-    (lifecycle/finish-chat-prompt! :idle ctx)
+    (f.chat.lifecycle/send-content! ctx :assistant {:type :reasonStarted :id "r1"})
+    (f.chat.lifecycle/send-content! ctx :assistant {:type :reasonFinished :id "r1" :total-time-ms 42})
+    (f.chat.lifecycle/finish-chat-prompt! :idle ctx)
     (is (match? [{:content {:type :reasonStarted :id "r1"}}
                  {:content {:type :reasonFinished :id "r1" :total-time-ms 42}}
                  {:content {:type :progress :state :finished}}]
@@ -474,10 +474,10 @@
                :agent "default"}]
       (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :idle})
       ;; First command-style finish: idle -> idle.
-      (lifecycle/finish-chat-prompt! :idle ctx)
+      (f.chat.lifecycle/finish-chat-prompt! :idle ctx)
       ;; Simulate the next command turn: prompt entry clears :prompt-finished?.
       (swap! db* update-in [:chats chat-id] dissoc :prompt-finished?)
-      (lifecycle/finish-chat-prompt! :idle ctx)
+      (f.chat.lifecycle/finish-chat-prompt! :idle ctx)
       (is (= 2 (count (:chat-status-changed (h/messages))))
           "both finishes must notify clients despite the unchanged idle payload")
       (is (every? #(= :idle (:status %)) (:chat-status-changed (h/messages)))))))

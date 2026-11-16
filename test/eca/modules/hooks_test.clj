@@ -6,8 +6,9 @@
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
-   [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.chat.tool-calls :as tc]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.tool-batch :as f.chat.tool-batch]
+   [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules.hooks :as m.hooks]
@@ -337,12 +338,12 @@
       (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)}))
       (is (some? @input*))
       ;; The key is always present, even when false.
       (is (contains? @input* :follow_up_active))
@@ -360,14 +361,14 @@
       (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :message "original prompt"
-                                              :response "final answer"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :message "original prompt"
+                                                     :response "final answer"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)}))
       (is (= "final answer" (:response @input*)))
       (is (not (contains? @input* :prompt)))))
 
@@ -382,12 +383,12 @@
       (with-redefs [m.hooks/run-shell-cmd (fn [opts]
                                             (reset! input* (json/parse-string (:input opts) true))
                                             {:exit 0 :out "" :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)}))
       (is (not (contains? @input* :response))))))
 
 (deftest finish-chat-prompt-finalization-test
@@ -396,15 +397,15 @@
     (swap! (h/db*) assoc :chats {"chat-1" {:agent "code"
                                             :auto-compacting? true}})
     (let [finalized?* (atom false)]
-      (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                            :config (h/config)
-                                            :chat-id "chat-1"
-                                            :agent "code"
-                                            :messenger (h/messenger)
-                                            :metrics (h/metrics)
-                                            :on-finished-side-effect (fn []
-                                                            (reset! finalized?* true)
-                                                            (swap! (h/db*) update-in [:chats "chat-1"] dissoc :auto-compacting?))})
+      (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                   :config (h/config)
+                                                   :chat-id "chat-1"
+                                                   :agent "code"
+                                                   :messenger (h/messenger)
+                                                   :metrics (h/metrics)
+                                                   :on-finished-side-effect (fn []
+                                                                   (reset! finalized?* true)
+                                                                   (swap! (h/db*) update-in [:chats "chat-1"] dissoc :auto-compacting?))})
       (is (true? @finalized?*))
       (is (not (get-in (h/db) [:chats "chat-1" :auto-compacting?])))))
 
@@ -418,12 +419,12 @@
       (with-redefs [m.hooks/run-shell-cmd (fn [_]
                                             (reset! ran?* true)
                                             {:exit 0 :out "" :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)}))
       (is (false? @ran?*) "postRequest must not fire after the auto-compact maintenance prompt")))
 
   (testing "postRequest hooks are skipped when caller sets :skip-post-request-hooks? (manual /compact)"
@@ -435,13 +436,13 @@
       (with-redefs [m.hooks/run-shell-cmd (fn [_]
                                             (reset! ran?* true)
                                             {:exit 0 :out "" :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)
-                                              :skip-post-request-hooks? true}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)
+                                                     :skip-post-request-hooks? true}))
       (is (false? @ran?*) "postRequest must not fire when :skip-post-request-hooks? is set (manual /compact)")))
 
   (testing "postRequest followUp does not suppress mandatory finalization"
@@ -455,16 +456,16 @@
       (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"followUp\":\"please continue\"}"
                                                        :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)
-                                              :on-finished-side-effect #(reset! finalized?* true)
-                                              :on-after-finish! #(reset! after-finish?* true)
-                                              :on-follow-up (fn [follow-up-text _chat-ctx]
-                                                              (reset! follow-up* follow-up-text))}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)
+                                                     :on-finished-side-effect #(reset! finalized?* true)
+                                                     :on-after-finish! #(reset! after-finish?* true)
+                                                     :on-follow-up (fn [follow-up-text _chat-ctx]
+                                                                     (reset! follow-up* follow-up-text))}))
       (is (true? @finalized?*))
       (is (false? @after-finish?*))
       (is (= "please continue" @follow-up*))))
@@ -479,14 +480,14 @@
       (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"continue\":false}"
                                                        :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)
-                                              :on-finished-side-effect #(reset! finalized?* true)
-                                              :on-after-finish! #(reset! after-finish?* true)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)
+                                                     :on-finished-side-effect #(reset! finalized?* true)
+                                                     :on-after-finish! #(reset! after-finish?* true)}))
       (is (true? @finalized?*))
       (is (false? @after-finish?*)))))
 
@@ -512,8 +513,8 @@
 (deftest hook-action-notification-test
   (testing "hook output display reads string-keyed parsed JSON fields"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -542,8 +543,8 @@
 
   (testing "tool hooks carry tool-call-id for correlation (no Tool line in the body)"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -569,8 +570,8 @@
 
   (testing "tool-call-id survives suppressOutput (metadata, not body)"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -594,8 +595,8 @@
 
   (testing "replacedPrompt display is limited to preRequest"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -614,8 +615,8 @@
 
   (testing "suppressOutput keeps the finished event (closes the spinner) but drops output/error"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -639,8 +640,8 @@
   (testing "non-zero exit displays raw stdout instead of parsed JSON fields"
     (let [sent* (atom [])
           raw-output "{\"additionalContext\":\"ignored\"}"]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -664,8 +665,8 @@
   (testing "chatEnd ignores parsed output effects"
     (let [sent* (atom [])
           raw-output "{\"suppressOutput\":true,\"additionalContext\":\"ignored\"}"]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "action-1"
@@ -691,8 +692,8 @@
 (deftest invisible-hook-notification-test
   (testing "invisible hook with no systemMessage stays silent"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "a1" :name "quiet" :type "shell" :hook-type :preToolCall
@@ -704,8 +705,8 @@
 
   (testing "invisible hook surfaces systemMessage as a plain system text"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "a1" :name "quiet" :type "shell" :hook-type :preToolCall
@@ -718,8 +719,8 @@
 
   (testing "blank systemMessage is treated as absent"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "a1" :name "quiet" :type "shell" :hook-type :preToolCall
@@ -730,8 +731,8 @@
 
   (testing "suppressOutput hides the block but never the systemMessage"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "a1" :name "quiet" :type "shell" :hook-type :preToolCall
@@ -743,8 +744,8 @@
 
   (testing "visible hook with suppressOutput still surfaces systemMessage (block hidden, message kept)"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "a1" :name "loud" :type "shell" :hook-type :preToolCall
@@ -765,8 +766,8 @@
 
   (testing "invisible hook does not surface systemMessage on non-zero exit (JSON effects only on exit 0)"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-after-hook-action!
          {}
          {:id "a1" :name "quiet" :type "shell" :hook-type :preToolCall
@@ -978,14 +979,14 @@
                                             {:exit 0
                                              :out "{\"additionalContext\":\"resume snapshot\"}"
                                              :err nil})]
-        (lifecycle/run-after-compact! {:db* (h/db*)
-                                       :config (h/config)
-                                       :chat-id "chat-1"
-                                       :agent "code"
-                                       :full-model "openai/gpt"
-                                       :variant "low"}
-                                      "manual"
-                                      "summary"))
+        (f.chat.lifecycle/run-after-compact! {:db* (h/db*)
+                                              :config (h/config)
+                                              :chat-id "chat-1"
+                                              :agent "code"
+                                              :full-model "openai/gpt"
+                                              :variant "low"}
+                                             "manual"
+                                             "summary"))
       (is (= "postCompact" (:hook_type @input*)))
       (is (= "manual" (:triggered @input*)))
       (is (= "summary" (:compact_summary @input*)))
@@ -1032,12 +1033,12 @@
     (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "plain resume snapshot"
                                                      :err nil})]
-      (lifecycle/run-after-compact! {:db* (h/db*)
-                                     :config (h/config)
-                                     :chat-id "chat-1"
-                                     :agent "code"}
-                                    "manual"
-                                    "summary"))
+      (f.chat.lifecycle/run-after-compact! {:db* (h/db*)
+                                            :config (h/config)
+                                            :chat-id "chat-1"
+                                            :agent "code"}
+                                           "manual"
+                                           "summary"))
     ;; Plain stdout is NOT converted to additionalContext
     (is (= [{:type :text :text "The conversation was compacted."}]
            (:content (last (get-in (h/db) [:chats "chat-1" :messages]))))))
@@ -1075,12 +1076,12 @@
                     m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"additionalContext\":\"resume snapshot\"}"
                                                        :err nil})]
-        (lifecycle/run-after-compact! {:db* (h/db*)
-                                       :config (h/config)
-                                       :chat-id "chat-1"
-                                       :agent "code"}
-                                      "manual"
-                                      "summary"))
+        (f.chat.lifecycle/run-after-compact! {:db* (h/db*)
+                                              :config (h/config)
+                                              :chat-id "chat-1"
+                                              :agent "code"}
+                                             "manual"
+                                             "summary"))
       (is (= [{:role "assistant" :content [{:type :text :text "no marker"}]}]
              (get-in (h/db) [:chats "chat-1" :messages])))
       (is (some #(= "Skipping postCompact additionalContext: compact summary message not found" (second %))
@@ -1635,7 +1636,7 @@
                    ;; Q3: stopReason is user-only; the LLM-visible reason text is neutral.
                    :reason {:code :hook-stopped
                             :text "Tool call stopped by hook"}}
-                  (#'tc/decide-tool-call-action
+                  (#'f.chat.tool-batch/decide-tool-call-action
                    {:full-name "eca__shell_command"
                     :arguments {"command" "echo hi"}}
                    (f.tools/all-tools "chat-1" "code" (h/db) (h/config))
@@ -1732,7 +1733,7 @@
             ;; the tool call's state after the hooks
             [result]
             (with-redefs [m.hooks/run-shell-cmd (constantly result)]
-              (#'tc/run-called-event!
+              (#'f.chat.tool-calls/run-called-event!
                (h/db*)
                {:db* (h/db*)
                 :config (h/config)
@@ -1834,8 +1835,8 @@
 (deftest hook-notification-action-type-test
   (testing "hookActionStarted includes action-type"
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                              (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                     (swap! sent* conj {:role role :content content}))]
         (#'m.hooks/notify-before-hook-action!
          {}
          {:id "action-1"
@@ -1920,12 +1921,12 @@
                                             (let [data (json/parse-string input true)]
                                               (swap! fired-types* conj (:hook_type data)))
                                             {:exit 0 :out "" :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "sub-1"
-                                              :agent "explorer"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "sub-1"
+                                                     :agent "explorer"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)}))
       (is (= ["subagentPostRequest"] @fired-types*)))))
 
 (deftest subagent-subagentpostrequest-continue-false-stops-turn-test
@@ -1945,13 +1946,13 @@
                                             {:exit 0
                                              :out "{\"continue\":false,\"stopReason\":\"halt\"}"
                                              :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "sub-1"
-                                              :parent-chat-id "parent-1"
-                                              :agent "explorer"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "sub-1"
+                                                     :parent-chat-id "parent-1"
+                                                     :agent "explorer"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)}))
       ;; Only subagentPostRequest ran; postRequest is not dispatched for subagents.
       (is (= ["subagentPostRequest"] @fired-types*))
       ;; The turn-stop message is still surfaced on the subagent chat. The binding
@@ -2038,8 +2039,8 @@
   (testing "preRequest continue:false with stopReason sends canonical turn-stopped message"
     (h/reset-components!)
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                               (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                      (swap! sent* conj {:role role :content content}))]
         (#'f.chat/finish-blocked-or-stopped-pre-request!
          {:db* (h/db*) :config (h/config) :chat-id "chat-1" :messenger (h/messenger)}
          {:blocked? false :stop-turn? true :stop-reason "policy violation"
@@ -2051,10 +2052,10 @@
     (h/reset-components!)
     (let [sent* (atom [])
           finished* (atom false)]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                               (swap! sent* conj {:role role :content content}))
-                    lifecycle/finish-chat-prompt-stopped! (fn [& _]
-                                                            (reset! finished* true))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                      (swap! sent* conj {:role role :content content}))
+                    f.chat.lifecycle/finish-chat-prompt-stopped! (fn [& _]
+                                                                   (reset! finished* true))]
         (#'f.chat/finish-blocked-or-stopped-pre-request!
          {:db* (h/db*) :config (h/config) :chat-id "chat-1" :messenger (h/messenger)}
          {:blocked? false :stop-turn? false}))
@@ -2074,13 +2075,13 @@
     (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "{\"continue\":false,\"stopReason\":\"halt subagent\"}"
                                                      :err nil})]
-      (lifecycle/finish-chat-prompt! :idle
-                                     {:chat-id "sub-1"
-                                      :parent-chat-id "parent-1"
-                                      :db* (h/db*)
-                                      :config (h/config)
-                                      :messenger (h/messenger)
-                                      :metrics (h/metrics)}))
+      (f.chat.lifecycle/finish-chat-prompt! :idle
+                                            {:chat-id "sub-1"
+                                             :parent-chat-id "parent-1"
+                                             :db* (h/db*)
+                                             :config (h/config)
+                                             :messenger (h/messenger)
+                                             :metrics (h/metrics)}))
     (is (some (fn [m]
                 (and (= "sub-1" (:chat-id m))
                      (= "parent-1" (:parent-chat-id m))
@@ -2093,8 +2094,8 @@
   (testing "preRequest exit 2 names the blocking hook without duplicating its stderr"
     (h/reset-components!)
     (let [sent* (atom [])]
-      (with-redefs [lifecycle/send-content! (fn [_ role content]
-                                               (swap! sent* conj {:role role :content content}))]
+      (with-redefs [f.chat.lifecycle/send-content! (fn [_ role content]
+                                                      (swap! sent* conj {:role role :content content}))]
         (#'f.chat/finish-blocked-or-stopped-pre-request!
          {:db* (h/db*) :config (h/config) :chat-id "chat-1" :messenger (h/messenger)}
          {:blocked? true :block-reason true :ended-by {:module :eca/hooks :by "hook 'my-hook'"}}))
@@ -2119,7 +2120,7 @@
 (deftest simplified-additional-context-wrapper-test
   (testing "wrap-additional-context no longer includes from attribute"
     (is (= "<additionalContext>\nextra info\n</additionalContext>"
-           (lifecycle/wrap-additional-context "extra info")))))
+           (f.chat.lifecycle/wrap-additional-context "extra info")))))
 
 (deftest followup-plain-text-test
   (testing "followUp continuation is plain user text, not XML-wrapped"
@@ -2131,14 +2132,14 @@
       (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"followUp\":\"Run the tests\"}"
                                                        :err nil})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)
-                                              :on-follow-up (fn [follow-up-text _chat-ctx]
-                                                              (reset! follow-up* follow-up-text))}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)
+                                                     :on-follow-up (fn [follow-up-text _chat-ctx]
+                                                                     (reset! follow-up* follow-up-text))}))
       ;; followUp text should be plain, not wrapped in <additionalContext>
       (is (= "Run the tests" @follow-up*)))))
 
@@ -2147,7 +2148,7 @@
     (let [chat-ctx {:on-finished-side-effect (fn [])
                     :on-after-finish! (fn [])
                     :on-follow-up (fn [_ _])}
-          result (lifecycle/strip-hook-callbacks chat-ctx)]
+          result (f.chat.lifecycle/strip-hook-callbacks chat-ctx)]
       (is (not (contains? result :on-finished-side-effect)))
       (is (not (contains? result :on-after-finish!)))
       (is (contains? result :on-follow-up)))))
@@ -2186,14 +2187,14 @@
       (with-redefs [m.hooks/run-shell-cmd (constantly {:exit m.hooks/hook-rejection-exit-code
                                                        :out nil
                                                        :err "Run the test suite"})]
-        (lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
-                                              :config (h/config)
-                                              :chat-id "chat-1"
-                                              :agent "code"
-                                              :messenger (h/messenger)
-                                              :metrics (h/metrics)
-                                              :on-follow-up (fn [follow-up-text _chat-ctx]
-                                                              (reset! follow-up* follow-up-text))}))
+        (f.chat.lifecycle/finish-chat-prompt! :idle {:db* (h/db*)
+                                                     :config (h/config)
+                                                     :chat-id "chat-1"
+                                                     :agent "code"
+                                                     :messenger (h/messenger)
+                                                     :metrics (h/metrics)
+                                                     :on-follow-up (fn [follow-up-text _chat-ctx]
+                                                                     (reset! follow-up* follow-up-text))}))
       (is (= "Run the test suite" @follow-up*)))))
 
 (deftest hooks-msg-test

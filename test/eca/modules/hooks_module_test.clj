@@ -2,7 +2,7 @@
   "The shell hooks belong to :eca/hooks; chat lifecycle events reach modules."
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.modules :as modules]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
@@ -32,6 +32,6 @@
                                       {:id :eca/test-status
                                        :event-handlers {:chat/status-changed (fn [_ctx event] (swap! events* conj event) nil)}}))]
         (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :running})
-        (lifecycle/trigger-chat-status-hook! {:db* (h/db*) :chat-id "c1" :config {}})
-        (lifecycle/trigger-chat-status-hook! {:db* (h/db*) :chat-id "c1" :config {}})
+        (f.chat.lifecycle/trigger-chat-status-hook! {:db* (h/db*) :chat-id "c1" :config {}})
+        (f.chat.lifecycle/trigger-chat-status-hook! {:db* (h/db*) :chat-id "c1" :config {}})
         (is (match? [{:chat-id "c1" :status :running}] @events*))))))
