@@ -46,6 +46,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/plugins`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/plugins.clj) | Plugin marketplaces: install, update and remove bundles. |
     | **Chat** | |
     | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/approval.clj) | Tool approval from the `toolCall.approval` rules. |
+    | [`eca/chat-title`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_title.clj) | The chat model titles each chat, and titles it again at its third request. |
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
     | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj) | A map of the repository, for the `repoMap` context. |
     | [`eca/manage`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/manage.clj) | Set up, debug and change ECA: `/init`, `/skill-create`, and the `eca-info` and `eca-manage` skills. |
@@ -243,7 +244,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:llm/request-failed` | handle | `:request` (`:model`, `:user-messages`), `:error` (`:type` like `:context-overflow`, `:message`, `:status`). Runs after ECA's own retries, once per turn. | `{:retry true}` to send it again, or `{:compact {:trigger :instructions}}` to compact and resume. Without an answer, ECA handles the error. |
 | `:chat/after-request` | notify | `:response` | `:follow-up` (sent as the next user message), `:stop` |
 | `:chat/message-added` | notify | `:message` (`:role`, `:content`) | — |
-| `:chat/title` | handle | `:messages`, `:retitle?` | `{:title ".."}`, used instead of the model's |
+| `:chat/title` | handle | `:messages` (the conversation, the new request's messages last), `:prompt-messages` (the new request's messages without the attached contexts), `:prompt-count` (the chat's requests, this one included), `:title` (nil when untitled). Asked in the background at every request, unless the user named the chat. | `{:title ".."}` titles the chat; nil keeps its title. `eca/chat-title` answers last: the first request, then the third. |
 | `:chat/ended` | notify | `:chat-id`, `:agent`, `:model` | — |
 | `:chat/status-changed` | notify | `:status`, `:pending-approval-ids`, `:running-tool-ids`... | — |
 | `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used` | — |

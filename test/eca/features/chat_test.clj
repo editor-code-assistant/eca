@@ -22,6 +22,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.chat-title :as m.chat-title]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.hooks :as m.hooks]
    [eca.modules.mcp :as m.mcp]
@@ -948,28 +949,28 @@
 (deftest conversation-title-transcript-test
   (testing "renders user/assistant messages as a plain-text transcript"
     (is (= "user: hi\n\nassistant: hello"
-           (#'f.chat.turn/conversation->title-transcript
+           (#'m.chat-title/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"}]}
              {:role "assistant" :content [{:type :text :text "hello"}]}]))))
   (testing "ignores non-text parts"
     (is (= "user: hi"
-           (#'f.chat.turn/conversation->title-transcript
+           (#'m.chat-title/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"}
                                      {:type :image :url "x"}]}]))))
   (testing "skips messages with no text content"
     (is (= "user: hi"
-           (#'f.chat.turn/conversation->title-transcript
+           (#'m.chat-title/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"}]}
              {:role "assistant" :content []}]))))
   (testing "truncates very long messages"
     (let [long-text (apply str (repeat 3000 "x"))
-          out (#'f.chat.turn/conversation->title-transcript
+          out (#'m.chat-title/conversation->title-transcript
                [{:role "user" :content [{:type :text :text long-text}]}])]
       (is (string/ends-with? out " …"))
       (is (< (count out) 2100))))
   (testing "accepts string content for robustness"
     (is (= "user: hi"
-           (#'f.chat.turn/conversation->title-transcript
+           (#'m.chat-title/conversation->title-transcript
             [{:role "user" :content "hi"}])))))
 
 (deftest title-generation-test
@@ -1865,7 +1866,7 @@
         (is (not (string/includes? title-text "Notes index."))))))
   (testing "nor the transcript of a chat titled again"
     (is (= "user: hi\n<additionalContext>\nA hook's.\n</additionalContext>"
-           (#'f.chat.turn/conversation->title-transcript
+           (#'m.chat-title/conversation->title-transcript
             [{:role "user" :content [{:type :text :text "hi"} notes-context hook-context]}])))))
 
 (deftest reopened-chat-without-module-contexts-test

@@ -166,6 +166,32 @@
                (or (get-in (h/db) [:chats chat-id :title])
                    (when (< n 50) (Thread/sleep 50) (recur (inc n))))))))))
 
+(defn- wait-for [pred]
+  (loop [n 0]
+    (or (pred)
+        (when (< n 50) (Thread/sleep 50) (recur (inc n))))))
+
+(deftest chat-title-asked-at-every-request-test
+  (testing "modules are asked at every request, with the request count and the chat's title"
+    (with-module! {:chat/title (fn [_ {:keys [prompt-count]}]
+                                 (when (= 1 prompt-count) {:title "First"}))})
+    (let [{:keys [chat-id]} (prompt! {:message "one"})]
+      (wait-for #(get-in (h/db) [:chats chat-id :title]))
+      (prompt! {:message "two" :chat-id chat-id})
+      (wait-for #(= 2 (count @events*)))
+      (is (match? [{:prompt-count 1 :title nil} {:prompt-count 2 :title "First"}] @events*))
+      (is (= "First" (get-in (h/db) [:chats chat-id :title])))))
+  (testing "but not once the user named the chat"
+    (with-module! {:chat/title (constantly {:title "Generated"})})
+    (let [{:keys [chat-id]} (prompt! {:message "one"})]
+      (wait-for #(get-in (h/db) [:chats chat-id :title]))
+      (swap! (h/db*) update-in [:chats chat-id] assoc :title "Mine" :title-custom? true)
+      (reset! events* [])
+      (prompt! {:message "two" :chat-id chat-id})
+      (Thread/sleep 200)
+      (is (empty? @events*))
+      (is (= "Mine" (get-in (h/db) [:chats chat-id :title]))))))
+
 (deftest module-contexts-in-messages-test
   (testing "a module's context carries its id and :data, in the request and in the history"
     (with-module! {:chat/before-request (constantly {:additional-context {:text "Notes index." :data {:v 1}}})})

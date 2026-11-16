@@ -49,11 +49,9 @@
 
 (def ^:private initial-config*
   {:defaultModel nil
-   :prompts {:chatTitle "${classpath:prompts/title.md}"
-             :completion "${classpath:prompts/inline_completion.md}"
+   :prompts {:completion "${classpath:prompts/inline_completion.md}"
              :rewrite "${classpath:prompts/rewrite.md}"}
-   :chat {:title true
-          :defaultTrust false
+   :chat {:defaultTrust false
           :autoSyncSystemPrompt false}
    :chatInline {}
    :chatRetentionDays 30

@@ -420,9 +420,6 @@
                                               "```"))})
                                "rewrite-prompt")))
 
-(defn chat-title-prompt [agent-name config]
-  (get-config-prompt :chatTitle agent-name config))
-
 (defn compact-prompt [additional-input all-tools agent-name config db]
   (shared/safe-selmer-render
    (or (:compactPrompt config) ;; legacy

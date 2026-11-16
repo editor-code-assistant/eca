@@ -10,6 +10,7 @@
    [eca.modules.agents.agent-code :as m.agent-code]
    [eca.modules.agents.agent-plan :as m.agent-plan]
    [eca.modules.approval :as m.approval]
+   [eca.modules.chat-title :as m.chat-title]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.core :as m.core]
    [eca.modules.custom-commands :as m.custom-commands]
@@ -81,6 +82,7 @@
    m.plugins/module
    ;; chat behavior
    m.approval/module
+   m.chat-title/module
    m.compact-as-summary/module
    m.manage/module
    ;; editor features

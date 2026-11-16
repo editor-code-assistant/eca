@@ -16,7 +16,6 @@
    - `:on-finished-side-effect`, `:on-after-finish!`: what finishing the request
      runs (compaction, commands, `continue-turn!`); `:skip-post-request-hooks?`."
   (:require
-   [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.callbacks :as f.chat.callbacks]
@@ -25,7 +24,6 @@
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.chat.recovery :as f.chat.recovery]
    [eca.features.chat.system-prompt :as f.chat.system-prompt]
-   [eca.features.prompt :as f.prompt]
    [eca.features.quota :as f.quota]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
@@ -94,48 +92,6 @@
                     :current-api current-api
                     :provider provider
                     :model model}))))
-
-(defn ^:private message-text-content
-  "Extract plain text from a chat message's :content, ignoring non-text parts
-   and the contexts modules added."
-  [{:keys [content]}]
-  (let [parts (cond
-                (string? content)
-                [content]
-
-                (sequential? content)
-                (into [] (keep (fn [part]
-                                 (when (and (map? part)
-                                            (#{:text "text"} (:type part))
-                                            (not (message-sanitize/module-context? part)))
-                                   (:text part))))
-                      content)
-
-                :else
-                [])
-        joined (string/join "\n" (remove string/blank? parts))]
-    (when-not (string/blank? joined)
-      joined)))
-
-(defn ^:private conversation->title-transcript
-  "Render user/assistant messages as a plain-text transcript for title generation.
-   Each line is prefixed by role; per-message text is truncated to avoid blowing up
-   the title call for very long chats.
-
-   Flattening the history into a single user message (instead of replaying it as
-   role-structured past-messages) prevents the title model from mirroring the
-   prior assistant's conversational style (e.g. planning-mode '## Understand'
-   headers), which was producing garbage titles on Opus."
-  [messages]
-  (let [max-chars 2000]
-    (->> messages
-         (keep (fn [{:keys [role] :as msg}]
-                 (when-let [text (message-text-content msg)]
-                   (let [truncated (if (> (count text) max-chars)
-                                     (str (subs text 0 max-chars) " …")
-                                     text)]
-                     (str role ": " truncated)))))
-         (string/join "\n\n"))))
 
 (defn ^:private without-contents
   "Removes the given content blocks from each message content."
@@ -317,77 +273,38 @@
      :pending-server-tool-uses* pending-server-tool-uses*
      :add-to-history! (partial add-to-history! chat-ctx current-api)}))
 
-(defn ^:private generate-title!
-  "Titles the chat in the background, at its first prompt, and again at its
-   third: a module may give the title (`:chat/title`), else the chat model
-   writes it. A title set meanwhile wins."
-  [{:keys [chat-ctx db user-messages model-capabilities provider-auth]}]
-  (let [{:keys [db* config chat-id provider model agent metrics]} chat-ctx
-        prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
-        retitle? (= prompt-count 3)
-        generate-title? (and (get-in config [:chat :title])
-                             (not (get-in db [:chats chat-id :title-custom?]))
-                             (or (and (not (get-in db [:chats chat-id :title]))
-                                      (not retitle?))
-                                 retitle?))]
-    (when generate-title?
-      ;; On retitle (3rd prompt), flatten the conversation into a single
-      ;; user message instead of replaying it as role-structured past-messages.
-      ;; This prevents the title model (notably Opus) from mimicking the prior
-      ;; assistant's style and emitting section-header titles like "Understand".
-      (let [title-user-messages
-            (if retitle?
-              (let [history (->> (get-in db [:chats chat-id :messages] [])
-                                 shared/messages-after-last-compact-marker
-                                 (filterv #(contains? #{"user" "assistant"} (:role %))))
-                    transcript (conversation->title-transcript
-                                (into (vec history) user-messages))]
-                [{:role "user"
-                  :content [{:type :text
-                             :text (str "Summarize the following conversation as a thread title.\n"
-                                        "Follow the rules from the system prompt. Output only the title.\n\n"
-                                        "Conversation:\n"
-                                        transcript)}]}])
-              ;; Attached contexts may be whole files or directories, not
-              ;; needed to title the prompt (#683), and the contexts modules
-              ;; added aren't the user's words.
-              (mapv message-sanitize/without-module-contexts
-                    (without-contents user-messages (:attached-contents chat-ctx))))]
-        (future* config
-          (when-let [output-text
-                     (or
-                      ;; a module may give the title (:chat/title); else the chat model writes it
-                      (some-> (events/emit! chat-ctx :chat/title
-                                            (f.chat.lifecycle/chat-event
-                                             chat-ctx
-                                             {:messages (->> (-> (->> (get-in db [:chats chat-id :messages] [])
-                                                                      shared/messages-after-last-compact-marker
-                                                                      (filterv #(contains? #{"user" "assistant"} (:role %))))
-                                                                 (into user-messages))
-                                                             (mapv message-sanitize/without-module-contexts))
-                                              :retitle? retitle?}))
-                              :title
-                              shared/not-blank)
-                      (:output-text (llm-api/sync-prompt!
-                                     {:provider provider
-                                      :model model
-                                      :model-capabilities
-                                      (assoc model-capabilities :reason? false :tools false :web-search false)
-                                      :instructions (f.prompt/chat-title-prompt agent config)
-                                      :past-messages nil
-                                      :user-messages title-user-messages
-                                      :config config
-                                      :provider-auth provider-auth
-                                      :subagent? true})))]
-            ;; A title set meanwhile (chat/update, e.g. a client renaming
-            ;; the chat while this request ran) wins over the generated one.
-            (when (and output-text
-                       (not (get-in @db* [:chats chat-id :title-custom?])))
-              (let [title (f.chat.ops/sanitize-title output-text)]
-                (swap! db* assoc-in [:chats chat-id :title] title)
-                (f.chat.lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
-                (when (= :idle (get-in @db* [:chats chat-id :status]))
-                  (db/save-chat! @db* chat-id metrics))))))))))
+(defn ^:private request-title!
+  "Asks the `:chat/title` handlers for a title, in the background, unless the
+   user named the chat: the first answer titles it, unless the user names it
+   meanwhile."
+  [{:keys [chat-ctx db user-messages]}]
+  (let [{:keys [db* config chat-id metrics]} chat-ctx]
+    (when (and (not (get-in db [:chats chat-id :title-custom?]))
+               (seq (events/handlers config :chat/title)))
+      (future* config
+        (let [history (->> (get-in db [:chats chat-id :messages] [])
+                           shared/messages-after-last-compact-marker
+                           (filterv #(contains? #{"user" "assistant"} (:role %))))
+              event (f.chat.lifecycle/chat-event
+                     chat-ctx
+                     {:messages (mapv message-sanitize/without-module-contexts (into history user-messages))
+                      ;; Attached contexts may be whole files or directories, not
+                      ;; needed to title the prompt (#683), and the contexts modules
+                      ;; added aren't the user's words.
+                      :prompt-messages (mapv message-sanitize/without-module-contexts
+                                             (without-contents user-messages (:attached-contents chat-ctx)))
+                      :prompt-count (get-in db [:chats chat-id :user-prompt-count] 0)
+                      :title (get-in db [:chats chat-id :title])})
+              title (:title (events/emit! chat-ctx :chat/title event))]
+          ;; A title set meanwhile (chat/update, e.g. a client renaming
+          ;; the chat while this request ran) wins over the generated one.
+          (when (and (string? title)
+                     (not (get-in @db* [:chats chat-id :title-custom?])))
+            (let [title (f.chat.ops/sanitize-title title)]
+              (swap! db* assoc-in [:chats chat-id :title] title)
+              (f.chat.lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
+              (when (= :idle (get-in @db* [:chats chat-id :status]))
+                (db/save-chat! @db* chat-id metrics)))))))))
 
 (defn ^:private request
   "What `llm-api/sync-or-async-prompt!` gets for the request of `turn`."
@@ -474,7 +391,7 @@
             _ (f.chat.lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
             {:keys [db all-tools] :as turn} (turn-state chat-ctx user-messages)]
         (log-api-switch! db chat-id provider model config)
-        (generate-title! turn)
+        (request-title! turn)
         (f.chat.lifecycle/send-content! chat-ctx :system {:type :progress :state :running :text "Waiting model"})
         (cond
           ;; a module asked to compact (eca.api/request-compaction!)
