@@ -11,6 +11,7 @@
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
+- Fix approve & remember not applying to parallel tool calls already asking or pending in the same response or a subagent.
 
 ## 0.171.1
 

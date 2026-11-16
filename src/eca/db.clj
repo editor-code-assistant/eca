@@ -152,6 +152,9 @@
                                       :decision-reason {:code :keyword :text :string}
                                       :approved?* :promise
                                       :future-cleanup-complete?* :promise
+                                      ;; fn of a db: whether the remembered approvals now
+                                      ;; allow the call, for calls asking only by config rules
+                                      :remembered-approval-covers? :fn
                                       :start-time :long
                                       :future :future
                                       :resources ::any-map
