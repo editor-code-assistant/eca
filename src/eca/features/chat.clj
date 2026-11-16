@@ -21,6 +21,7 @@
    [eca.llm-api.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.models :as models]
@@ -93,40 +94,48 @@
 (defn ^:private static-prompt-cache-signature
   "Per-component SHA-256 cache identity for static prompt reuse.
    Returns a map of category -> hash so mid-chat instruction changes
-   can be attributed to what changed (prompt, contexts, rules, skills, tools)."
-  [refined-contexts static-rules path-scoped-rules skills agent config chat-id all-tools db]
+   can be attributed to what changed (prompt, contexts, rules, skills, tools,
+   and modules: the static sections those don't follow, see
+   `f.prompt/uncategorized-static-sections`). The modules category is only
+   there when such sections are, so the signature of a chat with the
+   built-in sections stays as it was."
+  [refined-contexts static-rules path-scoped-rules skills repo-map* agent config chat-id all-tools db]
   (let [static-contexts (vec (filter f.prompt/static-prompt-context? refined-contexts))
-        sha (comp digest/sha-256-hex pr-str)]
-    {:prompt (sha {:agent agent
-                   :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
-                   :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
-                                 :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
-                                 :user-name (System/getProperty "user.name")
-                                 :home-dir (cache/user-home)}
-                   :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
-                   :startup-context (get-in db [:chats chat-id :startup-context])})
-     :contexts (sha {:workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
-                     :static-contexts static-contexts})
-     :rules (sha {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
-                  :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)})
-     :skills (sha (mapv #(select-keys % [:name :description]) skills))
-     ;; Deferred tools are tracked separately because they render a catalog into
-     ;; the static prompt, unlike normal tools whose schemas are sent per turn.
-     :tools (sha {:names (sort (map :full-name all-tools))
-                  :deferrable (sort (map :full-name (filter :deferrable all-tools)))})}))
+        sha (comp digest/sha-256-hex pr-str)
+        uncategorized (f.prompt/uncategorized-static-sections refined-contexts static-rules path-scoped-rules skills
+                                                              repo-map* agent config chat-id all-tools db)]
+    (cond-> {:prompt (sha {:agent agent
+                           :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
+                           :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
+                                         :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
+                                         :user-name (System/getProperty "user.name")
+                                         :home-dir (cache/user-home)}
+                           :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
+                           :startup-context (get-in db [:chats chat-id :startup-context])})
+             :contexts (sha {:workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
+                             :static-contexts static-contexts})
+             :rules (sha {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
+                          :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)})
+             :skills (sha (mapv #(select-keys % [:name :description]) skills))
+             ;; Deferred tools are tracked separately because they render a catalog into
+             ;; the static prompt, unlike normal tools whose schemas are sent per turn.
+             :tools (sha {:names (sort (map :full-name all-tools))
+                          :deferrable (sort (map :full-name (filter :deferrable all-tools)))})}
+      uncategorized (assoc :modules (sha uncategorized)))))
 
 (defn ^:private changed-system-prompt-categories
-  "Names of system prompt categories that changed vs the cached signature.
+  "Names of system prompt categories that changed vs the cached signature;
+   a category on one side only (modules) counts as changed.
    Empty when the old signature has an unknown (legacy) shape."
   [prompt-cache static-signature agent full-model]
   (let [old-sig (:static-signature prompt-cache)]
     (cond-> []
       (not= (:agent prompt-cache) agent) (conj "agent")
       (not= (:model prompt-cache) full-model) (conj "model")
-      (map? old-sig) (into (keep (fn [[k v]]
-                                   (when (not= v (get old-sig k))
-                                     (name k)))
-                                 static-signature)))))
+      (map? old-sig) (into (keep (fn [k]
+                                   (when (not= (get static-signature k) (get old-sig k))
+                                     (name k))))
+                           (distinct (concat (keys static-signature) (keys old-sig)))))))
 
 (defn ^:private send-system-prompt-changed-notice!
   [chat-ctx categories suffix]
@@ -250,7 +259,10 @@
       (:messages (strip-messages-images messages))
       messages)))
 
-(defn ^:private message-content->chat-content [role message-content content-id]
+(defn ^:private message-content->chat-content
+  "What clients get for a message of the history, when a chat is opened
+   again. The contexts modules added aren't shown, as they weren't live."
+  [role message-content content-id]
   (case role
     ("user"
      "system"
@@ -262,7 +274,7 @@
                                                        :text (str (:text m) "\n" (:text content)))
                                           m))
                                       (assoc-some {} :content-id content-id)
-                                      message-content)
+                                      (remove message-sanitize/module-context? message-content))
                         image-entries (keep
                                        (fn [content]
                                          (when (= :image (:type content))
@@ -291,7 +303,10 @@
     ;; protocol) and re-emit them as standalone ChatImageContent entries so
     ;; reopened/resumed chats render MCP-produced images at the same point
     ;; they appeared live.
-    "tool_call_output" (let [contents (:contents (:output message-content))
+    "tool_call_output" (let [contents (let [contents (:contents (:output message-content))]
+                                        (if (sequential? contents)
+                                          (into [] (remove message-sanitize/module-context?) contents)
+                                          contents))
                              image? #(and (map? %) (= :image (:type %)))
                              ;; Only partition when contents is a sequence of content
                              ;; maps that includes images; otherwise pass through.
@@ -657,10 +672,13 @@
    may rewrite the prompt (when `modify-allowed?`), which the hooks then see,
    add context before theirs, or block or stop the request, and then no hook
    runs. Returns the hooks' state (`run-pre-request-hooks!`), with
-   `:stop-module` when a module stopped the turn."
+   `:stop-module` when a module stopped the turn.
+   A compaction's prompt (`/compact`, `:compaction?` in `chat-ctx`) isn't a
+   user request for modules: only the hooks run, as before modules."
   [chat-ctx original-text modify-allowed?]
-  (let [event (events/emit! chat-ctx :chat/before-request
-                            (lifecycle/chat-event chat-ctx {:prompt original-text}))
+  (let [event (when-not (:compaction? chat-ctx)
+                (events/emit! chat-ctx :chat/before-request
+                              (lifecycle/chat-event chat-ctx {:prompt original-text})))
         module (::events/ended-by event)]
     (cond
       (:block event)
@@ -672,9 +690,10 @@
 
       :else
       (let [prompt (if (and modify-allowed? (string? (:prompt event))) (:prompt event) original-text)
-            context (shared/not-blank (:additional-context event))]
+            ;; each module's context, `{:module :content :data}`
+            module-contexts (::events/contexts event)]
         (cond-> (run-pre-request-hooks! (assoc chat-ctx :message prompt))
-          context (update :additional-contexts #(into [{:hook-name "modules" :content context}] %)))))))
+          (seq module-contexts) (update :additional-contexts #(into (vec module-contexts) %)))))))
 
 (declare prompt prompt-messages! delete-chat)
 
@@ -762,12 +781,16 @@
 (defn ^:private resume-after-compact!
   "on-after-finish! for a mid-turn compaction: resume the original user task.
    A turn can compact more than once, so a resume prefix from an earlier
-   compaction is not repeated. The resumed turn carries a fresh post-compact
-   guard, see `auto-compact-suppressed?`."
+   compaction is not repeated. The contexts modules added go: they were for
+   the context window before the compaction, and modules add what the new
+   one needs with `:chat/after-compact`. The resumed turn carries a fresh
+   post-compact guard, see `auto-compact-suppressed?`."
   [chat-ctx user-messages]
   (prompt-messages!
    (cons resume-after-compact-message
-         (remove #(= resume-after-compact-message (select-keys % [:role :content])) user-messages))
+         (->> user-messages
+              (remove #(= resume-after-compact-message (select-keys % [:role :content])))
+              (map message-sanitize/without-module-contexts)))
    :auto-compact
    (assoc chat-ctx :post-compact-guard* (atom true))))
 
@@ -1115,7 +1138,8 @@
       (bg/evict-notified-jobs!))))
 
 (defn ^:private message-text-content
-  "Extract plain text from a chat message's :content, ignoring non-text parts."
+  "Extract plain text from a chat message's :content, ignoring non-text parts
+   and the contexts modules added."
   [{:keys [content]}]
   (let [parts (cond
                 (string? content)
@@ -1123,7 +1147,9 @@
 
                 (sequential? content)
                 (into [] (keep (fn [part]
-                                 (when (and (map? part) (#{:text "text"} (:type part)))
+                                 (when (and (map? part)
+                                            (#{:text "text"} (:type part))
+                                            (not (message-sanitize/module-context? part)))
                                    (:text part))))
                       content)
 
@@ -1217,7 +1243,7 @@
 
 (defn ^:private take-module-contexts!
   "The contexts modules added for the chat's next request (with
-   `eca.api/add-context!`), removed from the chat: `[{:module :content}]`."
+   `eca.api/add-context!`), removed from the chat: `[{:module :content :data}]`."
   [db* chat-id]
   (let [[old-db _] (swap-vals! db* (fn [db]
                                      (cond-> db
@@ -1242,11 +1268,12 @@
                               (run-pre-request! chat-ctx original-text modify-allowed?)]
                           (cond
                             (or stop-turn? blocked?) (do (finish-blocked-or-stopped-pre-request! chat-ctx pre-request-state) nil)
-                            :else (let [;; contexts modules added with eca.api/add-context! join the hooks' ones
+                            :else (let [;; contexts modules added with eca.api/add-context! join the hooks' ones,
+                                        ;; as `{:module :content :data}`; a compaction's prompt leaves them for
+                                        ;; the next user request
                                         additional-contexts (into (vec additional-contexts)
-                                                                  (map (fn [{:keys [module content]}]
-                                                                         {:hook-name module :content content}))
-                                                                  (take-module-contexts! db* chat-id))
+                                                                  (when-not (:compaction? chat-ctx)
+                                                                    (take-module-contexts! db* chat-id)))
                                         last-user-idx (llm-util/find-last-user-msg-idx user-messages)
                                           ;; preRequest additionalContext should ideally attach to the last user message,
                                           ;; but some prompt sources may not contain a user role (e.g. prompt templates).
@@ -1257,13 +1284,12 @@
                                                         user-messages)
                                         with-contexts (cond
                                                         (and (seq additional-contexts) context-idx)
-                                                        (reduce (fn [msgs {:keys [content]}]
+                                                        (reduce (fn [msgs context]
                                                                   (update-in msgs [context-idx :content]
                                                                              #(conj (if (string? %)
                                                                                       [{:type :text :text %}]
                                                                                       (vec %))
-                                                                                    {:type :text
-                                                                                     :text (lifecycle/wrap-additional-context content)})))
+                                                                                    (lifecycle/context-block context))))
                                                                 rewritten
                                                                 additional-contexts)
 
@@ -1425,8 +1451,10 @@
                                             "Conversation:\n"
                                             transcript)}]}])
                   ;; Attached contexts may be whole files or directories, not
-                  ;; needed to title the prompt. #683
-                  (without-contents user-messages (:attached-contents chat-ctx)))]
+                  ;; needed to title the prompt (#683), and the contexts modules
+                  ;; added aren't the user's words.
+                  (mapv message-sanitize/without-module-contexts
+                        (without-contents user-messages (:attached-contents chat-ctx))))]
             (future* config
               (when-let [output-text
                          (or
@@ -1434,10 +1462,11 @@
                           (some-> (events/emit! chat-ctx :chat/title
                                                 (lifecycle/chat-event
                                                  chat-ctx
-                                                 {:messages (-> (->> (get-in db [:chats chat-id :messages] [])
-                                                                     shared/messages-after-last-compact-marker
-                                                                     (filterv #(contains? #{"user" "assistant"} (:role %))))
-                                                                (into user-messages))
+                                                 {:messages (->> (-> (->> (get-in db [:chats chat-id :messages] [])
+                                                                          shared/messages-after-last-compact-marker
+                                                                          (filterv #(contains? #{"user" "assistant"} (:role %))))
+                                                                     (into user-messages))
+                                                                 (mapv message-sanitize/without-module-contexts))
                                                   :retitle? retitle?}))
                                   :title
                                   shared/not-blank)
@@ -2240,7 +2269,8 @@
                                          :eca-command
                                          (assoc-some chat-ctx
                                                      :on-finished-side-effect on-finished-side-effect
-                                                     :on-after-finish! on-after-finish!)))
+                                                     :on-after-finish! on-after-finish!
+                                                     :compaction? (:compaction? result))))
         nil))
     (catch Exception e
       (logger/error e)
@@ -2373,7 +2403,7 @@
             prompt-cache (get-in db [:chats chat-id :prompt-cache])
             auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
             static-signature (static-prompt-cache-signature
-                              refined-contexts static-rules path-scoped-rules skills
+                              refined-contexts static-rules path-scoped-rules skills repo-map*
                               agent config chat-id all-tools db)
             session-match? (and prompt-cache
                                 (= (:agent prompt-cache) agent)
@@ -2995,12 +3025,15 @@
                ;; A cleared chat is a fresh conversation: drop the prompt cache
                ;; so the next prompt rebuilds the system prompt silently instead
                ;; of warning about an invalidated cache that no longer exists
-               ;; (#530), and the "approve & remember" approvals too (#639).
+               ;; (#530), the "approve & remember" approvals too (#639), and
+               ;; what modules keep for the chat: their chat state, contexts for
+               ;; the next request and a compaction they asked for.
                messages (-> (assoc :messages [])
                             (dissoc :tool-calls :last-api :usage :task
                                     :prompt-cache :last-editor-state
                                     :sent-attached-contexts
-                                    :remembered-approvals)))))
+                                    :remembered-approvals
+                                    :modules :module-contexts :compaction-request)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
     (db/save-chat! @db* chat-id metrics)))
 

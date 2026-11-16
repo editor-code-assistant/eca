@@ -244,3 +244,18 @@
   (testing "path outside workspace and not in cache dir is still outside"
     (let [db {:workspace-folders [{:uri (h/file-uri "file:///home/user/project") :name "project"}]}]
       (is (true? (tools.util/path-outside-workspace? db (h/file-path "/tmp/random/file.txt")))))))
+
+(deftest inside-workspace-folders-test
+  (let [db {:workspace-folders [{:uri (h/file-uri "file:///home/user/project") :name "project"}]}
+        notes (h/file-path "/tmp/notes")
+        home-notes (str (fs/path (System/getProperty "user.home") "notes"))]
+    (testing "the folders of insideWorkspace lists, ~ expanded, without repeats; relative ones are left out"
+      (is (= [notes home-notes]
+             (tools.util/inside-workspace-folders [notes "~/notes" "relative/notes" notes]))))
+    (testing "a path in one of them isn't outside the workspace"
+      (is (false? (tools.util/path-outside-workspace? db (h/file-path "/tmp/notes/today.md") [notes])))
+      (is (true? (tools.util/path-outside-workspace? db (h/file-path "/tmp/other/today.md") [notes]))))
+    (testing "so the tools' own check doesn't ask for it"
+      (let [check (tools.util/require-approval-when-outside-workspace ["path"])]
+        (is (not (check {"path" (h/file-path "/tmp/notes/today.md")} {:db db :inside-workspace [notes]})))
+        (is (check {"path" (h/file-path "/tmp/notes/today.md")} {:db db}))))))

@@ -16,6 +16,7 @@
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.repo-map :as m.repo-map]
@@ -1818,6 +1819,70 @@
       (prompt! {:message "three" :chat-id chat-id} mocks)
       (is (= "three" (request-text user-msgs* 2))))))
 
+(def ^:private notes-context
+  {:type :text :text "<additionalContext>\nNotes.\n</additionalContext>" :module :acme/notes})
+
+(def ^:private hook-context
+  {:type :text :text "<additionalContext>\nA hook's.\n</additionalContext>"})
+
+(deftest module-context-data-test
+  (testing "eca.api/add-context!'s data stays with the context in the history, where the module reads it back"
+    (h/reset-components!)
+    (let [user-msgs* (atom [])
+          mocks (capturing-llm-mocks user-msgs* (atom []))
+          {:keys [chat-id]} (prompt! {:message "one"} mocks)
+          module-ctx {:module-id :acme/notes :chat-id chat-id :db* (h/db*)}]
+      (eca/add-context! module-ctx "Remember the notes." {:data {:v 1}})
+      (h/reset-messenger!)
+      (prompt! {:message "two" :chat-id chat-id} mocks)
+      (is (match? {:role "user" :content [{:text "two"}
+                                          {:text "<additionalContext>\nRemember the notes.\n</additionalContext>"
+                                           :module :acme/notes :data {:v 1}}]}
+                  (last (filter #(= "user" (:role %)) (get-in (h/db) [:chats chat-id :messages])))))
+      (is (= [{:text "Remember the notes." :data {:v 1}}] (eca/added-contexts module-ctx))))))
+
+(deftest title-without-module-contexts-test
+  (testing "the first title request doesn't get the contexts modules added"
+    (h/reset-components!)
+    (modules/add-external! "/tmp/acme-notes.clj"
+                           {:id :acme/notes
+                            :event-handlers {:chat/before-request (constantly {:additional-context "Notes index."})}})
+    (let [title-calls* (atom [])]
+      (prompt-with-title! {:message "Help me debug"}
+                          {:sync-prompt-mock (fn [params] (swap! title-calls* conj params) {:output-text "Title"})})
+      (let [title-text (->> (first @title-calls*) :user-messages first :content (keep :text) (string/join "\n"))]
+        (is (string/includes? title-text "Help me debug"))
+        (is (not (string/includes? title-text "Notes index."))))))
+  (testing "nor the transcript of a chat titled again"
+    (is (= "user: hi\n<additionalContext>\nA hook's.\n</additionalContext>"
+           (#'f.chat/conversation->title-transcript
+            [{:role "user" :content [{:type :text :text "hi"} notes-context hook-context]}])))))
+
+(deftest reopened-chat-without-module-contexts-test
+  (testing "a reopened chat shows the user's message without the contexts modules added, as it was shown live"
+    (is (match? [{:role "user" :content {:type :text :text "\nhi\n<additionalContext>\nA hook's.\n</additionalContext>"}}]
+                (#'f.chat/message-content->chat-content "user" [{:type :text :text "hi"} notes-context hook-context] nil))))
+  (testing "and a tool call's output without them"
+    (is (match? [{} {} {:content {:type :toolCalled :outputs [{:type :text :text "ok"}]}}]
+                (#'f.chat/message-content->chat-content
+                 "tool_call_output"
+                 {:id "t1" :name "tool_a" :output {:error false :contents [{:type :text :text "ok"} notes-context]}}
+                 nil)))))
+
+(deftest resume-after-compact-without-module-contexts-test
+  (testing "the request a compaction resumes goes without the contexts modules added: they were for the old window"
+    (let [sent* (atom nil)]
+      (with-redefs-fn {#'f.chat/prompt-messages! (fn [user-messages source-type _]
+                                                   (reset! sent* [user-messages source-type])
+                                                   nil)}
+        #(#'f.chat/resume-after-compact! {} [{:role "user" :content [{:type :text :text "fix it"}
+                                                                      notes-context
+                                                                      hook-context]}]))
+      (is (= [[{:role "user" :content [{:type :text :text "Continue with the task. The previous user request was:"}]}
+               {:role "user" :content [{:type :text :text "fix it"} hook-context]}]
+              :auto-compact]
+             @sent*)))))
+
 (deftest attached-context-expanded-from-prompt-sent-once-test
   (testing "a context-area file also expanded from the prompt text with @path is sent once (#683)"
     (h/reset-components!)
@@ -3394,6 +3459,54 @@
                  (system-prompt-notices))
               "Notice names the changed category"))))))
 
+(deftest module-prompt-sections-change-test
+  (let [conventions* (atom "Use tabs.")
+        instructions* (atom [])
+        mocks (capturing-llm-mocks (atom []) instructions*)
+        last-prompt #(f.prompt/instructions->str (last @instructions*))
+        add-module! #(modules/add-external! "/tmp/acme-prompt.clj"
+                                            {:id :acme/prompt
+                                             :system-prompts [{:id :acme/conventions :content (fn [_] @conventions*)}]})]
+    (testing "with autoSyncSystemPrompt, a change in a module's static section re-syncs the system prompt"
+      (h/reset-components!)
+      (h/config! {:chat {:autoSyncSystemPrompt true}})
+      (add-module!)
+      (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+        (is (string/includes? (last-prompt) "Use tabs."))
+        (h/reset-messenger!)
+        (prompt! {:message "Again" :chat-id chat-id} mocks)
+        (is (empty? (system-prompt-notices)) "No notice when nothing changed")
+        (h/reset-messenger!)
+        (reset! conventions* "Use spaces.")
+        (prompt! {:message "Changed" :chat-id chat-id} mocks)
+        (is (= ["\nSystem prompt changed (modules), prompt cache invalidated.\n"] (system-prompt-notices)))
+        (is (string/includes? (last-prompt) "Use spaces."))))
+    (testing "pinned by default: it says the change applies to new chats"
+      (h/reset-components!)
+      (reset! conventions* "Use tabs.")
+      (add-module!)
+      (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+        (h/reset-messenger!)
+        (reset! conventions* "Use spaces.")
+        (prompt! {:message "Changed" :chat-id chat-id} mocks)
+        (is (= ["System prompt changed (modules), keeping current chat system prompt, changes will apply to new chats. Use /sync-system-prompt to apply now.\n"]
+               (system-prompt-notices)))
+        (is (string/includes? (last-prompt) "Use tabs."))))
+    (testing "turning off a built-in module with a static section is a change too"
+      (h/reset-components!)
+      (h/config! {:chat {:autoSyncSystemPrompt true}})
+      (let [{:keys [chat-id]} (prompt! {:message "Hi"} mocks)]
+        (h/reset-messenger!)
+        (h/config! {:modules {:eca/skills {:enabled false}}})
+        (prompt! {:message "Changed" :chat-id chat-id} mocks)
+        (is (= ["\nSystem prompt changed (modules), prompt cache invalidated.\n"] (system-prompt-notices)))))
+    (testing "and turning it on again"
+      (h/reset-messenger!)
+      (let [chat-id (first (keys (:chats (h/db))))]
+        (h/config! {:modules {:eca/skills {:enabled true}}})
+        (prompt! {:message "Back" :chat-id chat-id} mocks)
+        (is (= ["\nSystem prompt changed (modules), prompt cache invalidated.\n"] (system-prompt-notices)))))))
+
 (deftest skills-never-auto-sync-test
   (testing "Even with autoSyncSystemPrompt, skills changes keep the pinned system prompt"
     (h/reset-components!)
@@ -4540,6 +4653,20 @@
     (is (= {"eca__write_file" {:remember-to-approve? true}}
            (db/remembered-approvals (h/db) "c2"))
         "Other chats keep their approvals")))
+
+(deftest clear-chat-drops-module-chat-state-test
+  (testing "a cleared chat is a fresh conversation for modules too: chat state, pending contexts, compaction request"
+    (h/reset-components!)
+    (let [module-data {:modules {:acme/notes {:sent 3}}
+                       :module-contexts [{:module :acme/notes :content "Notes."}]
+                       :compaction-request {:module :acme/notes :trigger :auto}}]
+      (swap! (h/db*) assoc :chats {"c1" (merge {:id "c1" :messages [{:role "user" :content [{:type :text :text "hi"}]}]}
+                                               module-data)
+                                   "c2" (merge {:id "c2"} module-data)})
+      (f.chat/clear-chat {:chat-id "c1" :messages true} (h/db*) (h/messenger) (h/metrics))
+      (is (not-any? #(contains? (get-in (h/db) [:chats "c1"]) %) [:modules :module-contexts :compaction-request]))
+      (is (= module-data (select-keys (get-in (h/db) [:chats "c2"]) (keys module-data)))
+          "other chats keep theirs"))))
 
 (deftest tool-call-reject-on-unknown-chat-is-noop-test
   (testing "Rejecting a tool-call against an unknown chat does not throw or mutate state"

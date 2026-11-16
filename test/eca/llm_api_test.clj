@@ -539,6 +539,32 @@
       (is (= true (:image-generation @captured*))
           "openai handler should receive :image-generation true")))
 
+  (testing "the contexts modules added reach the provider without their :module and :data"
+    (let [captured* (atom nil)
+          context (fn [text] {:type :text :text text :module :acme/notes :data {:v 1}})]
+      (with-redefs [m.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-5.2"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :image-generation? false
+                               :model-name "gpt-5.2"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"} (context "Now.")]}]
+          :past-messages [{:role "user" :content [{:type :text :text "before"} (context "Then.")]}
+                          {:role "assistant" :content [{:type :text :text "ok"}]}]
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
+          :sync? false}))
+      (is (= [{:role "user" :content [{:type :text :text "hi"} {:type :text :text "Now."}]}]
+             (:user-messages @captured*)))
+      (is (= [{:role "user" :content [{:type :text :text "before"} {:type :text :text "Then."}]}
+              {:role "assistant" :content [{:type :text :text "ok"}]}]
+             (:past-messages @captured*)))))
+
   (testing "openai branch strips internal top-level message fields before reaching handler"
     (let [captured* (atom nil)]
       (with-redefs [m.openai/create-response!

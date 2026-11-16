@@ -1477,6 +1477,14 @@
           "additionalProperties": {
             "$ref": "#/definitions/approvalMatcher"
           }
+        },
+        "insideWorkspace": {
+          "type": "array",
+          "description": "Folders outside the workspace that filesystem tools and shell_command treat as inside it, so the approval rules decide for their paths: absolute paths or starting with ~. The lists of every config layer, of modules and, for an agent, its own add up.",
+          "markdownDescription": "Folders outside the workspace that filesystem tools and `shell_command` treat as inside it, so the approval rules decide for their paths: absolute paths or starting with `~`. The lists of every config layer, of modules and, for an agent, its own add up.",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

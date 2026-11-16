@@ -275,12 +275,16 @@
 (defn ^:private merge-config-layers
   "Merges file config layers into config. Non-plugin keys stay aggregated
    across layers with aggregate-merge (historical per-source behavior: shallow
-   for workspace roots, deep for extraConfigs), then each layer's plugins merge
-   one by one so install lists combine across layers."
+   for workspace roots, deep for extraConfigs), but for the lists of
+   `shared/additive-config-lists`, which add up; then each layer's plugins
+   merge one by one so install lists combine across layers."
   [aggregate-merge config layers]
   (reduce merge-config
           config
-          (cons (reduce aggregate-merge {} (map #(dissoc % "plugins") layers))
+          (cons (reduce (fn [aggregated layer]
+                          (shared/add-up-config-lists (aggregate-merge aggregated layer) aggregated layer true))
+                        {}
+                        (map #(dissoc % "plugins") layers))
                 (map #(select-keys % ["plugins"]) layers))))
 
 (defn ^:private config-from-local-file [roots config]
@@ -591,7 +595,8 @@
 (defn ^:private merge-config
   "Deep-merges a normalized config layer into config. The plugins install
    lists combine across layers: a layer's entries append unless its own
-   installMode is \"replace\"."
+   installMode is \"replace\"; so do `shared/additive-config-lists`, e.g.
+   `toolCall.approval.insideWorkspace`."
   [config layer]
   (let [layer (normalize-fields (cond-> normalization-rules
                                   (seq *module-string-key-paths*)
@@ -599,7 +604,7 @@
                                 layer)
         plugins (:plugins layer)
         {:strs [install installMode]} plugins
-        merged (deep-merge config layer)]
+        merged (shared/add-up-config-lists (deep-merge config layer) config layer)]
     (if (contains? plugins "install")
       (assoc-in merged [:plugins "install"]
                 (->> (concat (when-not (= "replace" installMode)

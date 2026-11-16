@@ -863,7 +863,9 @@
                           (invoke-safe ctx entry "config-defaults"
                                        {:timeout-ms (timeout-for entry nil default-handler-timeout-ms)} d ctx))
                         d)]
-                (if (map? d) (shared/deep-merge acc d) acc)))
+                (if (map? d)
+                  (shared/add-up-config-lists (shared/deep-merge acc d) acc d)
+                  acc)))
             spec-defaults
             (merge-order active))))
 

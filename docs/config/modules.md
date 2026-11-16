@@ -238,7 +238,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:session/ended` | notify | — | — |
 | `:chat/input` | transform | `:text`, `:source` (`:user` or `:module`). Runs before commands and skills. | `:text`, `:handled` (a reply, or `true`: the model isn't called) |
 | `:chat/started` | notify | `:resumed?`. Runs on a chat's first prompt. | `:additional-context` (added to the chat's startup context), `:stop` |
-| `:chat/before-request` | transform | `:prompt`. Runs once per user message. | `:prompt`, `:additional-context`, `:block`, `:stop` |
+| `:chat/before-request` | transform | `:prompt`, what was typed for a command or an MCP prompt. Runs once per user message, not for `/compact`. | `:prompt` (not for commands and MCP prompts), `:additional-context`, `:block`, `:stop` |
 | `:llm/before-request` | transform | `:request` (`:model`, `:instructions`, `:past-messages`, `:user-messages`, `:tools`), `:history`, `:since-checkpoint`, `:turn`, `:budget`. Runs before every LLM call of a chat, tool loop included. | `:request`'s messages, `:instructions` (not in the tool loop) and `:tools`. This changes what the model sees, not the chat history. `:model` can't change yet. |
 | `:llm/request-failed` | handle | `:request` (`:model`, `:user-messages`), `:error` (`:type` like `:context-overflow`, `:message`, `:status`). Runs after ECA's own retries, once per turn. | `{:retry true}` to send it again, or `{:compact {:trigger :instructions}}` to compact and resume. Without an answer, ECA handles the error. |
 | `:chat/after-request` | notify | `:response` | `:follow-up` (sent as the next user message), `:stop` |
@@ -255,6 +255,8 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, named by `:tool`, `:hook` and `:hook-type`, or `:module`). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and `eca/shell!`. | `:command`, `:cwd`, `:env` |
 | `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. | `:config`, except its `modules` key |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
+
+`:additional-context` is a string, or `{:text "..." :data {...}}` to keep plain data with it. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.
 
 A module can also define its own events in `:defines` and send them with `(eca/emit! ctx event-id event)`.
 
@@ -285,7 +287,7 @@ Every function takes the module's `ctx` as its first argument.
 | Area | Functions |
 |------|-----------|
 | Module | `config`, `state`, `module-id`, `client`, `log`, `workspaces` |
-| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state` and `swap-chat-state!` (plain data saved with the chat), `send-prompt!`, `add-context!` (for the next request), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it), `request-compaction!` (`{:trigger :instructions}`: compacts before the next LLM request) |
+| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state` and `swap-chat-state!` (plain data saved with the chat, copied by forks and exports, dropped when the chat is cleared), `send-prompt!`, `add-context!` (for the next request; `{:data ..}` keeps plain data with it), `added-contexts` (the module's contexts in the chat, with their data), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it), `request-compaction!` (`{:trigger :instructions}`: compacts before the next LLM request) |
 | User | `notify!`, `progress!` (in a tool), `ui?`, `confirm`, `select`, `input` |
 | Events | `emit!` |
 | Tools and commands | `tools`, `call-tool!`, `register-tool!`, `unregister-tool!`, `register-command!`, `unregister-command!` |

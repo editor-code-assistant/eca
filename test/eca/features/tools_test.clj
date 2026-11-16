@@ -5,6 +5,7 @@
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.util :as tools.util]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.rules :as m.rules]
    [eca.modules.tools.filesystem :as m.filesystem]
@@ -495,6 +496,31 @@
     (testing "trust promotion keeps the matched rule"
       (is (= {:decision :trust/allow :rule {:source :fallback}}
              (f.tools/approval-decision all-tools request-tool {} {} {} nil {:trust true}))))))
+
+(deftest inside-workspace-approval-test
+  (let [read-tool {:name "read_file" :server {:name "eca"} :origin :native
+                   :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])}
+        write-tool (assoc read-tool :name "write_file")
+        all-tools [read-tool write-tool]
+        notes (h/file-path "/tmp/notes")
+        note {"path" (h/file-path "/tmp/notes/today.md")}
+        config (fn [approval] {:toolCall {:approval (merge {:allow {"eca__read_file" {}} :byDefault "ask"} approval)}})]
+    (testing "a path outside the workspace asks, whatever the rules say"
+      (is (= {:decision :ask :rule {:source :tool-built-in-check}}
+             (f.tools/approval-decision all-tools read-tool note {} (config {}) nil))))
+    (testing "in a folder of toolCall.approval.insideWorkspace, the rules decide"
+      (is (= {:decision :allow :rule {:source :config-allow :selector "eca__read_file"}}
+             (f.tools/approval-decision all-tools read-tool note {} (config {:insideWorkspace [notes]}) nil)))
+      (is (= {:decision :ask :rule {:source :by-default}}
+             (f.tools/approval-decision all-tools write-tool note {} (config {:insideWorkspace [notes]}) nil))))
+    (testing "an agent's list adds to the global one"
+      (let [config (assoc-in (config {:insideWorkspace [(h/file-path "/tmp/other")]})
+                             [:agent "plan" :toolCall :approval :insideWorkspace] [notes])]
+        (is (= {:decision :allow :rule {:source :config-allow :selector "eca__read_file"}}
+               (f.tools/approval-decision all-tools read-tool note {} config "plan")))
+        (is (= {:decision :ask :rule {:source :tool-built-in-check}}
+               (f.tools/approval-decision all-tools read-tool note {} config "code"))
+            "only for that agent")))))
 
 (deftest granular-approval-test
   (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native

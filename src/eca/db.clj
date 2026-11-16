@@ -106,7 +106,7 @@
                         ;; plain data saved with the chat and copied by forks
                         :modules {:<module-id> ::any}
                         ;; added by modules for the next request (eca.api/add-context!)
-                        :module-contexts [{:module :string :content :string}]
+                        :module-contexts [{:module :keyword :content :string :data ::any}]
                         ;; a compaction a module asked for (eca.api/request-compaction!), run
                         ;; before the next LLM request; none after one was blocked in a prompt
                         :compaction-request {:module :keyword :trigger :keyword :instructions :string}

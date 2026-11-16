@@ -128,12 +128,33 @@
   (add-chat! {})
   (eca/add-context! (chat-ctx) "First.")
   (eca/add-context! (chat-ctx) "  ")
-  (eca/add-context! (chat-ctx) "Second.")
-  (is (= [{:module "acme/x" :content "First."} {:module "acme/x" :content "Second."}]
+  (eca/add-context! (chat-ctx) "Second." {:data {:n 2}})
+  (is (= [{:module :acme/x :content "First."} {:module :acme/x :content "Second." :data {:n 2}}]
          (get-in (h/db) [:chats "chat-1" :module-contexts])))
+  (testing "its data must be plain data"
+    (is (thrown? Exception (eca/add-context! (chat-ctx) "Third." {:data {:f (fn [])}}))))
   (testing "they are taken once, by the next request"
     (is (= 2 (count (#'f.chat/take-module-contexts! (h/db*) "chat-1"))))
     (is (nil? (#'f.chat/take-module-contexts! (h/db*) "chat-1")))))
+
+(deftest added-contexts-test
+  (let [context (fn [module text & [data]]
+                  (cond-> {:type :text :text (str "<additionalContext>\n" text "\n</additionalContext>") :module module}
+                    data (assoc :data data)))]
+    (add-chat! {:messages [{:role "user" :content [{:type :text :text "hi"}
+                                                   (context :acme/x "Old." {:v 1})
+                                                   (context :acme/other "Not mine.")]}
+                           {:role "tool_call_output"
+                            :content {:id "t1" :output {:error false :contents [{:type :text :text "ok"}
+                                                                                (context :acme/x "From a tool.")]}}}
+                           {:role "compact_marker" :content {:auto? true}}
+                           {:role "user" :content [{:type :text :text "Summary."} (context :acme/x "New." {:v 2})]}
+                           {:role "user" :content [{:type :text :text "<additionalContext>\nA hook's.\n</additionalContext>"}]}]})
+    (testing "the contexts the module added to the chat's messages, oldest first, with their data"
+      (is (= [{:text "Old." :data {:v 1}} {:text "From a tool."} {:text "New." :data {:v 2}}]
+             (eca/added-contexts (chat-ctx)))))
+    (testing "since the last checkpoint: what the model sees"
+      (is (= [{:text "New." :data {:v 2}}] (eca/added-contexts (chat-ctx) {:since-checkpoint? true}))))))
 
 (deftest notify-test
   (eca/notify! (chat-ctx) "Done.")

@@ -164,8 +164,8 @@
 
 (defn ^:private run-after-call-event!
   "Runs the `:tool/after-call` event for the `result` of a tool call that ran.
-   Returns `{:result :additional-context}`: the result, which modules may
-   replace, and the context they add for the model. A module's `:stop` is
+   Returns `{:result :module-contexts}`: the result, which modules may
+   replace, and the contexts they add for the model. A module's `:stop` is
    recorded in the tool call state like a postToolCall hook's, so the turn
    ends after this batch, and then the hooks don't run."
   [{:keys [db* chat-id prompt-id] :as chat-ctx} tool-call-id {:keys [full-name server arguments]} result]
@@ -190,17 +190,14 @@
                :post-tool-call-stop-reason (shared/not-blank (:stop event))
                :post-tool-call-stop-module (::events/ended-by event)))
       {:result (or changed-result result)
-       :additional-context (shared/not-blank (:additional-context event))})))
+       :module-contexts (::events/contexts event)})))
 
 (defn ^:private with-module-contexts
-  "`output`, a tool call output, with the modules' additional contexts for
-   the model after its contents."
+  "`output`, a tool call output, with the modules' contexts for the model,
+   `{:module :content :data}`, after its contents."
   [output contexts]
-  (if-let [entries (seq (keep (fn [context]
-                                (when-let [context (shared/not-blank context)]
-                                  {:type :text :text (lifecycle/wrap-additional-context context)}))
-                              contexts))]
-    (update output :contents #(into (vec %) entries))
+  (if (seq contexts)
+    (update output :contents #(into (vec %) (map lifecycle/context-block) contexts))
     output))
 
 (defn ^:private run-post-tool-call-hooks!
@@ -814,7 +811,7 @@
    - :stop-reason (string, for hook turn stops)
    - :stop-hook-name (string, for hook turn stops)
    - :stop-module (module id, when a module's handler stopped the turn)
-   - :additional-context (string, the modules' context for the call's output)
+   - :module-contexts (the modules' contexts for the call's output, `{:module :content :data}`)
 
    A module's :block or :stop ends the :tool/before-call chain, so then no
    preToolCall hook runs: the hooks come last (4.17).
@@ -932,7 +929,8 @@
         stop-reason (if (and module-stop (not stop-turn?)) (shared/not-blank module-stop) stop-reason)
         stop-hook-name (if (and module-stop (not stop-turn?)) (some-> (::events/ended-by event) str) stop-hook-name)
         stop-turn? (or stop-turn? (some? module-stop))
-        module-context (shared/not-blank (:additional-context event))
+        ;; each module's context, `{:module :content :data}`
+        module-contexts (::events/contexts event)
 
         ;; A current-turn stop is not a tool-specific rejection, but it still
         ;; blocks this prepared tool and downstream must stop the agent loop.
@@ -997,7 +995,7 @@
       stop-turn? (assoc :stop-reason stop-reason
                         :stop-hook-name stop-hook-name)
       stop-module (assoc :stop-module stop-module)
-      module-context (assoc :additional-context module-context))))
+      (seq module-contexts) (assoc :module-contexts module-contexts))))
 
 (defn on-tools-called! [{:keys [db* config chat-id agent messenger metrics invalid-arguments-rounds*]
                          ;; One counter per returned fn, i.e. per LLM tool loop:
@@ -1071,7 +1069,7 @@
                                                                                           :variant               (:variant chat-ctx)}))
                         {:keys [decision tool-call-blocked-by-hook? reason stop-turn?
                                 stop-reason stop-hook-name stop-module]
-                         before-context :additional-context} decision-plan
+                         before-contexts :module-contexts} decision-plan
                         ;; updatedInput is surfaced inside the real preToolCall
                         ;; hook finished block (see lifecycle/format-hook-output),
                         ;; so it respects visible:false / suppressOutput and the
@@ -1129,8 +1127,8 @@
                                                                                                                    :tool-call-id id})
                                                  ;; Modules may replace the result and add context
                                                  ;; for the model, which only the history gets.
-                                                 {result        :result
-                                                  after-context :additional-context}
+                                                 {result         :result
+                                                  after-contexts :module-contexts}
                                                  (run-after-call-event! chat-ctx id {:full-name full-name
                                                                                      :server    server-name
                                                                                      :arguments arguments}
@@ -1148,7 +1146,7 @@
                                                                :content (assoc tool-call
                                                                                :name name
                                                                                :error (:error result)
-                                                                               :output (with-module-contexts result [before-context after-context])
+                                                                               :output (with-module-contexts result (concat before-contexts after-contexts))
                                                                                :total-time-ms total-time-ms
                                                                                :details details
                                                                                :summary summary
@@ -1241,7 +1239,7 @@
                                                                                        :contents (if (= :invalid-arguments code)
                                                                                                    (invalid-arguments-tool-call-output-contents text)
                                                                                                    (rejected-tool-call-output-contents text))}
-                                                                                      [before-context]))})
+                                                                                      before-contexts))})
                                  ;; Keyed by batch position: calls run out of order, but the
                                  ;; last rejected call in the batch still decides the outcome.
                                  (swap! blocked-tool-call-infos* assoc idx

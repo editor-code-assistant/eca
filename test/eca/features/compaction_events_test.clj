@@ -116,7 +116,7 @@
     (is (match? (conj history
                       {:role "compact_marker" :content {:module :acme/compact :label "Compacted chat (acme)"}}
                       {:role "user" :content [{:type :text :text "Summary. focus on tests"}
-                                              {:type :text :text (context-text "Keep the plan.")}]})
+                                              {:type :text :text (context-text "Keep the plan.") :module :acme/compact}]})
                 (get-in (h/db) [:chats chat-id :messages])))
     (is (some #{"Compacted by acme."} (system-texts)))
     (is (match? [[:chat/before-compact {:trigger :manual :instructions "focus on tests" :chat-id chat-id}]
@@ -170,7 +170,8 @@
                                        :checkpoint {:marker {:role "compact_marker" :content {:auto? true}}
                                                     :messages [{:role "user" :content [{:text #"The summary\.$"}]}]}}]]
                 @events*))
-    (is (match? {:role "user" :content [{:text #"The summary\.$"} {:text (context-text "Keep the plan.")}]}
+    (is (match? {:role "user" :content [{:text #"The summary\.$"}
+                                        {:text (context-text "Keep the plan.") :module :acme/compact}]}
                 (last (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest mid-turn-module-compaction-test

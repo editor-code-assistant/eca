@@ -642,7 +642,7 @@ For each tool call, ECA checks the following in order, and the first match wins:
 
 1. __`deny` rules__: always win, even over remembered approvals and trust mode.
 2. __Remembered approvals__: what you approved in the current chat with "approve and remember for this session" ([below](#approve-remember-for-this-session)).
-3. __Tool built-in checks__: some native tools force asking in risky cases regardless of `allow` rules, e.g. filesystem tools and `shell_command` when the path or working directory is outside the workspace roots.
+3. __Tool built-in checks__: some native tools force asking in risky cases regardless of `allow` rules, e.g. filesystem tools and `shell_command` when the path or working directory is outside the workspace roots. Folders in [`insideWorkspace`](#folders-outside-the-workspace) count as inside.
 4. __`ask` rules__.
 5. __`allow` rules__.
 6. __Legacy `manualApproval` config__.
@@ -653,6 +653,22 @@ Trust mode is applied after that: it promotes an `ask` result to auto-allow but 
 !!! warning "Agent rules replace global rules"
 
     `agent.<name>.toolCall.approval` does not deep-merge with the global `toolCall.approval` at runtime: each key present (`allow`, `ask`, `deny` or `byDefault`) entirely replaces the global one. Since the builtin `plan` and `explorer` agents define their own `allow` and `deny` ([default rules](#default-approval-rules)), global `allow` entries you add are ignored while using those agents — configure `agent.plan.toolCall.approval.allow` too if you need them there.
+
+### Folders outside the workspace
+
+Filesystem tools and `shell_command` ask for a path or working directory outside the workspace roots, whatever your `allow` rules say. `insideWorkspace` lists folders that count as inside the workspace for that check, so your rules decide for their paths as for the workspace's:
+
+```javascript title="~/.config/eca/config.json"
+{
+  "toolCall": {
+    "approval": {
+      "insideWorkspace": ["~/notes"]
+    }
+  }
+}
+```
+
+Paths are absolute or start with `~`. The lists add up: the ones of every config file, the folders modules add and, for an agent, its own `agent.<name>.toolCall.approval.insideWorkspace`.
 
 ### Tool selectors
 
@@ -767,5 +783,5 @@ Common reasons ECA still asks after you added an `allow` rule:
 - The regex must match the whole argument: use `"grep(\\s+.*)?"` instead of `"grep"`.
 - Allowing `eca__grep` doesn't cover `grep` run through `eca__shell_command` — they are different tools.
 - You are on the `plan`/`explorer` agent (or a custom one) whose `allow` replaces the global one.
-- The path or working directory is outside the workspace roots (`:tool-built-in-check`).
+- The path or working directory is outside the workspace roots (`:tool-built-in-check`); see [`insideWorkspace`](#folders-outside-the-workspace).
 - Chained commands: the regex must match the full chained string, e.g. `cat file | grep foo`.

@@ -28,6 +28,8 @@
                                            :origin :native :arguments {:path "/tmp/x"} :api :anthropic} :content-id "c3" :created-at 3}]
    :task {:next-id 2 :active-summary nil
           :tasks [{:id 1 :subject "do" :description "d" :status :done :priority :high}]}
+   ;; the modules' chat state (eca.api/swap-chat-state!)
+   :modules {:acme/notes {:seen 2}}
    ;; live/transient state that must NOT be exported:
    :tool-calls {"t1" {:status :completed :approved?* (promise) :future-cleanup-complete?* (promise) :future (future 1)}}
    :last-status-payload {:x 1}
@@ -51,7 +53,8 @@
       (is (= true (:trust chat)))
       (is (= 2 (:user-prompt-count chat)))
       (is (= {:total-input-tokens 100 :total-output-tokens 50} (:usage chat)))
-      (is (= "do" (get-in chat [:task :tasks 0 :subject]))))
+      (is (= "do" (get-in chat [:task :tasks 0 :subject])))
+      (is (= {:acme/notes {:seen 2}} (:modules chat)) "the modules' chat state"))
     (testing "message content kept verbatim and in order"
       (is (= 3 (count (:messages chat))))
       (is (= "hello there" (:content (first (:messages chat)))))
@@ -61,6 +64,22 @@
       (is (not (contains? chat :tool-calls)))
       (is (not (contains? chat :last-status-payload)))
       (is (not (contains? chat :prompt-cache))))))
+
+(deftest build-export-without-module-contexts-test
+  (testing "the contexts modules added are left out: the modules of the ECA that imports the chat add their own"
+    (let [hook-context {:type :text :text "<additionalContext>\nA hook's.\n</additionalContext>"}
+          db {:chats {"chat-1" {:id "chat-1"
+                                :messages [{:role "user" :content [{:type :text :text "hi"}
+                                                                   {:type :text :text "<additionalContext>\nNotes.\n</additionalContext>"
+                                                                    :module :acme/notes :data {:v 1}}
+                                                                   hook-context]}
+                                           {:role "tool_call_output"
+                                            :content {:id "t1" :output {:error false
+                                                                        :contents [{:type :text :text "ok"}
+                                                                                   {:type :text :text "Lint." :module :acme/lint}]}}}]}}}]
+      (is (= [{:role "user" :content [{:type :text :text "hi"} hook-context]}
+              {:role "tool_call_output" :content {:id "t1" :output {:error false :contents [{:type :text :text "ok"}]}}}]
+             (get-in (sut/build-export db "chat-1") [:chat :messages]))))))
 
 (deftest export->edn-round-trips-test
   (testing "the export serializes and reads back equal (incl. #uuid prompt-id)"
