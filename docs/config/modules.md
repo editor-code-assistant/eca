@@ -50,6 +50,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/chat-management`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_management.clj) | Fork chats, ask side questions, and resume, list, delete, export and import chats. |
     | [`eca/chat-title`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_title.clj) | The chat model titles each chat, and titles it again at its third request. |
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
+    | [`eca/date`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/date.clj) | Tells the model today's date, with the first message of each context window and day. |
     | [`eca/manage`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/manage.clj) | Set up, debug and change ECA: `/init`, `/skill-create`, and the `eca-info` and `eca-manage` skills. |
     | **Editor features** | |
     | [`eca/completion`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/completion.clj) | Inline code completion, as you type. |

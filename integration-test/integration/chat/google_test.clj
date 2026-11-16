@@ -41,7 +41,7 @@
         (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
+             {:input [{:role "user" :content [{:type "input_text" :text (str "Tell me a joke!\n" (h/date-context))}]}]
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :simple-text-0)))))
 
@@ -68,7 +68,7 @@
         (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text (str "Tell me a joke!\n" (h/date-context))}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]
               :instructions (m/pred string?)}
@@ -100,7 +100,7 @@
         (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text (str "Tell me a joke!\n" (h/date-context))}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}
                       {:role "assistant" :content [{:type "output_text" :text "Foo"}]}
@@ -144,7 +144,7 @@
         (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}]
+             {:input [{:role "user" :content [{:type "input_text" :text (str "hello!\n" (h/date-context))}]}]
               :instructions (m/pred string?)}
              (llm.mocks/get-req-body :reasoning-0)))))
 
@@ -177,7 +177,7 @@
         (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text (str "hello!\n" (h/date-context))}]}
                       {:role "assistant" :content [{:type "output_text" :text "<thought>I should say hello</thought>\nhello there!"}]}
                       {:role "user" :content [{:type "input_text" :text "how are you?"}]}]
               :instructions (m/pred string?)}

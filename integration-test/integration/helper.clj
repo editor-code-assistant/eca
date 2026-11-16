@@ -58,6 +58,16 @@
       (escape-uri uri)
       uri)))
 
+(defn date-context
+  "The context the `eca/date` module adds to the first user message of a
+  context window per day, as the model gets it."
+  []
+  (str "<additionalContext>\n"
+       "<current-date description=\"Today's date. ECA adds this block, not the user.\">\n"
+       (java.time.LocalDate/now)
+       "\n</current-date>"
+       "\n</additionalContext>"))
+
 (defn deep-merge [& maps]
   (apply merge-with (fn [& args]
                       (if (every? #(or (map? %) (nil? %)) args)

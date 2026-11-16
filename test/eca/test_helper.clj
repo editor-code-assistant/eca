@@ -8,10 +8,12 @@
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
    [eca.modules.built-in :as built-in]
+   [eca.modules.date :as m.date]
    [eca.modules.loader :as loader]
    [eca.shared :as shared]))
 
@@ -44,6 +46,13 @@
 (defn file-uri [uri]
   (cond-> uri windows?
           (string/replace #"^(file):///(?!\w:/)" (str "$1:///" windows-drive-letter ":/"))))
+
+(defn date-context
+  "The context the `eca/date` module adds to the first user message of a
+   context window per day, as the model gets it: the module's block, as core
+   wraps it, so neither format is copied here."
+  []
+  (:text (f.chat.lifecycle/context-block {:content (#'m.date/date-text) :module :eca/date})))
 
 (defrecord TestMessenger [messages* diagnostics* ask-question-response* definition-response* references-response*]
   messenger/IMessenger

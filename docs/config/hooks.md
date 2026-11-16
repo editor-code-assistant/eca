@@ -199,7 +199,7 @@ Fires when the server is shutting down. Use for cleanup or final telemetry.
 
 ### `chatStart`
 
-Fires when a chat is created or resumed. Use to inject session context (date, branch, conventions).
+Fires when a chat is created or resumed. Use to inject session context (branch, conventions). The `eca/date` module already tells the model the current date.
 
 - **Input adds** — `resumed` (boolean).
 - **Honored output** — `additionalContext` (injected into the system prompt); `systemMessage`; `suppressOutput`; `continue: false` + `stopReason` stops the turn.

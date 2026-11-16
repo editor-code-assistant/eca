@@ -306,7 +306,7 @@
 
         ;; The forked chat request contains the copied history + the question.
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-context)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "Who's there?"}]}]}
              (llm.mocks/get-req-body :simple-text-1)))))
@@ -332,7 +332,7 @@
         (match-content chat-id "system" {:type "progress" :state "finished"})
         ;; No trace of the /btw exchange in the origin chat request.
         (is (match?
-             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
+             {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"} {:type "input_text" :text (h/date-context)}]}
                       {:role "assistant" :content [{:type "output_text" :text "Knock knock!"}]}
                       {:role "user" :content [{:type "input_text" :text "What foo?"}]}]}
              (llm.mocks/get-req-body :simple-text-2)))))))
