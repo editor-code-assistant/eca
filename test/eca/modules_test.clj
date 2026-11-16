@@ -103,8 +103,10 @@
                 (modules/problems {:id :acme/x :commands {"c" {}}} {})))
     (is (match? {:errors [#":event-handlers :tool/before-call: must be a function"]}
                 (modules/problems {:id :acme/x :event-handlers {:tool/before-call "nope"}} {})))
-    (is (match? {:errors [#":rpc is only for built-in modules"]}
-                (modules/problems {:id :acme/x :rpc {}} {})))
+    (is (match? {:errors [#":rpc \"x/y\": must be a map with :kind :request or :notification and a :handler function"]}
+                (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request}}} {})))
+    (is (= {:errors [] :warnings []}
+           (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request :handler (fn [_ _])}}} {})))
     (is (match? {:errors [#":skills is only for built-in modules"]}
                 (modules/problems {:id :acme/x :skills []} {})))
     (is (match? {:errors [#":skills \"s\": :body must be a string or a function"]}

@@ -118,147 +118,117 @@
         (logger/error t "[server] Liveness probe - failed to start; parent monitoring disabled")
         nil))))
 
-(defmethod jsonrpc.server/receive-request "initialize" [_ {:keys [server] :as components} params]
+(defn ^:private initialize [{:keys [server] :as components} params]
   (when-let [parent-process-id (:process-id params)]
     (start-liveness-probe! parent-process-id #(exit server)))
   (handlers/initialize components params))
 
-(defmethod jsonrpc.server/receive-notification "initialized" [_ components _params]
-  (async-notify (handlers/initialized (with-config components))))
+(def ^:private core-methods
+  "The protocol methods core serves, by name: `:kind`, `:request` or
+   `:notification`, and `:handler`, `(fn [components params])`. It runs on a
+   thread of its own when `:thread?` (`eventually`, `async-notify`), else on
+   the protocol thread, and gets the session's config in its components
+   unless `:no-config?`. Modules serve more with `:rpc`."
+  {"initialize"                          {:kind :request :no-config? true :handler initialize}
+   "initialized"                         {:kind :notification :thread? true :handler (fn [components _] (handlers/initialized components))}
+   "shutdown"                            {:kind :request :handler (fn [components _] (handlers/shutdown components))}
+   "exit"                                {:kind :notification :no-config? true :handler (fn [{:keys [server]} _] (exit server))}
+   "workspace/didChangeWorkspaceFolders" {:kind :notification :thread? true :handler #'handlers/workspace-did-change-folders}
+   ;; resolves its config itself, after echoing the prompt
+   "chat/prompt"                         {:kind :request :thread? true :no-config? true :handler #'handlers/chat-prompt}
+   "chat/inlinePrompt"                   {:kind :request :thread? true :handler #'handlers/chat-inline-prompt}
+   "chat/queryContext"                   {:kind :request :thread? true :handler #'handlers/chat-query-context}
+   "chat/queryFiles"                     {:kind :request :thread? true :handler #'handlers/chat-query-files}
+   "chat/queryCommands"                  {:kind :request :thread? true :handler #'handlers/chat-query-commands}
+   "chat/toolCallApprove"                {:kind :notification :handler #'handlers/chat-tool-call-approve}
+   "chat/toolCallReject"                 {:kind :notification :handler #'handlers/chat-tool-call-reject}
+   "chat/promptStop"                     {:kind :notification :handler #'handlers/chat-prompt-stop}
+   "chat/promptSteer"                    {:kind :notification :handler #'handlers/chat-prompt-steer}
+   "chat/promptSteerRemove"              {:kind :notification :handler #'handlers/chat-prompt-steer-remove}
+   "chat/delete"                         {:kind :request :thread? true :handler #'handlers/chat-delete}
+   "chat/clear"                          {:kind :request :thread? true :handler #'handlers/chat-clear}
+   "chat/rollback"                       {:kind :request :thread? true :handler #'handlers/chat-rollback}
+   "chat/addFlag"                        {:kind :request :thread? true :handler #'handlers/chat-add-flag}
+   "chat/removeFlag"                     {:kind :request :thread? true :handler #'handlers/chat-remove-flag}
+   "chat/fork"                           {:kind :request :thread? true :handler #'handlers/chat-fork}
+   "chat/update"                         {:kind :request :thread? true :handler #'handlers/chat-update}
+   "chat/list"                           {:kind :request :thread? true :handler #'handlers/chat-list}
+   "chat/open"                           {:kind :request :thread? true :handler #'handlers/chat-open}
+   "chat/history"                        {:kind :request :thread? true :handler #'handlers/chat-history}
+   "chat/selectedAgentChanged"           {:kind :notification :thread? true :handler #'handlers/chat-selected-agent-changed}
+   ;; legacy: the old name of chat/selectedAgentChanged
+   "chat/selectedBehaviorChanged"        {:kind :notification :thread? true :handler #'handlers/chat-selected-agent-changed}
+   "chat/selectedModelChanged"           {:kind :notification :thread? true :handler #'handlers/chat-selected-model-changed}
+   "mcp/stopServer"                      {:kind :notification :thread? true :handler #'handlers/mcp-stop-server}
+   "mcp/startServer"                     {:kind :notification :thread? true :handler #'handlers/mcp-start-server}
+   "mcp/connectServer"                   {:kind :notification :thread? true :handler #'handlers/mcp-connect-server}
+   "mcp/logoutServer"                    {:kind :notification :thread? true :handler #'handlers/mcp-logout-server}
+   "mcp/disableServer"                   {:kind :notification :thread? true :handler #'handlers/mcp-disable-server}
+   "mcp/enableServer"                    {:kind :notification :thread? true :handler #'handlers/mcp-enable-server}
+   "mcp/updateServer"                    {:kind :request :thread? true :handler #'handlers/mcp-update-server}
+   "mcp/addServer"                       {:kind :request :thread? true :handler #'handlers/mcp-add-server}
+   "mcp/removeServer"                    {:kind :request :thread? true :handler #'handlers/mcp-remove-server}
+   "jobs/list"                           {:kind :request :thread? true :handler #'handlers/jobs-list}
+   "jobs/kill"                           {:kind :request :thread? true :handler #'handlers/jobs-kill}
+   "jobs/readOutput"                     {:kind :request :thread? true :handler #'handlers/jobs-read-output}
+   "providers/list"                      {:kind :request :thread? true :handler #'handlers/providers-list}
+   "providers/login"                     {:kind :request :thread? true :handler #'handlers/providers-login}
+   "providers/loginInput"                {:kind :request :thread? true :handler #'handlers/providers-login-input}
+   "providers/logout"                    {:kind :request :thread? true :handler #'handlers/providers-logout}})
 
-(defmethod jsonrpc.server/receive-request "shutdown" [_ components _params]
-  (handlers/shutdown (with-config components)))
+(defn ^:private module-method
+  "The method a module serves as `method` (`:rpc`), when it's of `kind`: the
+   first active module's, else a built-in module's whatever its state, as
+   core served these methods before modules. It runs on a thread of its own."
+  [config kind method]
+  (let [[found & others] (for [[entry rpc] (modules/contributions config :rpc)
+                               :let [rpc-method (get rpc method)]
+                               :when rpc-method]
+                           [entry rpc-method])
+        _ (doseq [[other] others]
+            (logger/warn "[server]" (format "Module %s has a method %s, like module %s; ignoring it"
+                                            (:id other) method (:id (first found)))))
+        [entry rpc-method] (or found
+                               (some (fn [module]
+                                       (when-let [rpc-method (get-in module [:rpc method])]
+                                         [{:id (:id module) :module module :built-in? true} rpc-method]))
+                                     (modules/built-in-modules)))]
+    (when (= kind (:kind rpc-method))
+      {:kind kind
+       :thread? true
+       :handler (fn [components params]
+                  (let [ctx (modules/module-ctx components entry)
+                        handler (:handler rpc-method)]
+                    (if (:built-in? entry)
+                      (handler ctx params)
+                      (modules/invoke ctx entry (str "method " method) {} handler ctx params))))})))
 
-(defmethod jsonrpc.server/receive-notification "exit" [_ {:keys [server]} _params]
-  (exit server))
+(defn ^:private find-method
+  "Method `method` of `kind`: core's, else a module's."
+  [kind method {:keys [db*]}]
+  (if-let [core-method (get core-methods method)]
+    (when (= kind (:kind core-method))
+      core-method)
+    (module-method (config/all @db*) kind method)))
 
-(defmethod jsonrpc.server/receive-notification "workspace/didChangeWorkspaceFolders" [_ components params]
-  (async-notify (handlers/workspace-did-change-folders (with-config components) params)))
+(defn ^:private run-method [{:keys [kind handler thread? no-config?]} components params]
+  (let [run #(handler (if no-config? components (with-config components)) params)]
+    (cond
+      (not thread?) (run)
+      (= :request kind) (eventually (run))
+      :else (async-notify (run)))))
 
-(defmethod jsonrpc.server/receive-request "chat/prompt" [_ components params]
-  ;; No with-config: the handler resolves config after echoing the prompt.
-  (eventually (handlers/chat-prompt components params)))
+;; jsonrpc4clj's own default methods answer ::method-not-found: "Method not
+;; found" for a request, a warning for a notification
+(defmethod jsonrpc.server/receive-request :default [method components params]
+  (if-let [m (find-method :request method components)]
+    (run-method m components params)
+    ::jsonrpc.server/method-not-found))
 
-(defmethod jsonrpc.server/receive-request "chat/inlinePrompt" [_ components params]
-  (eventually (handlers/chat-inline-prompt (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/queryContext" [_ components params]
-  (eventually (handlers/chat-query-context (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/queryFiles" [_ components params]
-  (eventually (handlers/chat-query-files (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/queryCommands" [_ components params]
-  (eventually (handlers/chat-query-commands (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "chat/toolCallApprove" [_ components params]
-  (handlers/chat-tool-call-approve (with-config components) params))
-
-(defmethod jsonrpc.server/receive-notification "chat/toolCallReject" [_ components params]
-  (handlers/chat-tool-call-reject (with-config components) params))
-
-(defmethod jsonrpc.server/receive-notification "chat/promptStop" [_ components params]
-  (handlers/chat-prompt-stop (with-config components) params))
-
-(defmethod jsonrpc.server/receive-notification "chat/promptSteer" [_ components params]
-  (handlers/chat-prompt-steer (with-config components) params))
-
-(defmethod jsonrpc.server/receive-notification "chat/promptSteerRemove" [_ components params]
-  (handlers/chat-prompt-steer-remove (with-config components) params))
-
-(defmethod jsonrpc.server/receive-request "chat/delete" [_ components params]
-  (eventually (handlers/chat-delete (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/clear" [_ components params]
-  (eventually (handlers/chat-clear (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/rollback" [_ components params]
-  (eventually (handlers/chat-rollback (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/addFlag" [_ components params]
-  (eventually (handlers/chat-add-flag (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/removeFlag" [_ components params]
-  (eventually (handlers/chat-remove-flag (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/fork" [_ components params]
-  (eventually (handlers/chat-fork (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/update" [_ components params]
-  (eventually (handlers/chat-update (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/list" [_ components params]
-  (eventually (handlers/chat-list (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/open" [_ components params]
-  (eventually (handlers/chat-open (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "chat/history" [_ components params]
-  (eventually (handlers/chat-history (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "mcp/stopServer" [_ components params]
-  (async-notify (handlers/mcp-stop-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "mcp/startServer" [_ components params]
-  (async-notify (handlers/mcp-start-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "mcp/connectServer" [_ components params]
-  (async-notify (handlers/mcp-connect-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "mcp/logoutServer" [_ components params]
-  (async-notify (handlers/mcp-logout-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "mcp/disableServer" [_ components params]
-  (async-notify (handlers/mcp-disable-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "mcp/enableServer" [_ components params]
-  (async-notify (handlers/mcp-enable-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "mcp/updateServer" [_ components params]
-  (eventually (handlers/mcp-update-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "mcp/addServer" [_ components params]
-  (eventually (handlers/mcp-add-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "mcp/removeServer" [_ components params]
-  (eventually (handlers/mcp-remove-server (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "chat/selectedAgentChanged" [_ components params]
-  (async-notify (handlers/chat-selected-agent-changed (with-config components) params)))
-
-;; Legacy: backward compat for clients using old method name
-(defmethod jsonrpc.server/receive-notification "chat/selectedBehaviorChanged" [_ components params]
-  (async-notify (handlers/chat-selected-agent-changed (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-notification "chat/selectedModelChanged" [_ components params]
-  (async-notify (handlers/chat-selected-model-changed (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "jobs/list" [_ components params]
-  (eventually (handlers/jobs-list (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "jobs/kill" [_ components params]
-  (eventually (handlers/jobs-kill (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "jobs/readOutput" [_ components params]
-  (eventually (handlers/jobs-read-output (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "providers/list" [_ components params]
-  (eventually (handlers/providers-list (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "providers/login" [_ components params]
-  (eventually (handlers/providers-login (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "providers/loginInput" [_ components params]
-  (eventually (handlers/providers-login-input (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "providers/logout" [_ components params]
-  (eventually (handlers/providers-logout (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "completion/inline" [_ components params]
-  (eventually (handlers/completion-inline (with-config components) params)))
-
-(defmethod jsonrpc.server/receive-request "rewrite/prompt" [_ components params]
-  (eventually (handlers/rewrite-prompt (with-config components) params)))
+(defmethod jsonrpc.server/receive-notification :default [method components params]
+  (if-let [m (find-method :notification method components)]
+    (run-method m components params)
+    ::jsonrpc.server/method-not-found))
 
 (defn ^:private monitor-server-logs [log-ch]
   ;; Start monitoring immediately so startup logs and traces are not lost before
@@ -302,9 +272,6 @@
   (chat-opened [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "chat/opened" params)))
-  (rewrite-content-received [_this content]
-    (jsonrpc.server/discarding-stdout
-     (jsonrpc.server/send-notification server "rewrite/contentReceived" content)))
   (config-updated [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "config/updated" params)))
@@ -317,9 +284,9 @@
   (provider-updated [_this params]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "providers/updated" params)))
-  (jobs-updated [_this params]
+  (notify! [_this method params]
     (jsonrpc.server/discarding-stdout
-     (jsonrpc.server/send-notification server "jobs/updated" params)))
+     (jsonrpc.server/send-notification server method params)))
   (showMessage [_this msg]
     (jsonrpc.server/discarding-stdout
      (jsonrpc.server/send-notification server "$/showMessage" msg)))

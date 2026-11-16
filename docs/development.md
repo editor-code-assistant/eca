@@ -21,7 +21,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `deps.edn`                  | Clojure dependency coordinates and aliases used by the JVM build and the native GraalVM image.
    `docs/`                     | Markdown documentation shown at https://eca.dev
    `src/eca/main.clj`          | The CLI interface (`eca server`, etc.).
-   `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`.
+   `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`: the protocol methods core serves, then the modules' (`:rpc`).
    `src/eca/handlers.clj`      | Entrypoint for all features; every JSON-RPC request/notification lands here.
    `src/eca/messenger.clj`     | Protocol to send requests/notifications back to the client (stdio or remote).
    `src/eca/db.clj`            | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here.
@@ -37,8 +37,6 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `login.clj`              | Provider auth flows.
    ├─ `providers.clj`          | Model/provider resolution.
-   ├─ `completion.clj`         | Non-chat LLM feature: code completion.
-   ├─ `rewrite.clj`            | Non-chat LLM feature: text rewrite.
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
    ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
@@ -51,7 +49,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `hooks.clj`              | User-configured hooks triggered on server events.
    ├─ `skills.clj`, `rules.clj`| Skills and rules: discovery, loading, their tools and prompt sections.
    ├─ `remote.clj` + `remote/` | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
-   └─ ...                      | `plugins.clj`, `approval.clj`, `manage.clj`, `otel.clj`, `repl.clj`, ...
+   └─ ...                      | `completion.clj` and `rewrite.clj` (inline completion and rewrite), `plugins.clj`, `approval.clj`, `manage.clj`, `otel.clj`, `repl.clj`, ...
    `src/eca/api.clj` + `api/`  | The module API: all that external modules see.
    `src/eca/nrepl.clj`         | Starts an nREPL when built with `bb debug-cli`.
 

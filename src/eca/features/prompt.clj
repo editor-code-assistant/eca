@@ -28,6 +28,14 @@
   (and (string? path)
        (.isAbsolute (io/file path))))
 
+(defn prompt-file
+  "The text of prompt file `path`, a legacy `systemPromptFile`: the file
+   itself when absolute, else ECA's own prompt under `prompts/`."
+  [path]
+  (if (absolute-path? path)
+    (slurp path)
+    (load-builtin-prompt (some-> path (string/replace-first #"prompts/" "")))))
+
 (defn eca-chat-prompt
   "Selected chat prompt template; single source of truth for rendering and cache identity."
   [agent-name config chat-id db]
@@ -374,59 +382,3 @@
   (if dynamic
     (multi-str static "" dynamic)
     static))
-
-(defn build-rewrite-instructions [text path full-text range all-tools config db]
-  (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
-        legacy-config-prompt (-> config :rewrite :systemPrompt)
-        config-prompt (get-config-prompt :rewrite nil config)
-        prompt-str (cond
-                     legacy-config-prompt
-                     legacy-config-prompt
-
-                     config-prompt
-                     config-prompt
-
-                     ;; Absolute path
-                     (absolute-path? legacy-prompt-file)
-                     (slurp legacy-prompt-file)
-
-                     ;; Resource path
-                     :else
-                     (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))]
-    (shared/safe-selmer-render prompt-str
-                               (merge
-                                (->base-selmer-ctx all-tools db)
-                                {:text text
-                                 :path (when path
-                                         (str "- File path: " path))
-                                 :rangeText (multi-str
-                                             (str "- Start line: " (-> range :start :line))
-                                             (str "- Start character: " (-> range :start :character))
-                                             (str "- End line: " (-> range :end :line))
-                                             (str "- End character: " (-> range :end :character)))
-                                 :fullText (when full-text
-                                             (multi-str
-                                              "- Full file content"
-                                              "```"
-                                              full-text
-                                              "```"))})
-                               "rewrite-prompt")))
-
-(defn inline-completion-prompt [config]
-  (let [legacy-config-file-prompt (get-in config [:completion :systemPromptFile])
-        legacy-config-prompt (get-in config [:completion :systemPrompt])
-        config-prompt (get-config-prompt :completion nil config)]
-    (cond
-      legacy-config-prompt
-      legacy-config-prompt
-
-      config-prompt
-      config-prompt
-
-      ;; Absolute path
-      (absolute-path? legacy-config-file-prompt)
-      (slurp legacy-config-file-prompt)
-
-      ;; Resource path
-      :else
-      (load-builtin-prompt (some-> legacy-config-file-prompt (string/replace-first #"prompts/" ""))))))

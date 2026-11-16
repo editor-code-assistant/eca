@@ -13,6 +13,7 @@
    [eca.modules.chat-management :as m.chat-management]
    [eca.modules.chat-title :as m.chat-title]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
+   [eca.modules.completion :as m.completion]
    [eca.modules.core :as m.core]
    [eca.modules.custom-commands :as m.custom-commands]
    [eca.modules.hooks :as m.hooks]
@@ -38,6 +39,7 @@
    [eca.modules.remote :as m.remote]
    [eca.modules.repl :as m.repl]
    [eca.modules.repo-map :as m.repo-map]
+   [eca.modules.rewrite :as m.rewrite]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
    [eca.modules.subagents :as m.subagents]
@@ -88,6 +90,8 @@
    m.compact-as-summary/module
    m.manage/module
    ;; editor features
+   m.completion/module
+   m.rewrite/module
    m.repo-map/module
    ;; APIs, each in its provider's namespace
    m.anthropic/api-module

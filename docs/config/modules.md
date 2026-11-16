@@ -51,6 +51,9 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
     | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj) | A map of the repository, for the `repoMap` context. |
     | [`eca/manage`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/manage.clj) | Set up, debug and change ECA: `/init`, `/skill-create`, and the `eca-info` and `eca-manage` skills. |
+    | **Editor features** | |
+    | [`eca/completion`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/completion.clj) | Inline code completion, as you type. |
+    | [`eca/rewrite`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rewrite.clj) | Rewrite the selected code with the model. |
     | **LLM APIs** | |
     | [`eca/api-anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj) | The Anthropic Messages API. |
     | [`eca/api-openai-responses`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/openai.clj) | The OpenAI Responses API. |
@@ -210,6 +213,22 @@ The handler returns a string to show in the chat, `{:prompt "..."}` to send a me
 
 You type `/name`, or `/<prefix>:<name>` when two modules have a command with the same name.
 
+### Protocol methods
+
+`:rpc` adds methods to [ECA's protocol](../protocol.md), for editors and other clients:
+
+```clojure
+:rpc {"acme/status" {:kind :request
+                     :handler (fn [_ctx params] {:ok true :echo params})}}
+```
+
+| Key | |
+|-----|--|
+| `:kind` | `:request`, answered with what the handler returns, or `:notification`. |
+| `:handler` | `(fn [ctx params])`. It runs on a thread of its own. |
+
+ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, and "Method not found" otherwise.
+
 ### Events
 
 Event handlers let a module react to what ECA does, change it, or give an answer ECA asks for. This one rejects writes to `.env` files:
@@ -277,6 +296,7 @@ A module can also define its own events in `:defines` and send them with `(eca/e
 | `:config-defaults` | Defaults for keys other modules own, like an approval rule for its tool: `{:toolCall {:approval {:allow {"jira__issue" {}}}}}`. |
 | `:start`, `:stop` | `(fn [ctx])`. What `:start` returns is the module's state, `(eca/state ctx)`. |
 | `:tools`, `:commands` | See [Tools](#tools) and [Commands](#commands). |
+| `:rpc` | Protocol methods. See [Protocol methods](#protocol-methods). |
 | `:prefix` | Prefix of its tools and commands. The name in `:id` by default. |
 | `:system-prompts` | Sections it adds to the system prompt: `[{:id :acme/conventions :after :eca/rules :content "..."}]`. `:content` is a string or `(fn [ctx])`. `:before` or `:after` place it next to another section; `:dynamic? true` is for content that changes every turn. |
 | `:event-handlers` | `{event-id handler}`. See [Events](#events). |

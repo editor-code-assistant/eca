@@ -6,12 +6,10 @@
    [eca.features.background-tasks :as f.background-tasks]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
-   [eca.features.completion :as f.completion]
    [eca.features.login :as f.login]
    [eca.features.modules :as f.modules]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
-   [eca.features.rewrite :as f.rewrite]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -653,11 +651,6 @@
             (swap! db* assoc-in [:last-config-notified :chat :select-variant] variant))
           (config/notify-fields-changed-only! payload messenger db*))))))
 
-(defn completion-inline
-  [{:keys [db* config metrics messenger]} params]
-  (metrics/task metrics :eca/completion-inline
-    (f.completion/complete params db* config messenger metrics)))
-
 (defmacro handle-expected-errors
   "Executes body, catching any ExceptionInfo with :error-response.
   If caught, return {:error error-response}"
@@ -669,12 +662,6 @@
          {:error error-response#}
          (throw e#)))))
 
-(defn rewrite-prompt
-  [{:keys [db* config metrics messenger]} params]
-  (metrics/task metrics :eca/rewrite-prompt
-    (handle-expected-errors
-     (f.rewrite/prompt params db* config messenger metrics))))
-
 (defn jobs-list [{:keys [db* metrics]} _params]
   (metrics/task metrics :eca/jobs-list
     {:jobs (f.background-tasks/jobs-summary db*)}))
@@ -684,7 +671,7 @@
     (let [job-id (:job-id params)
           killed? (f.background-tasks/kill-job! job-id)]
       (when killed?
-        (messenger/jobs-updated messenger {:jobs (f.background-tasks/jobs-summary db*)}))
+        (messenger/notify! messenger "jobs/updated" {:jobs (f.background-tasks/jobs-summary db*)}))
       {:killed killed?})))
 
 (defn jobs-read-output [{:keys [metrics]} params]

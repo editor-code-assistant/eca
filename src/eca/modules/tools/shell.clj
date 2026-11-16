@@ -107,7 +107,7 @@
                               :exit-code (:exit-code completed-job)
                               :label (:label completed-job)
                               :output-tail tail})
-                            (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)}))
+                            (messenger/notify! messenger "jobs/updated" {:jobs (bg/jobs-summary db*)}))
                           (catch Exception e
                             (logger/warn logger-tag "on-exit notification error" {:message (.getMessage e)}))))]
           (if-let [job (bg/register-shell-job! {:label command
@@ -120,7 +120,7 @@
             (do
               (bg/start-output-capture! job (:out proc) (:err proc))
               (bg/monitor-process-exit! (:id job) proc)
-              (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)})
+              (messenger/notify! messenger "jobs/updated" {:jobs (bg/jobs-summary db*)})
               (wait-for-initial-output (:id job) call-state-fn)
               (let [{:keys [lines status exit-code]} (bg/read-output! (:id job))
                     initial-output (string/join "\n" (map bg/format-output-line lines))]

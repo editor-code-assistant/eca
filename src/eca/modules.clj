@@ -52,9 +52,9 @@
 (def ^:private v1-keys
   #{:id :description :version :api :requires :priority :default-enabled?
     :config-spec :start :stop :tools :prefix :commands :system-prompts
-    :providers :apis :config-defaults :event-handlers :defines})
+    :providers :apis :config-defaults :event-handlers :defines :rpc})
 
-(def ^:private built-in-only-keys #{:rpc :agents :skills})
+(def ^:private built-in-only-keys #{:agents :skills})
 
 (def ^:private later-keys #{:activation :strategies :rules :contexts :capabilities :ui})
 
@@ -274,6 +274,10 @@
                   (map-of-problems ":providers" providers string? "a string" #(if (map? %) [] ["must be a map"]))
                   (map-of-problems ":apis" apis string? "a string"
                                    #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))
+                  (map-of-problems ":rpc" (:rpc module) string? "a string"
+                                   #(if (and (map? %) (#{:request :notification} (:kind %)) (fn-like? (:handler %)))
+                                      []
+                                      ["must be a map with :kind :request or :notification and a :handler function"]))
                   (when (and (some? config-defaults) (not (or (map? config-defaults) (fn-like? config-defaults))))
                     [":config-defaults must be a map or a function"])
                   (when (and (some? (:agents module)) (not (fn-like? (:agents module))))

@@ -96,6 +96,11 @@
       @result
       (cancel-handle! handle))))
 
+(def ^:private sse-events
+  "The SSE event of each `notify!` method remote clients get; the others go
+   to the editor only (e.g. `rewrite/contentReceived`)."
+  {"jobs/updated" "jobs:updated"})
+
 (defrecord BroadcastMessenger [inner sse-connections* pending-questions* db*]
   messenger/IMessenger
 
@@ -138,9 +143,6 @@
                                                                 (- total returned))))))))
       (m.remote.sse/broadcast! sse-connections* "chat:opened" (->camel params))))
 
-  (rewrite-content-received [_this data]
-    (messenger/rewrite-content-received inner data))
-
   (tool-server-updated [_this params]
     (messenger/tool-server-updated inner params)
     (m.remote.sse/broadcast! sse-connections* "tool:server-updated" (->camel params)))
@@ -153,9 +155,10 @@
     (messenger/provider-updated inner params)
     (m.remote.sse/broadcast! sse-connections* "providers:updated" (->camel params)))
 
-  (jobs-updated [_this params]
-    (messenger/jobs-updated inner params)
-    (m.remote.sse/broadcast! sse-connections* "jobs:updated" (->camel params)))
+  (notify! [_this method params]
+    (messenger/notify! inner method params)
+    (when-let [event (get sse-events method)]
+      (m.remote.sse/broadcast! sse-connections* event (->camel params))))
 
   (config-updated [_this params]
     (messenger/config-updated inner params)

@@ -1,13 +1,13 @@
-(ns eca.features.completion-test
+(ns eca.modules.completion-test
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
    [eca.db :as db]
-   [eca.features.completion :as f.completion]
    [eca.features.login :as f.login]
    [eca.llm-api :as llm-api]
+   [eca.modules.completion :as m.completion]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
@@ -42,7 +42,7 @@
                                      (fn [opts]
                                        (reset! api-opts* opts)
                                        {:output-text "completion"})]
-                         (f.completion/complete {:doc-text "abc"
+                         (m.completion/complete {:doc-text "abc"
                                                  :doc-version 3
                                                  :position {:line 1 :character 4}}
                                                 (h/db*) (h/config) (h/messenger) (h/metrics)))]
