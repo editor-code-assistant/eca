@@ -46,6 +46,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/plugins`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/plugins.clj) | Plugin marketplaces: install, update and remove bundles. |
     | **Chat** | |
     | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/approval.clj) | Tool approval from the `toolCall.approval` rules. |
+    | [`eca/chat-management`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_management.clj) | Fork chats, ask side questions, and resume, list, delete, export and import chats. |
     | [`eca/chat-title`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_title.clj) | The chat model titles each chat, and titles it again at its third request. |
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
     | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj) | A map of the repository, for the `repoMap` context. |

@@ -527,7 +527,7 @@
                                               {:chat-id chat-id :source-chat-id source-chat-id}))
                              copied (when source-chat
                                       (merge {:last-api (:last-api source-chat)
-                                              :messages (f.commands/drop-dangling-tool-calls
+                                              :messages (f.chat.ops/drop-dangling-tool-calls
                                                          (vec (:messages source-chat)))}
                                              (select-keys source-chat [:trust :remembered-approvals
                                                                        :prompt-cache :startup-context

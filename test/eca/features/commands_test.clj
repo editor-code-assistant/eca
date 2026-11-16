@@ -5,7 +5,10 @@
    [clojure.test :refer [deftest is testing]]
    [eca.db :as db]
    [eca.features.chat.export :as f.chat.export]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.features.commands :as f.commands]
+   [eca.modules.chat-management :as m.chat-management]
+   [eca.modules.core :as m.core]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
@@ -53,7 +56,7 @@
 
 (deftest prompt-show-text-test
   (testing "uses compact section headings and omits the /prompt-show command itself"
-    (let [result (#'f.commands/prompt-show-text
+    (let [result (#'m.core/prompt-show-text
                   {:static "system prompt"}
                   [{:role "user"
                     :content [{:type :text :text "/prompt-show"}
@@ -219,10 +222,10 @@
 
 (deftest btw-title-test
   (testing "prefixes and keeps short questions"
-    (is (= "btw: how does X work?" (f.commands/btw-title "how does X work?"))))
+    (is (= "btw: how does X work?" (m.chat-management/btw-title "how does X work?"))))
   (testing "truncates long questions"
     (is (= (str "btw: " (apply str (repeat 40 "a")) "...")
-           (f.commands/btw-title (apply str (repeat 41 "a")))))))
+           (m.chat-management/btw-title (apply str (repeat 41 "a")))))))
 
 (deftest drop-dangling-tool-calls-test
   (let [user-msg {:role "user" :content [{:type :text :text "hey"}]}
@@ -234,11 +237,11 @@
         dangling-server-use {:role "server_tool_use" :content {:id "s2"}}]
     (testing "keeps paired tool calls and other messages"
       (is (= [user-msg tool-call tool-output server-use server-result]
-             (f.commands/drop-dangling-tool-calls
+             (f.chat.ops/drop-dangling-tool-calls
               [user-msg tool-call tool-output server-use server-result]))))
     (testing "drops unpaired tool calls"
       (is (= [user-msg tool-call tool-output]
-             (f.commands/drop-dangling-tool-calls
+             (f.chat.ops/drop-dangling-tool-calls
               [user-msg tool-call tool-output dangling-tool-call dangling-server-use]))))))
 
 (deftest handle-btw-command-test
@@ -868,7 +871,7 @@
       (is (= {:name "arg10" :required true} (last result))))))
 
 (deftest context-usage-text-test
-  (let [text (#'f.commands/context-usage-text
+  (let [text (#'m.core/context-usage-text
               "anthropic/claude-sonnet-4-6"
               {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}
                             {:name "Conversation" :tokens 1600 :emoji "🟩"}]
@@ -898,7 +901,7 @@
       (is (> (count (re-seq #"⬜" text)) 1)))))
 
 (deftest context-usage-text-compaction-marker-test
-  (let [text (#'f.commands/context-usage-text
+  (let [text (#'m.core/context-usage-text
               "anthropic/claude-sonnet-4-6"
               {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}
                             {:name "Conversation" :tokens 1600 :emoji "🟩"}]
@@ -915,7 +918,7 @@
       (is (= 2 (count (re-seq #"🔲" text)))))))
 
 (deftest context-usage-text-fractional-compaction-threshold-test
-  (let [text (#'f.commands/context-usage-text
+  (let [text (#'m.core/context-usage-text
               "anthropic/claude-sonnet-4-6"
               {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}]
                :used-tokens 5300

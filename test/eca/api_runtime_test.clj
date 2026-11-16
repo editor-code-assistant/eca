@@ -11,10 +11,10 @@
    [eca.api.json :as api.json]
    [eca.db :as db]
    [eca.features.chat.ops :as f.chat.ops]
-   [eca.features.commands :as f.commands]
    [eca.features.modules :as f.modules]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
+   [eca.modules.core :as m.core]
    [eca.modules.data :as modules.data]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]
@@ -138,7 +138,7 @@
       (testing "/costs shows a line per module"
         (is (= ["\nModules' own LLM calls, not in the totals above:"
                 "- `acme/worker`: 2 calls, 2000 input tokens, 400 output tokens, $0.004"]
-               (f.commands/module-usage-lines (get-in (h/db) [:chats "chat-1" :module-usage])))))
+               (m.core/module-usage-lines (get-in (h/db) [:chats "chat-1" :module-usage])))))
       (testing "/modules shows the session's calls"
         (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with))]
           (modules/add-external! "/tmp/worker.clj" worker)

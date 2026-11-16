@@ -9,7 +9,6 @@
    [eca.features.chat.history :as f.chat.history]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.replay :as f.chat.replay]
-   [eca.features.commands :as f.commands]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules.data :as modules.data]
@@ -19,6 +18,33 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[CHAT]")
+
+(defn fork-title [title]
+  (let [title (or title "Untitled")]
+    (if-let [[_ base n] (re-matches #"(.+?)\s*\((\d+)\)\s*$" title)]
+      (str base " (" (inc (parse-long n)) ")")
+      (str title " (2)"))))
+
+(defn drop-dangling-tool-calls
+  "Drops tool_call/server_tool_use entries without their paired
+   tool_call_output/server_tool_result, which can exist mid-turn (outputs are
+   appended to history only after execution). A fork taken at that moment would
+   otherwise replay an unpaired tool call that providers reject."
+  [messages]
+  (let [output-ids (into #{}
+                         (keep #(when (= "tool_call_output" (:role %))
+                                  (get-in % [:content :id])))
+                         messages)
+        result-ids (into #{}
+                         (keep #(when (= "server_tool_result" (:role %))
+                                  (get-in % [:content :tool-use-id])))
+                         messages)]
+    (filterv (fn [{:keys [role content]}]
+               (case role
+                 "tool_call" (contains? output-ids (:id content))
+                 "server_tool_use" (contains? result-ids (:id content))
+                 true))
+             messages)))
 
 (defn sanitize-title
   "Clean up a chat title: take first meaningful line, strip control chars,
@@ -288,7 +314,7 @@
       {}
       (let [new-id (str (random-uuid))
             now (System/currentTimeMillis)
-            new-title (f.commands/fork-title (:title chat))
+            new-title (fork-title (:title chat))
             kept-messages (subvec messages 0 (inc target-idx))
             new-chat (assoc-some {:id new-id
                                   :title new-title
