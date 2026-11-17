@@ -1307,6 +1307,24 @@
                              (pmc/read-resource mcp-client uri))]
       {:contents (mapv ->resource-content (:contents resource))})))
 
+(defn ^:private resource-items
+  "The servers' resources, as `@` completion items."
+  [{:keys [db]}]
+  (mapv #(assoc % :type "mcpResource") (all-resources db)))
+
+(defn ^:private refine-resource
+  "An `mcpResource` context a client sent: the resource's contents."
+  [{:keys [db]} {:keys [uri]}]
+  (try
+    (mapv (fn [{:keys [text]}]
+            {:type :mcpResource
+             :uri uri
+             :content text})
+          (:contents (get-resource! uri db)))
+    (catch Exception e
+      (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
+      [])))
+
 (defn shutdown!
   "Shutdown MCP servers: interrupts in-flight init threads and disconnects
    running clients in parallel with a total 5s timeout.
@@ -1457,5 +1475,7 @@
                  :mcpKeepAliveSeconds {:type :number :default 30}}
    :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
                     {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]
+   ;; resources, for the @ list and the contexts clients send
+   :contexts {:types {"mcpResource" {:list #'resource-items :refine #'refine-resource}}}
    ;; each prompt as a command, listed first
    :commands #'commands})

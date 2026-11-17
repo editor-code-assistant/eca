@@ -196,7 +196,7 @@
                                                                                                  :state :running
                                                                                                  :text "Parsing given context"}))
             refined-contexts (concat
-                              (f.context/agents-file-contexts db config)
+                              (f.context/always-contexts db config)
                               (f.context/raw-contexts->refined contexts db))
             all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
             ;; the system prompt's sections compute their own data (rules, skills...)

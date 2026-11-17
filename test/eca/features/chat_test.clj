@@ -3381,7 +3381,7 @@
     (h/config! {:chat {:autoSyncSystemPrompt true}})
     (let [build-calls* (atom 0)
           real-build f.prompt/build-chat-instructions]
-      (with-redefs [f.context/agents-file-contexts (constantly [])
+      (with-redefs [f.context/always-contexts (constantly [])
                     f.context/raw-contexts->refined (fn [contexts _db] contexts)
                     f.prompt/build-chat-instructions
                     (fn [& args]

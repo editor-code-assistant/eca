@@ -54,9 +54,9 @@
     :config-spec :start :stop :tools :prefix :commands :system-prompts
     :providers :apis :config-defaults :event-handlers :defines :rpc})
 
-(def ^:private built-in-only-keys #{:agents :skills})
+(def ^:private built-in-only-keys #{:agents :skills :contexts})
 
-(def ^:private later-keys #{:activation :strategies :rules :contexts :capabilities :ui})
+(def ^:private later-keys #{:activation :strategies :rules :capabilities :ui})
 
 ;; --- Registry
 

@@ -7,6 +7,7 @@
    runtime with `eca.modules/set-built-ins!`."
   (:require
    [eca.modules.agents :as m.agents]
+   [eca.modules.agents-md :as m.agents-md]
    [eca.modules.agents.agent-code :as m.agent-code]
    [eca.modules.agents.agent-plan :as m.agent-plan]
    [eca.modules.approval :as m.approval]
@@ -71,9 +72,10 @@
    m.agent-plan/module
    m.subagent-explorer/module
    m.subagent-general/module
-   ;; skills, rules, tool search
+   ;; skills, rules, AGENTS.md, tool search
    m.skills/module
    m.rules/module
+   m.agents-md/module
    m.tool-search/module
    ;; MCP
    m.mcp/module
