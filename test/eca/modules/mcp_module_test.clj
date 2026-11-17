@@ -23,9 +23,7 @@
 
 (deftest mcp-tools-and-prompts-test
   (testing "MCP tools are listed while the module is active"
-    (with-redefs [m.mcp/all-tools (constantly [{:name "lookup" :server {:name "myMCP"} :description "Look up."
-                                                :parameters {:type "object"}}])
-                  m.mcp/all-prompts (constantly [{:name "summarize" :server "myMCP" :description "Summarize."}])]
+    (with-redefs [m.mcp/all-prompts (constantly [{:name "summarize" :server "myMCP" :description "Summarize."}])]
       (is (some #(= "myMCP__lookup" (:full-name %)) (f.tools/all-tools "c1" "code" db-with-mcp {})))
       (is (some #(= "myMCP:summarize" (:name %)) (f.commands/all-commands db-with-mcp {})))
       (testing "and hidden while it's disabled"

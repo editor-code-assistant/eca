@@ -199,6 +199,27 @@ ECA warns about config keys that neither it nor a loaded module knows, at startu
 
 A tool's full name is `<prefix>__<name>`: `jira__issue` above. The prefix is the name in the module's `:id`, unless the module sets `:prefix`. Use the full name in approval rules and `disabledTools`, or just `jira` for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.
 
+### Tool servers
+
+A module whose tools come and go, as ECA's MCP support's do, serves them from tool servers instead of `:tools`:
+
+```clojure
+:tool-servers {:list (fn [_ctx]
+                       [{:name "docs" :status "running"
+                         :tools [{:name "lookup" :description "Look up the docs."
+                                  :parameters {:type "object" :properties {"q" {:type "string"}}}}]}])
+               :call (fn [_ctx _server _tool args _opts]
+                       (str "Found " (get args "q")))}
+```
+
+| Key | |
+|-----|--|
+| `:list` | `(fn [ctx])`. The module's servers now: each with `:name`, `:status` and `:tools` (`:name`, `:description`, `:parameters`), maybe `:version`. ECA asks often, so keep it fast. |
+| `:call` | `(fn [ctx server tool args opts])`, with string keys in `args` and the calling chat's `:chat-id` in `opts`. Returns what a tool's handler returns. |
+| `:await-refresh` | Optional `(fn [ctx timeout-ms])`. Blocks while a server updates its tools, `timeout-ms` at most. ECA waits after a batch of tool calls, so the model sees the new tools. |
+
+A server's tools are named `<server>__<tool>`, like MCP tools, and work like them in approval rules, `disabledTools` and tool search. When two modules have a server with the same name, the first one to start keeps it.
+
 ### Commands
 
 `:commands` maps each command's name to its definition:
@@ -297,6 +318,7 @@ A module can also define its own events in `:defines` and send them with `(eca/e
 | `:config-defaults` | Defaults for keys other modules own, like an approval rule for its tool: `{:toolCall {:approval {:allow {"jira__issue" {}}}}}`. |
 | `:start`, `:stop` | `(fn [ctx])`. What `:start` returns is the module's state, `(eca/state ctx)`. |
 | `:tools`, `:commands` | See [Tools](#tools) and [Commands](#commands). |
+| `:tool-servers` | Servers of tools that come and go. See [Tool servers](#tool-servers). |
 | `:rpc` | Protocol methods. See [Protocol methods](#protocol-methods). |
 | `:prefix` | Prefix of its tools and commands. The name in `:id` by default. |
 | `:system-prompts` | Sections it adds to the system prompt: `[{:id :acme/conventions :after :eca/rules :content "..."}]`. `:content` is a string or `(fn [ctx])`. `:before` or `:after` place it next to another section; `:dynamic? true` is for content that changes every turn. |

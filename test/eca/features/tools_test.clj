@@ -842,21 +842,31 @@
         (Thread/sleep 250)
         (is (= [1] @calls*))))))
 
+(defn ^:private mcp-db*
+  "A db atom where the MCP server `server-name` runs `tools`."
+  [server-name tools]
+  (atom (assoc (h/db) :mcp-clients {server-name {:status :running :tools tools}})))
+
+(def ^:private mcp-eval-tool
+  {:name        "mcp_eval"
+   :description "eval code"
+   :parameters  {"type"      "object"
+                 :properties {"code" {:type "string"}}
+                 :required   ["code"]}})
+
 (deftest call-tool!-mcp-progress-test
   (testing "MCP progress reaches on-progress, and nothing is reported after the call returns"
     (let [reported* (atom [])
           on-progress* (atom nil)]
-      (with-redefs [m.mcp/all-tools  (fn [_]
-                                       [{:name "slow" :server {:name "srv"}
-                                         :parameters {"type" "object" :properties {}}}])
-                    m.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
+      (with-redefs [m.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
                                        (reset! on-progress* on-progress)
                                        (on-progress {:progress 1 :total 2})
                                        (on-progress {:progress 2 :total 2})
                                        {:error false :contents [{:type :text :text "done"}]})]
         (is (match? {:error false}
                     (f.tools/call-tool! "srv__slow" {} "chat-1" "call-1" "code"
-                                        (h/db*) (h/config) (h/messenger) (h/metrics)
+                                        (mcp-db* "srv" [{:name "slow" :parameters {"type" "object" :properties {}}}])
+                                        (h/config) (h/messenger) (h/metrics)
                                         identity identity
                                         {:on-progress #(swap! reported* conj %)})))
         (@on-progress* {:progress 3 :total 2})
@@ -867,14 +877,12 @@
 (deftest call-tool!-mcp-chat-id-test
   (testing "the calling chat's id reaches the MCP call, which sends it as _meta.sessionId"
     (let [ctx* (atom nil)]
-      (with-redefs [m.mcp/all-tools  (fn [_]
-                                       [{:name "tool" :server {:name "srv"}
-                                         :parameters {"type" "object" :properties {}}}])
-                    m.mcp/call-tool! (fn [_server _name _args ctx]
+      (with-redefs [m.mcp/call-tool! (fn [_server _name _args ctx]
                                        (reset! ctx* ctx)
                                        {:error false :contents []})]
         (f.tools/call-tool! "srv__tool" {} "chat-1" "call-1" "code"
-                            (h/db*) (h/config) (h/messenger) (h/metrics)
+                            (mcp-db* "srv" [{:name "tool" :parameters {"type" "object" :properties {}}}])
+                            (h/config) (h/messenger) (h/metrics)
                             identity identity nil))
       (is (= "chat-1" (:chat-id @ctx*))))))
 
@@ -884,14 +892,7 @@
          {:error    true
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `code`"}]}
-         (with-redefs [m.mcp/all-tools  (fn [_]
-                                          [{:name        "mcp_eval"
-                                            :server      {:name "clojureMCP"}
-                                            :description "eval code"
-                                            :parameters  {"type"      "object"
-                                                          :properties {"code" {:type "string"}}
-                                                          :required   ["code"]}}])
-                       m.mcp/call-tool! (fn [& _]
+         (with-redefs [m.mcp/call-tool! (fn [& _]
                                           {:error    false
                                            :contents [{:type :text :text "should-not-be-called"}]})]
            (f.tools/call-tool!
@@ -900,7 +901,7 @@
             "chat-1"
             "call-2"
             "code"
-            (h/db*)
+            (mcp-db* "clojureMCP" [mcp-eval-tool])
             (h/config)
             (h/messenger)
             (h/metrics)
@@ -970,14 +971,7 @@
     (is (match?
          {:error    false
           :contents [{:type :text :text "OK"}]}
-         (with-redefs [m.mcp/all-tools  (fn [_]
-                                          [{:name        "mcp_eval"
-                                            :server      {:name "clojureMCP"}
-                                            :description "eval code"
-                                            :parameters  {"type"      "object"
-                                                          :properties {"code" {:type "string"}}
-                                                          :required   ["code"]}}])
-                       m.mcp/call-tool! (fn [& _]
+         (with-redefs [m.mcp/call-tool! (fn [& _]
                                           {:error    false
                                            :contents [{:type :text :text "OK"}]})]
            (f.tools/call-tool!
@@ -986,7 +980,7 @@
             "chat-3"
             "call-5"
             "code"
-            (h/db*)
+            (mcp-db* "clojureMCP" [mcp-eval-tool])
             (h/config)
             (h/messenger)
             (h/metrics)

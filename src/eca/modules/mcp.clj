@@ -967,13 +967,6 @@
     (on-server-removed {:name server-name})
     {:name server-name :removed true}))
 
-(defn all-tools [db]
-  (into []
-        (mapcat (fn [[name {:keys [tools version]}]]
-                  (map #(assoc % :server {:name name
-                                          :version version}) tools)))
-        (:mcp-clients db)))
-
 (defn await-pending-tools-refresh
   "Waits for any pending tool list refreshes to complete, with a timeout.
    Call before reading tools from db* to ensure dynamically loaded tools
@@ -1227,6 +1220,33 @@
             :else result))))
     (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
 
+(defn ^:private tool-servers
+  "`:tool-servers` `:list`: the servers in `:mcp-clients`, with their tools,
+   then the disabled ones that don't run."
+  [{:keys [db config]}]
+  (concat
+   (for [[server-name {:keys [tools version status]}] (:mcp-clients db)]
+     {:name server-name :version version :status status :tools tools})
+   (for [[server-name server-config] (:mcpServers config)
+         :when (and (get server-config :disabled false)
+                    (not (contains? (:mcp-clients db) server-name)))]
+     {:name server-name :status :disabled :tools []})))
+
+(defn ^:private call-server-tool
+  "`:tool-servers` `:call`."
+  [{:keys [db db* config metrics]} server-name tool-name arguments {:keys [chat-id on-progress]}]
+  (call-tool! server-name tool-name arguments {:db db
+                                               :db* db*
+                                               :config config
+                                               :metrics metrics
+                                               :chat-id chat-id
+                                               :on-progress on-progress}))
+
+(defn ^:private await-servers-refresh
+  "`:tool-servers` `:await-refresh`."
+  [{:keys [db]} timeout-ms]
+  (await-pending-tools-refresh db timeout-ms))
+
 (defn all-prompts [db]
   (into []
         (mapcat (fn [[server-name {:keys [prompts]}]]
@@ -1473,6 +1493,8 @@
    :config-spec {:mcpServers {:type :map :default {}}
                  :mcpTimeoutSeconds {:type :number :default 60}
                  :mcpKeepAliveSeconds {:type :number :default 30}}
+   ;; the servers' tools
+   :tool-servers {:list #'tool-servers :call #'call-server-tool :await-refresh #'await-servers-refresh}
    :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
                     {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]
    ;; resources, for the @ list and the contexts clients send

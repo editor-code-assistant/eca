@@ -19,8 +19,7 @@
 
 (def ^:private allowed-module-requires
   "Core namespaces that still require a built-in module (the built-in list aside). Only shrinks."
-  '#{[eca.features.chat.tool-batch eca.modules.mcp]
-     [eca.features.tools eca.modules.mcp]
+  '#{[eca.features.tools eca.modules.mcp]
      [eca.handlers eca.modules.mcp]
      ;; startup: plugins, remote and otel start with the server
      [eca.handlers eca.modules.plugins]
@@ -32,7 +31,7 @@
 
 (def ^:private allowed-id-checks
   "`(modules/active? config :eca/x)` calls in core, by namespace and id, with their count. Only shrinks."
-  '{[eca.features.tools :eca/mcp] 3
+  '{[eca.features.tools :eca/mcp] 2
     [eca.handlers :eca/remote] 1
     [eca.server :eca/otel] 1})
 

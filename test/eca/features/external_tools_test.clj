@@ -128,6 +128,40 @@
       (is (= 1 (count (filter #(= "jira__issue" (:full-name %)) (tools {})))))
       (is (match? {:contents [{:text "Issue K"}]} (call! {} "jira__issue" {"key" "K"}))))))
 
+(defn- tool-server-module
+  "A module with a tool server `server`, whose lookup tool answers `answer`."
+  [id server answer]
+  {:id id
+   :tool-servers {:list (fn [_ctx]
+                          [{:name server :version "1.0" :status "running"
+                            :tools [{:name "lookup" :description "Look up."
+                                     :parameters {:type "object" :properties {"q" {:type "string"}}}}]}])
+                  :call (fn [ctx server-name tool-name arguments opts]
+                          (swap! calls* conj [(:module-id ctx) server-name tool-name arguments (:chat-id opts)])
+                          answer)
+                  :await-refresh (fn [_ctx timeout-ms]
+                                   (swap! calls* conj [:await-refresh timeout-ms]))}})
+
+(deftest tool-servers-test
+  (with-modules [(tool-server-module :acme/docs "docs" "Found it.")
+                 (tool-server-module :acme/docs-copy "docs" "Copy.")]
+    (testing "a module's tool servers bring their tools, like MCP servers"
+      (is (match? {:name "lookup" :full-name "docs__lookup" :server {:name "docs" :version "1.0"} :origin :mcp}
+                  (tool-named {} "docs__lookup"))))
+    (testing "a server named like another module's is ignored"
+      (is (= 1 (count (filter #(= "docs__lookup" (:full-name %)) (tools {}))))))
+    (testing "calls go to the module's :call, which may answer a string"
+      (is (= {:error false :contents [{:type :text :text "Found it."}]}
+             (call! {} "docs__lookup" {"q" "x"})))
+      (is (= [[:acme/docs "docs" "lookup" {"q" "x"} "chat-1"]] @calls*)))
+    (testing "the refresh wait asks each module, within the time left"
+      (reset! calls* [])
+      (f.tools/await-tool-servers-refresh! (h/db) {} 5000)
+      (is (match? [[:await-refresh #(<= 0 % 5000)] [:await-refresh #(<= 0 % 5000)]] @calls*)))
+    (testing "disabled modules' servers are gone"
+      (is (nil? (tool-named {:modules {:acme/docs {:enabled false} :acme/docs-copy {:enabled false}}}
+                            "docs__lookup"))))))
+
 (deftest approval-keys-test
   (with-modules [(assoc-in jira [:tools "issue" :approval-keys-fn]
                            (fn [{:strs [key]}] {:keys #{(str "project " (first (string/split key #"-")))}

@@ -365,9 +365,56 @@
                                override))
     tool))
 
+(defn ^:private server-tools
+  "The tools of the active modules' tool servers (`:tool-servers` `:list`),
+   with their `:server` and the module serving them. When two modules list
+   a server of the same name, the first one keeps it. ctx: `:config`, `:db`,
+   `:chat-id` and `:agent`."
+  [{:keys [config] :as ctx}]
+  (let [servers (for [[entry {list-servers :list}] (modules/contributions config :tool-servers)
+                      :let [module-ctx (modules/module-ctx ctx entry)]
+                      server (if (:built-in? entry)
+                               (list-servers module-ctx)
+                               (modules/invoke-safe module-ctx entry "tool servers"
+                                                    {:timeout-ms (modules/timeout-for
+                                                                  entry nil modules/default-handler-timeout-ms)}
+                                                    list-servers module-ctx))]
+                  [entry server])]
+    (:tools
+     (reduce (fn [acc [entry {server-name :name :keys [version tools]}]]
+               (if-let [owner (get-in acc [:owners server-name])]
+                 (do (when (not= owner (:id entry))
+                       (logger/warn logger-tag (format "Module %s has a tool server %s, like module %s; ignoring it"
+                                                       (:id entry) server-name owner)))
+                     acc)
+                 (-> acc
+                     (assoc-in [:owners server-name] (:id entry))
+                     (update :tools into (map #(assoc % :server {:name server-name :version version}
+                                                      ::module-id (:id entry)))
+                             tools))))
+             {:owners {} :tools []}
+             servers))))
+
+(defn await-tool-servers-refresh!
+  "Waits until the tool servers' pending tool list refreshes finish
+   (`:tool-servers` `:await-refresh`), `timeout-ms` at most for all of
+   them, so the next request sees the tools a server just announced."
+  [db config timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) (long timeout-ms))]
+    (doseq [[entry {:keys [await-refresh]}] (modules/contributions config :tool-servers)
+            :when await-refresh
+            :let [remaining (- deadline (System/currentTimeMillis))]
+            :when (pos? remaining)]
+      (let [module-ctx (modules/module-ctx {:db db :config config} entry)]
+        (if (:built-in? entry)
+          (await-refresh module-ctx remaining)
+          (modules/invoke-safe module-ctx entry "tool servers refresh" {:timeout-ms remaining}
+                               await-refresh module-ctx remaining))))))
+
 (defn all-tools
   "Returns all available tools, including both native ECA tools
-   (like filesystem and shell tools) and tools provided by MCP servers.
+   (like filesystem and shell tools) and the tools of the modules' tool
+   servers, like MCP servers.
    Removes denied tools.
    When chat is a subagent (has :subagent), filters tools based on agent definition.
    Then each built-in module's `:transform-tools` changes the list, in module
@@ -386,11 +433,10 @@
          native-names (set (map full-name-of native))
          all-tools (->> (concat
                          native
-                         ;; a module tool may replace an MCP tool, taking its full name
+                         ;; a module tool may replace a tool server's tool, taking its full name
                          (into [] (comp (remove #(contains? native-names (full-name-of %)))
                                         (map #(assoc % :origin :mcp)))
-                               (when (modules/active? config :eca/mcp)
-                                 (m.mcp/all-tools db))))
+                               (server-tools {:config config :db db :chat-id chat-id :agent agent-name})))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                         (mapv #(override-description % config agent-name))
@@ -460,6 +506,25 @@
                 (vreset! stopped?* true)
                 (vreset! pending* ::none)))}))
 
+(defn ^:private call-server-tool!
+  "Calls a tool server's tool through the `:call` of the module serving it.
+   ctx has the call's `:chat-id` and `:on-progress`."
+  [tool-meta arguments {:keys [config] :as ctx}]
+  (let [server-name (get-in tool-meta [:server :name])
+        tool-name (:name tool-meta)
+        [entry {call :call}] (some (fn [[entry :as contribution]]
+                                     (when (= (::module-id tool-meta) (:id entry)) contribution))
+                                   (modules/contributions config :tool-servers))]
+    (if-not entry
+      (tools.util/single-text-content (format "Tool '%s' not found in server '%s'" tool-name server-name) :error)
+      (let [module-ctx (modules/module-ctx ctx entry)
+            opts (select-keys ctx [:chat-id :on-progress])]
+        (if (:built-in? entry)
+          (call module-ctx server-name tool-name arguments opts)
+          (module-tool-result
+           (modules/invoke module-ctx entry "tool server call" {}
+                           call module-ctx server-name tool-name arguments opts)))))))
+
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk
                   state-transition-fn   ; params: event & event-data
@@ -509,12 +574,13 @@
                                ;; Stopping before returning keeps a late progress report
                                ;; from reaching the client after the call's result.
                                (try
-                                 (m.mcp/call-tool! server-name tool-name arguments {:db db
-                                                                                    :db* db*
-                                                                                    :config config
-                                                                                    :metrics metrics
-                                                                                    :chat-id chat-id
-                                                                                    :on-progress call!})
+                                 (call-server-tool! tool-meta arguments {:db db
+                                                                         :db* db*
+                                                                         :config config
+                                                                         :messenger messenger
+                                                                         :metrics metrics
+                                                                         :chat-id chat-id
+                                                                         :on-progress call!})
                                  (finally
                                    (when stop! (stop!)))))))
                        (tools.util/maybe-truncate-output config tool-call-id))]

@@ -107,6 +107,10 @@
                 (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request}}} {})))
     (is (= {:errors [] :warnings []}
            (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request :handler (fn [_ _])}}} {})))
+    (is (match? {:errors [#":tool-servers must be a map with :list and :call functions"]}
+                (modules/problems {:id :acme/x :tool-servers {:list (fn [_])}} {})))
+    (is (= {:errors [] :warnings []}
+           (modules/problems {:id :acme/x :tool-servers {:list (fn [_]) :call (fn [_ _ _ _ _])}} {})))
     (is (match? {:errors [#":skills is only for built-in modules"]}
                 (modules/problems {:id :acme/x :skills []} {})))
     (is (match? {:errors [#":transform-tools is only for built-in modules"]}

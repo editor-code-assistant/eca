@@ -12,7 +12,6 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.modules.events :as events]
-   [eca.modules.mcp :as m.mcp]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -524,7 +523,7 @@
                                                     :message (.getMessage ^Throwable t)
                                                     :cause (.getCause ^Throwable t)})))))))
             (f.chat.lifecycle/assert-chat-not-stopped! chat-ctx)
-            (m.mcp/await-pending-tools-refresh @db* 5000)
+            (f.tools/await-tool-servers-refresh! @db* config 5000)
             ;; Token can expire during long tool calls (e.g. spawn_agent),
             ;; so renew before any continuation branch.
             (f.chat.lifecycle/maybe-renew-auth-token chat-ctx)

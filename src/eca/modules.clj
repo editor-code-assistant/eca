@@ -52,7 +52,7 @@
 (def ^:private v1-keys
   #{:id :description :version :api :requires :priority :default-enabled?
     :config-spec :start :stop :tools :prefix :commands :system-prompts
-    :providers :apis :config-defaults :event-handlers :defines :rpc})
+    :providers :apis :config-defaults :event-handlers :defines :rpc :tool-servers})
 
 (def ^:private built-in-only-keys #{:agents :skills :contexts :transform-tools})
 
@@ -278,6 +278,14 @@
                                    #(if (and (map? %) (#{:request :notification} (:kind %)) (fn-like? (:handler %)))
                                       []
                                       ["must be a map with :kind :request or :notification and a :handler function"]))
+                  (let [tool-servers (:tool-servers module)]
+                    (when (and (some? tool-servers)
+                               (not (and (map? tool-servers)
+                                         (fn-like? (:list tool-servers))
+                                         (fn-like? (:call tool-servers))
+                                         (or (nil? (:await-refresh tool-servers))
+                                             (fn-like? (:await-refresh tool-servers))))))
+                      [":tool-servers must be a map with :list and :call functions, and maybe an :await-refresh function"]))
                   (when (and (some? config-defaults) (not (or (map? config-defaults) (fn-like? config-defaults))))
                     [":config-defaults must be a map or a function"])
                   (when (and (some? (:agents module)) (not (fn-like? (:agents module))))

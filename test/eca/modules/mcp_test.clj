@@ -16,37 +16,33 @@
    [plumcp.core.protocol :as pp]
    [plumcp.core.support.http-client :as phc]))
 
-(deftest all-tools-test
-  (testing "empty db"
-    (is (= []
-           (m.mcp/all-tools {}))))
+(deftest tool-servers-test
+  (let [tool-servers #(#'m.mcp/tool-servers {:db %1 :config (or %2 {})})]
+    (testing "no servers"
+      (is (= [] (tool-servers {} nil)))
+      (is (= [] (tool-servers {:some-other-key "value"} nil)))
+      (is (= [] (tool-servers {:mcp-clients {}} nil))))
 
-  (testing "db with no mcp-clients"
-    (is (= []
-           (m.mcp/all-tools {:some-other-key "value"}))))
+    (testing "a server without tools is listed without tools"
+      (is (= [{:name "server1" :version nil :status nil :tools nil}]
+             (tool-servers {:mcp-clients {"server1" {}}} nil))))
 
-  (testing "db with empty mcp-clients"
-    (is (= []
-           (m.mcp/all-tools {:mcp-clients {}}))))
+    (testing "servers with their version, status and tools, in order"
+      (let [tools1 [{:name "tool1" :description "desc1"}]
+            tools2 [{:name "tool2" :description "desc2"}
+                    {:name "tool3" :description "desc3"}]]
+        (is (= [{:name "server1" :version "1.0.0" :status :running :tools tools1}
+                {:name "server2" :version nil :status nil :tools tools2}]
+               (tool-servers {:mcp-clients (array-map "server1" {:version "1.0.0" :status :running :tools tools1}
+                                                      "server2" {:tools tools2})}
+                             nil)))))
 
-  (testing "db with mcp-clients but no tools"
-    (is (= []
-           (m.mcp/all-tools {:mcp-clients {"server1" {}}}))))
-
-  (testing "db with single server with tools"
-    (let [tools [{:name "tool1" :description "desc1" :server {:name "server1" :version "1.0.0"}}
-                 {:name "tool2" :description "desc2" :server {:name "server1" :version "1.0.0"}}]]
-      (is (= tools
-             (m.mcp/all-tools {:mcp-clients {"server1" {:version "1.0.0"
-                                                        :tools tools}}})))))
-
-  (testing "db with multiple servers with tools"
-    (let [tools1 [{:name "tool1" :description "desc1" :server {:name "server1" :version nil}}]
-          tools2 [{:name "tool2" :description "desc2" :server {:name "server2" :version nil}}
-                  {:name "tool3" :description "desc3" :server {:name "server2" :version nil}}]]
-      (is (= (concat tools1 tools2)
-             (m.mcp/all-tools {:mcp-clients {"server1" {:tools tools1}
-                                             "server2" {:tools tools2}}}))))))
+    (testing "the disabled servers that don't run come last, without tools"
+      (is (= [{:name "on" :version nil :status :running :tools []}
+              {:name "off" :status :disabled :tools []}]
+             (tool-servers {:mcp-clients {"on" {:status :running :tools []}}}
+                           {:mcpServers {"on" {:command "on"}
+                                         "off" {:command "off" :disabled true}}}))))))
 
 (deftest call-tool-routes-to-server-test
   (testing "uses the requested MCP server when tool names collide"
