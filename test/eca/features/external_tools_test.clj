@@ -154,6 +154,12 @@
       (is (= {:error false :contents [{:type :text :text "Found it."}]}
              (call! {} "docs__lookup" {"q" "x"})))
       (is (= [[:acme/docs "docs" "lookup" {"q" "x"} "chat-1"]] @calls*)))
+    (testing "clients get each server as a module's tool server"
+      (h/reset-messenger!)
+      (f.tools/refresh-module-tool-servers! (h/db*) (h/messenger) {})
+      (is (match? [{:type :module :name "docs" :module "acme/docs" :status "running"
+                    :tools [{:name "lookup" :description "Look up." :disabled false}]}]
+                  (rest (:tool-server-update (h/messages))))))
     (testing "the refresh wait asks each module, within the time left"
       (reset! calls* [])
       (f.tools/await-tool-servers-refresh! (h/db) {} 5000)

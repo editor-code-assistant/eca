@@ -3211,16 +3211,19 @@ interface EcaServerUpdatedParams {
 }
 
 /**
- * The tools of an external module (a user's or a plugin's ECA module). Its
+ * The tools of an external module (a user's or a plugin's ECA module): its
+ * own, on a server named by its prefix, or one of its tool servers'. Its
  * tools are named `<name>__<tool>`, like MCP tools. Sent again when modules
  * load, reload, are enabled or disabled, or add or remove tools; when a
- * module has no tools anymore, `tool/serverRemoved` drops its server.
+ * module has no tools anymore, or no longer has a tool server,
+ * `tool/serverRemoved` drops that server.
  */
 interface ModuleServerUpdatedParams {
     type: 'module';
 
     /**
-     * The module's tool prefix, e.g. `jira` for `jira__issue`.
+     * The module's tool prefix, e.g. `jira` for `jira__issue`, or the name of
+     * one of its tool servers.
      */
     name: string;
 
@@ -3229,7 +3232,11 @@ interface ModuleServerUpdatedParams {
      */
     module: string;
 
-    status: 'running';
+    /**
+     * `running` for the module's own tools; a tool server's status may be
+     * any of an MCP server's.
+     */
+    status: string;
 
     /**
      * The module's tools.

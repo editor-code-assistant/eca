@@ -12,8 +12,12 @@
    [eca.db :as db]
    [eca.diff :as diff]
    [eca.features.prompt :as f.prompt]
+   [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
+   [eca.messenger :as messenger]
+   [eca.metrics :as metrics]
+   [eca.modules :as modules]
    [eca.network :as network]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [multi-str]]
@@ -1226,11 +1230,11 @@
   [{:keys [db config]}]
   (concat
    (for [[server-name {:keys [tools version status]}] (:mcp-clients db)]
-     {:name server-name :version version :status status :tools tools})
+     {:type :mcp :name server-name :version version :status status :tools tools})
    (for [[server-name server-config] (:mcpServers config)
          :when (and (get server-config :disabled false)
                     (not (contains? (:mcp-clients db) server-name)))]
-     {:name server-name :status :disabled :tools []})))
+     {:type :mcp :name server-name :status :disabled :tools []})))
 
 (defn ^:private call-server-tool
   "`:tool-servers` `:call`."
@@ -1381,6 +1385,196 @@
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))
 
+;; --- The module's lifecycle and protocol methods, telling clients about the servers
+
+(defn ^:private notify-server-updated [metrics messenger tool-status-fn server]
+  (metrics/count-up! "mcp-server-status" {:name (:name server)
+                                          :status (:status server)} metrics)
+  (messenger/tool-server-updated messenger (-> server
+                                               (assoc :type :mcp)
+                                               (update :tools
+                                                       #(mapv (comp tool-status-fn
+                                                                    (fn [t] (assoc t :server {:name (:name server)})))
+                                                              %)))))
+
+(defn ^:private notify-server-removed [metrics messenger params]
+  (metrics/count-up! "mcp-server-status" {:name (:name params)
+                                          :status "removed"} metrics)
+  (messenger/tool-server-removed messenger params))
+
+(defn ^:private notifiers
+  "The callbacks that tell clients about the servers: `:on-server-updated`,
+   with the tools' status for `agent-name` (nil: the global one), and
+   `:on-server-removed`."
+  [{:keys [messenger metrics config]} agent-name]
+  (let [tool-status-fn (f.tools/make-tool-status-fn config agent-name)]
+    {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
+     :on-server-removed (partial notify-server-removed metrics messenger)}))
+
+(defn ^:private start-servers!
+  "Starts the configured servers that don't run yet."
+  [{:keys [db* metrics config] :as ctx}]
+  (initialize-servers-async! (notifiers ctx (get config :defaultAgent)) db* config metrics))
+
+(defn ^:private stop-servers!
+  "Stops every server, and tells clients they're gone."
+  [{:keys [db* config] :as ctx}]
+  (let [{:keys [on-server-updated on-server-removed]} (notifiers ctx nil)
+        server-names (distinct (concat (keys (:mcp-clients @db*))
+                                       (map name (keys (:mcpServers config)))))]
+    (->> server-names
+         (mapv (fn [server-name]
+                 (future
+                   (try
+                     (stop-server! server-name db* config {:on-server-updated on-server-updated})
+                     (on-server-removed {:name server-name})
+                     (catch Exception e
+                       (logger/error logger-tag (format "Could not stop MCP server '%s': %s"
+                                                        server-name (.getMessage e))))))))
+         (run! deref))))
+
+(defn ^:private start
+  "`:start`: once the session is ready, the servers start; before that,
+   `:session/ready` starts them."
+  [ctx]
+  (when (modules/session-ready?)
+    (start-servers! ctx))
+  nil)
+
+(defn ^:private stop
+  "`:stop`: ECA shutting down shuts the servers down; the module disabled
+   stops them, telling clients."
+  [{:keys [db*] :as ctx}]
+  (if (:stopping @db*)
+    (shutdown! db*)
+    (stop-servers! (update ctx :config #(or % (config/all @db*))))))
+
+(defn ^:private session-ready
+  "`:session/ready` handler: the servers start, after the sessionStart hooks
+   and ECA's own tool server, as before modules."
+  [ctx _event]
+  (start-servers! ctx)
+  nil)
+
+(defn ^:private config-changed
+  "`:config/changed` handler: an `mcpServers` change adds, removes or
+   restarts those servers, when the module was active already; else its
+   `:start` starts them all."
+  [{:keys [db* metrics] :as ctx} {:keys [prev-config config]}]
+  (when (and prev-config (modules/active? prev-config :eca/mcp))
+    (reconcile-servers! prev-config config db* metrics
+                        (notifiers (assoc ctx :config config) (get config :defaultAgent))))
+  nil)
+
+(defn stop-server-method
+  "`mcp/stopServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-stop-server
+    (stop-server! (:name params) db* config (notifiers ctx nil))))
+
+(defn start-server-method
+  "`mcp/startServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-start-server
+    (start-server! (:name params) db* config metrics (notifiers ctx nil))))
+
+(defn connect-server-method
+  "`mcp/connectServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-connect-server
+    (connect-server! (:name params) db* config metrics (notifiers ctx nil))))
+
+(defn logout-server-method
+  "`mcp/logoutServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-logout-server
+    (logout-server! (:name params) db* config metrics (notifiers ctx nil))))
+
+(defn update-server-method
+  "`mcp/updateServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-update-server
+    (let [server-name (:name params)
+          server-fields (cond-> {}
+                          (:command params) (assoc :command (:command params))
+                          (:args params) (assoc :args (:args params))
+                          (:url params) (assoc :url (:url params))
+                          (:env params) (assoc :env (:env params))
+                          (:headers params) (assoc :headers (:headers params)))]
+      (update-server! server-name server-fields db* config metrics (notifiers ctx nil))
+      {})))
+
+(defn disable-server-method
+  "`mcp/disableServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-disable-server
+    (disable-server! (:name params) db* config (notifiers ctx nil))))
+
+(defn enable-server-method
+  "`mcp/enableServer`."
+  [{:keys [db* metrics] :as ctx} params]
+  (metrics/task metrics :eca/mcp-enable-server
+    (enable-server! (:name params) db* metrics (notifiers ctx nil))))
+
+(defn ^:private ->scope-keyword [scope]
+  (cond
+    (nil? scope) :global
+    (keyword? scope) scope
+    (string? scope) (keyword scope)
+    :else :global))
+
+(defn add-server-method
+  "`mcp/addServer`: add a new MCP server definition at runtime.
+
+   Params:
+     :name           (required) server identifier.
+     :command :args :env           for stdio servers.
+     :url :headers :clientId :clientSecret :oauthPort  for HTTP servers.
+     :disabled       optional boolean.
+     :scope          \"global\" (default) or \"workspace\".
+     :workspaceUri   required when :scope = \"workspace\".
+
+   Returns the canonical server map (as sent over tool/serverUpdated) with
+   status :starting, :disabled, or :failed."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-add-server
+    (let [server-name (:name params)
+          server-config (cond-> {}
+                          (:command params)       (assoc :command (:command params))
+                          (:args params)          (assoc :args (:args params))
+                          (:env params)           (assoc :env (:env params))
+                          (:url params)           (assoc :url (:url params))
+                          (:headers params)       (assoc :headers (:headers params))
+                          (:clientId params)      (assoc :clientId (:clientId params))
+                          (:clientSecret params)  (assoc :clientSecret (:clientSecret params))
+                          (:oauthPort params)     (assoc :oauthPort (:oauthPort params))
+                          (contains? params :disabled) (assoc :disabled (boolean (:disabled params))))
+          opts {:scope (->scope-keyword (or (:scope params) (:workspaceScope params)))
+                :workspace-uri (or (:workspaceUri params) (:workspace-uri params))}]
+      (try
+        (let [server (add-server! server-name server-config opts db* config metrics (notifiers ctx nil))]
+          {:server server})
+        (catch clojure.lang.ExceptionInfo e
+          {:error {:code "invalid_request"
+                   :message (.getMessage e)
+                   :data (ex-data e)}})))))
+
+(defn remove-server-method
+  "`mcp/removeServer`: remove an MCP server definition at runtime. Stops the
+   server if running, removes the entry from the owning config file, and
+   emits tool/serverRemoved.
+
+   Params:
+     :name  (required)"
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-remove-server
+    (try
+      (remove-server! (:name params) db* config (notifiers ctx nil))
+      (catch clojure.lang.ExceptionInfo e
+        {:error {:code "invalid_request"
+                 :message (.getMessage e)
+                 :data (ex-data e)}}))))
+
 (defn ^:private mcp-instructions-section [db]
   (let [servers-with-instructions
         (->> (:mcp-clients db)
@@ -1488,11 +1682,25 @@
 (def module
   {:id :eca/mcp
    :description "MCP servers: their tools, prompts, resources and instructions."
-   ;; servers start after the session starts and follow config changes, as before;
+   ;; servers start when the session is ready and follow config changes, as before;
    ;; while the module is inactive no server runs and their tools and prompts are hidden
    :config-spec {:mcpServers {:type :map :default {}}
                  :mcpTimeoutSeconds {:type :number :default 60}
                  :mcpKeepAliveSeconds {:type :number :default 30}}
+   :start #'start
+   :stop #'stop
+   :event-handlers {:session/ready #'session-ready
+                    :config/changed #'config-changed}
+   ;; a built-in's, so served whatever its state, as before modules
+   :rpc {"mcp/stopServer"    {:kind :notification :handler #'stop-server-method}
+         "mcp/startServer"   {:kind :notification :handler #'start-server-method}
+         "mcp/connectServer" {:kind :notification :handler #'connect-server-method}
+         "mcp/logoutServer"  {:kind :notification :handler #'logout-server-method}
+         "mcp/disableServer" {:kind :notification :handler #'disable-server-method}
+         "mcp/enableServer"  {:kind :notification :handler #'enable-server-method}
+         "mcp/updateServer"  {:kind :request :handler #'update-server-method}
+         "mcp/addServer"     {:kind :request :handler #'add-server-method}
+         "mcp/removeServer"  {:kind :request :handler #'remove-server-method}}
    ;; the servers' tools
    :tool-servers {:list #'tool-servers :call #'call-server-tool :await-refresh #'await-servers-refresh}
    :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}

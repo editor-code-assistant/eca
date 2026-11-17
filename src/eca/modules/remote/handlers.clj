@@ -10,6 +10,7 @@
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as f.chat.history]
    [eca.handlers :as handlers]
+   [eca.modules.mcp :as m.mcp]
    [eca.modules.remote.messenger :as m.remote.messenger]
    [eca.modules.remote.sse :as m.remote.sse]
    [eca.shared :as shared]
@@ -373,32 +374,32 @@
 
 (defn handle-mcp-start [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]
-    (handlers/mcp-start-server (assoc components :config config) {:name server-name})
+    (m.mcp/start-server-method (assoc components :config config) {:name server-name})
     (no-content)))
 
 (defn handle-mcp-stop [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]
-    (handlers/mcp-stop-server (assoc components :config config) {:name server-name})
+    (m.mcp/stop-server-method (assoc components :config config) {:name server-name})
     (no-content)))
 
 (defn handle-mcp-connect [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]
-    (handlers/mcp-connect-server (assoc components :config config) {:name server-name})
+    (m.mcp/connect-server-method (assoc components :config config) {:name server-name})
     (no-content)))
 
 (defn handle-mcp-logout [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]
-    (handlers/mcp-logout-server (assoc components :config config) {:name server-name})
+    (m.mcp/logout-server-method (assoc components :config config) {:name server-name})
     (no-content)))
 
 (defn handle-mcp-disable [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]
-    (handlers/mcp-disable-server (assoc components :config config) {:name server-name})
+    (m.mcp/disable-server-method (assoc components :config config) {:name server-name})
     (no-content)))
 
 (defn handle-mcp-enable [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)]
-    (handlers/mcp-enable-server (assoc components :config config) {:name server-name})
+    (m.mcp/enable-server-method (assoc components :config config) {:name server-name})
     (no-content)))
 
 (defn handle-mcp-add [{:keys [db*] :as components} request]
@@ -406,14 +407,14 @@
     (if-not (:name body)
       (error-response 400 "invalid_request" "Missing required field: name")
       (let [config (config/all @db*)
-            result (handlers/mcp-add-server (assoc components :config config) body)]
+            result (m.mcp/add-server-method (assoc components :config config) body)]
         (if-let [{:keys [code message]} (:error result)]
           (error-response 400 (or code "invalid_request") (or message "Failed to add MCP server"))
           (json-response (camel-keys result)))))))
 
 (defn handle-mcp-remove [{:keys [db*] :as components} _request server-name]
   (let [config (config/all @db*)
-        result (handlers/mcp-remove-server (assoc components :config config) {:name server-name})]
+        result (m.mcp/remove-server-method (assoc components :config config) {:name server-name})]
     (if-let [{:keys [code message]} (:error result)]
       (error-response 400 (or code "invalid_request") (or message "Failed to remove MCP server"))
       (no-content))))

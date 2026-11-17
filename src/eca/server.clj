@@ -159,15 +159,6 @@
    ;; legacy: the old name of chat/selectedAgentChanged
    "chat/selectedBehaviorChanged"        {:kind :notification :thread? true :handler #'handlers/chat-selected-agent-changed}
    "chat/selectedModelChanged"           {:kind :notification :thread? true :handler #'handlers/chat-selected-model-changed}
-   "mcp/stopServer"                      {:kind :notification :thread? true :handler #'handlers/mcp-stop-server}
-   "mcp/startServer"                     {:kind :notification :thread? true :handler #'handlers/mcp-start-server}
-   "mcp/connectServer"                   {:kind :notification :thread? true :handler #'handlers/mcp-connect-server}
-   "mcp/logoutServer"                    {:kind :notification :thread? true :handler #'handlers/mcp-logout-server}
-   "mcp/disableServer"                   {:kind :notification :thread? true :handler #'handlers/mcp-disable-server}
-   "mcp/enableServer"                    {:kind :notification :thread? true :handler #'handlers/mcp-enable-server}
-   "mcp/updateServer"                    {:kind :request :thread? true :handler #'handlers/mcp-update-server}
-   "mcp/addServer"                       {:kind :request :thread? true :handler #'handlers/mcp-add-server}
-   "mcp/removeServer"                    {:kind :request :thread? true :handler #'handlers/mcp-remove-server}
    "providers/list"                      {:kind :request :thread? true :handler #'handlers/providers-list}
    "providers/login"                     {:kind :request :thread? true :handler #'handlers/providers-login}
    "providers/loginInput"                {:kind :request :thread? true :handler #'handlers/providers-login-input}

@@ -766,6 +766,18 @@
   []
   (boolean (:session-started? @registry*)))
 
+(defn session-ready!
+  "Records that the session finished starting; core emits `:session/ready`
+   right after. Modules that start later can tell with `session-ready?`."
+  []
+  (swap! registry* assoc :session-ready? true))
+
+(defn session-ready?
+  "Whether the session finished starting (`:session/ready`), and `stop-all!`
+   didn't run since."
+  []
+  (boolean (:session-ready? @registry*)))
+
 (defn components
   "The session's components `start!` got: `{:db* :messenger :metrics}`, or nil
    before it ran."
@@ -784,7 +796,7 @@
   ([components] (stop-all! components #{}))
   ([components keep-running]
    (locking lifecycle-lock
-     (swap! registry* assoc :session-started? false)
+     (swap! registry* assoc :session-started? false :session-ready? false)
      (doseq [r (reverse (running))
              :when (not (contains? keep-running (:id (:entry r))))]
        (stop-module! components r))

@@ -26,7 +26,7 @@
                  :chat/compact {:kind :handle}
                  :session/started {:kind :notify}}
                 (events/definitions {})))
-    (is (= 23 (count events/core-events)))))
+    (is (= 25 (count events/core-events)))))
 
 (deftest transform-test
   (let [calls* (atom [])

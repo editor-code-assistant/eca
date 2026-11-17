@@ -15,7 +15,6 @@
    [eca.metrics :as metrics]
    [eca.models :as models]
    [eca.modules :as modules]
-   [eca.modules.mcp :as m.mcp]
    [eca.modules.plugins :as m.plugins]
    [eca.modules.remote :as m.remote]
    [eca.modules.events :as events]
@@ -180,9 +179,11 @@
                   (f.providers/refresh-quota! provider db* config messenger)))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models]
              (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
-      (swap! db* assoc-in [:config-updated-fns :mcp-reconcile]
+      ;; eca/mcp's servers follow the change here, as before modules
+      (swap! db* assoc-in [:config-updated-fns :config-changed]
              (fn [prev-config new-config]
-               (f.tools/reconcile-servers! prev-config new-config db* messenger metrics)))
+               (events/emit! {:db* db* :messenger messenger :metrics metrics :config new-config}
+                             :config/changed {:prev-config prev-config :config new-config})))
       (swap! db* assoc-in [:config-updated-fns :modules-reconcile]
              (fn [_prev-config new-config]
                ;; modules.<id>.source may have changed
@@ -276,7 +277,10 @@
         ;; notified with the pre-plugin agent list (startup race).
         (notify-chat-config-state! db* messenger)
         (send-progress! db* messenger {:type "start" :taskId "mcp-servers" :title "Initializing MCP servers"})
-        (f.tools/init-servers! db* messenger config metrics)
+        (f.tools/refresh-module-tool-servers! db* messenger config)
+        ;; MCP servers start here, after ECA's own tool server
+        (modules/session-ready!)
+        (events/emit! {:db* db* :messenger messenger :metrics metrics :config config} :session/ready {})
         (send-progress! db* messenger {:type "finish" :taskId "mcp-servers" :title "Initializing MCP servers"})))
     (future
       (send-progress! db* messenger {:type "start" :taskId "cleanup" :title "Cleaning up"})
@@ -303,7 +307,8 @@
     ;; 2. Tell modules, the sessionEnd hooks last
     (events/emit! {:db* db* :metrics metrics :config config} :session/ended {})
 
-    ;; 3. Then shutdown (stopping eca/shell kills the background jobs)
+    ;; 3. Then shutdown (stopping eca/shell kills the background jobs, and
+    ;; stopping eca/mcp its servers)
     (swap! db* assoc :stopping true)
     (try
       ;; the remote server and the OTel export run until ECA exits, as before
@@ -311,7 +316,6 @@
       (modules/stop-all! {:db* db* :config config :metrics metrics} #{:eca/remote :eca/otel})
       (catch Exception e
         (logger/error "[MODULES]" "Could not stop modules:" e)))
-    (m.mcp/shutdown! db*)
     nil))
 
 (defn chat-prompt
@@ -415,100 +419,6 @@
   [{:keys [db* metrics]} params]
   (metrics/task metrics :eca/chat-history
     (f.chat.ops/fetch-history params db* metrics)))
-
-(defn mcp-stop-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-stop-server
-    (f.tools/stop-server! (:name params) db* messenger config metrics)))
-
-(defn mcp-start-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-start-server
-    (f.tools/start-server! (:name params) db* messenger config metrics)))
-
-(defn mcp-connect-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-connect-server
-    (f.tools/connect-server! (:name params) db* messenger config metrics)))
-
-(defn mcp-logout-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-logout-server
-    (f.tools/logout-server! (:name params) db* messenger config metrics)))
-
-(defn mcp-update-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-update-server
-    (let [server-name (:name params)
-          server-fields (cond-> {}
-                          (:command params) (assoc :command (:command params))
-                          (:args params) (assoc :args (:args params))
-                          (:url params) (assoc :url (:url params))
-                          (:env params) (assoc :env (:env params))
-                          (:headers params) (assoc :headers (:headers params)))]
-      (f.tools/update-server! server-name server-fields db* messenger config metrics)
-      {})))
-
-(defn mcp-disable-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-disable-server
-    (f.tools/disable-server! (:name params) db* messenger config metrics)))
-
-(defn mcp-enable-server [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-enable-server
-    (f.tools/enable-server! (:name params) db* messenger config metrics)))
-
-(defn ^:private ->scope-keyword [scope]
-  (cond
-    (nil? scope) :global
-    (keyword? scope) scope
-    (string? scope) (keyword scope)
-    :else :global))
-
-(defn mcp-add-server
-  "Add a new MCP server definition at runtime.
-
-   Params:
-     :name           (required) server identifier.
-     :command :args :env           for stdio servers.
-     :url :headers :clientId :clientSecret :oauthPort  for HTTP servers.
-     :disabled       optional boolean.
-     :scope          \"global\" (default) or \"workspace\".
-     :workspaceUri   required when :scope = \"workspace\".
-
-   Returns the canonical server map (as sent over tool/serverUpdated) with
-   status :starting, :disabled, or :failed."
-  [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-add-server
-    (let [server-name (:name params)
-          server-config (cond-> {}
-                          (:command params)       (assoc :command (:command params))
-                          (:args params)          (assoc :args (:args params))
-                          (:env params)           (assoc :env (:env params))
-                          (:url params)           (assoc :url (:url params))
-                          (:headers params)       (assoc :headers (:headers params))
-                          (:clientId params)      (assoc :clientId (:clientId params))
-                          (:clientSecret params)  (assoc :clientSecret (:clientSecret params))
-                          (:oauthPort params)     (assoc :oauthPort (:oauthPort params))
-                          (contains? params :disabled) (assoc :disabled (boolean (:disabled params))))
-          opts {:scope (->scope-keyword (or (:scope params) (:workspaceScope params)))
-                :workspace-uri (or (:workspaceUri params) (:workspace-uri params))}]
-      (try
-        (let [server (f.tools/add-server! server-name server-config opts db* messenger config metrics)]
-          {:server server})
-        (catch clojure.lang.ExceptionInfo e
-          {:error {:code "invalid_request"
-                   :message (.getMessage e)
-                   :data (ex-data e)}})))))
-
-(defn mcp-remove-server
-  "Remove an MCP server definition at runtime. Stops the server if running,
-   removes the entry from the owning config file, and emits tool/serverRemoved.
-
-   Params:
-     :name  (required)"
-  [{:keys [db* messenger metrics config]} params]
-  (metrics/task metrics :eca/mcp-remove-server
-    (try
-      (f.tools/remove-server! (:name params) db* messenger config metrics)
-      (catch clojure.lang.ExceptionInfo e
-        {:error {:code "invalid_request"
-                 :message (.getMessage e)
-                 :data (ex-data e)}}))))
 
 (defn ^:private sanitize-client-chat-id
   "Returns CHAT-ID when the client-supplied id is valid, otherwise nil.

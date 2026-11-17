@@ -27,6 +27,9 @@
   {:session/started {:kind :notify
                      :doc "ECA started: plugins and modules are loaded."
                      :payload {:workspaces "The workspace folders."}}
+   :session/ready {:kind :notify
+                   :doc (str "ECA finished starting, after :session/started: the client got the chat config "
+                             "and ECA's own tool servers. MCP servers start here.")}
    :session/ended {:kind :notify
                    :doc "ECA is shutting down."}
    :chat/started {:kind :notify
@@ -168,6 +171,9 @@
                               "Read the config from the event, not through eca.api.")
                     :payload {:config "The config."}
                     :accepts {:config "Replaces the config, except its modules key."}}
+   :config/changed {:kind :notify
+                    :doc "ECA saw the config change."
+                    :payload {:prev-config "The config before." :config "The config now."}}
    :models/resolve {:kind :transform
                     :doc "After the model list is built."
                     :payload {:models "Full model name → capabilities."}

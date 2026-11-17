@@ -24,22 +24,22 @@
       (is (= [] (tool-servers {:mcp-clients {}} nil))))
 
     (testing "a server without tools is listed without tools"
-      (is (= [{:name "server1" :version nil :status nil :tools nil}]
+      (is (= [{:type :mcp :name "server1" :version nil :status nil :tools nil}]
              (tool-servers {:mcp-clients {"server1" {}}} nil))))
 
     (testing "servers with their version, status and tools, in order"
       (let [tools1 [{:name "tool1" :description "desc1"}]
             tools2 [{:name "tool2" :description "desc2"}
                     {:name "tool3" :description "desc3"}]]
-        (is (= [{:name "server1" :version "1.0.0" :status :running :tools tools1}
-                {:name "server2" :version nil :status nil :tools tools2}]
+        (is (= [{:type :mcp :name "server1" :version "1.0.0" :status :running :tools tools1}
+                {:type :mcp :name "server2" :version nil :status nil :tools tools2}]
                (tool-servers {:mcp-clients (array-map "server1" {:version "1.0.0" :status :running :tools tools1}
                                                       "server2" {:tools tools2})}
                              nil)))))
 
     (testing "the disabled servers that don't run come last, without tools"
-      (is (= [{:name "on" :version nil :status :running :tools []}
-              {:name "off" :status :disabled :tools []}]
+      (is (= [{:type :mcp :name "on" :version nil :status :running :tools []}
+              {:type :mcp :name "off" :status :disabled :tools []}]
              (tool-servers {:mcp-clients {"on" {:status :running :tools []}}}
                            {:mcpServers {"on" {:command "on"}
                                          "off" {:command "off" :disabled true}}}))))))

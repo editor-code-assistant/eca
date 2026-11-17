@@ -218,7 +218,7 @@ A module whose tools come and go, as ECA's MCP support's do, serves them from to
 | `:call` | `(fn [ctx server tool args opts])`, with string keys in `args` and the calling chat's `:chat-id` in `opts`. Returns what a tool's handler returns. |
 | `:await-refresh` | Optional `(fn [ctx timeout-ms])`. Blocks while a server updates its tools, `timeout-ms` at most. ECA waits after a batch of tool calls, so the model sees the new tools. |
 
-A server's tools are named `<server>__<tool>`, like MCP tools, and work like them in approval rules, `disabledTools` and tool search. When two modules have a server with the same name, the first one to start keeps it.
+A server's tools are named `<server>__<tool>`, like MCP tools, and work like them in approval rules, `disabledTools` and tool search. When two modules have a server with the same name, the first one to start keeps it. Clients get each server as one of the module's tool servers, with its status: at startup, and when modules or the tools' status change.
 
 ### Commands
 
@@ -277,6 +277,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | Event | Kind | Keys | Changes it accepts |
 |-------|------|------|--------------------|
 | `:session/started` | notify | `:workspaces` | — |
+| `:session/ready` | notify | Once ECA finished starting, after `:session/started`: the client got the chat config and ECA's own tools. MCP servers start here. | — |
 | `:session/ended` | notify | — | — |
 | `:chat/input` | transform | `:text`, `:source` (`:user` or `:module`). Runs before commands and skills. | `:text`, `:handled` (a reply, or `true`: the model isn't called) |
 | `:chat/started` | notify | `:resumed?`. Runs on a chat's first prompt. | `:additional-context` (added to the chat's startup context), `:stop` |
@@ -298,6 +299,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`), `:summary` (its text). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, named by `:tool`, `:hook` and `:hook-type`, or `:module`). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and `eca/shell!`. | `:command`, `:cwd`, `:env` |
 | `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. | `:config`, except its `modules` key |
+| `:config/changed` | notify | `:prev-config`, `:config`. When ECA sees the config change. | — |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
 
 `:additional-context` is a string, `{:text "..." :data {...}}` to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.
