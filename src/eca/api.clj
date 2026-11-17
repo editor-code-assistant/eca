@@ -508,7 +508,7 @@
         _ (when-not (= "user" (:role (peek messages)))
             (throw (ex-info "complete! needs the user's message last: end :messages with one, or give :prompt" {})))
         _ (try
-            ((requiring-resolve 'eca.features.login/maybe-renew-auth-token!)
+            ((requiring-resolve 'eca.llm-api.auth/maybe-renew-auth-token!)
              {:provider provider
               :on-error (fn [msg] (logger/warn "[MODULES]" "Could not renew the auth of" provider msg))}
              {:db* db* :messenger (:messenger ctx) :config config :metrics (:metrics ctx)})

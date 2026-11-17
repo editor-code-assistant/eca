@@ -123,6 +123,13 @@
                 (modules/problems {:id :acme/x :transform-tools (fn [_ tools] tools)} {})))
     (is (match? {:errors [#":transform-tools must be a function"]}
                 (modules/problems {:id :eca/x :transform-tools {}} {:built-in? true})))
+    (is (match? {:errors [#":chat-statuses is only for built-in modules"]}
+                (modules/problems {:id :acme/x :chat-statuses {:login (fn [_ _])}} {})))
+    (is (match? {:errors [#":chat-statuses :login: must be a function"]}
+                (modules/problems {:id :eca/x :chat-statuses {:login "nope"}} {:built-in? true})))
+    (is (match? {:errors [#":chat-statuses: \"login\" must be a keyword"]}
+                (modules/problems {:id :eca/x :chat-statuses {"login" (fn [_ _])}} {:built-in? true})))
+    (is (= [] (:errors (modules/problems {:id :eca/x :chat-statuses {:login (fn [_ _])}} {:built-in? true}))))
     (is (match? {:errors [#":system-prompts :acme/s: :signature, :resync\? are only for built-in modules"]}
                 (modules/problems {:id :acme/x :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]} {})))
     (is (= [] (:errors (modules/problems {:id :eca/x :system-prompts [{:id :eca/s :content "c" :signature (fn [_])}]}

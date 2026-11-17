@@ -18,21 +18,6 @@
 
 (def no-available-model-error-msg "No available model found. Configure at least one provider model.")
 
-(def ^:private copilot-responses-api-min-gpt-version [5 3])
-
-(defn ^:private copilot-responses-api-model?
-  "Name-based routing for GitHub Copilot models whose API wasn't discovered
-   from the /models catalog (fetch failed, `fetchModels` disabled, model not
-   listed). Copilot serves OpenAI models from gpt-5.3-codex/gpt-5.4 on only
-   through the Responses API; older ones (gpt-4.1, gpt-5, gpt-5.1, gpt-5.2)
-   and non-OpenAI models take Chat Completions."
-  [model]
-  (boolean
-   (when (string? model)
-     (when-let [[_ major minor] (re-find #"(?i)^gpt-(\d+)(?:\.(\d+))?(?:$|[-._])" model)]
-       (<= 0 (compare [(parse-long major) (parse-long (or minor "0"))]
-                      copilot-responses-api-min-gpt-version))))))
-
 (def ^:private default-max-retries 10)
 (def ^:private premature-stop-max-retries 3)
 (def ^:private default-base-delay-ms 2000)
@@ -97,24 +82,15 @@
   [db]
   (some->> (:models db) keys sort first))
 
-(def ^:private copilot-picker-category-rank
-  {"versatile" 0 "powerful" 1 "lightweight" 2})
-
-(defn ^:private copilot-default-model
-  "Picks the GitHub Copilot default among the models discovered for the
-   account (models hidden from the picker or outside the plan never reach db),
-   preferring the catalog's `versatile` picker category, then `powerful`, then
-   `lightweight`, then uncategorized ones; alphabetical within a category so
-   the choice is deterministic. Nil when the account has no usable model."
-  [db]
-  (->> (:models db)
-       (filter (fn [[full-model _]] (string/starts-with? full-model "github-copilot/")))
-       (sort-by (fn [[full-model capabilities]]
-                  [(get copilot-picker-category-rank
-                        (get-in capabilities [:provider-data :picker-category])
-                        (count copilot-picker-category-rank))
-                   full-model]))
-       ffirst))
+(defn ^:private default-model-entries
+  "The providers' `:default-model` entries, `{:rank :fn :decision}`, by rank."
+  [config]
+  (->> (modules/contributions config :providers)
+       (mapcat (fn [[_entry providers]] (vals providers)))
+       (mapcat (fn [{:keys [default-model]}]
+                 (cond (map? default-model) [default-model]
+                       (sequential? default-model) default-model)))
+       (sort-by :rank)))
 
 (defn refine-file-context [path lines-range]
   (cond
@@ -132,34 +108,26 @@
         content))))
 
 (defn default-model
-  "Returns the default LLM model checking this waterfall:
-  - defaultModel set
-  - Anthropic api key set
-  - Openai api key set
-  - Github copilot login done, picking from the account's models by picker category
-  - Ollama first model if running
-  - Anthropic default model.
+  "Returns the default LLM model: `defaultModel` when set, else the first
+  model the providers' `:default-model` entries give, by rank (`:rank`, its
+  `:fn` gets `{:db :config}`): an Anthropic key, an OpenAI key, a Copilot
+  login, a running Ollama, then Anthropic's default. When that model isn't
+  available, the first available one.
 
   Returns nil when there are no available models."
   [db config]
   (let [[initial-decision model-candidate]
         (or (when-let [config-default-model (:defaultModel config)]
               [:config-default-model config-default-model])
-            (when (llm-util/provider-api-key "anthropic" (get-in db [:auth "anthropic"]) config)
-              [:api-key-found "anthropic/claude-sonnet-4-6"])
-            (when (llm-util/provider-api-key "openai" (get-in db [:auth "openai"]) config)
-              [:api-key-found "openai/gpt-5.2"])
-            (when-let [copilot-model (when (get-in db [:auth "github-copilot" :api-key])
-                                       (copilot-default-model db))]
-              [:api-key-found copilot-model])
-            (when-let [ollama-model (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db))))]
-              [:ollama-running ollama-model])
-            [:default "anthropic/claude-sonnet-4-6"])
+            (some (fn [{model-fn :fn :keys [decision]}]
+                    (when-let [model (model-fn {:db db :config config})]
+                      [(or decision :api-key-found) model]))
+                  (default-model-entries config)))
         model (if (contains? (:models db) model-candidate)
                 model-candidate
                 (first-available-model db))
         decision (cond
-                   (= model model-candidate) initial-decision
+                   (and model (= model model-candidate)) initial-decision
                    model :first-available-model
                    :else :no-available-model)]
     (logger/info logger-tag (format "Default LLM model '%s' decision '%s'" model decision))
@@ -183,26 +151,22 @@
                       (modules/invoke ctx entry (str "API " api-name) {} handler ctx request callbacks))))})))
 
 (defn provider->api-handler
+  "The API handler of a request to `provider`'s `model`: the API its
+   capabilities name (e.g. discovered from Copilot's catalog), else the one
+   the provider's base picks (its declaration's `:api-fn`, which gets
+   `{:provider :model :config}`), else its config's `:api`."
   ([provider model config]
    (provider->api-handler provider model nil config))
   ([provider model model-capabilities config]
    (or (api->handler (:api model-capabilities) config)
-       (let [base-provider (config/provider-base provider config)]
-         (cond
-           (= "openai" base-provider) (api->handler :openai-responses config)
-           (= "anthropic" base-provider) (api->handler :anthropic config)
-           (= "github-copilot" base-provider) (api->handler (if (copilot-responses-api-model? model)
-                                                              :openai-responses
-                                                              :openai-chat)
-                                                            config)
-           (= "google" base-provider) (api->handler :openai-chat config)
-           (= "ollama" base-provider) (api->handler :ollama config)
-           :else (case (get-in config [:providers provider :api])
-                   ("openai-responses" "openai") (api->handler :openai-responses config)
-                   "anthropic" (api->handler :anthropic config)
-                   "openai-chat" (api->handler :openai-chat config)
-                   "bedrock" (api->handler :bedrock config)
-                   nil))))))
+       (if-let [api-fn (:api-fn (llm-util/provider-declaration config (config/provider-base provider config)))]
+         (api->handler (api-fn {:provider provider :model model :config config}) config)
+         (case (get-in config [:providers provider :api])
+           ("openai-responses" "openai") (api->handler :openai-responses config)
+           "anthropic" (api->handler :anthropic config)
+           "openai-chat" (api->handler :openai-chat config)
+           "bedrock" (api->handler :bedrock config)
+           nil)))))
 
 (def ^:private reasoning-keys-by-api
   {:anthropic [:thinking]
@@ -303,10 +267,6 @@
         model-config (get-in provider-config [:models model])
         model-config (update model-config :variants #(config/effective-model-variants config provider model model-capabilities %))
         {:keys [handler] :as api-handler} (provider->api-handler provider model model-capabilities config)
-        _ (when (and (= "github-copilot" base-provider) (nil? (:api model-capabilities)))
-            (logger/info logger-tag
-                         (format "Copilot model '%s' has no API discovered from /models catalog, routing to %s by model name"
-                                 real-model (:api api-handler))))
         {past-messages :messages
          sanitized-dropped-count :dropped-count
          sanitized-dropped-apis :dropped-apis} (sanitize-past-messages-for-api (:api api-handler) past-messages)
@@ -344,6 +304,31 @@
                         :cancelled? cancelled?
                         :cache-retention (:cacheRetention provider-config)
                         :stream-idle-timeout-seconds stream-idle-timeout-seconds}
+        ;; the options of the providers without their own `:request-opts`
+        opts {:model real-model
+              :instructions flat-instructions
+              :user-messages user-messages
+              :max-output-tokens max-output-tokens
+              :web-search web-search
+              :image-generation image-generation
+              :reason? reason?
+              :supports-image? supports-image?
+              :past-messages past-messages
+              :tools tools
+              :extra-payload extra-payload
+              :extra-headers extra-headers
+              :url-relative-path (:completionUrlRelativePath provider-config)
+              :think-tag-start (:thinkTagStart provider-config)
+              :think-tag-end (:thinkTagEnd provider-config)
+              :reasoning-history reasoning-history
+              :dialect (chat-dialect base-provider api-url)
+              :http-client (:httpClient provider-config)
+              :api-url api-url
+              :api-key api-key
+              :cancelled? cancelled?
+              :cache-retention (:cacheRetention provider-config)
+              :stream-idle-timeout-seconds stream-idle-timeout-seconds}
+        request-opts (:request-opts (llm-util/provider-declaration config base-provider))
         callbacks (when-not sync?
                     {:on-message-received on-message-received
                      :on-error on-error
@@ -358,166 +343,42 @@
     (try
       (when-not api-url (throw (ex-info (format "API url not found.\nMake sure you have provider '%s' configured properly." provider) {})))
       (cond
-        (= "openai" base-provider)
-        (handler
-         {:model real-model
-          :instructions flat-instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :web-search web-search
-          :image-generation image-generation
-          :extra-payload (merge {:parallel_tool_calls true} extra-payload)
-          :extra-headers extra-headers
-          :reasoning-history reasoning-history
-          :api-url api-url
-          :api-key api-key
-          :provider base-provider
-          :auth-type auth-type
-          :provider-data (:provider-data model-capabilities)
-          :account-id (:account-id provider-auth)
-          :prompt-cache-key prompt-cache-key
-          :cancelled? cancelled?
-          :stream-idle-timeout-seconds stream-idle-timeout-seconds}
-         callbacks)
-
-        (= "anthropic" base-provider)
-        (handler anthropic-opts callbacks)
-
-        (= "github-copilot" base-provider)
-        (let [api-url (or (:api-url provider-auth) api-url)
-              copilot-headers (fn [user-initiator? anthropic?]
-                                (cond-> (merge {"openai-intent" "conversation-panel"
-                                                "x-request-id" (str (random-uuid))
-                                                "x-initiator" (if user-initiator? "user" "agent")
-                                                "vscode-sessionid" ""
-                                                "vscode-machineid" ""
-                                                "Copilot-Vision-Request" "true"
-                                                "copilot-integration-id" "vscode-chat"}
-                                               (llm-util/copilot-ide-headers)
-                                               extra-headers)
-                                  ;; Copilot uses a GitHub bearer token, not Anthropic OAuth, so replace the
-                                  ;; handler's OAuth beta with the Messages shim's required beta.
-                                  anthropic? (assoc "anthropic-beta" "interleaved-thinking-2025-05-14")))
-              user-initiator? (fn [body message-key]
-                                (and (not subagent?)
-                                     (= "user" (-> body message-key last :role))))
-              base-opts {:model real-model
-                         :instructions flat-instructions
-                         :user-messages user-messages
-                         :max-output-tokens max-output-tokens
-                         :reason? reason?
-                         :supports-image? supports-image?
-                         :past-messages past-messages
-                         :tools tools
-                         :reasoning-history reasoning-history
-                         :api-url api-url
-                         :api-key api-key
-                         :prompt-cache-key prompt-cache-key
-                         :cancelled? cancelled?
-                         :stream-idle-timeout-seconds stream-idle-timeout-seconds}]
-          (case (:api api-handler)
-            :openai-responses
-            (handler
-             (assoc base-opts
-                    :web-search web-search
-                    :image-generation image-generation
-                    :extra-payload (merge {:parallel_tool_calls true} extra-payload)
-                    :extra-headers (fn [{:keys [body]}]
-                                     (copilot-headers (user-initiator? body :input) false)))
-             callbacks)
-
-            :anthropic
-            (handler
-             (assoc anthropic-opts
-                    :api-url api-url
-                    :extra-headers (fn [{:keys [body]}]
-                                     (copilot-headers (user-initiator? body :messages) true)))
-             callbacks)
-
-            (handler
-             (assoc base-opts
-                    :extra-payload (merge {:parallel_tool_calls true} extra-payload)
-                    :extra-headers (fn [{:keys [body]}]
-                                     (copilot-headers (user-initiator? body :messages) false)))
-             callbacks)))
-
-        (= "google" base-provider)
-        (handler
-         {:model real-model
-          :instructions flat-instructions
-          :user-messages user-messages
-          :max-output-tokens max-output-tokens
-          :reason? reason?
-          :supports-image? supports-image?
-          :past-messages past-messages
-          :tools tools
-          :think-tag-start "<thought>"
-          :think-tag-end "</thought>"
-          :reasoning-history reasoning-history
-          :extra-payload (merge {:parallel_tool_calls false}
-                                (when reason?
-                                  {:extra_body {:google {:thinking_config {:include_thoughts true}}}})
-                                extra-payload)
-          :extra-headers extra-headers
-          :api-url api-url
-          :api-key api-key
-          :cancelled? cancelled?
-          :stream-idle-timeout-seconds stream-idle-timeout-seconds}
-         callbacks)
-
-        (= "ollama" base-provider)
-        (handler
-         {:api-url api-url
-          :reason? (:reason? model-capabilities)
-          :supports-image? supports-image?
-          :model real-model
-          :instructions flat-instructions
-          :user-messages user-messages
-          :past-messages past-messages
-          :tools tools
-          :max-output-tokens max-output-tokens
-          :extra-payload extra-payload
-          :extra-headers extra-headers
-          :cancelled? cancelled?
-          :stream-idle-timeout-seconds stream-idle-timeout-seconds}
-         callbacks)
+        ;; a provider's own options, e.g. OpenAI's, Copilot's or Google's
+        request-opts
+        (handler (request-opts opts {:model real-model
+                                     :instructions instructions
+                                     :flat-instructions flat-instructions
+                                     :user-messages user-messages
+                                     :past-messages past-messages
+                                     :tools tools
+                                     :max-output-tokens max-output-tokens
+                                     :reason? reason?
+                                     :supports-image? supports-image?
+                                     :web-search web-search
+                                     :image-generation image-generation
+                                     :extra-payload extra-payload
+                                     :extra-headers extra-headers
+                                     :reasoning-history reasoning-history
+                                     :api-url api-url
+                                     :api-key api-key
+                                     :auth-type auth-type
+                                     :provider provider
+                                     :provider-base base-provider
+                                     :provider-auth provider-auth
+                                     :provider-config provider-config
+                                     :model-capabilities model-capabilities
+                                     :api (:api api-handler)
+                                     :subagent? subagent?
+                                     :prompt-cache-key prompt-cache-key
+                                     :cancelled? cancelled?
+                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds
+                                     :anthropic-opts anthropic-opts})
+                 callbacks)
 
         (and (or model-config
                  model-capabilities)
              handler)
-        (let [url-relative-path (:completionUrlRelativePath provider-config)
-              think-tag-start (:thinkTagStart provider-config)
-              think-tag-end (:thinkTagEnd provider-config)
-              http-client (:httpClient provider-config)]
-          (handler
-           {:model real-model
-            :instructions flat-instructions
-            :user-messages user-messages
-            :max-output-tokens max-output-tokens
-            :web-search web-search
-            :image-generation image-generation
-            :reason? reason?
-            :supports-image? supports-image?
-            :past-messages past-messages
-            :tools tools
-            :extra-payload extra-payload
-            :extra-headers extra-headers
-            :url-relative-path url-relative-path
-            :think-tag-start think-tag-start
-            :think-tag-end think-tag-end
-            :reasoning-history reasoning-history
-            :dialect (chat-dialect base-provider api-url)
-            :http-client http-client
-            :api-url api-url
-            :api-key api-key
-            :cancelled? cancelled?
-            :cache-retention (:cacheRetention provider-config)
-            :stream-idle-timeout-seconds stream-idle-timeout-seconds}
-           callbacks))
+        (handler opts callbacks)
 
         :else
         (on-error {:message (format "ECA Unsupported model %s for provider %s" real-model provider)}))
@@ -690,9 +551,14 @@
                             max-retries (:max-retries policy)
                             ;; Quota exhaustion is not retried, but its reset time is still surfaced to the user.
                             rl-wait (when (#{:rate-limited :quota-exhausted} error-type)
-                                      (llm-providers.errors/rate-limit-wait (:headers error-data)
-                                                                            (:body error-data)
-                                                                            (System/currentTimeMillis)))
+                                      (llm-providers.errors/rate-limit-wait
+                                       (:headers error-data)
+                                       (llm-providers.errors/provider-retry-after-ms
+                                        {:provider provider
+                                         :provider-base (config/provider-base provider config)
+                                         :error-data error-data
+                                         :config config})
+                                       (System/currentTimeMillis)))
                             rate-limit-delay-ms (some-> rl-wait
                                                         :delay-ms
                                                         long

@@ -15,7 +15,8 @@
    [:state #(or (contains? '#{eca.config eca.db eca.metrics eca.network eca.client-http eca.llm-util eca.models} %)
                 (string/starts-with? (str %) "eca.db."))]
    [:loader+api #(or (= 'eca.modules.loader %) (= 'eca.api %) (string/starts-with? (str %) "eca.api."))]
-   [:engines #(or (string/starts-with? (str %) "eca.features.") (contains? '#{eca.llm-api eca.llm-api.errors} %))]
+   [:engines #(or (string/starts-with? (str %) "eca.features.")
+                  (contains? '#{eca.llm-api eca.llm-api.auth eca.llm-api.errors} %))]
    [:wiring '#{eca.server eca.handlers eca.main eca.nrepl eca.read-chat eca.modules.built-in}]])
 
 (def ^:private allowed-module-requires
@@ -44,9 +45,9 @@
   '#{;; the module API calls the engines for the modules
      [eca.api eca.features.chat]
      [eca.api eca.features.chat.compaction]
-     [eca.api eca.features.login]
      [eca.api eca.features.tools]
      [eca.api eca.llm-api]
+     [eca.api eca.llm-api.auth]
      [eca.api.dev eca.features.tools]})
 
 (def ^:private allowed-extended-multimethods

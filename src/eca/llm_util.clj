@@ -197,34 +197,41 @@
           shared/normalize-api-url
           not-empty))
 
+(defn subscription?
+  "Whether requests to `provider` authenticate with a subscription login
+   (OAuth), following the precedence of `provider-api-key`, so a configured
+   API key taking precedence counts as API billing."
+  [provider db config]
+  (boolean
+   (when provider
+     (= :auth/oauth (first (provider-api-key provider (get-in db [:auth provider]) config))))))
+
 (defn provider-declaration
   "The declaration (`:providers`) of the provider `provider-id`, from the
    first active module that has one."
   [config provider-id]
   (second (modules/find-contribution config :providers provider-id)))
 
+(def no-native-models
+  "What a provider's `:models-override-fn` returns when it has no models and
+   the generic native /models fetch mustn't be tried either, e.g. because it
+   needs headers only the provider sends: the provider's models then come
+   from models.dev."
+  ::no-native-models)
+
 (defn provider-models-override
   "Provider+auth specific override for native /models fetching: the
    provider's `:models-override-fn`, of `:provider-base` (see
    `config/provider-base`) when present so inheriting providers get their
-   parent's override. It gets this ctx (`:auth-type`, `:api-key`...) and
-   returns a map of model-id -> model-config in the same shape users put
-   under `:providers <p> :models` (e.g. `{\"gpt-5.5\" {:limit {:context 272000}}}`),
-   letting the generic catalog code apply them through the existing override
-   path, or nil to fall back to the generic native /models fetch."
+   parent's override. It gets this ctx (`:api-url`, `:auth-type`, `:api-key`,
+   `:extra-headers`...) and returns a map of model-id -> model-config in the
+   same shape users put under `:providers <p> :models` (e.g. `{\"gpt-5.5\"
+   {:limit {:context 272000}}}`), letting the generic catalog code apply them
+   through the existing override path, nil to fall back to the generic native
+   /models fetch, or `no-native-models`."
   [{:keys [provider provider-base config] :as ctx}]
   (when-let [override (:models-override-fn (provider-declaration config (or provider-base provider)))]
     (override ctx)))
-
-(defn copilot-ide-headers
-  "GitHub Copilot's API authenticates IDE requests by a recognized editor
-   identity. A non-editor value (e.g. `eca/...`) is rejected with
-   `400 missing/unknown Editor-Version header for IDE auth`, so we present the
-   VS Code Copilot client identity its `/models` and chat endpoints expect."
-  []
-  {"editor-version" "vscode/1.107.0"
-   "editor-plugin-version" "copilot-chat/0.35.0"
-   "copilot-integration-id" "vscode-chat"})
 
 (defn ^:private cause-chain
   "Returns a seq of `e` followed by every nested cause."

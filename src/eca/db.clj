@@ -144,7 +144,7 @@
                                    :refresh-token :string
                                    :expires-at :long}}
    ;; Subscription quota per provider, in memory only (never persisted),
-   ;; see `eca.features.quota`.
+   ;; see `eca.modules.llm-providers.quota`.
    :provider-quotas {"<provider-name>" {:updated-at :long
                                         :windows [{:id :string
                                                    :label :string

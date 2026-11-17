@@ -88,6 +88,10 @@
                                   :error "The error, classified: :type (e.g. :context-overflow), :message, :status."}
                         :accepts {:retry "true: send the request again. Request changes aren't supported yet."
                                   :compact "Compaction options, :trigger and :instructions: compact, then resume the turn."}}
+   :llm/response-headers {:kind :notify
+                          :doc (str "A response's headers, for a subscription login (OAuth). "
+                                    "E.g. eca/llm-providers reads the quota from them.")
+                          :payload {:provider "The provider." :headers "The response's headers."}}
    :chat/after-request {:kind :notify
                         :doc "The model finished responding to a user message."
                         :payload {:response "The response."}
@@ -177,7 +181,11 @@
    :models/resolve {:kind :transform
                     :doc "After the model list is built."
                     :payload {:models "Full model name → capabilities."}
-                    :accepts {:models "Replaces the model list."}}})
+                    :accepts {:models "Replaces the model list."}}
+   :models/synced {:kind :notify
+                   :doc (str "The models were synced: at startup and when the providers' config changed, "
+                             "after renewing login tokens; not after a login or logout. "
+                             "E.g. eca/llm-providers fetches the subscription quotas.")}})
 
 ;; --- Index of definitions and handlers, rebuilt when the active modules change
 

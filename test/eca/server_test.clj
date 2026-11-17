@@ -7,6 +7,7 @@
    [eca.handlers :as handlers]
    [eca.modules :as modules]
    [eca.modules.completion :as m.completion]
+   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
    [eca.server :as server]
    [eca.test-helper :as h]
    [jsonrpc4clj.server :as jsonrpc.server]))
@@ -93,13 +94,20 @@
   (testing "core's methods"
     (with-redefs [handlers/chat-query-commands (fn [{:keys [config]} params] {:params params :config? (map? config)})]
       (is (= {:params {:query "x"} :config? true} (request "chat/queryCommands" {:query "x"})))))
-  (testing "a built-in module's method, also while the module is disabled, as before modules"
+  (testing "a built-in module's method, while the module is active: a disabled module's methods are gone"
     (with-redefs [m.completion/complete (fn [params & _] {:items [{:text (:doc-text params)}]})]
       (is (= {:items [{:text "abc"}]} (request "completion/inline" {:doc-text "abc"})))
       (reset! config/initialization-config* {:modules {:eca/completion {:enabled false}}})
       (config/clear-cache!)
       (is (not (modules/active? (config/all (h/db)) :eca/completion)))
-      (is (= {:items [{:text "abc"}]} (request "completion/inline" {:doc-text "abc"})))))
+      (is (= :jsonrpc4clj.server/method-not-found (request "completion/inline" {:doc-text "abc"})))))
+  (h/reset-components!)
+  (testing "eca/llm-providers' providers/* methods, gone once it's disabled"
+    (with-redefs [m.llm-providers.providers/providers-list (fn [_db* _config] {:providers []})]
+      (is (= {:providers []} (request "providers/list" {})))
+      (reset! config/initialization-config* {:modules {:eca/llm-providers {:enabled false}}})
+      (config/clear-cache!)
+      (is (= ::jsonrpc.server/method-not-found (request "providers/list" {})))))
   (h/reset-components!)
   (testing "an external module's method, while it's active"
     (modules/add-external! "/tmp/mods/ping.clj"

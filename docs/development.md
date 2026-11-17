@@ -28,23 +28,21 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/config.clj`        | Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).
    `src/eca/logger.clj`        | Logger interface, logs to stderr (stdout is reserved for JSON-RPC).
    `src/eca/shared.clj`        | Shared utility fns for the whole project.
-   `src/eca/llm_api.clj`       | Public façade used by features to call an LLM, through the provider modules' APIs.
+   `src/eca/llm_api.clj` + `llm_api/` | Public façade used by features to call an LLM, through the provider modules' APIs; `llm_api/` classifies their errors (`errors.clj`) and renews login tokens (`auth.clj`).
    `src/eca/llm_util.clj`      | Streaming/event helpers shared by providers.
    `src/eca/features/`         | **Core capabilities exposed to the editor**
    ├─ `chat.clj` + `chat/`     | The chat engine: `chat.clj` is its entry (prompt, commands, tool-call answers, stop); `chat/` has a turn's requests (`turn`, their `callbacks`, `recovery`), `compaction`, the lifecycle (content, events, finish), the tool-call state machine and batches, steering, replay, chat operations and the system prompt.
    ├─ `commands.clj`           | Lists the modules' commands, with the skills, custom commands and MCP prompts they give, and runs the one typed.
    ├─ `context.clj`            | Contexts attached to prompts: files, folders, the cursor, and the ones modules give.
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
-   ├─ `login.clj`              | Provider auth flows.
-   ├─ `providers.clj`          | Model/provider resolution.
-   ├─ `quota.clj`              | Subscription quotas: from response headers and the providers' usage endpoints.
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
    ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
    `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`, which `eca.main` hands to the runtime
-   ├─ `core.clj`               | ECA's own commands (`/login`, `/compact`, `/context`, ...); the chat ones (`/fork`, `/resume`, `/export`, ...) are in `chat_management.clj`.
+   ├─ `core.clj`               | ECA's own commands (`/model`, `/compact`, `/context`, ...); the chat ones (`/fork`, `/resume`, `/export`, ...) are in `chat_management.clj`.
    ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...
-   ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...).
+   ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...), declaring what's theirs: logins, quotas, request options, models, errors.
+   ├─ `llm_providers.clj` + `llm_providers/` | Logging into providers (`/login`, the providers panel's `providers/*` methods) and their subscription quotas (`/quota`).
    ├─ `agents.clj` + `agents/` | Agents from config and Markdown files, and the agents ECA ships; `subagents.clj` + `subagents/` likewise.
    ├─ `mcp.clj`                | MCP (Model Context Protocol) servers integration.
    ├─ `hooks.clj`              | User-configured hooks triggered on server events.
@@ -72,7 +70,7 @@ ECA is a core plus modules. Core is layered, lowest first, and a namespace requi
 2. The module runtime: `eca.modules`, `eca.modules.events`, `eca.modules.config-spec`, `eca.modules.data`; `eca.shell`.
 3. State and config: `eca.config`, `eca.db`, `eca.models`, `eca.llm-util`, ...
 4. The module loader and the module API (`eca.api*`).
-5. Engines: `eca.features.*` (chat, tools, commands, prompt, ...), `eca.llm-api`.
+5. Engines: `eca.features.*` (chat, tools, commands, prompt, ...), `eca.llm-api` and `eca.llm-api.*`.
 6. Wiring: `eca.server`, `eca.handlers`, `eca.main`, the built-in modules list.
 
 Every other feature is a module under `src/eca/modules/`, built in or external, with these rules:

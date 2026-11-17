@@ -323,3 +323,13 @@
     (is (string? (llm-util/connection-error-message (Exception. "x"))))
     (is (string? (llm-util/connection-error-message (Exception.))))))
 
+(deftest subscription?-test
+  (let [db {:auth {"anthropic" {:type :auth/oauth :mode :max :api-key "oauth-token"}
+                   "openai" {:type :auth/token :api-key "sk-key"}
+                   "github-copilot" {:api-key "copilot-token"}}}]
+    (is (true? (llm-util/subscription? "anthropic" db {})))
+    (is (false? (llm-util/subscription? "openai" db {})))
+    (is (true? (llm-util/subscription? "github-copilot" db {})))
+    (is (false? (llm-util/subscription? nil db {})))
+    (testing "a configured API key takes precedence over the login"
+      (is (false? (llm-util/subscription? "anthropic" db {:providers {"anthropic" {:key "sk-ant"}}}))))))

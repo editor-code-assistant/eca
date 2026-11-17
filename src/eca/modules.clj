@@ -54,7 +54,7 @@
     :config-spec :start :stop :tools :prefix :commands :system-prompts
     :providers :apis :config-defaults :event-handlers :defines :rpc :tool-servers})
 
-(def ^:private built-in-only-keys #{:agents :skills :contexts :transform-tools})
+(def ^:private built-in-only-keys #{:agents :skills :contexts :transform-tools :chat-statuses})
 
 (def ^:private later-keys #{:activation :strategies :rules :capabilities :ui})
 
@@ -143,9 +143,11 @@
 (defn ^:private qualified-kw? [x] (qualified-keyword? x))
 
 (defn ^:private provider-problems
-  "Problems of a provider declaration. The functions core calls (login
-   steps and methods' `:start`, the OAuth code exchange, quota, errors,
-   the models override) are for built-in modules, for now."
+  "Problems of a provider declaration. What ECA calls or reads (core, or
+   `eca/llm-providers`) beyond the label, the asked login and the listed
+   models (login steps and methods' `:start`, the OAuth code exchange, quota,
+   errors, the models override, request options, the API and default model
+   choices, capabilities) is for built-in modules, for now."
   [built-in? declaration]
   (let [login (:login declaration)]
     (cond
@@ -153,13 +155,14 @@
       ["must be a map"]
 
       (and (not built-in?)
-           (or (some #(contains? declaration %) [:quota :errors :models-override-fn])
+           (or (some #(contains? declaration %) [:quota :errors :models-override-fn :request-opts :api-fn
+                                                 :default-model :capabilities])
                (and (map? login)
                     (or (contains? login :steps)
                         (contains? login :complete-oauth-code)
                         (and (sequential? (:methods login)) (some #(and (map? %) (:start %)) (:methods login)))))))
-      [(str ":quota, :errors, :models-override-fn, :login :steps, :login :complete-oauth-code and a login"
-            " method's :start are only for built-in modules")]
+      [(str ":quota, :errors, :models-override-fn, :request-opts, :api-fn, :default-model, :capabilities,"
+            " :login :steps, :login :complete-oauth-code and a login method's :start are only for built-in modules")]
 
       :else [])))
 
@@ -321,6 +324,8 @@
                     [":agents must be a function"])
                   (when (and (some? (:transform-tools module)) (not (fn-like? (:transform-tools module))))
                     [":transform-tools must be a function"])
+                  (map-of-problems ":chat-statuses" (:chat-statuses module) keyword? "a keyword"
+                                   #(if (fn-like? %) [] ["must be a function"]))
                   (skills-problems (:skills module))
                   (map-of-problems ":event-handlers" event-handlers qualified-kw? "a qualified keyword" handler-spec-problems)
                   (defines-problems (:defines module))

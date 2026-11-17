@@ -8,12 +8,13 @@
    [clojure.string :as string]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.features.login :as f.login]
-   [eca.features.providers :as f.providers]
-   [eca.features.quota :as f.quota]
+   [eca.llm-api.errors :as llm-api.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.modules.llm-providers.login :as m.llm-providers.login]
+   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
+   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.modules.providers.variants :as m.variants]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
@@ -759,6 +760,53 @@
 
 (def ^:private oauth-usage-url "https://api.anthropic.com/api/oauth/usage")
 
+(defn ^:private quota-windows
+  "Claude subscription windows from `anthropic-ratelimit-unified-<window>-*`
+   headers (e.g. 5h and 7d), utilization being a 0-1 fraction and resets
+   epoch seconds: the declaration's `:quota :headers`."
+  [headers]
+  (keep (fn [[k v]]
+          (when-let [[_ id] (re-matches #"anthropic-ratelimit-unified-(\d+[a-z]+)-utilization" k)]
+            (when-let [utilization (m.llm-providers.quota/parse-number v)]
+              (assoc-some
+               {:id id
+                :label id
+                :used-percent (m.llm-providers.quota/round1 (* 100 utilization))}
+               :resets-at (some-> (get headers (str "anthropic-ratelimit-unified-" id "-reset")) m.llm-providers.quota/parse-number long)
+               :window-minutes (m.llm-providers.quota/duration-id->minutes id)))))
+        headers))
+
+(def ^:private number-words
+  {"one" 1 "two" 2 "three" 3 "four" 4 "five" 5 "six" 6 "seven" 7
+   "eight" 8 "nine" 9 "ten" 10 "eleven" 11 "twelve" 12})
+
+(def ^:private unit-minutes
+  {"minute" 1 "minutes" 1 "hour" 60 "hours" 60
+   "day" 1440 "days" 1440 "week" 10080 "weeks" 10080})
+
+(defn ^:private usage->snapshot
+  "Snapshot from Claude's `api/oauth/usage` response, whose windows are keyed
+   by their duration (e.g. `five_hour`, `seven_day`, `seven_day_opus`), with
+   utilization as a 0-100 percentage and ISO-8601 resets."
+  [body]
+  (let [windows (keep (fn [[k v]]
+                        (let [[amount unit & scope] (string/split (name k) #"_")
+                              n (or (get number-words amount) (some-> amount parse-long))
+                              unit-mins (get unit-minutes unit)
+                              utilization (when (map? v) (m.llm-providers.quota/parse-number (:utilization v)))]
+                          (when (and n unit-mins utilization)
+                            (let [minutes (* n unit-mins)
+                                  duration (m.llm-providers.quota/minutes->label minutes)
+                                  scope (when (seq scope) (string/join " " scope))]
+                              (assoc-some
+                               {:id (cond-> duration scope (str "-" (string/replace scope " " "-")))
+                                :label (cond-> duration scope (str " " (string/capitalize scope)))
+                                :used-percent (m.llm-providers.quota/round1 utilization)
+                                :window-minutes minutes}
+                               :resets-at (m.llm-providers.quota/->epoch-seconds (:resets_at v)))))))
+                      body)]
+    (m.llm-providers.quota/snapshot windows)))
+
 (defn ^:private fetch-quota
   "`:quota :fetch`: the subscription's usage."
   [{:keys [provider-auth]}]
@@ -770,7 +818,7 @@
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout 10000})]
     (if (= 200 status)
-      (f.quota/anthropic-usage->snapshot body)
+      (usage->snapshot body)
       (throw (ex-info (format "Anthropic usage endpoint returned status %s" status) {:status status})))))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
@@ -899,7 +947,7 @@
                                                      :refresh-token refresh-token
                                                      :api-key access-token
                                                      :expires-at expires-at})))
-    (f.providers/sync-and-notify! provider db* messenger metrics)
+    (m.llm-providers.providers/sync-and-notify! provider db* messenger metrics)
     {:action "done"}))
 
 ;; --- Chat-based login (legacy /login command) ---
@@ -951,7 +999,7 @@
         (swap! db* update-in [:auth provider] merge {:step :login/done
                                                      :type :auth/token
                                                      :api-key api-key})
-        (f.login/login-done! ctx))
+        (m.llm-providers.login/login-done! ctx))
       :max
       (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize provider-code verifier)]
         (swap! db* update-in [:auth provider] merge {:step :login/done
@@ -959,7 +1007,7 @@
                                                      :refresh-token refresh-token
                                                      :api-key access-token
                                                      :expires-at expires-at})
-        (f.login/login-done! ctx)))))
+        (m.llm-providers.login/login-done! ctx)))))
 
 (defn ^:private waiting-api-key-step [{:keys [db* input provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
@@ -967,18 +1015,17 @@
       (config/update-global-config! {:providers {provider {:key input}}})
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
-      (f.login/login-done! ctx))
+      (m.llm-providers.login/login-done! ctx))
     (send-msg! "Invalid API key, it should start with 'sk-'")))
 
-(defn ^:private renew-token-step [{:keys [db* provider] :as ctx}]
+(defn ^:private renew-token-step [{:keys [db* provider]}]
   (let [{:keys [refresh-token]} (get-in @db* [:auth provider])
         {:keys [refresh-token access-token expires-at]} (oauth-refresh refresh-token)]
     (swap! db* update-in [:auth provider] merge {:step :login/done
                                                  :type :auth/oauth
                                                  :refresh-token refresh-token
                                                  :api-key access-token
-                                                 :expires-at expires-at})
-    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+                                                 :expires-at expires-at})))
 
 (defn ^:private structured-error
   "Parses Anthropic's structured error body, e.g.
@@ -1006,11 +1053,66 @@
       request-id (assoc :request-id request-id))
     error-data))
 
+(defn ^:private unified-reset-ms
+  "`:errors :retry-after-ms`: a Claude subscription's session-limit reset, from
+   the `anthropic-ratelimit-unified-reset` header (epoch seconds)."
+  [{:keys [error-data]}]
+  (llm-api.errors/epoch-str->ms
+   (llm-api.errors/header-str (:headers error-data) "anthropic-ratelimit-unified-reset")))
+
 (def api-module
   {:id :eca/api-anthropic
    :description "The Anthropic Messages API."
    :apis {"anthropic" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
    :config-defaults {:variantsByModel (merge m.variants/anthropic-messages m.variants/any-api)}})
+
+(defn ^:private request-opts
+  "A request's options (the declaration's `:request-opts`): the Messages
+   API's, with the structured instructions its prompt cache uses."
+  [_opts {:keys [anthropic-opts]}]
+  anthropic-opts)
+
+(defn ^:private default-model
+  "With an Anthropic key, Claude Sonnet (the declaration's `:default-model`)."
+  [{:keys [db config]}]
+  (when (llm-util/provider-api-key "anthropic" (get-in db [:auth "anthropic"]) config)
+    "anthropic/claude-sonnet-4-6"))
+
+(def ^:private web-search-models
+  "Claude models that support the built-in web-search tool (the declaration's
+   `:capabilities`)."
+  #{"claude-sonnet-4-5"
+    "claude-sonnet-4-6"
+    "claude-opus-4.1"
+    "claude-opus-4.5"
+    "claude-opus-4.6"
+    "claude-opus-4-6"
+    "claude-haiku-4.5"
+    "claude-sonnet-4-5-20250929"
+    "claude-sonnet-4-20250514"
+    "claude-opus-4-20250514"
+    "claude-opus-4-1-20250805"
+    "claude-opus-4-5-20251101"
+    "claude-opus-4.7"
+    "claude-opus-4-7"
+    "claude-opus-4.8"
+    "claude-opus-4-8"
+    "claude-opus-5"
+    "claude-opus-5-5"
+    "claude-sonnet-5"
+    "claude-fable-5"
+    "claude-fable-5-1"
+    "claude-mythos-5"
+    "claude-mythos-5-1"
+    "claude-haiku-4-5-20251001"})
+
+(def ^:private mid-conversation-system-models
+  "Claude models that accept `role: \"system\"` entries inside the messages
+   array (mid-conversation system messages), letting volatile instructions be
+   sent after a user turn without invalidating the cached history prefix (the
+   declaration's `:capabilities`). Documented for Claude Opus 4.8."
+  #{"claude-opus-4.8"
+    "claude-opus-4-8"})
 
 (def module
   {:id :eca/anthropic
@@ -1027,8 +1129,16 @@
                                             :login/waiting-provider-code #'waiting-provider-code-step
                                             :login/waiting-api-key #'waiting-api-key-step
                                             :login/renew-token #'renew-token-step}}
-                            :quota {:fetch #'fetch-quota}
-                            :errors {:enrich #'enrich-error}}}
+                            :quota {:fetch #'fetch-quota :headers #'quota-windows}
+                            :request-opts #'request-opts
+                            :api-fn (constantly :anthropic)
+                            ;; Claude Sonnet with a key first; also the last resort
+                            :default-model [{:rank 1 :fn #'default-model}
+                                            {:rank 100 :decision :default :fn (constantly "anthropic/claude-sonnet-4-6")}]
+                            :capabilities {:web-search web-search-models
+                                           :mid-conversation-system? mid-conversation-system-models}
+                            :errors {:enrich #'enrich-error
+                                     :retry-after-ms #'unified-reset-ms}}}
    :config-defaults {:providers {"anthropic" {:api "anthropic"
                                               :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                                               :key "${env:ANTHROPIC_API_KEY}"

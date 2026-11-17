@@ -6,14 +6,18 @@
    [clojure.string :as string]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.features.login :as f.login]
-   [eca.features.providers :as f.providers]
-   [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :refer [multi-str]]
-   [hato.client :as http]))
+   [eca.models :as models]
+   [eca.modules.llm-providers.login :as m.llm-providers.login]
+   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
+   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
+   [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
+   [hato.client :as http])
+  (:import
+   [java.net URLDecoder]
+   [java.nio.charset StandardCharsets]))
 
 (set! *warn-on-reflection* true)
 
@@ -62,10 +66,20 @@
                    model))
     error-data))
 
+(defn ^:private ide-headers
+  "GitHub Copilot's API authenticates IDE requests by a recognized editor
+   identity. A non-editor value (e.g. `eca/...`) is rejected with
+   `400 missing/unknown Editor-Version header for IDE auth`, so we present the
+   VS Code Copilot client identity its `/models` and chat endpoints expect."
+  []
+  {"editor-version" "vscode/1.107.0"
+   "editor-plugin-version" "copilot-chat/0.35.0"
+   "copilot-integration-id" "vscode-chat"})
+
 (defn ^:private policy-api-headers [api-key]
   (merge {"Authorization" (str "Bearer " api-key)
           "Content-Type" "application/json"}
-         (llm-util/copilot-ide-headers)))
+         (ide-headers)))
 
 (defn fetch-model-policy
   "Live-fetches the Copilot /models catalog and returns the policy entry for
@@ -273,6 +287,68 @@
                           {:status status
                            :body body})))))))
 
+(defn ^:private parse-form [s]
+  (into {}
+        (keep (fn [pair]
+                (let [[k v] (string/split pair #"=" 2)
+                      ^String v (or v "")]
+                  (when (seq k)
+                    [k (URLDecoder/decode v StandardCharsets/UTF_8)]))))
+        (string/split s #"&")))
+
+(defn ^:private copilot-label [quota-id]
+  (case quota-id
+    ("premium_interactions" "premium_models") "Premium"
+    "chat" "Chat"
+    "completions" "Completions"
+    (string/capitalize (string/replace quota-id #"[_-]+" " "))))
+
+(defn ^:private copilot-window [quota-id {:keys [entitlement remaining-percent unlimited? reset]}]
+  (when (and remaining-percent
+             (not unlimited?)
+             (not (contains? #{-1.0 0.0} entitlement)))
+    (assoc-some
+     {:id quota-id
+      :label (copilot-label quota-id)
+      :used-percent (m.llm-providers.quota/round1 (max 0.0 (- 100.0 remaining-percent)))}
+     :resets-at (m.llm-providers.quota/->epoch-seconds reset))))
+
+(defn ^:private prefer-premium-models
+  "Newer Copilot backends report `premium_models` alongside the legacy
+   `premium_interactions`; keep only the former, like VS Code does."
+  [windows]
+  (if (some #(= "premium_models" (:id %)) windows)
+    (remove #(= "premium_interactions" (:id %)) windows)
+    windows))
+
+(defn ^:private quota-windows
+  "GitHub Copilot quotas from `x-quota-snapshot-<quota-id>` headers, whose
+   values are url-encoded like `ent=300&rem=95.3&rst=2026-09-01T00:00:00Z`
+   (`rem` is the remaining percentage, `ent=-1` means unlimited). The
+   declaration's `:quota :headers`."
+  [headers]
+  (prefer-premium-models
+   (keep (fn [[k v]]
+           (when-let [[_ quota-id] (re-matches #"x-quota-snapshot-(.+)" k)]
+             (let [{:strs [ent rem rst]} (parse-form v)]
+               (copilot-window quota-id {:entitlement (m.llm-providers.quota/parse-number ent)
+                                         :remaining-percent (m.llm-providers.quota/parse-number rem)
+                                         :reset rst}))))
+         headers)))
+
+(defn ^:private usage->snapshot
+  "Snapshot from GitHub's `copilot_internal/user` response `quota_snapshots`."
+  [{:keys [quota_snapshots quota_reset_date_utc quota_reset_date]}]
+  (let [windows (prefer-premium-models
+                 (keep (fn [[quota-id {:keys [entitlement percent_remaining unlimited quota_reset_at]}]]
+                         (copilot-window (name quota-id)
+                                         {:entitlement (m.llm-providers.quota/parse-number entitlement)
+                                          :remaining-percent (m.llm-providers.quota/parse-number percent_remaining)
+                                          :unlimited? (true? unlimited)
+                                          :reset (or quota_reset_at quota_reset_date_utc quota_reset_date)}))
+                       quota_snapshots))]
+    (m.llm-providers.quota/snapshot windows)))
+
 (defn ^:private fetch-quota
   "`:quota :fetch`: the account's Copilot usage."
   [{:keys [provider provider-auth config]}]
@@ -285,7 +361,7 @@
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout 10000})]
     (if (= 200 status)
-      (f.quota/copilot-user->snapshot body)
+      (usage->snapshot body)
       (throw (ex-info (format "Copilot user endpoint returned status %s" status) {:status status})))))
 
 ;; --- Settings-based login (providers/login flow) ---
@@ -336,7 +412,7 @@
       :on-token (fn [token-data]
                   (swap! db* update-in [:auth provider] merge
                          (assoc token-data :step :login/done))
-                  (f.providers/sync-and-notify! provider db* messenger metrics))
+                  (m.llm-providers.providers/sync-and-notify! provider db* messenger metrics))
       :on-timeout (fn [])})
     {:action "device-code"
      :url url
@@ -352,7 +428,7 @@
   [{:keys [db* provider config send-msg!] :as ctx} token-data]
   (when (= :login/waiting-user-confirmation (get-in @db* [:auth provider :step]))
     (swap! db* update-in [:auth provider] merge (assoc token-data :step :login/done))
-    (f.login/login-done! ctx)
+    (m.llm-providers.login/login-done! ctx)
     (let [github-url (github-base-url (get-in config [:providers provider]))]
       (send-msg! (format "\nMake sure to enable the models you want to use at: [%s/settings/copilot/features](%s/settings/copilot/features)"
                          github-url
@@ -393,12 +469,272 @@
       (complete-chat-device-login! ctx token-data)
       (send-msg! "Waiting for the browser authorization to complete, type 'cancel' to abort."))))
 
-(defn ^:private renew-token-step [{:keys [db* provider config] :as ctx}]
+(defn ^:private renew-token-step [{:keys [db* provider config]}]
   (let [provider-settings (get-in config [:providers provider])
         access-token (get-in @db* [:auth provider :access-token])
         token-data (oauth-renew-token provider-settings access-token)]
-    (swap! db* update-in [:auth provider] merge token-data)
-    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+    (swap! db* update-in [:auth provider] merge token-data)))
+
+(defn ^:private model-api [supported-endpoints]
+  (let [endpoints (set supported-endpoints)]
+    (cond
+      (contains? endpoints "/v1/messages") :anthropic
+      (contains? endpoints "/responses") :openai-responses
+      (contains? endpoints "/chat/completions") :openai-chat)))
+
+(defn ^:private reasoning-variants [model-id api supports]
+  (let [efforts (some->> (:reasoning_effort supports)
+                         (filter string?)
+                         seq)
+        adaptive? (true? (:adaptive_thinking supports))
+        min-budget (:min_thinking_budget supports)
+        max-budget (:max_thinking_budget supports)]
+    (case api
+      :openai-responses
+      (when efforts
+        (into {}
+              (map (fn [effort]
+                     [effort {:reasoning {:effort effort :summary "auto"}}]))
+              efforts))
+
+      :openai-chat
+      (when efforts
+        (into {}
+              (map (fn [effort]
+                     [effort {:reasoning_effort effort}]))
+              efforts))
+
+      :anthropic
+      (let [adaptive-thinking (cond-> {:type "adaptive"}
+                                ;; Opus 4.7 defaults adaptive thinking display to "omitted", which
+                                ;; produces empty thinking blocks. Request summaries explicitly.
+                                (re-find #"(?i)opus[-._]4[-._]7(?:$|[-._])" model-id)
+                                (assoc :display "summarized"))]
+        (cond
+          ;; Adaptive-thinking models (Opus 4.7+/Sonnet 5+) reject thinking.type
+          ;; "enabled", so a "default" variant keeps no-variant requests on
+          ;; adaptive instead of the enabled fallback in the provider (#528).
+          (and efforts adaptive?)
+          (into {"default" {:thinking adaptive-thinking}}
+                (map (fn [effort]
+                       [effort {:thinking adaptive-thinking
+                                :output_config {:effort effort}}]))
+                efforts)
+
+          adaptive?
+          {"default" {:thinking adaptive-thinking}}
+
+          ;; Some Copilot Messages models (for example Claude Opus/Sonnet 4.5) advertise
+          ;; budget bounds instead of named reasoning efforts. Project that range into
+          ;; the existing variant picker without exposing raw token budgets in the UI.
+          (and (number? max-budget) (pos? max-budget))
+          (let [min-value (max 1024 (long (if (number? min-budget) min-budget 1024)))
+                max-value (dec (long max-budget))
+                high-value (max min-value (quot (long max-budget) 2))]
+            (when (<= min-value max-value)
+              {"high" {:thinking {:type "enabled"
+                                  :budget_tokens high-value}}
+               "max" {:thinking {:type "enabled"
+                                 :budget_tokens max-value}}}))
+
+          :else nil))
+
+      nil)))
+
+(defn ^:private model-hidden?
+  "True for catalog entries VS Code's picker hides (#601): flagged
+   `model_picker_enabled: false` (embeddings, internal agents, the Auto router
+   entry) or with a `disabled` policy, which GitHub accepts but never enables
+   for plans that don't include the model. `unconfigured` policies are not
+   hidden: the model works once the user accepts its terms via the consent
+   flow. Entries without the flag or policy are not hidden."
+  [{:keys [model_picker_enabled policy]}]
+  (or (false? model_picker_enabled)
+      (= "disabled" (:state policy))))
+
+(defn ^:private parse-model-entry
+  "Parses a Copilot /models entry into [id discovered-config]. The picker
+   category (versatile/powerful/lightweight) is kept as provider data to
+   choose a default model."
+  [{:keys [id supported_endpoints capabilities model_picker_category]}]
+  (when (and (string? id)
+             (not (string/blank? id)))
+    (let [supports (:supports capabilities)
+          api (model-api supported_endpoints)
+          variants (reasoning-variants id api supports)
+          reason? (or (true? (:adaptive_thinking supports))
+                      (seq (:reasoning_effort supports))
+                      (number? (:max_thinking_budget supports))
+                      (number? (:min_thinking_budget supports)))]
+      [id (assoc-some {}
+                      :discovered-api api
+                      :discovered-reason? (when reason? true)
+                      :discovered-variants (not-empty variants)
+                      :discovered-provider-data (when (shared/not-blank model_picker_category)
+                                                  {:picker-category model_picker_category}))])))
+
+(defn ^:private configured-model-ids
+  "Model ids referenced by a provider's static `models` config: the keys plus
+   `modelName` aliases, without a `<provider>/` prefix."
+  [provider static-models]
+  (into (set (keys static-models))
+        (keep (fn [[_ {:keys [modelName]}]]
+                (when (string? modelName)
+                  (if (string/includes? modelName "/")
+                    (let [[alias-provider model] (shared/full-model->provider+model modelName)]
+                      (when (= provider alias-provider) model))
+                    modelName))))
+        static-models))
+
+(defn ^:private parse-models
+  "Parses the Copilot catalog entries. The catalog returns every model the API
+   knows regardless of purpose or plan; entries hidden from the picker (see
+   `model-hidden?`) are dropped unless the user lists them under the
+   provider's `models` config, keeping their discovered API and reasoning
+   variants so they aren't routed by model name. When the catalog has entries
+   but none is usable for the account (Copilot Free/Student only get auto model
+   selection, which third-party clients can't use), returns an empty map
+   rather than nil so callers don't fall back to models.dev and list models
+   the account can't use."
+  [provider models-data static-models]
+  (let [configured? (configured-model-ids provider static-models)
+        models (into {}
+                     (keep (fn [entry]
+                             (when-let [[id _ :as parsed] (parse-model-entry entry)]
+                               (when (or (not (model-hidden? entry))
+                                         (configured? id))
+                                 parsed))))
+                     models-data)]
+    (when (and (seq models-data) (empty? models))
+      ;; the tag of the models sync's other logs
+      (logger/warn "[MODELS]"
+                   (format "Provider '%s': /models returned %d models but none is available for this account's plan"
+                           provider (count models-data))))
+    (when (seq models-data)
+      models)))
+
+(defn ^:private models-override
+  "`:models-override-fn`: the account's models, from Copilot's /models
+   catalog. It needs an IDE's headers (see `ide-headers`), so the generic
+   /models fetch isn't tried: `llm-util/no-native-models` when the catalog
+   can't be fetched or is empty, for models.dev's."
+  [{:keys [provider api-url api-key extra-headers static-models]}]
+  (or (when api-url
+        (models/fetch-models-endpoint
+         provider
+         (join-api-url api-url "/models")
+         (client/merge-llm-headers
+          (merge (assoc-some (merge {"Content-Type" "application/json"} (ide-headers))
+                             "Authorization" (when api-key (str "Bearer " api-key)))
+                 extra-headers))
+         #(parse-models provider % static-models)))
+      llm-util/no-native-models))
+
+(def ^:private responses-api-min-gpt-version [5 3])
+
+(defn ^:private responses-api-model?
+  "Name-based routing for GitHub Copilot models whose API wasn't discovered
+   from the /models catalog (fetch failed, `fetchModels` disabled, model not
+   listed). Copilot serves OpenAI models from gpt-5.3-codex/gpt-5.4 on only
+   through the Responses API; older ones (gpt-4.1, gpt-5, gpt-5.1, gpt-5.2)
+   and non-OpenAI models take Chat Completions."
+  [model]
+  (boolean
+   (when (string? model)
+     (when-let [[_ major minor] (re-find #"(?i)^gpt-(\d+)(?:\.(\d+))?(?:$|[-._])" model)]
+       (<= 0 (compare [(parse-long major) (parse-long (or minor "0"))]
+                      responses-api-min-gpt-version))))))
+
+(defn ^:private api-by-model-name
+  "The API a model takes when its catalog entry didn't say (the
+   declaration's `:api-fn`)."
+  [{:keys [model]}]
+  (if (responses-api-model? model) :openai-responses :openai-chat))
+
+(def ^:private picker-category-rank
+  {"versatile" 0 "powerful" 1 "lightweight" 2})
+
+(defn ^:private default-model
+  "With a Copilot login, one of the models discovered for the account (models
+   hidden from the picker or outside the plan never reach db), preferring the
+   catalog's `versatile` picker category, then `powerful`, then
+   `lightweight`, then uncategorized ones; alphabetical within a category so
+   the choice is deterministic (the declaration's `:default-model`). Nil when
+   the account has no usable model."
+  [{:keys [db]}]
+  (when (get-in db [:auth "github-copilot" :api-key])
+    (->> (:models db)
+         (filter (fn [[full-model _]] (string/starts-with? full-model "github-copilot/")))
+         (sort-by (fn [[full-model capabilities]]
+                    [(get picker-category-rank
+                          (get-in capabilities [:provider-data :picker-category])
+                          (count picker-category-rank))
+                     full-model]))
+         ffirst)))
+
+(defn ^:private request-opts
+  "A request's options (the declaration's `:request-opts`), for the API the
+   model takes: the URL the login gave, and the headers of an IDE's chat
+   panel, telling who started the request."
+  [_opts {:keys [model flat-instructions user-messages max-output-tokens reason? supports-image? past-messages
+                 tools web-search image-generation extra-payload extra-headers reasoning-history api-url api-key
+                 provider-auth model-capabilities api subagent? prompt-cache-key cancelled?
+                 stream-idle-timeout-seconds anthropic-opts]}]
+  (when (nil? (:api model-capabilities))
+    ;; the tag of the request's other logs
+    (logger/info "[LLM-API]"
+                 (format "Copilot model '%s' has no API discovered from /models catalog, routing to %s by model name"
+                         model api)))
+  (let [api-url (or (:api-url provider-auth) api-url)
+        copilot-headers (fn [user-initiator? anthropic?]
+                          (cond-> (merge {"openai-intent" "conversation-panel"
+                                          "x-request-id" (str (random-uuid))
+                                          "x-initiator" (if user-initiator? "user" "agent")
+                                          "vscode-sessionid" ""
+                                          "vscode-machineid" ""
+                                          "Copilot-Vision-Request" "true"
+                                          "copilot-integration-id" "vscode-chat"}
+                                         (ide-headers)
+                                         extra-headers)
+                            ;; Copilot uses a GitHub bearer token, not Anthropic OAuth, so replace the
+                            ;; handler's OAuth beta with the Messages shim's required beta.
+                            anthropic? (assoc "anthropic-beta" "interleaved-thinking-2025-05-14")))
+        user-initiator? (fn [body message-key]
+                          (and (not subagent?)
+                               (= "user" (-> body message-key last :role))))
+        base-opts {:model model
+                   :instructions flat-instructions
+                   :user-messages user-messages
+                   :max-output-tokens max-output-tokens
+                   :reason? reason?
+                   :supports-image? supports-image?
+                   :past-messages past-messages
+                   :tools tools
+                   :reasoning-history reasoning-history
+                   :api-url api-url
+                   :api-key api-key
+                   :prompt-cache-key prompt-cache-key
+                   :cancelled? cancelled?
+                   :stream-idle-timeout-seconds stream-idle-timeout-seconds}]
+    (case api
+      :openai-responses
+      (assoc base-opts
+             :web-search web-search
+             :image-generation image-generation
+             :extra-payload (merge {:parallel_tool_calls true} extra-payload)
+             :extra-headers (fn [{:keys [body]}]
+                              (copilot-headers (user-initiator? body :input) false)))
+
+      :anthropic
+      (assoc anthropic-opts
+             :api-url api-url
+             :extra-headers (fn [{:keys [body]}]
+                              (copilot-headers (user-initiator? body :messages) true)))
+
+      (assoc base-opts
+             :extra-payload (merge {:parallel_tool_calls true} extra-payload)
+             :extra-headers (fn [{:keys [body]}]
+                              (copilot-headers (user-initiator? body :messages) false))))))
 
 (def module
   {:id :eca/copilot
@@ -411,7 +747,11 @@
                                          :steps {:login/start #'start-step
                                                  :login/waiting-user-confirmation #'waiting-user-confirmation-step
                                                  :login/renew-token #'renew-token-step}}
-                                 :quota {:fetch #'fetch-quota}
+                                 :quota {:fetch #'fetch-quota :headers #'quota-windows}
+                                 :request-opts #'request-opts
+                                 :api-fn #'api-by-model-name
+                                 :default-model {:rank 3 :fn #'default-model}
+                                 :models-override-fn #'models-override
                                  :errors {:enrich #'enrich-error
                                           :recoverable? #'recoverable-error?
                                           :recover! #'recover-error!}}}

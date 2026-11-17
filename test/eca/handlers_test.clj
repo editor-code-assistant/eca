@@ -1,11 +1,14 @@
 (ns eca.handlers-test
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.db.migration :as db.migration]
+   [eca.features.chat :as f.chat]
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
    [eca.models :as models]
+   [eca.modules.llm-providers.login :as m.llm-providers.login]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -94,6 +97,33 @@
                 (sync-hash (assoc-in providers ["gateway" :url] "https://other-gw"))))
       (is (not= (sync-hash providers)
                 (sync-hash (assoc-in providers ["local" :models] {"qwen" {}})))))))
+
+(deftest chat-prompt-in-a-module-status-test
+  (testing "a chat in a status a module owns, like /login's, sends its prompts to that module, not to the model"
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :login})
+    (let [steps* (atom [])]
+      (with-redefs [m.llm-providers.login/handle-step (fn [params & _]
+                                                        (swap! steps* conj (:message params))
+                                                        {:chat-id "c1" :status :login})
+                    f.chat/prompt (fn [& _] (throw (ex-info "sent to the model" {})))]
+        (is (= {:chat-id "c1" :status :login}
+               (handlers/chat-prompt (h/components) {:chat-id "c1" :message "sk-secret"})))
+        (is (= ["sk-secret"] @steps*)))))
+
+  (testing "with that module disabled since, the chat goes back to idle and the prompt isn't sent anywhere"
+    (h/reset-components!)
+    (reset! config/initialization-config* {:modules {:eca/llm-providers {:enabled false}}})
+    (config/clear-cache!)
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :login})
+    (with-redefs [f.chat/prompt (fn [& _] (throw (ex-info "sent to the model" {})))]
+      (is (= {:chat-id "c1" :status :idle}
+             (handlers/chat-prompt (h/components) {:chat-id "c1" :message "sk-secret"})))
+      (is (= :idle (get-in (h/db) [:chats "c1" :status])))
+      (is (match? [{:chat-id "c1" :role "system" :content {:type :text :text #"wasn't sent"}}
+                   {:chat-id "c1" :role "system" :content {:type :progress :state :finished}}]
+                  (:chat-content-received (h/messages))))
+      (is (= [{:chat-id "c1" :status :idle}] (:chat-status-changed (h/messages))))
+      (is (not (string/includes? (pr-str (h/messages)) "sk-secret"))))))
 
 (deftest chat-selected-agent-changed-test
   (testing "Switching to agent with defaultModel updates model and variants"

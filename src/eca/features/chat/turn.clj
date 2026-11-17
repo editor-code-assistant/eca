@@ -25,7 +25,6 @@
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.chat.recovery :as f.chat.recovery]
    [eca.features.chat.system-prompt :as f.chat.system-prompt]
-   [eca.features.quota :as f.quota]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
@@ -387,7 +386,7 @@
       (let [chat-ctx (assoc chat-ctx
                             :prompt-id prompt-id
                             ;; Subscription logins have no per-token cost, usage shows their quota instead.
-                            :subscription? (f.quota/subscription? provider @db* config)
+                            :subscription? (llm-util/subscription? provider @db* config)
                             :continue-turn-fn prompt-messages!)
             _ (f.chat.lifecycle/maybe-renew-auth-token chat-ctx) ;; ensures captured provider-auth fallback is fresh
             {:keys [db all-tools] :as turn} (turn-state chat-ctx user-messages)]

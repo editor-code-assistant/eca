@@ -61,6 +61,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/api-ollama`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/ollama.clj) | The Ollama chat API. |
     | [`eca/api-bedrock`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/bedrock.clj) | The AWS Bedrock Converse API. |
     | **Providers** | |
+    | [`eca/llm-providers`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/llm_providers.clj) | Logging into providers, with `/login` or the providers panel, and their subscription quotas (`/quota`). Requests don't need it. |
     | [`eca/anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj) | Claude models from Anthropic: a Max subscription, a Console key or a pasted key. |
     | [`eca/azure`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/azure.clj) | Azure OpenAI, at your resource URL. |
     | [`eca/bedrock`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/bedrock.clj) | Models on AWS Bedrock, with a bearer token. |
@@ -248,7 +249,7 @@ You type `/name`, or `/<prefix>:<name>` when two modules have a command with the
 | `:kind` | `:request`, answered with what the handler returns, or `:notification`. |
 | `:handler` | `(fn [ctx params])`. It runs on a thread of its own. |
 
-ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. An external module's methods answer while it's active, and "Method not found" otherwise. The built-in modules' methods answer whatever the module's state, as when ECA served them itself: disabling `eca/completion` or `eca/rewrite` doesn't stop their methods yet.
+ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling `eca/mcp` drops the `mcp/*` methods, `eca/llm-providers` the `providers/*` ones.
 
 ### Events
 
@@ -283,6 +284,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:chat/started` | notify | `:resumed?`. Runs on a chat's first prompt. | `:additional-context` (added to the chat's startup context), `:stop` |
 | `:chat/before-request` | transform | `:prompt`, what was typed for a command or an MCP prompt. Runs once per user message, not for `/compact`. | `:prompt` (not for commands and MCP prompts), `:additional-context`, `:block`, `:stop` |
 | `:llm/before-request` | transform | `:request` (`:model`, `:instructions`, `:past-messages`, `:user-messages`, `:tools`), `:history`, `:since-checkpoint`, `:turn`, `:budget`. Runs before every LLM call of a chat, tool loop included. | `:request`'s messages, `:instructions` (not in the tool loop) and `:tools`. This changes what the model sees, not the chat history. `:model` can't change yet. |
+| `:llm/response-headers` | notify | `:provider`, `:headers`. A response's headers, for a subscription login (OAuth). `eca/llm-providers` reads the quota from them. | — |
 | `:llm/request-failed` | handle | `:request` (`:model`, `:user-messages`), `:error` (`:type` like `:context-overflow`, `:message`, `:status`). Runs after ECA's own retries; not again in the turn once a module answered `:retry`. | `{:retry true}` to send it again, or `{:compact {:trigger :instructions}}` to compact and resume, unless the turn can't compact again (see `request-compaction!`). Without an answer, ECA handles the error. `eca/compact-as-summary` answers a context overflow last. |
 | `:chat/after-request` | notify | `:response` | `:follow-up` (sent as the next user message), `:stop` |
 | `:chat/message-added` | notify | `:message` (`:role`, `:content`) | — |
@@ -301,6 +303,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. `eca/agents` merges the agents first, at priority `1000`. The ctx's `:db` has only `:workspace-folders`. | `:config`, except its `modules` key |
 | `:config/changed` | notify | `:prev-config`, `:config`. When ECA sees the config change; `:prev-config` is nil the first time, a few seconds after startup. | — |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
+| `:models/synced` | notify | The models were synced: at startup and when the providers' config changes, after renewing login tokens; not after a login or logout. `eca/llm-providers` fetches the subscription quotas then. | — |
 
 `:additional-context` is a string, `{:text "..." :data {...}}` to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.
 

@@ -1,13 +1,17 @@
-(ns eca.features.providers
+(ns eca.modules.llm-providers.providers
+  "The providers clients see (`providers/list`, `providers/updated`) and log
+   into from their providers panel (`providers/login`, `loginInput`,
+   `logout`), from the modules' provider declarations."
   (:require
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db.global-cache :as db.global-cache]
-   [eca.features.quota :as f.quota]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
    [eca.models :as models]
    [eca.modules :as modules]
+   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -16,11 +20,11 @@
 
 (def ^:private declaration-keys
   "Keys of a provider declaration that aren't provider config."
-  #{:label :login :models-fn :models-override-fn :quota :errors})
+  #{:label :login :models-fn :models-override-fn :quota :errors :request-opts :api-fn :default-model
+    :capabilities})
 
 (defn declarations
-  "Provider id → declaration (`:label`, `:login`, `:models-fn`,
-   `:models-override-fn`, `:quota`, `:errors` and the config keys a login
+  "Provider id → declaration (`declaration-keys` and the config keys a login
    saves), from the active modules' `:providers`. The first module wins."
   [config]
   (reduce (fn [acc [_entry providers]]
@@ -102,19 +106,13 @@
 
 ;; --- Auth resolution ---
 
-(defn ^:private ->env-var-name [provider-name]
-  (str (-> provider-name
-           (string/replace "-" "_")
-           string/upper-case)
-       "_API_KEY"))
-
 (defn ^:private resolve-auth-info
   "Determines auth status for a provider by checking each credential source
    in the same priority order as llm-util/provider-api-key."
   [provider-name provider-auth config]
   (let [config-key (not-empty (get-in config [:providers provider-name :key]))
         login-key (:api-key provider-auth)
-        env-var-name (->env-var-name provider-name)
+        env-var-name (llm-api.auth/->env-var-name provider-name)
         env-key (config/get-env env-var-name)
         [source auth-type] (cond
                              config-key ["config" :auth/token]
@@ -136,23 +134,6 @@
          :expires-at expires
          :env-var (when (= source "env") env-var-name)))
       {:status "unauthenticated"})))
-
-(defn key-auth-override-warning
-  "When a configured/env API key would take precedence over login auth for
-   `provider-name`, returns a warning string to show the user during `/login`,
-   else nil. Mirrors the precedence in `llm-util/provider-api-key`, where a
-   configured `:key` (including the `${env:..._API_KEY}` defaults) and a bare
-   `<PROVIDER>_API_KEY` env var both win over OAuth/login auth."
-  [provider-name config]
-  (let [config-key (not-empty (get-in config [:providers provider-name :key]))
-        env-var-name (->env-var-name provider-name)
-        env-key (config/get-env env-var-name)]
-    (when (or config-key env-key)
-      (format (str "⚠️ An API key is already configured for `%s` (e.g. the `%s` environment variable "
-                   "or a `key` in your ECA config). Configured API keys take precedence over login auth, "
-                   "so ECA may keep using the API key — which can incur paid API usage — even after you log in. "
-                   "Unset `%s` (or remove the provider `key`) to use your login instead.")
-              provider-name env-var-name env-var-name))))
 
 (def ^:private provider-settings-exclude-keys
   #{:key :keyRc :requiresAuth? :requiresAuth :models})
@@ -219,7 +200,7 @@
      :settings (config-settings provider-config provider-settings-exclude-keys)
      :login (when-let [methods (login-methods provider-name config)]
               {:methods methods})
-     ;; Only subscription logins (OAuth) have a quota, see eca.features.quota.
+     ;; Only subscription logins (OAuth) have a quota, see `m.llm-providers.quota`.
      :quota (when (= "oauth" (:type auth-info))
               (get-in db [:provider-quotas provider-name])))))
 
@@ -234,7 +215,7 @@
   "Best-effort fetch of the subscription quota of `provider-name` from its
    usage endpoint, notifying the client when it changed."
   [provider-name db* config messenger & {:keys [force?]}]
-  (when (f.quota/refresh! provider-name {:db* db* :config config :force? force?})
+  (when (m.llm-providers.quota/refresh! provider-name {:db* db* :config config :force? force?})
     (notify-provider-updated! provider-name db* config messenger)))
 
 (defn reset-quota!

@@ -1735,7 +1735,6 @@
    :stop #'stop
    :event-handlers {:session/ready #'session-ready
                     :config/changed #'config-changed}
-   ;; a built-in's, so served whatever its state, as before modules
    :rpc {"mcp/stopServer"    {:kind :notification :handler #'stop-server-method}
          "mcp/startServer"   {:kind :notification :handler #'start-server-method}
          "mcp/connectServer" {:kind :notification :handler #'connect-server-method}
