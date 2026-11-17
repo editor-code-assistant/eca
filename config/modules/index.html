@@ -716,9 +716,27 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#tool-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool servers
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#commands" class="md-nav__link">
     <span class="md-ellipsis">
       Commands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protocol-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Protocol methods
     </span>
   </a>
   
@@ -1479,9 +1497,27 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#tool-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tool servers
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#commands" class="md-nav__link">
     <span class="md-ellipsis">
       Commands
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protocol-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Protocol methods
     </span>
   </a>
   
@@ -1651,6 +1687,10 @@
 <td>Rules: global, project and path-scoped.</td>
 </tr>
 <tr>
+<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents_md.clj"><code>eca/agents-md</code></a></td>
+<td>AGENTS.md files: the workspaces', their parents' and the global one, in every chat.</td>
+</tr>
+<tr>
 <td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/mcp.clj"><code>eca/mcp</code></a></td>
 <td>MCP servers: their tools, prompts, resources and instructions.</td>
 </tr>
@@ -1687,16 +1727,32 @@
 <td>Tool approval from the <code>toolCall.approval</code> rules.</td>
 </tr>
 <tr>
+<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_management.clj"><code>eca/chat-management</code></a></td>
+<td>Fork chats, ask side questions, and resume, list, delete, export and import chats.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_title.clj"><code>eca/chat-title</code></a></td>
+<td>The chat model titles each chat, and titles it again at its third request.</td>
+</tr>
+<tr>
 <td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj"><code>eca/compact-as-summary</code></a></td>
 <td>When the context fills up, the chat model summarizes the chat.</td>
 </tr>
 <tr>
-<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj"><code>eca/repo-map</code></a></td>
-<td>A map of the repository, for the <code>repoMap</code> context.</td>
-</tr>
-<tr>
 <td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/manage.clj"><code>eca/manage</code></a></td>
 <td>Set up, debug and change ECA: <code>/init</code>, <code>/skill-create</code>, and the <code>eca-info</code> and <code>eca-manage</code> skills.</td>
+</tr>
+<tr>
+<td><strong>Editor features</strong></td>
+<td></td>
+</tr>
+<tr>
+<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/completion.clj"><code>eca/completion</code></a></td>
+<td>Inline code completion, as you type.</td>
+</tr>
+<tr>
+<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rewrite.clj"><code>eca/rewrite</code></a></td>
+<td>Rewrite the selected code with the model.</td>
 </tr>
 <tr>
 <td><strong>LLM APIs</strong></td>
@@ -1818,7 +1874,7 @@
 <ul>
 <li><code>enabled</code> turns a module on or off. Modules that require it turn off with it.</li>
 <li><code>source</code> loads an external module from a file or folder.</li>
-<li><code>priority</code> orders the module's event handlers, higher first. It's <code>0</code> by default, and <code>-100</code> for built-in modules.</li>
+<li><code>priority</code> orders the module's event handlers, higher first. It's <code>0</code> by default, and <code>-100</code> for built-in modules. A handler's own <code>:priority</code> wins over it.</li>
 </ul>
 <h2 id="writing-a-module">Writing a module<a class="headerlink" href="#writing-a-module" title="Permanent link">#</a></h2>
 <p>A module is a Clojure namespace that defines a <code>module</code> map. Save this file and ECA loads it in a few seconds, then again every time you save it:</p>
@@ -1930,6 +1986,38 @@
 </tbody>
 </table>
 <p>A tool's full name is <code>&lt;prefix&gt;__&lt;name&gt;</code>: <code>jira__issue</code> above. The prefix is the name in the module's <code>:id</code>, unless the module sets <code>:prefix</code>. Use the full name in approval rules and <code>disabledTools</code>, or just <code>jira</code> for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.</p>
+<h3 id="tool-servers">Tool servers<a class="headerlink" href="#tool-servers" title="Permanent link">#</a></h3>
+<p>A module whose tools come and go, as ECA's MCP support's do, serves them from tool servers instead of <code>:tools</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="ss">:tool-servers</span><span class="w"> </span><span class="p">{</span><span class="ss">:list</span><span class="w"> </span><span class="p">(</span><span class="k">fn </span><span class="p">[</span><span class="nv">_ctx</span><span class="p">]</span>
+<span class="w">                       </span><span class="p">[{</span><span class="ss">:name</span><span class="w"> </span><span class="s">&quot;docs&quot;</span><span class="w"> </span><span class="ss">:status</span><span class="w"> </span><span class="s">&quot;running&quot;</span>
+<span class="w">                         </span><span class="ss">:tools</span><span class="w"> </span><span class="p">[{</span><span class="ss">:name</span><span class="w"> </span><span class="s">&quot;lookup&quot;</span><span class="w"> </span><span class="ss">:description</span><span class="w"> </span><span class="s">&quot;Look up the docs.&quot;</span>
+<span class="w">                                  </span><span class="ss">:parameters</span><span class="w"> </span><span class="p">{</span><span class="ss">:type</span><span class="w"> </span><span class="s">&quot;object&quot;</span><span class="w"> </span><span class="ss">:properties</span><span class="w"> </span><span class="p">{</span><span class="s">&quot;q&quot;</span><span class="w"> </span><span class="p">{</span><span class="ss">:type</span><span class="w"> </span><span class="s">&quot;string&quot;</span><span class="p">}}}}]}])</span>
+<span class="w">               </span><span class="ss">:call</span><span class="w"> </span><span class="p">(</span><span class="k">fn </span><span class="p">[</span><span class="nv">_ctx</span><span class="w"> </span><span class="nv">_server</span><span class="w"> </span><span class="nv">_tool</span><span class="w"> </span><span class="nv">args</span><span class="w"> </span><span class="nv">_opts</span><span class="p">]</span>
+<span class="w">                       </span><span class="p">(</span><span class="nb">str </span><span class="s">&quot;Found &quot;</span><span class="w"> </span><span class="p">(</span><span class="nb">get </span><span class="nv">args</span><span class="w"> </span><span class="s">&quot;q&quot;</span><span class="p">)))}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:list</code></td>
+<td><code>(fn [ctx])</code>. The module's servers now: each with <code>:name</code>, <code>:status</code> and <code>:tools</code> (<code>:name</code>, <code>:description</code>, <code>:parameters</code>), maybe <code>:version</code>. ECA asks often, so keep it fast. A server or a tool without a <code>:name</code> is left out, with a warning.</td>
+</tr>
+<tr>
+<td><code>:call</code></td>
+<td><code>(fn [ctx server tool args opts])</code>, with string keys in <code>args</code> and the calling chat's <code>:chat-id</code> in <code>opts</code>. Returns what a tool's handler returns; <code>(eca/progress! ctx text)</code> shows its progress.</td>
+</tr>
+<tr>
+<td><code>:await-refresh</code></td>
+<td>Optional <code>(fn [ctx timeout-ms])</code>. Blocks while a server updates its tools, <code>timeout-ms</code> at most. ECA waits after a batch of tool calls, so the model sees the new tools.</td>
+</tr>
+</tbody>
+</table>
+<p>A server's tools are named <code>&lt;server&gt;__&lt;tool&gt;</code>, like MCP tools, and work like them in approval rules, <code>disabledTools</code> and tool search. When two modules have a server with the same name, the first one to start keeps it. Clients get each server as one of the module's tool servers, with its status: at startup, when modules change, and when the tools' approval changes (another agent, a config change).</p>
 <h3 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">#</a></h3>
 <p><code>:commands</code> maps each command's name to its definition:</p>
 <table>
@@ -1956,6 +2044,30 @@
 </table>
 <p>The handler returns a string to show in the chat, <code>{:prompt "..."}</code> to send a message to the model as if you typed it, or <code>nil</code>.</p>
 <p>You type <code>/name</code>, or <code>/&lt;prefix&gt;:&lt;name&gt;</code> when two modules have a command with the same name.</p>
+<h3 id="protocol-methods">Protocol methods<a class="headerlink" href="#protocol-methods" title="Permanent link">#</a></h3>
+<p><code>:rpc</code> adds methods to <a href="../../protocol/">ECA's protocol</a>, for editors and other clients:</p>
+<div class="highlight"><pre><span></span><code><span class="ss">:rpc</span><span class="w"> </span><span class="p">{</span><span class="s">&quot;acme/status&quot;</span><span class="w"> </span><span class="p">{</span><span class="ss">:kind</span><span class="w"> </span><span class="ss">:request</span>
+<span class="w">                     </span><span class="ss">:handler</span><span class="w"> </span><span class="p">(</span><span class="k">fn </span><span class="p">[</span><span class="nv">_ctx</span><span class="w"> </span><span class="nv">params</span><span class="p">]</span><span class="w"> </span><span class="p">{</span><span class="ss">:ok</span><span class="w"> </span><span class="nv">true</span><span class="w"> </span><span class="ss">:echo</span><span class="w"> </span><span class="nv">params</span><span class="p">})}}</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:kind</code></td>
+<td><code>:request</code>, answered with what the handler returns, or <code>:notification</code>.</td>
+</tr>
+<tr>
+<td><code>:handler</code></td>
+<td><code>(fn [ctx params])</code>. It runs on a thread of its own.</td>
+</tr>
+</tbody>
+</table>
+<p>ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. An external module's methods answer while it's active, and "Method not found" otherwise. The built-in modules' methods answer whatever the module's state, as when ECA served them itself: disabling <code>eca/completion</code> or <code>eca/rewrite</code> doesn't stop their methods yet.</p>
 <h3 id="events">Events<a class="headerlink" href="#events" title="Permanent link">#</a></h3>
 <p>Event handlers let a module react to what ECA does, change it, or give an answer ECA asks for. This one rejects writes to <code>.env</code> files:</p>
 <div class="highlight"><pre><span></span><code><span class="p">(</span><span class="k">def </span><span class="nv">module</span>
@@ -1972,7 +2084,7 @@
 <li><strong>transform</strong>: the handler can change the event, or stop it with <code>{:block "reason"}</code> or <code>{:stop "reason"}</code>.</li>
 <li><strong>handle</strong>: the first handler that answers wins.</li>
 </ul>
-<p>A handler is a function <code>(fn [ctx event])</code>, a vector of them, or a map with <code>:handler</code> and optional <code>:match</code>, <code>:priority</code> and <code>:timeout-ms</code>. <code>:match</code> filters events by key, with a value, a set or a regex. Module handlers run before your <a href="../hooks/">shell hooks</a>; when a module blocks or stops something, the hooks don't run.</p>
+<p>A handler is a function <code>(fn [ctx event])</code>, a vector of them, or a map with <code>:handler</code> and optional <code>:match</code>, <code>:priority</code> and <code>:timeout-ms</code>. <code>:match</code> filters events by key, with a value, a set or a regex. Your <a href="../hooks/">shell hooks</a> are <code>eca/hooks</code>' handlers, at priority <code>-1000</code>, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run. An external module's handlers run before the hooks and before <code>eca/approval</code> makes sure a deny from your config stays (<code>-900</code>): a lower priority runs right before those, in its order among the external handlers.</p>
 <p>Every chat event also has <code>:chat-id</code>, <code>:agent</code>, <code>:model</code>, <code>:variant</code>, and <code>:parent-chat-id</code> in a subagent's chat.</p>
 <table>
 <thead>
@@ -1988,6 +2100,12 @@
 <td><code>:session/started</code></td>
 <td>notify</td>
 <td><code>:workspaces</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>:session/ready</code></td>
+<td>notify</td>
+<td>Once ECA finished starting, after <code>:session/started</code>: the client got the chat config and ECA's own tools. MCP servers start here.</td>
 <td>—</td>
 </tr>
 <tr>
@@ -2023,8 +2141,8 @@
 <tr>
 <td><code>:llm/request-failed</code></td>
 <td>handle</td>
-<td><code>:request</code> (<code>:model</code>, <code>:user-messages</code>), <code>:error</code> (<code>:type</code> like <code>:context-overflow</code>, <code>:message</code>, <code>:status</code>). Runs after ECA's own retries, once per turn.</td>
-<td><code>{:retry true}</code> to send it again, or <code>{:compact {:trigger :instructions}}</code> to compact and resume. Without an answer, ECA handles the error.</td>
+<td><code>:request</code> (<code>:model</code>, <code>:user-messages</code>), <code>:error</code> (<code>:type</code> like <code>:context-overflow</code>, <code>:message</code>, <code>:status</code>). Runs after ECA's own retries; not again in the turn once a module answered <code>:retry</code>.</td>
+<td><code>{:retry true}</code> to send it again, or <code>{:compact {:trigger :instructions}}</code> to compact and resume, unless the turn can't compact again (see <code>request-compaction!</code>). Without an answer, ECA handles the error. <code>eca/compact-as-summary</code> answers a context overflow last.</td>
 </tr>
 <tr>
 <td><code>:chat/after-request</code></td>
@@ -2041,8 +2159,8 @@
 <tr>
 <td><code>:chat/title</code></td>
 <td>handle</td>
-<td><code>:messages</code>, <code>:retitle?</code></td>
-<td><code>{:title ".."}</code>, used instead of the model's</td>
+<td><code>:messages</code> (the conversation, the new request's messages last), <code>:prompt-messages</code> (the new request's messages without the attached contexts), <code>:prompt-count</code> (the chat's requests, this one included), <code>:title</code> (nil when untitled). Asked in the background at every request, unless the user named the chat.</td>
+<td><code>{:title ".."}</code> titles the chat; nil keeps its title. <code>eca/chat-title</code> answers last: the first request, then the third.</td>
 </tr>
 <tr>
 <td><code>:chat/ended</code></td>
@@ -2059,8 +2177,8 @@
 <tr>
 <td><code>:chat/usage-updated</code></td>
 <td>notify</td>
-<td><code>:usage</code>, <code>:session-tokens</code>, <code>:context-limit</code>, <code>:context-used</code></td>
-<td>—</td>
+<td><code>:usage</code>, <code>:session-tokens</code>, <code>:context-limit</code>, <code>:context-used</code>. After each response, and when <code>/context</code> refreshes the usage.</td>
+<td><code>:auto-compact-percentage</code>: where the chat compacts on its own, in percent of the context limit, shown to clients</td>
 </tr>
 <tr>
 <td><code>:tool/before-call</code></td>
@@ -2075,6 +2193,18 @@
 <td><code>:result</code> (a result map or a string), <code>:additional-context</code> (for the model only), <code>:stop</code> (after this batch of calls)</td>
 </tr>
 <tr>
+<td><code>:tool/called</code></td>
+<td>transform</td>
+<td><code>:tool</code>, <code>:server</code>, <code>:arguments</code>, <code>:result</code>, <code>:error?</code>, <code>:tool-call-id</code>. Runs once the editor got the result, before the model sees it; postToolCall hooks run here. Not when a <code>:tool/after-call</code> handler stopped the turn.</td>
+<td><code>:result</code> (what the model sees of it: a result map's <code>:contents</code> or a string), <code>:additional-context</code>, <code>:stop</code> (after this batch of calls)</td>
+</tr>
+<tr>
+<td><code>:chat/next-round</code></td>
+<td>notify</td>
+<td>Runs in the tool loop, after a response's tools ran, before the model gets their results.</td>
+<td><code>:notes</code>, the event's and yours: texts the chat's history gets first, each a user message, like <code>eca/shell</code>'s finished background jobs</td>
+</tr>
+<tr>
 <td><code>:chat/before-compact</code></td>
 <td>transform</td>
 <td><code>:trigger</code> (<code>:manual</code>, <code>:auto</code> or <code>:overflow</code>), <code>:instructions</code></td>
@@ -2083,13 +2213,13 @@
 <tr>
 <td><code>:chat/compact</code></td>
 <td>handle</td>
-<td><code>:trigger</code>, <code>:instructions</code>. Asked before <code>eca/compact-as-summary</code> writes its summary.</td>
+<td><code>:trigger</code>, <code>:instructions</code>. <code>eca/compact-as-summary</code> answers last, with its summary.</td>
 <td><code>{:status :done :resume? true :message ".."}</code>, or <code>:status :failed</code>. Write the result with <code>checkpoint!</code>. An interrupted turn goes on unless <code>:resume? false</code>.</td>
 </tr>
 <tr>
 <td><code>:chat/after-compact</code></td>
 <td>notify</td>
-<td><code>:trigger</code>, <code>:checkpoint</code> (<code>:marker</code>, <code>:messages</code>). Runs after a checkpoint is written.</td>
+<td><code>:trigger</code>, <code>:checkpoint</code> (<code>:marker</code>, <code>:messages</code>), <code>:summary</code> (its text). Runs after a checkpoint is written.</td>
 <td><code>:additional-context</code> (added to the summary), <code>:stop</code></td>
 </tr>
 <tr>
@@ -2101,8 +2231,14 @@
 <tr>
 <td><code>:config/resolve</code></td>
 <td>transform</td>
-<td><code>:config</code>. Runs after all config layers merge; read the config from the event, not through <code>eca.api</code>.</td>
+<td><code>:config</code>. Runs after all config layers merge; read the config from the event, not through <code>eca.api</code>. <code>eca/agents</code> merges the agents first, at priority <code>1000</code>. The ctx's <code>:db</code> has only <code>:workspace-folders</code>.</td>
 <td><code>:config</code>, except its <code>modules</code> key</td>
+</tr>
+<tr>
+<td><code>:config/changed</code></td>
+<td>notify</td>
+<td><code>:prev-config</code>, <code>:config</code>. When ECA sees the config change; <code>:prev-config</code> is nil the first time, a few seconds after startup.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>:models/resolve</code></td>
@@ -2112,7 +2248,7 @@
 </tr>
 </tbody>
 </table>
-<p><code>:additional-context</code> is a string, or <code>{:text "..." :data {...}}</code> to keep plain data with it. A module's context goes to the model marked with the module's id, so <code>(eca/added-contexts ctx)</code> finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in <code>:chat/after-compact</code>.</p>
+<p><code>:additional-context</code> is a string, <code>{:text "..." :data {...}}</code> to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so <code>(eca/added-contexts ctx)</code> finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in <code>:chat/after-compact</code>.</p>
 <p>A module can also define its own events in <code>:defines</code> and send them with <code>(eca/emit! ctx event-id event)</code>.</p>
 <h3 id="module-keys">Module keys<a class="headerlink" href="#module-keys" title="Permanent link">#</a></h3>
 <table>
@@ -2164,6 +2300,14 @@
 <td>See <a href="#tools">Tools</a> and <a href="#commands">Commands</a>.</td>
 </tr>
 <tr>
+<td><code>:tool-servers</code></td>
+<td>Servers of tools that come and go. See <a href="#tool-servers">Tool servers</a>.</td>
+</tr>
+<tr>
+<td><code>:rpc</code></td>
+<td>Protocol methods. See <a href="#protocol-methods">Protocol methods</a>.</td>
+</tr>
+<tr>
 <td><code>:prefix</code></td>
 <td>Prefix of its tools and commands. The name in <code>:id</code> by default.</td>
 </tr>
@@ -2201,7 +2345,7 @@
 </tr>
 <tr>
 <td>Chat</td>
-<td><code>chat</code>, <code>messages</code> (<code>{:since-checkpoint? true}</code> for what the model sees), <code>chat-state</code> and <code>swap-chat-state!</code> (plain data saved with the chat, copied by forks and exports, dropped when the chat is cleared), <code>send-prompt!</code>, <code>add-context!</code> (for the next request; <code>{:data ..}</code> keeps plain data with it), <code>added-contexts</code> (the module's contexts in the chat, with their data), <code>checkpoint!</code> (<code>{:messages [..] :label ".." :data {..}}</code>: the model sees only what comes after it), <code>request-compaction!</code> (<code>{:trigger :instructions}</code>: compacts before the next LLM request)</td>
+<td><code>chat</code>, <code>messages</code> (<code>{:since-checkpoint? true}</code> for what the model sees), <code>chat-state</code> and <code>swap-chat-state!</code> (plain data saved with the chat, copied by forks and exports, dropped when the chat is cleared), <code>send-prompt!</code>, <code>add-context!</code> (for the next request; <code>{:data ..}</code> keeps plain data with it), <code>added-contexts</code> (the module's contexts in the chat, with their data), <code>checkpoint!</code> (<code>{:messages [..] :label ".." :data {..}}</code>: the model sees only what comes after it), <code>request-compaction!</code> (<code>{:trigger :instructions}</code>: compacts before the next LLM request), <code>cancel-compaction!</code> (drops the module's request)</td>
 </tr>
 <tr>
 <td>User</td>
@@ -2269,7 +2413,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 09:57:03 UTC">November 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 14:03:18 UTC">November 17, 2026</span>
   </span>
 
     

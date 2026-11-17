@@ -3195,7 +3195,7 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm"> */</span>
 <span class="kr">type</span><span class="w"> </span><span class="nx">Model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
-<span class="kr">type</span><span class="w"> </span><span class="nx">ChatContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">DirectoryContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WebContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">RepoMapContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">CursorContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">McpResourceContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">ImageContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">TextContext</span><span class="p">;</span>
+<span class="kr">type</span><span class="w"> </span><span class="nx">ChatContext</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">FileContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">DirectoryContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">WebContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">CursorContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">McpResourceContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">ImageContext</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="nx">TextContext</span><span class="p">;</span>
 
 <span class="cm">/**</span>
 <span class="cm"> * Context related to a file in the workspace</span>
@@ -3289,19 +3289,6 @@ Used for broader questions or continuous discussion of project/files.</p>
 <span class="cm">     * The raw text content.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
-<span class="p">}</span>
-
-<span class="cm">/**</span>
-<span class="cm"> * Context about the workspaces repo-map, automatically calculated by server.</span>
-<span class="cm"> * Clients should include this to chat by default but users may want exclude </span>
-<span class="cm"> * this context to reduce context size if needed.</span>
-<span class="cm"> * The server delivers it in the user message like `FileContext`: in full once,</span>
-<span class="cm"> * then a one-line notice when the workspace structure changes.</span>
-<span class="cm"> *</span>
-<span class="cm"> * @deprecated No longer needed, replaced by eca__directory_tree tool.</span>
-<span class="cm"> */</span>
-<span class="kd">interface</span><span class="w"> </span><span class="nx">RepoMapContext</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;repoMap&#39;</span><span class="p">;</span><span class="w"> </span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -4556,7 +4543,7 @@ the server compacts the chat with those instructions (as a manual compaction) an
 the running task, instead of injecting the command text into the conversation.</p>
 <p>Other native commands that do not affect the running turn (<code>/sync-system-prompt</code>, <code>/costs</code>,
 <code>/context</code>, <code>/chats</code>, <code>/skills</code>, <code>/rules</code>, <code>/subagents</code>, <code>/plugins</code>, <code>/hooks</code>, <code>/prompt-show</code>,
-<code>/repo-map-show</code>, <code>/doctor</code>, <code>/config</code>, <code>/remote</code>, <code>/debug-chat</code>, <code>/export</code>, <code>/approvals</code>,
+<code>/doctor</code>, <code>/config</code>, <code>/remote</code>, <code>/debug-chat</code>, <code>/export</code>, <code>/approvals</code>,
 <code>/forget-approvals</code>) are also queued and
 executed at the turn boundary: their output is shown and the task resumes. Native commands that
 would change the chat or start another prompt (<code>/model</code>, <code>/agent</code>, <code>/fork</code>, <code>/resume</code>,
@@ -5740,16 +5727,19 @@ their status and available tools and actions.</p>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
-<span class="cm"> * The tools of an external module (a user&#39;s or a plugin&#39;s ECA module). Its</span>
+<span class="cm"> * The tools of an external module (a user&#39;s or a plugin&#39;s ECA module): its</span>
+<span class="cm"> * own, on a server named by its prefix, or one of its tool servers&#39;. Its</span>
 <span class="cm"> * tools are named `&lt;name&gt;__&lt;tool&gt;`, like MCP tools. Sent again when modules</span>
 <span class="cm"> * load, reload, are enabled or disabled, or add or remove tools; when a</span>
-<span class="cm"> * module has no tools anymore, `tool/serverRemoved` drops its server.</span>
+<span class="cm"> * module has no tools anymore, or no longer has a tool server,</span>
+<span class="cm"> * `tool/serverRemoved` drops that server.</span>
 <span class="cm"> */</span>
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ModuleServerUpdatedParams</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;module&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The module&#39;s tool prefix, e.g. `jira` for `jira__issue`.</span>
+<span class="cm">     * The module&#39;s tool prefix, e.g. `jira` for `jira__issue`, or the name of</span>
+<span class="cm">     * one of its tool servers.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
@@ -5758,7 +5748,11 @@ their status and available tools and actions.</p>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">module</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
-<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;running&#39;</span><span class="p">;</span>
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * `running` for the module&#39;s own tools; a tool server&#39;s status may be</span>
+<span class="cm">     * any of an MCP server&#39;s.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">status</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The module&#39;s tools.</span>
@@ -6549,7 +6543,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 09:57:03 UTC">November 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 14:03:18 UTC">November 17, 2026</span>
   </span>
 
     
