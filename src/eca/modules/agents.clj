@@ -13,6 +13,7 @@
    [eca.features.prompt :as f.prompt]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -292,6 +293,93 @@
                                selmer-ctx "chat-prompt"))
    ""])
 
+;; --- The config's agents: the legacy keys, the modules' and plugins' agents, inheritance
+
+(defn ^:private migrate-legacy-agent-name
+  "Migrates legacy agent names 'agent' and 'build' to 'code'."
+  [agent-name]
+  (case agent-name
+    ("agent" "build") "code"
+    agent-name))
+
+(defn ^:private migrate-legacy-config
+  "Migrates legacy config keys to new names for backward compatibility:
+   - 'behavior' config key → 'agent'
+   - 'defaultBehavior' → 'defaultAgent'
+   - 'agent'/'build' agent name → 'code' (inside agent map)"
+  [config]
+  (cond-> config
+    ;; Migrate 'behavior' key → 'agent' (merge, don't overwrite)
+    (contains? config :behavior)
+    (-> (update :agent (fn [existing]
+                         (let [legacy (:behavior config)
+                               ;; Rename legacy "agent"/"build" entries to "code"
+                               migrated (reduce-kv (fn [m k v]
+                                                     (assoc m (migrate-legacy-agent-name k) v))
+                                                   {}
+                                                   legacy)]
+                           (merge migrated existing))))
+        (dissoc :behavior))
+
+    ;; Migrate 'defaultBehavior' → 'defaultAgent'
+    (and (contains? config :defaultBehavior)
+         (not (contains? config :defaultAgent)))
+    (-> (assoc :defaultAgent (migrate-legacy-agent-name (:defaultBehavior config)))
+        (dissoc :defaultBehavior))
+
+    ;; Also migrate defaultBehavior when nested under :chat (legacy)
+    (and (get-in config [:chat :defaultBehavior])
+         (not (get-in config [:chat :defaultAgent])))
+    (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
+        (update :chat dissoc :defaultBehavior))))
+
+(defn ^:private deep-merge [& maps]
+  (apply merge-with (fn [& args]
+                      (if (every? #(or (map? %) (nil? %)) args)
+                        (apply deep-merge args)
+                        (last args)))
+         maps))
+
+(defn ^:private resolve-agent-inheritance
+  "Resolves :inherit keys in agent configs. When an agent has :inherit \"other\",
+   its config is deep-merged on top of the parent agent's config (child wins).
+   The :inherit key is stripped from the resolved config."
+  [agents]
+  (reduce-kv
+   (fn [result agent-name agent-config]
+     (if-let [parent-name (:inherit agent-config)]
+       (let [parent-config (get agents parent-name)]
+         (cond
+           (= parent-name agent-name)
+           (do (logger/warn "[CONFIG]" (format "Agent '%s' inherits from itself, ignoring inherit" agent-name))
+               (assoc result agent-name (dissoc agent-config :inherit)))
+
+           (nil? parent-config)
+           (do (logger/warn "[CONFIG]" (format "Agent '%s' inherits from unknown agent '%s', ignoring inherit" agent-name parent-name))
+               (assoc result agent-name (dissoc agent-config :inherit)))
+
+           :else
+           (assoc result agent-name (deep-merge (dissoc parent-config :inherit)
+                                                (dissoc agent-config :inherit)))))
+       (assoc result agent-name agent-config)))
+   {}
+   agents))
+
+(defn ^:private resolve-agents
+  "`:config/resolve`, first: the legacy `behavior` keys as agents, the
+   modules' agents (Markdown ones) and the plugins' under the config's own,
+   then `inherit`, as the config did before modules."
+  [{:keys [db]} {:keys [config]}]
+  (let [pure-config? (:pureConfig @config/initialization-config*)
+        module-agents (when-not pure-config? (modules/contributed-agents config db))
+        plugin-agents (when-not pure-config? (:agents @config/plugin-components*))
+        config (migrate-legacy-config config)]
+    {:config (-> (if (or (seq module-agents) (seq plugin-agents))
+                   (update config :agent (fn [existing]
+                                           (merge module-agents plugin-agents existing)))
+                   config)
+                 (update :agent resolve-agent-inheritance))}))
+
 (def module
   {:id :eca/agents
    :description "Agents from config and Markdown files, and choosing one for each chat."
@@ -299,6 +387,8 @@
                  :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
    ;; Markdown agents (~/.config/eca/agents, .eca/agents), under the config's own agents
    :agents (fn [{:keys [db]}] (all-md-agents (:workspace-folders db)))
+   ;; first, so other modules' handlers see the agents, as before modules
+   :event-handlers {:config/resolve {:priority 1000 :handler #'resolve-agents}}
    :system-prompts [{:id :eca/agent-prompt :content #'prompt-section}]   ; the agent's own prompt, else prompts.chat
    :commands {"agent" {:description "Select agent for current chat (Ex: /agent plan)"
                        :arguments [{:name "agent-name"}]
