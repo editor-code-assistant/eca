@@ -1783,6 +1783,10 @@
 <td></td>
 </tr>
 <tr>
+<td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/llm_providers.clj"><code>eca/llm-providers</code></a></td>
+<td>Logging into providers, with <code>/login</code> or the providers panel, and their subscription quotas (<code>/quota</code>). Requests don't need it.</td>
+</tr>
+<tr>
 <td><a href="https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj"><code>eca/anthropic</code></a></td>
 <td>Claude models from Anthropic: a Max subscription, a Console key or a pasted key.</td>
 </tr>
@@ -2067,7 +2071,7 @@
 </tr>
 </tbody>
 </table>
-<p>ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. An external module's methods answer while it's active, and "Method not found" otherwise. The built-in modules' methods answer whatever the module's state, as when ECA served them itself: disabling <code>eca/completion</code> or <code>eca/rewrite</code> doesn't stop their methods yet.</p>
+<p>ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling <code>eca/mcp</code> drops the <code>mcp/*</code> methods, <code>eca/llm-providers</code> the <code>providers/*</code> ones.</p>
 <h3 id="events">Events<a class="headerlink" href="#events" title="Permanent link">#</a></h3>
 <p>Event handlers let a module react to what ECA does, change it, or give an answer ECA asks for. This one rejects writes to <code>.env</code> files:</p>
 <div class="highlight"><pre><span></span><code><span class="p">(</span><span class="k">def </span><span class="nv">module</span>
@@ -2137,6 +2141,12 @@
 <td>transform</td>
 <td><code>:request</code> (<code>:model</code>, <code>:instructions</code>, <code>:past-messages</code>, <code>:user-messages</code>, <code>:tools</code>), <code>:history</code>, <code>:since-checkpoint</code>, <code>:turn</code>, <code>:budget</code>. Runs before every LLM call of a chat, tool loop included.</td>
 <td><code>:request</code>'s messages, <code>:instructions</code> (not in the tool loop) and <code>:tools</code>. This changes what the model sees, not the chat history. <code>:model</code> can't change yet.</td>
+</tr>
+<tr>
+<td><code>:llm/response-headers</code></td>
+<td>notify</td>
+<td><code>:provider</code>, <code>:headers</code>. A response's headers, for a subscription login (OAuth). <code>eca/llm-providers</code> reads the quota from them.</td>
+<td>—</td>
 </tr>
 <tr>
 <td><code>:llm/request-failed</code></td>
@@ -2245,6 +2255,12 @@
 <td>transform</td>
 <td><code>:models</code>: full model name → capabilities</td>
 <td><code>:models</code></td>
+</tr>
+<tr>
+<td><code>:models/synced</code></td>
+<td>notify</td>
+<td>The models were synced: at startup and when the providers' config changes, after renewing login tokens; not after a login or logout. <code>eca/llm-providers</code> fetches the subscription quotas then.</td>
+<td>—</td>
 </tr>
 </tbody>
 </table>
@@ -2413,7 +2429,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 14:03:18 UTC">November 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 17:30:21 UTC">November 17, 2026</span>
   </span>
 
     
