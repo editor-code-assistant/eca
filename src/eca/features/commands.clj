@@ -53,8 +53,9 @@
                               :command command}))
                       (reduce (fn [{:keys [seen] :as acc} {:keys [full-id entry] :as command}]
                                 (if (contains? seen full-id)
-                                  (do (logger/warn "[commands]" (format "Module %s has a command %s, like another module; ignoring it"
-                                                                      (:id entry) full-id))
+                                  (do (logger/warn-once [::duplicate-command (:id entry) full-id]
+                                                        "[commands]" (format "Module %s has a command %s, like another module; ignoring it"
+                                                                             (:id entry) full-id))
                                       acc)
                                   (-> acc
                                       (update :seen conj full-id)

@@ -102,9 +102,10 @@
 (defn- prompt!
   "Prompts `message`, in chat `chat-id` or a new one, with `hooks` configured
    and answering from `outputs`, the LLM answering from `steps`, tool_a's
-   calls approved as `approval` and returning `result`. Returns `:chat-id`,
-   the LLM `:requests` and the tool `:calls` that ran."
-  [message {:keys [chat-id hooks outputs steps approval config result]
+   calls approved as `approval` and returning `result`; the tools are
+   `tools-after-call` once a call ran, when given. Returns `:chat-id`, the
+   LLM `:requests` and the tool `:calls` that ran."
+  [message {:keys [chat-id hooks outputs steps approval config result tools-after-call]
             :or {approval :allow
                  result {:error false :contents [{:type :text :text "ok"}]}}}]
   (let [requests* (atom [])
@@ -114,7 +115,7 @@
     (let [{:keys [chat-id]}
           (with-redefs [llm-api/sync-or-async-prompt! (llm-mock requests* steps)
                         llm-api/sync-prompt! (constantly nil)
-                        f.tools/all-tools (constantly tools)
+                        f.tools/all-tools (fn [& _] (if (and tools-after-call (seq @calls*)) tools-after-call tools))
                         f.tools/approval (fn [_ tool & _] (if (= "compact_chat" (:name tool)) :allow approval))
                         f.tools/call-tool! (call-tool-mock calls* result)
                         ;; the chat start reads the config from the db
@@ -396,7 +397,14 @@
     (prompt! "go" {:hooks {"u" (hook "postToolCall") "w" (hook "postToolCall" :runOnError true)}
                    :steps [{:tool-calls [call-a]}]
                    :result {:error true :contents [{:type :text :text "boom"}]}})
-    (is (= [["w" "postToolCall"]] (runs)))))
+    (is (= [["w" "postToolCall"]] (runs))))
+
+  (testing "the hooks get the tool's name also when the tool is gone once the call ends, e.g. its server restarted"
+    (fresh!)
+    (prompt! "go" {:hooks {"u" (hook "postToolCall" :matcher "eca__tool_a")}
+                   :steps [{:tool-calls [call-a]}]
+                   :tools-after-call []})
+    (is (match? {"tool_name" "tool_a" "server" "eca"} (run-input "u")))))
 
 (deftest chat-status-changed-test
   (testing "the hook gets each new status, once"

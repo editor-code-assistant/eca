@@ -29,9 +29,25 @@
      [eca.server eca.modules.remote.server]})
 
 (def ^:private allowed-id-checks
-  "`(modules/active? config :eca/x)` calls in core, by namespace and id, with their count. Only shrinks."
-  '{[eca.handlers :eca/remote] 1
-    [eca.server :eca/otel] 1})
+  "Built-in module ids core names in its calls into the module runtime, e.g. `(modules/active? config :eca/x)`,
+  by namespace and id, with their count. Only shrinks."
+  '{;; startup: remote and otel start with the server and run until ECA exits
+    [eca.handlers :eca/otel] 1
+    [eca.handlers :eca/remote] 2
+    [eca.server :eca/otel] 1
+    ;; --repl, and the debug API working only while eca/repl runs
+    [eca.main :eca/repl] 1
+    [eca.api.debug :eca/repl] 1})
+
+(def ^:private allowed-upward-resolves
+  "Core namespaces that resolve a var of a higher layer at runtime (`requiring-resolve`). Only shrinks."
+  '#{;; the module API calls the engines for the modules
+     [eca.api eca.features.chat]
+     [eca.api eca.features.chat.compaction]
+     [eca.api eca.features.login]
+     [eca.api eca.features.tools]
+     [eca.api eca.llm-api]
+     [eca.api.dev eca.features.tools]})
 
 (def ^:private allowed-extended-multimethods
   "Core multimethods the built-in modules extend with `defmethod`. Only shrinks."
@@ -53,6 +69,30 @@
               :else []))
           specs))
 
+(defn ^:private code-text
+  "`text` without its comments and the content of its strings, so the checks below only see code."
+  [^String text]
+  (let [sb (StringBuilder.)
+        n (count text)]
+    (loop [i 0 state :code]
+      (if (>= i n)
+        (str sb)
+        (let [c (.charAt text i)]
+          (case state
+            :code (cond
+                    ;; a character literal, e.g. \" or \;
+                    (= c \\) (do (.append sb (subs text i (min n (+ i 2)))) (recur (+ i 2) :code))
+                    (= c \") (do (.append sb c) (recur (inc i) :string))
+                    (= c \;) (recur (inc i) :comment)
+                    :else (do (.append sb c) (recur (inc i) :code)))
+            :string (cond
+                      (= c \\) (recur (+ i 2) :string)
+                      (= c \") (do (.append sb c) (recur (inc i) :code))
+                      :else (recur (inc i) :string))
+            :comment (if (= c \newline)
+                       (do (.append sb c) (recur (inc i) :code))
+                       (recur (inc i) :comment))))))))
+
 (def ^:private sources
   (delay
     (doall
@@ -65,6 +105,7 @@
                            (mapcat (comp libspecs rest)))]]
        {:ns ns-name
         :text text
+        :code (code-text text)
         :requires (set (map :ns libs))
         :aliases (into {} (keep (fn [{:keys [ns as as-alias]}]
                                   (when-let [alias (or as as-alias)] [alias ns])))
@@ -83,36 +124,57 @@
   (filter (comp layer-of :ns) @sources))
 
 (defn ^:private quoted-namespaces
-  "Namespaces a source names as quoted symbols, as a `requiring-resolve` does."
-  [text]
-  (set (map (comp symbol second) (re-seq #"'(eca\.[a-z0-9.\-]+[a-z0-9\-])" text))))
+  "Namespaces a source's code names as quoted symbols, as a `requiring-resolve` or a `require` does."
+  [code]
+  (set (map (comp symbol second) (re-seq #"'\[?(eca\.[a-z0-9.\-]+[a-z0-9\-])" code))))
+
+(defn ^:private qualified-namespaces
+  "Namespaces a source's code calls by their full name, e.g. `(eca.modules.mcp/shutdown! ..)`."
+  [code]
+  (set (map (comp symbol second) (re-seq #"(?<![\w.\-'])(eca\.[a-z0-9.\-]+[a-z0-9\-])/" code))))
 
 (defn ^:private id-checks
-  "The module ids a source's `(modules/active? x :some/id)` calls name."
-  [{:keys [text aliases]}]
+  "The built-in module ids a source's code names in its calls into the module runtime, e.g.
+  `(modules/active? x :eca/id)` or `(modules/stop-all! ctx #{:eca/id})`."
+  [{:keys [code aliases]}]
   (when-let [alias (some (fn [[alias ns]] (when (= 'eca.modules ns) alias)) aliases)]
-    (->> text
-         (re-seq (re-pattern (str "\\(" (java.util.regex.Pattern/quote (str alias)) "/active\\?"
-                                  "\\s+(?:[^\\s()]+|\\([^()]*\\))\\s+:([\\w.\\-]+/[\\w\\-]+)\\)")))
-         (map (comp keyword second)))))
+    (->> code
+         (re-seq (re-pattern (str "\\(" (java.util.regex.Pattern/quote (str alias)) "/[^\\s()\\[\\]{}]+"
+                                  "((?:[^()]|\\([^()]*\\))*)\\)")))
+         (mapcat (fn [[_ args]] (re-seq #":(eca/[\w\-]+)" args)))
+         (map (comp keyword second))
+         (remove #{:eca/core}))))
 
 (deftest namespaces-test
+  (testing "the sources are found"
+    (is (seq @sources)))
   (testing "every namespace under src is in a core layer or is a built-in module's (under eca.modules)"
     (is (= [] (->> @sources (map :ns) (remove #(or (layer-of %) (module-ns? %))) sort vec)))))
 
+(defn ^:private upward
+  "`[ns to]` for each namespace of a higher layer core namespaces require (`:require`), or resolve at runtime
+  (`resolved?`)."
+  [resolved?]
+  (set (for [{:keys [ns requires code]} (core-sources)
+             to (if resolved? (set/difference (quoted-namespaces code) requires) requires)
+             :when (and (layer-of to) (< (layer-of ns) (layer-of to)))]
+         [ns to])))
+
 (deftest core-layers-test
   (testing "core namespaces require only their own layer and lower ones"
-    (is (= [] (->> (for [{:keys [ns requires]} (core-sources)
-                         to requires
-                         :when (and (layer-of to) (< (layer-of ns) (layer-of to)))]
-                     [ns (layer-name ns) '-> to (layer-name to)])
+    (is (= [] (->> (upward false)
+                   (map (fn [[ns to]] [ns (layer-name ns) '-> to (layer-name to)]))
                    (sort-by str)
-                   vec)))))
+                   vec))))
+  (testing "no new runtime resolve of a higher layer"
+    (is (= #{} (set/difference (upward true) allowed-upward-resolves))))
+  (testing "a runtime resolve of a higher layer is gone: remove it from allowed-upward-resolves"
+    (is (= #{} (set/difference allowed-upward-resolves (upward true))))))
 
 (deftest core-module-requires-test
-  (let [actual (set (for [{:keys [ns requires text]} (core-sources)
+  (let [actual (set (for [{:keys [ns requires code]} (core-sources)
                           :when (not= 'eca.modules.built-in ns)
-                          to (set/union requires (quoted-namespaces text))
+                          to (set/union requires (quoted-namespaces code) (qualified-namespaces code))
                           :when (module-ns? to)]
                       [ns to]))]
     (testing "no new core -> module coupling: move the code into the module, or reach it with module keys or events"

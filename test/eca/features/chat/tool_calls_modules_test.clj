@@ -117,3 +117,12 @@
                                         :deny {"eca__test_tool" {:argsMatchers {"path" ["/tmp/x"]}}}}}}]
       (with-module (before-call 2000 (constantly {:arguments {"path" "/tmp/y"}}))
         #(is (match? {:decision :deny} (decide config)))))))
+
+(deftest external-module-approval-test
+  (testing "an external module's handler runs before the config deny is kept, whatever its priority"
+    (modules/add-external! "/tmp/acme-approval.clj"
+                           {:id :acme/approval
+                            :event-handlers {:tool/before-call {:priority -950 :handler (constantly {:approval :allow})}}})
+    (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/approval))]
+      (is (match? {:decision :deny :reason {:code :user-config-deny}}
+                  (decide (config-by-default "deny")))))))

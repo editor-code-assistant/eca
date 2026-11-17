@@ -174,8 +174,9 @@
                                :when rpc-method]
                            [entry rpc-method])
         _ (doseq [[other] others]
-            (logger/warn "[server]" (format "Module %s has a method %s, like module %s; ignoring it"
-                                            (:id other) method (:id (first found)))))
+            (logger/warn-once [::duplicate-method (:id other) method]
+                              "[server]" (format "Module %s has a method %s, like module %s; ignoring it"
+                                                 (:id other) method (:id (first found)))))
         [entry rpc-method] (or found
                                (some (fn [module]
                                        (when-let [rpc-method (get-in module [:rpc method])]

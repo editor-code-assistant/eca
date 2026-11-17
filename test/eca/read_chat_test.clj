@@ -3,14 +3,14 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
-   [eca.db.chats :as db.chats]
-   [eca.db.io :as db.io]
 
    [babashka.fs :as fs]
    [cheshire.core :as cheshire]
    [cognitect.transit :as transit]
 
    [eca.cache :as cache]
+   [eca.db.chats :as db.chats]
+   [eca.db.io :as db.io]
    [eca.main :as main]
    [eca.read-chat :as read-chat]
    [eca.shared :as shared]))

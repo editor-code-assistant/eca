@@ -12,7 +12,8 @@
      recoveries tried once per prompt;
    - `:auto-compactions`, `:auto-compacted?` (a compaction was blocked: no more in
      the turn), `:post-compact-guard*`, `:compact-trigger`: `f.chat.compaction`'s;
-   - `:compaction?`: a `/compact` prompt, not a user request;
+   - `:compaction?`: a `/compact` prompt, not a user request; `:compaction-done?`:
+     whether a compaction's request is done, after its tool calls;
    - `:on-finished-side-effect`, `:on-after-finish!`: what finishing the request
      runs (compaction, commands, `continue-turn!`); `:skip-post-request-hooks?`."
   (:require
@@ -295,8 +296,9 @@
                       :title (get-in db [:chats chat-id :title])})
               title (:title (events/emit! chat-ctx :chat/title event))]
           ;; A title set meanwhile (chat/update, e.g. a client renaming
-          ;; the chat while this request ran) wins over the generated one.
-          (when (and (string? title)
+          ;; the chat while this request ran) wins over the generated one;
+          ;; a blank one keeps the title.
+          (when (and (shared/not-blank title)
                      (not (get-in @db* [:chats chat-id :title-custom?])))
             (let [title (f.chat.ops/sanitize-title title)]
               (swap! db* assoc-in [:chats chat-id :title] title)
@@ -375,6 +377,7 @@
   (when-not full-model
     (throw (ex-info llm-api/no-available-model-error-msg {})))
   (let [run-hooks? (#{:prompt-message :eca-command :mcp-prompt} source-type)
+        chat-ctx (f.chat.compaction/carry-blocked-compaction chat-ctx)
         user-messages (if run-hooks?
                         (pre-request-messages chat-ctx user-messages source-type)
                         user-messages)

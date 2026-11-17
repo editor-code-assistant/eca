@@ -71,8 +71,8 @@
   [{:keys [chat-id db*] :as chat-ctx} _args]
   (let [question (string/trim (string/replace-first (:message chat-ctx) #"^/btw\s*" ""))]
     (if (string/blank? question)
-                ;; :side-prompt without a target only shows the notice; unlike
-                ;; :chat-messages it never finishes a running turn (mid-run /btw).
+      ;; :side-prompt without a target only shows the notice; unlike
+      ;; :chat-messages it never finishes a running turn (mid-run /btw).
       {:type :side-prompt
        :notice-text "Usage: /btw <prompt>. Asks a side question in a forked chat, keeping this chat history clean."}
       (let [chat (get-in @db* [:chats chat-id])
@@ -117,10 +117,10 @@
                            (let [chat (get chats chat-id)
                                  {:keys [user-message-count flags]} (db.chats/chat-list-meta chat)
                                  msgs-count (or user-message-count 0)]
-                                          ;; List every persisted chat, even ones with zero user
-                                          ;; messages (e.g. a chat that hit a provider error very
-                                          ;; early, or one rolled back to empty). The user can
-                                          ;; resume any of them and rollback to recover.
+                             ;; List every persisted chat, even ones with zero user
+                             ;; messages (e.g. a chat that hit a provider error very
+                             ;; early, or one rolled back to empty). The user can
+                             ;; resume any of them and rollback to recover.
                              (str s (format "%s - %s - %s%s\n"
                                             (inc (.indexOf ^PersistentVector chats-ids chat-id))
                                             (shared/ms->presentable-date (:created-at chat) "dd/MM/yyyy HH:mm")
@@ -141,24 +141,24 @@
         (swap! db* assoc-in [:chats chat-id] (assoc chat :id chat-id))
         (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :continuing? :compacting?)
         (swap! db* assoc-in [:chats chat-id :prompt-id] (:prompt-id chat-ctx))
-                     ;; The resumed content now lives under chat-id; drop the
-                     ;; old id from memory and cache, tombstoning it so peer
-                     ;; index merges cannot resurrect it.
+        ;; The resumed content now lives under chat-id; drop the
+        ;; old id from memory and cache, tombstoning it so peer
+        ;; index merges cannot resurrect it.
         (swap! db* (fn [db]
                      (-> db
                          (update :chats dissoc selected-chat-id)
                          (update :deleted-chat-ids (fnil conj #{}) selected-chat-id))))
         (db.chats/save-chat! @db* chat-id metrics)
         (db.chats/delete-chat-from-cache! @db* selected-chat-id metrics)
-                     ;; Align the client's selected model with the resumed chat
-                     ;; so the LLM call keeps using the chat's original model. #417
+        ;; Align the client's selected model with the resumed chat
+        ;; so the LLM call keeps using the chat's original model. #417
         (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat) chat-id)
-                     ;; Align the client's trust indicator with the resumed
-                     ;; chat's persisted :trust so the icon matches the
-                     ;; auto-approval behavior the server will apply. #426
+        ;; Align the client's trust indicator with the resumed
+        ;; chat's persisted :trust so the icon matches the
+        ;; auto-approval behavior the server will apply. #426
         (config/notify-selected-trust-changed! (:trust chat) db* messenger chat-id)
-                     ;; Same for the agent, so the client's current agent isn't
-                     ;; sent on the next prompt instead of the resumed chat's one.
+        ;; Same for the agent, so the client's current agent isn't
+        ;; sent on the next prompt instead of the resumed chat's one.
         (when-let [chat-agent (:agent chat)]
           (config/notify-selected-agent-changed!
            (config/validate-agent-name chat-agent config) db* messenger chat-id))
@@ -223,7 +223,7 @@
                           (filter #(and (not= chat-id (first %))
                                         (not (:subagent (second %)))))
                           (:chats db))
-                          ;; Same ordering as /resume so its listed ids work here.
+        ;; Same ordering as /resume so its listed ids work here.
         chats-ids (vec (sort-by #(:created-at (get other-chats %)) (keys other-chats)))
         target-id (cond
                     (nil? target-arg) chat-id
@@ -298,12 +298,12 @@
                      (when replaced? "Replaced an existing chat with the same id.")
                      (when-not model-available?
                        (str "Model `" (:model imported-chat) "` is not available here; switch with `/model` or login.")))]
-                     ;; Persist under the original id so the chat stays /resume-able
-                     ;; and reuses provider/cache keyed by chat-id (#28).
+        ;; Persist under the original id so the chat stays /resume-able
+        ;; and reuses provider/cache keyed by chat-id (#28).
         (swap! db* assoc-in [:chats imported-id] imported-chat)
         (db.chats/save-chat! @db* imported-id metrics)
         (messenger/chat-opened messenger {:chat-id imported-id :title (:title imported-chat)})
-                     ;; Align the client's model/trust with the imported chat (like /resume).
+        ;; Align the client's model/trust with the imported chat (like /resume).
         (config/notify-selected-model-changed! (:model imported-chat) db* messenger config (:variant imported-chat) imported-id)
         (config/notify-selected-trust-changed! (:trust imported-chat) db* messenger imported-id)
         {:type :chat-messages

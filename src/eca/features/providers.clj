@@ -19,7 +19,8 @@
   #{:label :login :models-fn :models-override-fn :quota :errors})
 
 (defn declarations
-  "Provider id → declaration (`:label`, `:login` and the config keys a login
+  "Provider id → declaration (`:label`, `:login`, `:models-fn`,
+   `:models-override-fn`, `:quota`, `:errors` and the config keys a login
    saves), from the active modules' `:providers`. The first module wins."
   [config]
   (reduce (fn [acc [_entry providers]]

@@ -189,6 +189,12 @@
     (map? spec) [spec]
     :else [{:handler spec}]))
 
+(def ^:private lowest-external-priority
+  "The lowest priority of an external module's handler: they all run before
+   the last built-in ones, `:eca/approval` keeping a deny from the config
+   (-900) and the shell hooks (-1000)."
+  -899)
+
 (defn ^:private build-index [{:keys [active]}]
   (let [definitions (reduce (fn [acc entry]
                               (reduce-kv (fn [acc event-id definition]
@@ -204,7 +210,8 @@
                             active)
         handlers (for [entry active
                        [event-id spec] (:event-handlers (:module entry))
-                       [i h] (map-indexed vector (handler-entries spec))]
+                       [i h] (map-indexed vector (handler-entries spec))
+                       :let [own-priority (if (integer? (:priority h)) (:priority h) (:priority entry))]]
                    {:event-id event-id
                     :entry entry
                     :handler (:handler h)
@@ -212,7 +219,9 @@
                     ;; a built-in's handler of :chat/before-request may also take a compaction's request
                     :compaction? (boolean (and (:built-in? entry) (:compaction? h)))
                     :timeout-ms (:timeout-ms h)
-                    :priority (if (integer? (:priority h)) (:priority h) (:priority entry))
+                    ;; an external one lower than that runs there, in its own order among the others
+                    :priority (if (:built-in? entry) own-priority (max lowest-external-priority own-priority))
+                    :own-priority own-priority
                     :index i})]
     (doseq [[event-id module-ids] (->> handlers
                                        (remove #(contains? definitions (:event-id %)))
@@ -221,7 +230,8 @@
                                       (string/join ", " (distinct (map (comp :id :entry) module-ids))) event-id)))
     {:definitions definitions
      :handlers (update-vals (group-by :event-id handlers)
-                            (fn [hs] (vec (sort-by (juxt (comp - :priority) (comp :id :entry) :index) hs))))}))
+                            (fn [hs] (vec (sort-by (juxt (comp - :priority) (comp - :own-priority) (comp :id :entry) :index)
+                                                   hs))))}))
 
 (def ^:private index-cache* (atom nil))
 

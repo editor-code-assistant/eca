@@ -96,9 +96,11 @@
                          :position position}]
               ;; a type a module gives (:contexts), e.g. MCP resources
               (let [config (config/all db)]
-                (when-let [[entry {:keys [refine]}] (module-context-type config (name type))]
+                (if-let [[entry {:keys [refine]}] (module-context-type config (name type))]
                   (when refine
-                    (refine (modules/module-ctx {:db db :config config} entry) raw-context))))))
+                    (refine (modules/module-ctx {:db db :config config} entry) raw-context))
+                  ;; e.g. an old client's repoMap
+                  (logger/debug logger-tag "Ignoring a context of unknown type" (name type))))))
           contexts))
 
 (defn parse-context-reference

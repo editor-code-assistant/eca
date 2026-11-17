@@ -54,7 +54,7 @@
       (str base ", expires " (format-expires-at expires-at))
       base)))
 
-(defn doctor-msg [db config]
+(defn ^:private doctor-msg [db config]
   (let [model (llm-api/default-model db config)
         [model-provider] (when model (shared/full-model->provider+model model))
         model-auth-type (when model-provider
@@ -169,7 +169,7 @@
                 cells)]
     (mapv #(apply str %) (partition cols cells))))
 
-(defn context-usage-text
+(defn ^:private context-usage-text
   "Renders a human-readable context-window usage breakdown: a fixed 10x10
    proportional emoji grid to the left of a two-section legend (Instructions and
    Chat) plus the free-space row. COMPACT-PERCENTAGE, when set, adds a line
@@ -238,7 +238,7 @@
        (remove string/blank?)
        (string/join "\n\n")))
 
-(defn prompt-show-text [instructions user-messages]
+(defn ^:private prompt-show-text [instructions user-messages]
   (let [{:keys [static dynamic]} (if (map? instructions)
                                    instructions
                                    {:static instructions :dynamic nil})
@@ -268,25 +268,25 @@
         answer (when (and (f.chat.compaction/compaction-handled? config) (not blocked?))
                  (f.chat.compaction/compact-with-module! chat-ctx "manual" instructions))]
     (cond
-                    ;; only modules compact
+      ;; only modules compact
       (not (f.chat.compaction/compaction-handled? config))
       no-compaction
 
       blocked?
       (do
-                      ;; continue:false stops the turn; exit 2 blocks compaction only.
+        ;; continue:false stops the turn; exit 2 blocks compaction only.
         (if stop-turn?
           (send-stopped! {:ended-by ended-by :stop-reason reason})
           (f.chat.lifecycle/send-ended! chat-ctx "Compaction blocked" ended-by reason))
         {:type :new-chat-status :status :idle})
 
-                    ;; the module compacts with a request of the chat
+      ;; the module compacts with a request of the chat
       (:request answer)
       (let [{:keys [prompt done? apply!]} (:request answer)
             compact-prompt (prompt instructions all-tools)]
         (swap! db* assoc-in [:chats chat-id :compacting?] true)
         {:type :send-prompt
-                       ;; a compaction's prompt, not a user request for modules
+         ;; a compaction's prompt, not a user request for modules
          :compaction? true
          :compaction-done? done?
          :on-finished-side-effect #(let [{:keys [compacted? stop-turn?] :as result}
@@ -432,8 +432,8 @@
                     :messages messages
                     :context-limit context-limit
                     :session-tokens (:session-tokens usage)})]
-                  ;; Refresh the client's live usage payload so the header-line
-                  ;; context bar reflects the latest breakdown immediately.
+    ;; Refresh the client's live usage payload so the header-line
+    ;; context bar reflects the latest breakdown immediately.
     (f.chat.lifecycle/send-content! chat-ctx :system
                                     (merge {:type :usage} usage {:context-breakdown breakdown}
                                            (when compact-percentage

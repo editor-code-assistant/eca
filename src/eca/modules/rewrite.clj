@@ -44,7 +44,7 @@
             (str (format ";; [File truncated: showing lines %d-%d of %d]\n" start end total)
                  windowed)))))))
 
-(defn build-rewrite-instructions [text path full-text range all-tools config db]
+(defn ^:private build-rewrite-instructions [text path full-text range all-tools config db]
   (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
         legacy-config-prompt (-> config :rewrite :systemPrompt)
         config-prompt (f.prompt/get-config-prompt :rewrite nil config)

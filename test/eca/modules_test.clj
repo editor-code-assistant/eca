@@ -123,6 +123,10 @@
                 (modules/problems {:id :acme/x :transform-tools (fn [_ tools] tools)} {})))
     (is (match? {:errors [#":transform-tools must be a function"]}
                 (modules/problems {:id :eca/x :transform-tools {}} {:built-in? true})))
+    (is (match? {:errors [#":system-prompts :acme/s: :signature, :resync\? are only for built-in modules"]}
+                (modules/problems {:id :acme/x :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]} {})))
+    (is (= [] (:errors (modules/problems {:id :eca/x :system-prompts [{:id :eca/s :content "c" :signature (fn [_])}]}
+                                         {:built-in? true}))))
     (is (match? {:errors [#":skills \"s\": :body must be a string or a function"]}
                 (modules/problems {:id :eca/x :skills [{:name "s" :description "d"}]} {:built-in? true})))
     (is (match? {:errors [#":config-spec x: :type must be one of"]}

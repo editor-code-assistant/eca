@@ -478,18 +478,33 @@
    `take-compaction-request!`) or a `{:compact ..}` answer to
    `:llm/request-failed`, as an auto-compaction: it counts in the turn's,
    then the task resumes. When it's blocked, no request runs again in this
-   prompt and `on-blocked` decides how the turn goes on."
+   turn (see `carry-blocked-compaction`) and `on-blocked` decides how the
+   turn goes on."
   [{:keys [db* chat-id prompt-id] :as chat-ctx} all-tools user-messages {:keys [module trigger instructions]} on-blocked]
   (logger/info logger-tag "Compacting chat, as a module asked" {:chat-id chat-id :module module :trigger trigger})
-  (trigger-compact! (update chat-ctx :auto-compactions (fnil inc 0))
-                    all-tools
-                    user-messages
-                    {:trigger (if (= :manual trigger) "manual" "auto")
-                     :event-trigger (or trigger :auto)
-                     :custom-instructions instructions
-                     :on-blocked (fn []
-                                   (swap! db* assoc-in [:chats chat-id :compaction-blocked-prompt-id] prompt-id)
-                                   (on-blocked))}))
+  (let [{:keys [config agent auto-compactions] :as chat-ctx} (update chat-ctx :auto-compactions (fnil inc 0))]
+    (when (= (auto-compact-max-per-turn config agent) auto-compactions)
+      (logger/warn logger-tag "Last auto-compaction allowed in this turn" {:chat-id chat-id
+                                                                           :auto-compactions auto-compactions}))
+    (trigger-compact! chat-ctx
+                      all-tools
+                      user-messages
+                      {:trigger (if (= :manual trigger) "manual" "auto")
+                       :event-trigger (or trigger :auto)
+                       :custom-instructions instructions
+                       :on-blocked (fn []
+                                     (swap! db* assoc-in [:chats chat-id :compaction-blocked-prompt-id] prompt-id)
+                                     (on-blocked))})))
+
+(defn carry-blocked-compaction
+  "The chat-ctx of the turn's next request, given the one of the request
+   before: when that request's compaction was blocked, it stays blocked for
+   the rest of the turn (`:auto-compacted?`), as when a blocked compaction
+   sent the task again."
+  [{:keys [db* chat-id prompt-id] :as chat-ctx}]
+  (cond-> chat-ctx
+    (and prompt-id (= prompt-id (get-in @db* [:chats chat-id :compaction-blocked-prompt-id])))
+    (assoc :auto-compacted? true)))
 
 (defn run-requested-compaction!
   "Runs the compaction a module asked for, if any may run now (see

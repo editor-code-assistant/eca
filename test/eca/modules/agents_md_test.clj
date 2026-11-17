@@ -183,7 +183,7 @@
         (is (match?
              [{:type :agents-file :path ws-agents :content "content"}
               {:type :agents-file :path global-agents :content "content"}]
-             (m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles false}))))))
+             (#'m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles false}))))))
 
   (testing "Flag enabled: parents emitted outermost first, then workspace, then global"
     (h/reset-components!)
@@ -210,7 +210,7 @@
              [{:type :agents-file :path parent-ab-agents :content "content"}
               {:type :agents-file :path parent-abc-agents :content "content"}
               {:type :agents-file :path global-agents :content "content"}]
-             (m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
+             (#'m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
 
   (testing "Flag enabled but no parent has AGENTS.md: behaves like disabled"
     (h/reset-components!)
@@ -235,7 +235,7 @@
         (is (match?
              [{:type :agents-file :path ws-agents :content "content"}
               {:type :agents-file :path global-agents :content "content"}]
-             (m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
+             (#'m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
 
   (testing "Two nested workspaces share ancestors via dedup"
     (h/reset-components!)
@@ -266,7 +266,7 @@
               {:type :agents-file :path ab-agents}
               {:type :agents-file :path abc-agents}
               {:type :agents-file :path global-agents}]
-             (m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
+             (#'m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
 
   (testing "Workspace at filesystem root: no parent walk"
     (h/reset-components!)
@@ -287,7 +287,7 @@
         (is (match?
              [{:type :agents-file :path ws-agents}
               {:type :agents-file :path global-agents}]
-             (m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true})))))))
+             (#'m.agents-md/agents-file-contexts (h/db) {:includeParentAgentsFiles true})))))))
 
 (deftest always-contexts-test
   (testing "every chat gets the AGENTS.md files through core's always contexts, unless the module is off"

@@ -2,6 +2,7 @@
   "Compactions modules ask for: eca.api/request-compaction! and the
    answers to :llm/request-failed."
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
    [eca.config :as config]
@@ -252,6 +253,30 @@
       (is (match? [{:new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}] @loop-results*))
       (is (= [["fix it"]] @requests*) "the user's message isn't sent again")
       (is (some #{"Compaction blocked by module 'acme/compact': not now"} (system-texts))))))
+
+(deftest blocked-compaction-stays-blocked-in-the-turn-test
+  (testing "after a blocked compaction, the turn's next requests don't compact again, as before modules"
+    (setup-chat!)
+    (h/reset-messenger!)
+    (past-threshold-model!)
+    (with-module! {:chat/before-compact (constantly {:block "not now"})
+                   :llm/request-failed (constantly {:retry true})})
+    (let [requests* (atom 0)]
+      (prompt! "fix it"
+               (fn [{:keys [on-usage-updated on-prepare-tool-call on-tools-called on-error] :as opts}]
+                 (let [n (swap! requests* inc)
+                       call-id (str "call-" n)]
+                   (on-usage-updated {:input-tokens 900 :output-tokens 0})
+                   (on-prepare-tool-call {:id call-id :full-name "eca__tool_a" :arguments-text "{}"})
+                   (on-tools-called [{:id call-id :full-name "eca__tool_a" :arguments {}}])
+                   (if (= 1 n)
+                     ;; the tool loop's next request fails: the module sends it again, a new request
+                     (on-error {:status 400 :message "Bad request"})
+                     (answer! opts)))))
+      (is (= 2 @requests*))
+      (is (= 1 (count (filter #(= :chat/before-compact (first %)) @events*))))
+      (is (= ["Compaction blocked by module 'acme/compact': not now"]
+             (filter #(string/starts-with? % "Compaction blocked") (system-texts)))))))
 
 (deftest compaction-requests-are-not-saved-test
   (testing "a pending request is for the running session only"

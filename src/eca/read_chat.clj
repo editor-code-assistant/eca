@@ -1,12 +1,12 @@
 (ns eca.read-chat
   (:require
    [clojure.java.io :as io]
-   [eca.db.io :as db.io]
 
    [babashka.cli :as cli]
    [cheshire.core :as cheshire]
 
    [eca.cache :as cache]
+   [eca.db.io :as db.io]
    [eca.shared :as shared])
   (:import
    [java.time Instant LocalDate ZoneOffset]))

@@ -62,7 +62,7 @@
       (vec acc)
       (recur (fs/parent p) (conj acc p)))))
 
-(defn agents-file-contexts
+(defn ^:private agents-file-contexts
   "Search for AGENTS.md file both in workspaceRoot and global config dir.
    When `:includeParentAgentsFiles` is true in `config`, also include
    AGENTS.md files from each workspace's parent directories, ordered

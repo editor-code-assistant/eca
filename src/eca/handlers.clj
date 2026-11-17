@@ -278,7 +278,10 @@
         ;; notified with the pre-plugin agent list (startup race).
         (notify-chat-config-state! db* messenger)
         (send-progress! db* messenger {:type "start" :taskId "mcp-servers" :title "Initializing MCP servers"})
-        (f.tools/refresh-module-tool-servers! db* messenger config)
+        (try
+          (f.tools/refresh-module-tool-servers! db* messenger config)
+          (catch Exception e
+            (logger/error "[handlers]" "Could not send the tool servers:" e)))
         ;; MCP servers start here, after ECA's own tool server
         (modules/session-ready!)
         (events/emit! {:db* db* :messenger messenger :metrics metrics :config config} :session/ready {})

@@ -168,6 +168,22 @@
       (is (nil? (tool-named {:modules {:acme/docs {:enabled false} :acme/docs-copy {:enabled false}}}
                             "docs__lookup"))))))
 
+(deftest malformed-tool-servers-test
+  (with-modules [{:id :acme/sloppy
+                  :tool-servers {:list (fn [_ctx]
+                                         [{:name "ok" :status 42
+                                           :tools [{:name "lookup" :description "Look up."} "not a tool" {:description "no name"}]}
+                                          {:status "running"}
+                                          "not a server"])
+                                 :call (fn [& _] "x")}}]
+    (testing "what a module lists without a name, or not as a map, is left out instead of breaking every tool list"
+      (is (= ["ok__lookup"] (keep #(when (= "ok" (get-in % [:server :name])) (:full-name %)) (tools {})))))
+    (testing "and clients get the rest, with an unknown status as running"
+      (h/reset-messenger!)
+      (f.tools/refresh-module-tool-servers! (h/db*) (h/messenger) {})
+      (is (match? [{:type :module :name "ok" :status "running" :tools [{:name "lookup"}]}]
+                  (rest (:tool-server-update (h/messages))))))))
+
 (deftest approval-keys-test
   (with-modules [(assoc-in jira [:tools "issue" :approval-keys-fn]
                            (fn [{:strs [key]}] {:keys #{(str "project " (first (string/split key #"-")))}

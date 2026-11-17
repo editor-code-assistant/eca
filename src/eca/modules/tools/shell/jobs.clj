@@ -254,7 +254,7 @@
   [db* chat-id notification]
   (swap! db* update-in [:chats chat-id :pending-job-notifications] (fnil conj []) notification))
 
-(defn evict-notified-jobs!
+(defn ^:private evict-notified-jobs!
   "Remove all jobs where :notified is true from the registry."
   []
   (swap! registry*

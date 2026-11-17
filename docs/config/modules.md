@@ -103,7 +103,7 @@ These changes last for the session. To keep them, set them in your config:
 
 - `enabled` turns a module on or off. Modules that require it turn off with it.
 - `source` loads an external module from a file or folder.
-- `priority` orders the module's event handlers, higher first. It's `0` by default, and `-100` for built-in modules.
+- `priority` orders the module's event handlers, higher first. It's `0` by default, and `-100` for built-in modules. A handler's own `:priority` wins over it.
 
 ## Writing a module
 
@@ -214,11 +214,11 @@ A module whose tools come and go, as ECA's MCP support's do, serves them from to
 
 | Key | |
 |-----|--|
-| `:list` | `(fn [ctx])`. The module's servers now: each with `:name`, `:status` and `:tools` (`:name`, `:description`, `:parameters`), maybe `:version`. ECA asks often, so keep it fast. |
-| `:call` | `(fn [ctx server tool args opts])`, with string keys in `args` and the calling chat's `:chat-id` in `opts`. Returns what a tool's handler returns. |
+| `:list` | `(fn [ctx])`. The module's servers now: each with `:name`, `:status` and `:tools` (`:name`, `:description`, `:parameters`), maybe `:version`. ECA asks often, so keep it fast. A server or a tool without a `:name` is left out, with a warning. |
+| `:call` | `(fn [ctx server tool args opts])`, with string keys in `args` and the calling chat's `:chat-id` in `opts`. Returns what a tool's handler returns; `(eca/progress! ctx text)` shows its progress. |
 | `:await-refresh` | Optional `(fn [ctx timeout-ms])`. Blocks while a server updates its tools, `timeout-ms` at most. ECA waits after a batch of tool calls, so the model sees the new tools. |
 
-A server's tools are named `<server>__<tool>`, like MCP tools, and work like them in approval rules, `disabledTools` and tool search. When two modules have a server with the same name, the first one to start keeps it. Clients get each server as one of the module's tool servers, with its status: at startup, and when modules or the tools' status change.
+A server's tools are named `<server>__<tool>`, like MCP tools, and work like them in approval rules, `disabledTools` and tool search. When two modules have a server with the same name, the first one to start keeps it. Clients get each server as one of the module's tool servers, with its status: at startup, when modules change, and when the tools' approval changes (another agent, a config change).
 
 ### Commands
 
@@ -248,7 +248,7 @@ You type `/name`, or `/<prefix>:<name>` when two modules have a command with the
 | `:kind` | `:request`, answered with what the handler returns, or `:notification`. |
 | `:handler` | `(fn [ctx params])`. It runs on a thread of its own. |
 
-ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, and "Method not found" otherwise.
+ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. An external module's methods answer while it's active, and "Method not found" otherwise. The built-in modules' methods answer whatever the module's state, as when ECA served them itself: disabling `eca/completion` or `eca/rewrite` doesn't stop their methods yet.
 
 ### Events
 
@@ -270,7 +270,7 @@ There are three kinds of events:
 - **transform**: the handler can change the event, or stop it with `{:block "reason"}` or `{:stop "reason"}`.
 - **handle**: the first handler that answers wins.
 
-A handler is a function `(fn [ctx event])`, a vector of them, or a map with `:handler` and optional `:match`, `:priority` and `:timeout-ms`. `:match` filters events by key, with a value, a set or a regex. Your [shell hooks](hooks.md) are `eca/hooks`' handlers, at priority `-1000`, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run.
+A handler is a function `(fn [ctx event])`, a vector of them, or a map with `:handler` and optional `:match`, `:priority` and `:timeout-ms`. `:match` filters events by key, with a value, a set or a regex. Your [shell hooks](hooks.md) are `eca/hooks`' handlers, at priority `-1000`, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run. An external module's handlers run before the hooks and before `eca/approval` makes sure a deny from your config stays (`-900`): a lower priority runs right before those, in its order among the external handlers.
 
 Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:parent-chat-id` in a subagent's chat.
 
@@ -298,8 +298,8 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:chat/compact` | handle | `:trigger`, `:instructions`. `eca/compact-as-summary` answers last, with its summary. | `{:status :done :resume? true :message ".."}`, or `:status :failed`. Write the result with `checkpoint!`. An interrupted turn goes on unless `:resume? false`. |
 | `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`), `:summary` (its text). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, named by `:tool`, `:hook` and `:hook-type`, or `:module`). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and `eca/shell!`. | `:command`, `:cwd`, `:env` |
-| `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. | `:config`, except its `modules` key |
-| `:config/changed` | notify | `:prev-config`, `:config`. When ECA sees the config change. | — |
+| `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. `eca/agents` merges the agents first, at priority `1000`. The ctx's `:db` has only `:workspace-folders`. | `:config`, except its `modules` key |
+| `:config/changed` | notify | `:prev-config`, `:config`. When ECA sees the config change; `:prev-config` is nil the first time, a few seconds after startup. | — |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
 
 `:additional-context` is a string, `{:text "..." :data {...}}` to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.

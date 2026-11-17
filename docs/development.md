@@ -78,10 +78,10 @@ ECA is a core plus modules. Core is layered, lowest first, and a namespace requi
 Every other feature is a module under `src/eca/modules/`, built in or external, with these rules:
 
 - Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.
-- Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote and otel aside) or offer a multimethod for modules to extend.
+- Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote, otel and repl aside) or offer a multimethod for modules to extend.
 - New module keys start built-in only; open one to external modules when one needs it.
 
-`test/eca/architecture_test.clj` checks the layers and the rules. Its allowlists hold the couplings left from before the rules, and only shrink.
+`test/eca/architecture_test.clj` checks the layers and the rules, also in `requiring-resolve`s and fully qualified calls. Its allowlists hold the couplings left from before the rules (and the module API resolving the engines at runtime), and only shrink.
 
 ### Unit Tests
 

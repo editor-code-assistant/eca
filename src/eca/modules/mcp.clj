@@ -36,8 +36,6 @@
 
 (set! *warn-on-reflection* true)
 
-;; TODO create tests for this ns
-
 (def ^:private logger-tag "[MCP]")
 
 (defn ^:private traffic-log
@@ -81,31 +79,55 @@
    so they can be interrupted during shutdown."
   (atom {}))
 
+(def ^:private stopped-init-threads*
+  "The init threads `stop-server!` or `shutdown!` stopped: their server is no
+   longer theirs, so they don't mark it failed nor tell clients."
+  (atom #{}))
+
 (defn ^:private register-init-thread! [server-name ^Thread thread]
   (swap! init-threads* assoc server-name thread))
 
-(defn ^:private deregister-init-thread! [server-name]
-  (swap! init-threads* dissoc server-name))
+(defn ^:private deregister-init-thread!
+  "Removes `thread` as `server-name`'s init thread, unless another one took
+   its place."
+  [server-name thread]
+  (swap! init-threads* (fn [threads]
+                         (cond-> threads
+                           (identical? thread (get threads server-name)) (dissoc server-name)))))
+
+(defn ^:private stop-init-thread!
+  "Stops `server-name`'s init thread `thread`: it's no longer the server's,
+   then it's interrupted."
+  [server-name ^Thread thread]
+  (swap! stopped-init-threads* conj thread)
+  (deregister-init-thread! server-name thread)
+  (.interrupt thread))
+
+(defn ^:private init-stopped?
+  "Whether the init running on this thread was stopped."
+  []
+  (contains? @stopped-init-threads* (Thread/currentThread)))
 
 (defn ^:private interrupt-init-threads!
   "Interrupt all in-flight init threads to unblock stuck startups."
   []
   (doseq [[server-name ^Thread thread] @init-threads*]
     (logger/info logger-tag (format "Interrupting init thread for server '%s'" server-name))
-    (.interrupt thread))
-  (reset! init-threads* {}))
+    (stop-init-thread! server-name thread)))
 
 (defmacro ^:private with-init-thread
   "Registers the current thread in `init-threads*` for the given server name,
   executes body, and deregisters in a finally block. Allows `stop-server!` and
   `shutdown!` to interrupt in-progress initializations."
   [server-name & body]
-  `(let [name# ~server-name]
-     (register-init-thread! name# (Thread/currentThread))
+  `(let [name# ~server-name
+         thread# (Thread/currentThread)]
+     (register-init-thread! name# thread#)
      (try
        ~@body
        (finally
-         (deregister-init-thread! name#)))))
+         (deregister-init-thread! name# thread#)
+         (swap! stopped-init-threads* disj thread#)))))
 
 (def ^:private env-var-regex
   #"\$(\w+)|\$\{([^}]+)\}")
@@ -517,6 +539,8 @@
                                    _ (when-not init-result
                                        (throw (ex-info "MCP initialize returned no result"
                                                        {:server name})))
+                                   _ (when (init-stopped?)
+                                       (throw (InterruptedException. "Init stopped")))
                                    version (get-in init-result [:serverInfo :version])]
                                (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
                                                                                 :status :starting
@@ -554,12 +578,19 @@
                                      :ok)))
                              (catch Exception e
                                (try (pp/stop-client-transport! transport false) (catch Exception _))
-                               (if (and (transient-transport-error? e) (< attempt max-init-retries))
+                               (cond
+                                 (init-stopped?)
+                                 (do (logger/info logger-tag (format "Initialization of MCP server %s was stopped" name))
+                                     :stopped)
+
+                                 (and (transient-transport-error? e) (< attempt max-init-retries))
                                  (do
                                    (logger/warn logger-tag (format "Transient HTTP error initializing MCP server %s (attempt %d/%d), retrying: %s"
                                                                    name attempt max-init-retries
                                                                    (some-> e .getCause .getMessage)))
                                    :retry)
+
+                                 :else
                                  (do
                                    (let [cause (.getCause e)
                                          cause-message (cond
@@ -580,12 +611,14 @@
                   (recur (inc attempt))))))))
       (catch InterruptedException _
         (logger/info logger-tag (format "Initialization of MCP server %s was interrupted" name))
-        (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed @db*)))
+        (when-not (init-stopped?)
+          (swap! db* assoc-in [:mcp-clients name :status] :failed)
+          (on-server-updated (->server name server-config :failed @db*))))
       (catch Exception e
         (logger/error logger-tag (format "Unexpected error initializing MCP server %s: %s" name (.getMessage e)))
-        (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed @db*))))))
+        (when-not (init-stopped?)
+          (swap! db* assoc-in [:mcp-clients name :status] :failed)
+          (on-server-updated (->server name server-config :failed @db*)))))))
 
 (defn ^:private start-single-server-async!
   "Spawn a daemon init thread for a single MCP server. Used by both initial
@@ -613,8 +646,10 @@
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
   (when-let [^Thread init-thread (get @init-threads* name)]
     (logger/info logger-tag (format "Interrupting in-progress init thread for server '%s'" name))
-    (.interrupt init-thread)
-    (deregister-init-thread! name))
+    (stop-init-thread! name init-thread)
+    ;; a server still starting has no client yet: it's stopped now
+    (when-not (get-in @db* [:mcp-clients name])
+      (on-server-updated (->server name (get-in config [:mcpServers name]) :stopped @db*))))
   (when-let [{:keys [client http-client]} (get-in @db* [:mcp-clients name])]
     (let [server-config (get-in config [:mcpServers name])]
       (swap! db* assoc-in [:mcp-clients name :status] :stopping)

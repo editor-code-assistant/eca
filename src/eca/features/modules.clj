@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.tools :as f.tools]
+   [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.modules.config-spec :as config-spec]
    [eca.modules.loader :as loader]
@@ -59,7 +60,10 @@
   [{:keys [module built-in?] :as entry} {:keys [config] :as ctx}]
   (let [commands (:commands module)
         commands (if (modules/fn-like? commands)
-                   (try (commands (modules/module-ctx ctx entry)) (catch Exception _ nil))
+                   (try (commands (modules/module-ctx ctx entry))
+                        (catch Exception e
+                          (logger/warn "[modules]" (format "Could not list the commands of %s:" (:id entry)) e)
+                          nil))
                    commands)]
     (sort (distinct (concat (for [[command-name command] commands
                                   :when (not (and built-in? (:client-type command)))]

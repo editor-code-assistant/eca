@@ -356,7 +356,7 @@
             matched-actions)))
 
 (defn ^:private hook-label
-  "Who acted, as the messages core shows name it: \"hook 'lint'\"."
+  "Who acted, as core's messages name it: \"hook 'lint'\"."
   [hook-name]
   (str "hook '" hook-name "'"))
 
@@ -890,7 +890,10 @@
   [{:keys [db* config chat-id agent] :as chat-ctx} {:keys [tool server arguments result tool-call-id]}]
   (let [db @db*
         all-tools (f.tools/all-tools chat-id agent db config)
-        {:keys [name]} (f.tools/resolve-tool tool all-tools)
+        name (or (:name (f.tools/resolve-tool tool all-tools))
+                 ;; the tool may be gone since the call started, e.g. its server restarted
+                 (let [prefix (str server "__")]
+                   (if (string/starts-with? tool prefix) (subs tool (count prefix)) tool)))
         state* (atom {:replacement nil :contexts [] :stop nil})]
     (trigger-if-matches!
      :postToolCall

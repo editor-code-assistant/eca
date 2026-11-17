@@ -224,17 +224,25 @@
               :else ["must be a function, a map with :handler, or a vector of those"]))]
     (if (sequential? spec) (vec (mapcat one spec)) (one spec))))
 
-(defn ^:private section-problems [sections]
+(def ^:private built-in-only-section-keys
+  "Section keys only built-in modules' sections may have."
+  [:signature :resync?])
+
+(defn ^:private section-problems [built-in? sections]
   (cond
     (nil? sections) []
     (not (sequential? sections)) [":system-prompts must be a vector of sections"]
     :else (vec (mapcat (fn [section]
                          (if-not (map? section)
                            [":system-prompts: each section must be a map"]
-                           (cond-> []
-                             (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
-                             (not (or (string? (:content section)) (fn-like? (:content section))))
-                             (conj (format ":system-prompts %s: :content must be a string or a function" (:id section))))))
+                           (let [built-in-only (filter #(contains? section %) built-in-only-section-keys)]
+                             (cond-> []
+                               (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
+                               (not (or (string? (:content section)) (fn-like? (:content section))))
+                               (conj (format ":system-prompts %s: :content must be a string or a function" (:id section)))
+                               (and (not built-in?) (seq built-in-only))
+                               (conj (format ":system-prompts %s: %s are only for built-in modules"
+                                             (:id section) (string/join ", " built-in-only)))))))
                        sections))))
 
 (defn ^:private defines-problems [defines]
@@ -291,7 +299,7 @@
                   (if (and built-in? (fn-like? commands))
                     []
                     (map-of-problems ":commands" commands string? "a string" command-problems))
-                  (section-problems (:system-prompts module))
+                  (section-problems built-in? (:system-prompts module))
                   (map-of-problems ":providers" providers string? "a string" (partial provider-problems built-in?))
                   (map-of-problems ":apis" apis string? "a string"
                                    #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))

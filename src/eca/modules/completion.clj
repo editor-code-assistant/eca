@@ -31,7 +31,7 @@
     (->> (assoc lines line-idx updated-line)
          (string/join "\n"))))
 
-(defn inline-completion-prompt [config]
+(defn ^:private inline-completion-prompt [config]
   (let [legacy-config-file-prompt (get-in config [:completion :systemPromptFile])
         legacy-config-prompt (get-in config [:completion :systemPrompt])
         config-prompt (f.prompt/get-config-prompt :completion nil config)]

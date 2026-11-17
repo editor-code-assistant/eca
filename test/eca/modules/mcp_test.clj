@@ -158,6 +158,44 @@
               :workspace-folders []
               :other-key "value"} @db*)))))
 
+(deftest stop-a-starting-server-test
+  (let [db* (atom {:workspace-folders [{:uri "file:///tmp" :name "test"}]})
+        config {:mcpServers {"slow" {:command "slow-server"}} :mcpTimeoutSeconds 5}
+        statuses* (atom [])
+        notifiers {:on-server-updated #(swap! statuses* conj (:status %))}
+        calls* (atom 0)
+        first-init* (promise)
+        second-init* (promise)]
+    (with-redefs-fn {#'m.mcp/->transport (fn [& _] {:transport :mock-transport :needs-reinit?* (atom false)})
+                     ;; the handshake waits until the init is stopped; the first init, once stopped,
+                     ;; ends only after a second one started
+                     #'m.mcp/->client (fn [& _]
+                                        (if (= 1 (swap! calls* inc))
+                                          (do (deliver first-init* (Thread/currentThread))
+                                              (try @(promise)
+                                                   (catch InterruptedException e
+                                                     (deref second-init* 5000 nil)
+                                                     (throw e))))
+                                          (do (deliver second-init* (Thread/currentThread))
+                                              @(promise))))
+                     #'pp/stop-client-transport! (fn [_t _g] nil)}
+      (fn []
+        (m.mcp/initialize-servers-async! notifiers db* config nil)
+        (let [^Thread first-init (deref first-init* 5000 nil)]
+          (m.mcp/stop-server! "slow" db* config notifiers)
+          (m.mcp/initialize-servers-async! notifiers db* config nil)
+          (let [^Thread second-init (deref second-init* 5000 nil)]
+            (.join first-init 5000)
+            (testing "a server stopped while it starts is stopped, not failed, so it can start again"
+              (is (= [:starting :stopped :starting] @statuses*))
+              (is (nil? (get-in @db* [:mcp-clients "slow"]))))
+            (testing "the init that took its place is still the server's, so it can be stopped"
+              (is (identical? second-init (get @@#'m.mcp/init-threads* "slow"))))
+            (m.mcp/stop-server! "slow" db* config notifiers)
+            (.join second-init 5000)
+            (is (= [:starting :stopped :starting :stopped] @statuses*))
+            (is (= {} @@#'m.mcp/init-threads*))))))))
+
 (def ^:private ->transport #'m.mcp/->transport)
 
 (deftest transport-middleware-reads-latest-token-test

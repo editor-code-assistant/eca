@@ -171,6 +171,14 @@
     (or (pred)
         (when (< n 50) (Thread/sleep 50) (recur (inc n))))))
 
+(deftest blank-chat-title-test
+  (testing "a blank title keeps the chat's title"
+    (with-module! {:chat/title (constantly {:title "  "})})
+    (let [{:keys [chat-id]} (prompt! {:message "one"})]
+      (wait-for #(seq @events*))
+      (Thread/sleep 200)
+      (is (nil? (get-in (h/db) [:chats chat-id :title]))))))
+
 (deftest chat-title-asked-at-every-request-test
   (testing "modules are asked at every request, with the request count and the chat's title"
     (with-module! {:chat/title (fn [_ {:keys [prompt-count]}]

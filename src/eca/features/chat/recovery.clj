@@ -1,8 +1,9 @@
 (ns eca.features.chat.recovery
   "What a turn does when its request fails or its response is cut: modules
-   asked first (`:llm/request-failed`), then compaction on overflow, a retry
-   without images, the provider's recovery, auto-continue on transient
-   errors; else the turn ends with the error."
+   asked first (`:llm/request-failed`), which may compact the chat (the
+   summary module does on an overflow) or retry; then a retry without
+   images, the provider's recovery, auto-continue on transient errors; else
+   the turn ends with the error."
   (:require
    [clojure.string :as string]
    [eca.config :as config]
@@ -355,10 +356,10 @@
 
 (defn on-error
   "The request failed (`:on-error`). Modules are asked first
-   (`:llm/request-failed`, once per prompt): they may compact or retry. Else
-   an overflow auto-compacts, a rejected image is dropped, a provider may
-   recover, and a transient error auto-continues; otherwise the turn ends
-   with the error."
+   (`:llm/request-failed`, once per prompt): they may compact (the summary
+   module does on an overflow) or retry. Else a rejected image is dropped, a
+   provider may recover, and a transient error auto-continues; otherwise the
+   turn ends with the error."
   [{:keys [chat-ctx user-messages auto-continue-count*] :as turn} {:keys [message] :as error-data}]
   (let [{:keys [db* config chat-id provider full-model prompt-id] :as chat-ctx}
         (assoc chat-ctx :auto-continue-count @auto-continue-count*)

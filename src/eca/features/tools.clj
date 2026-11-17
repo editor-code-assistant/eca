@@ -284,8 +284,9 @@
                (:replaces tool) (assoc-in acc [:replacing k] definition)
 
                (contains? (:tools acc) k)
-               (do (logger/warn logger-tag (format "Module %s has a tool %s__%s, like another module; ignoring it"
-                                                   (:id entry) server-name tool-name))
+               (do (logger/warn-once [::duplicate-tool (:id entry) k] logger-tag
+                                     (format "Module %s has a tool %s__%s, like another module; ignoring it"
+                                             (:id entry) server-name tool-name))
                    acc)
 
                :else (assoc-in acc [:tools k] definition))))
@@ -368,6 +369,29 @@
                                override))
     tool))
 
+(defn ^:private checked-tool-servers
+  "The tool servers an external module listed, without what isn't well
+   formed, warned about once: a server needs a name, a tool too; a status
+   that isn't a string or a keyword counts as none."
+  [entry servers]
+  (let [warn! (fn [what]
+                (logger/warn-once [::malformed-tool-servers (:id entry) what] logger-tag
+                                  (format "Module %s listed %s; ignoring it" (:id entry) what)))
+        named? #(and (map? %) (string? (:name %)) (not (string/blank? (:name %))))]
+    (if-not (sequential? servers)
+      (do (when (some? servers) (warn! "tool servers that aren't a list"))
+          [])
+      (keep (fn [server]
+              (if-not (named? server)
+                (warn! "a tool server without a name")
+                (let [tools (if (sequential? (:tools server)) (:tools server) [])]
+                  (when-not (every? named? tools)
+                    (warn! (format "tools without a name in tool server %s" (:name server))))
+                  (cond-> (assoc server :tools (filterv named? tools))
+                    (not (or (string? (:status server)) (keyword? (:status server))))
+                    (dissoc :status)))))
+            servers))))
+
 (defn ^:private listed-tool-servers
   "`[entry server]` for each of the active modules' tool servers
    (`:tool-servers` `:list`). When two modules list a server of the same
@@ -378,8 +402,9 @@
    (reduce (fn [acc [entry {server-name :name} :as listed]]
              (if-let [owner (get-in acc [:owners server-name])]
                (do (when (not= owner (:id entry))
-                     (logger/warn logger-tag (format "Module %s has a tool server %s, like module %s; ignoring it"
-                                                     (:id entry) server-name owner)))
+                     (logger/warn-once [::duplicate-tool-server (:id entry) server-name] logger-tag
+                                       (format "Module %s has a tool server %s, like module %s; ignoring it"
+                                               (:id entry) server-name owner)))
                    acc)
                (-> acc
                    (assoc-in [:owners server-name] (:id entry))
@@ -389,10 +414,12 @@
                  :let [module-ctx (modules/module-ctx ctx entry)]
                  server (if (:built-in? entry)
                           (list-servers module-ctx)
-                          (modules/invoke-safe module-ctx entry "tool servers"
-                                               {:timeout-ms (modules/timeout-for
-                                                             entry nil modules/default-handler-timeout-ms)}
-                                               list-servers module-ctx))]
+                          (checked-tool-servers
+                           entry
+                           (modules/invoke-safe module-ctx entry "tool servers"
+                                                {:timeout-ms (modules/timeout-for
+                                                              entry nil modules/default-handler-timeout-ms)}
+                                                list-servers module-ctx)))]
              [entry server]))))
 
 (defn ^:private server-tools
