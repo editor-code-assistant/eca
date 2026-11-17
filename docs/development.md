@@ -33,7 +33,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/features/`         | **Core capabilities exposed to the editor**
    ├─ `chat.clj` + `chat/`     | The chat engine: `chat.clj` is its entry (prompt, commands, tool-call answers, stop); `chat/` has a turn's requests (`turn`, their `callbacks`, `recovery`), `compaction`, the lifecycle (content, events, finish), the tool-call state machine and batches, steering, replay, chat operations and the system prompt.
    ├─ `commands.clj`           | Lists the modules' commands, with the skills, custom commands and MCP prompts they give, and runs the one typed.
-   ├─ `context.clj`            | Contexts attached to prompts (files, repo map, ...).
+   ├─ `context.clj`            | Contexts attached to prompts: files, folders, the cursor, and the ones modules give.
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `login.clj`              | Provider auth flows.
    ├─ `providers.clj`          | Model/provider resolution.

@@ -90,6 +90,9 @@
     (testing "MCP resources and instructions are dynamic sections of :eca/mcp"
       (let [dynamic (f.prompt/build-dynamic-instructions contexts db-with-mcp {})]
         (is (string/includes? dynamic "## MCP Resources"))
+        (is (string/includes? dynamic (str "<contexts description=\"Resources from connected MCP servers.\">\n"
+                                           "<resource uri=\"mcp://docs/readme\">Hello docs</resource>\n"
+                                           "</contexts>")))
         (is (string/includes? dynamic "Use myMCP for the docs."))))
     (testing "disabled, they're left out"
       (is (nil? (f.prompt/build-dynamic-instructions contexts db-with-mcp disabled))))))

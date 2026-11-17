@@ -1605,7 +1605,10 @@
     (when (seq resources)
       ["## MCP Resources"
        ""
-       (f.prompt/contexts-str resources nil
+       (f.prompt/contexts-str (map (fn [{:keys [uri content]}]
+                                     (format "<resource%s>%s</resource>" (f.prompt/attr-str {:uri uri}) content))
+                                   resources)
+                              nil
                               {:description "Resources from connected MCP servers."})
        ""])))
 

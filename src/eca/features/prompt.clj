@@ -90,7 +90,7 @@
                  (format " %s=%s" (name k) (attr-value-str v)))))
        string/join))
 
-(defn ^:private render-context [{:keys [type path position content lines-range uri label]}]
+(defn ^:private render-context [{:keys [type path position content lines-range label]}]
   (case type
     :file (if lines-range
             (format "<file%s>%s</file>"
@@ -110,17 +110,18 @@
                                :path path
                                :start (str (:line (:start position)) ":" (:character (:start position)))
                                :end (str (:line (:end position)) ":" (:character (:end position)))}))
-    :mcpResource (format "<resource%s>%s</resource>" (attr-str {:uri uri}) content)
     :text (format "<text%s>%s</text>" (attr-str {:label label}) content)
     nil))
 
 (defn contexts-str
+  "The `<contexts>` block of `refined-contexts`. A context may also be its
+   text already, as a module renders the contexts of its own types."
   ([refined-contexts startup-ctx]
    (contexts-str refined-contexts startup-ctx {}))
   ([refined-contexts startup-ctx {:keys [tag description]
                                   :or {tag "contexts"
                                        description "User-provided context. Treat as current and accurate."}}]
-   (let [body (cond-> (vec (keep render-context refined-contexts))
+   (let [body (cond-> (vec (keep #(if (string? %) % (render-context %)) refined-contexts))
                 startup-ctx (conj (multi-str "<additional-context>"
                                              startup-ctx
                                              "</additional-context>")))]
