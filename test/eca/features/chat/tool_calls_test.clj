@@ -3,8 +3,9 @@
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
-   [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.chat.tool-calls :as tc]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.tool-batch :as f.chat.tool-batch]
+   [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.tools :as f.tools]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
@@ -29,10 +30,9 @@
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :user-config-allow
@@ -54,10 +54,9 @@
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :ask)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false}
                       plan))))))
@@ -77,10 +76,9 @@
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :deny)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false
                        :reason {:code :user-config-deny
@@ -109,11 +107,10 @@
                                                     (when-let [on-after (:on-after-action callbacks)]
                                                       (on-after {:parsed {"approval" "ask"}
                                                                  :exit 0}))))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (= 1 @hook-call-count))
           (is (match? {:decision :ask
                        :arguments {:foo "bar"}
-                       :approval-override "ask"
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? false}
                       plan))))))
@@ -138,25 +135,21 @@
                                                                        (on-after {:parsed {"approval" approval}
                                                                                   :exit 0
                                                                                   :raw-error nil})))))]
-                       (#'tc/decide-tool-call-action tool-call all-tools (h/db) config :default "test-chat")))]
+                       (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools (h/db) config :default "test-chat")))]
       ;; deny wins over ask and allow
       (is (match? {:decision :deny
-                   :approval-override "deny"
                    :tool-call-rejected-by-hook? true
                    :reason {:code :hook-rejected :text "Tool call rejected by hook"}}
                   (run-plan :allow ["allow" "deny" "ask"])))
       ;; ask wins over allow
       (is (match? {:decision :ask
-                   :approval-override "ask"
                    :tool-call-rejected-by-hook? false}
                   (run-plan :allow ["allow" "ask"])))
       ;; a hook "allow" never loosens a stricter config decision (ask/deny)
       (is (match? {:decision :ask
-                   :approval-override "allow"
                    :tool-call-rejected-by-hook? false}
                   (run-plan :ask ["allow"])))
       (is (match? {:decision :deny
-                   :approval-override "allow"
                    :tool-call-rejected-by-hook? false
                    :reason {:code :user-config-deny}}
                   (run-plan :deny ["allow"])))))
@@ -182,10 +175,9 @@
                                                       (on-after {:parsed {"additionalContext" "Hook rejected"}
                                                                  :exit 2
                                                                  :raw-error "Command failed"}))))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :arguments {:foo "bar"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? true
                        :arguments-modified? false
                        :reason {:code :hook-rejected
@@ -216,7 +208,7 @@
                                                                           "stopReason" "user-only"}
                                                                  :exit 0
                                                                  :raw-error nil}))))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
                        :tool-call-rejected-by-hook? true
                        :stop-turn? false
@@ -242,7 +234,7 @@
                                        (let [opts (last args)]
                                          (if (:trust opts) :trust/allow :ask)))
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                                  {:trust true})]
           (is (match? {:decision :allow
                        :arguments {:foo "bar"}
@@ -267,7 +259,7 @@
           chat-id "test-chat"]
       (with-redefs [f.tools/approval (constantly :deny)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                                  {:trust true})]
           (is (match? {:decision :deny
                        :reason {:code :user-config-deny
@@ -295,7 +287,7 @@
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
-        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
+        (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                       {:trust true})
         (is (= :allow (:approval @hook-data*))))))
 
@@ -320,7 +312,7 @@
                                                       (on-after {:parsed {"additionalContext" "Hook rejected"}
                                                                  :exit 2
                                                                  :raw-error "Command failed"}))))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                                  {:trust true})]
           (is (match? {:decision :deny
                        :tool-call-rejected-by-hook? true
@@ -349,10 +341,9 @@
                                                     (when-let [on-after (:on-after-action callbacks)]
                                                       (on-after {:parsed {"updatedInput" {"baz" "qux"}}
                                                                  :exit 0}))))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
                        :arguments {"foo" "bar" "baz" "qux"}
-                       :approval-override nil
                        :tool-call-rejected-by-hook? false
                        :arguments-modified? true}
                       plan))))))
@@ -376,9 +367,9 @@
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
-                                                      (on-after {:parsed {} :exit 0}))))]
-        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id
-                                      {:on-after-hook-action (fn [result] (reset! notified* result))})
+                                                      (on-after {:parsed {} :exit 0}))))
+                    m.hooks/notify-after-hook-action! (fn [_chat-ctx result] (reset! notified* result))]
+        (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)
         ;; tool-call-id correlates the hook with its tool widget; clients can
         ;; use it to associate the hook block with the tool call.
         (is (match? {:tool-call-id "call-1"}
@@ -402,7 +393,7 @@
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (= :ask (:approval @hook-data*))
               "preToolCall hook receives :ask so notification hooks fire while waiting on user")
           (is (match? {:decision :allow
@@ -428,7 +419,7 @@
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
-        (let [plan (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
+        (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (= :deny (:approval @hook-data*))
               "explicit :deny is preserved, not overridden to :ask")
           (is (= :deny (:decision plan)))))))
@@ -451,7 +442,7 @@
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
-        (#'tc/decide-tool-call-action tool-call all-tools db config agent-name chat-id)
+        (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)
         (is (= :allow (:approval @hook-data*))
             "ask_user override does not leak to other tools")))))
 
@@ -500,10 +491,10 @@
                     f.tools/tool-call-details-before-invocation (constantly nil)
                     f.tools/tool-call-details-after-invocation  (constantly nil)
                     f.tools/tool-call-summary               (constantly "Test tool")
-                    lifecycle/maybe-renew-auth-token
+                    f.chat.lifecycle/maybe-renew-auth-token
                     (fn [ctx]
                       (swap! (:db* ctx) update-in [:auth provider] merge renewed-provider-auth))]
-        (let [result ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
+        (let [result ((f.chat.tool-batch/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
           (is (= (:api-key expected-provider-auth) (:fresh-api-key result))
               "fresh-api-key must be returned so the provider can use it in the recursive streaming call")
           (is (= expected-provider-auth
@@ -551,10 +542,10 @@
                     f.tools/tool-call-details-before-invocation (constantly nil)
                     f.tools/tool-call-details-after-invocation  (constantly nil)
                     f.tools/tool-call-summary                   (constantly "Test tool")
-                    lifecycle/maybe-renew-auth-token
+                    f.chat.lifecycle/maybe-renew-auth-token
                     (fn [ctx]
                       (swap! (:db* ctx) update-in [:auth provider] merge renewed-provider-auth))]
-        (let [result ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
+        (let [result ((f.chat.tool-batch/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
           (is (some? result)
               "subagent rejection path must continue the loop (non-nil) instead of aborting")
           (is (= (:api-key renewed-provider-auth) (:fresh-api-key result))
@@ -600,8 +591,8 @@
                     f.tools/tool-call-details-before-invocation (constantly nil)
                     f.tools/tool-call-details-after-invocation  (constantly nil)
                     f.tools/tool-call-summary                   (constantly "Test tool")
-                    lifecycle/maybe-renew-auth-token            (constantly nil)]
-        (let [result ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls)]
+                    f.chat.lifecycle/maybe-renew-auth-token            (constantly nil)]
+        (let [result ((f.chat.tool-batch/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls)]
           (is (= "key-resolved-now" (:fresh-api-key result))))))))
 
 (deftest on-tools-called!-summary-requested-refuses-tools-test
@@ -640,7 +631,7 @@
                     f.tools/call-tool! (fn [& _]
                                          (reset! tool-called?* true)
                                          {:contents [{:text "result" :type :text}]})]
-        (is (nil? ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)))
+        (is (nil? ((f.chat.tool-batch/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)))
         (is (false? @tool-called?*))
         (is (= 2 (get-in @db* [:chats chat-id :current-step])))
         (is (nil? (get-in @db* [:chats chat-id :max-steps-reached?])))
@@ -696,10 +687,10 @@
                     f.tools/tool-call-details-before-invocation (constantly nil)
                     f.tools/tool-call-details-after-invocation  (constantly nil)
                     f.tools/tool-call-summary                   (constantly "Tool")
-                    lifecycle/maybe-renew-auth-token            (fn [_] nil)
-                    lifecycle/send-content!                     (fn [_ role content]
-                                                                  (swap! sent* conj {:role role :content content}))]
-        (let [result ((tc/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
+                    f.chat.lifecycle/maybe-renew-auth-token            (fn [_] nil)
+                    f.chat.lifecycle/send-content!                     (fn [_ role content]
+                                                                         (swap! sent* conj {:role role :content content}))]
+        (let [result ((f.chat.tool-batch/on-tools-called! chat-ctx received-msgs* add-to-history! []) tool-calls)]
           ;; continue:false stops the turn — the loop returns nil (no continuation).
           (is (nil? result))
           ;; Only the first tool was ever processed by preToolCall hooks.
@@ -709,7 +700,7 @@
           (is (not-any? #{"eca__tool_b"} @called-tools*)
               "the second tool must not run after a current-turn stop")
           ;; A turn-stop message carrying the hook's reason is surfaced to the user.
-          ;; The exact wording is covered by lifecycle/turn-stopped-by-hook-message-test.
+          ;; The exact wording is covered by lifecycle-test/ended-message-test.
           (is (some #(some-> (get-in % [:content :text]) (string/includes? "halt")) @sent*)
               "a turn-stopped message must be shown"))))))
 
@@ -742,12 +733,12 @@
                      (let [ran-before-approval? (not= ::timeout (deref tool-b-ran 5000 ::timeout))]
                        (loop [attempts 0]
                          (when (and (< attempts 500)
-                                    (not= :waiting-approval (:status (tc/get-tool-call-state @db* chat-id "call-1"))))
+                                    (not= :waiting-approval (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id "call-1"))))
                            (Thread/sleep 10)
                            (recur (inc attempts))))
-                       (tc/transition-tool-call! db* chat-ctx "call-1" :user-approve
-                                                 {:reason {:code :user-choice-allow
-                                                           :text "Tool call allowed by user choice"}})
+                       (f.chat.tool-calls/transition-tool-call! db* chat-ctx "call-1" :user-approve
+                                                                {:reason {:code :user-choice-allow
+                                                                          :text "Tool call allowed by user choice"}})
                        ran-before-approval?))]
       (with-redefs [f.tools/all-tools                           (constantly all-tools)
                     f.tools/approval                            (fn [_ tool & _]
@@ -761,8 +752,8 @@
                     f.tools/tool-call-details-before-invocation (constantly nil)
                     f.tools/tool-call-details-after-invocation  (constantly nil)
                     f.tools/tool-call-summary                   (constantly "Tool")
-                    lifecycle/maybe-renew-auth-token            (fn [_] nil)]
-        ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls)
+                    f.chat.lifecycle/maybe-renew-auth-token            (fn [_] nil)]
+        ((f.chat.tool-batch/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls)
         (is (true? (deref approver 10000 ::timeout))
             "the allowed tool must run before the pending approval is answered")
         (is (= #{"eca__tool_a" "eca__tool_b"} (set @called-tools*)))))))
@@ -778,8 +769,8 @@
                  {:db* (h/db*) :chat-id chat-id :messenger (h/messenger)})]
     (testing "an executing call stores progress and re-sends toolCallRunning with it"
       (let [chat-ctx (setup! :executing)]
-        (tc/report-tool-call-progress! (:db* chat-ctx) chat-ctx "call-1" progress)
-        (is (= progress (:progress (tc/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
+        (f.chat.tool-calls/report-tool-call-progress! (:db* chat-ctx) chat-ctx "call-1" progress)
+        (is (= progress (:progress (f.chat.tool-calls/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
         (is (match? [{:type :toolCallRunning :id "call-1" :name "index" :server "srv" :origin :mcp
                       :arguments {"path" "."} :summary "Indexing repo" :progress progress}]
                     (->> (h/messages) :chat-content-received (mapv :content))))))
@@ -787,9 +778,9 @@
     (testing "progress is ignored once the call is no longer executing"
       (doseq [status [:stopping :cleanup :completed]]
         (let [chat-ctx (setup! status)]
-          (tc/report-tool-call-progress! (:db* chat-ctx) chat-ctx "call-1" progress)
-          (is (nil? (:progress (tc/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
-          (is (= status (:status (tc/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
+          (f.chat.tool-calls/report-tool-call-progress! (:db* chat-ctx) chat-ctx "call-1" progress)
+          (is (nil? (:progress (f.chat.tool-calls/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
+          (is (= status (:status (f.chat.tool-calls/get-tool-call-state @(:db* chat-ctx) chat-id "call-1"))))
           (is (empty? (:chat-content-received (h/messages)))))))))
 
 (deftest send-toolCalled-image-content-emission-test
@@ -804,7 +795,7 @@
                       :outputs [{:type :text :text "ok"}
                                 {:type :image :media-type "image/png" :base64 "AAAA"}
                                 {:type :image :media-type "image/jpeg" :base64 "BBBB"}]}]
-      (#'tc/execute-action! :send-toolCalled (h/db*) chat-ctx "call-42" event-data)
+      (#'f.chat.tool-calls/execute-action! :send-toolCalled (h/db*) chat-ctx "call-42" event-data)
       (let [events (->> (h/messages) :chat-content-received (mapv :content))]
         (is (= 3 (count events))
             "expects 1 toolCalled + 2 image events")
@@ -827,7 +818,7 @@
                       :arguments {}
                       :total-time-ms 7
                       :outputs [{:type :text :text "done"}]}]
-      (#'tc/execute-action! :send-toolCalled (h/db*) chat-ctx "call-43" event-data)
+      (#'f.chat.tool-calls/execute-action! :send-toolCalled (h/db*) chat-ctx "call-43" event-data)
       (let [events (->> (h/messages) :chat-content-received (mapv :content))]
         (is (= 1 (count events)))
         (is (match? {:type :toolCalled
@@ -837,30 +828,32 @@
 (deftest post-tool-call-stop-info-test
   (let [prompt-id "prompt-2"]
     ;; [tool-calls => expected stop info]
-    (are [tool-calls expected] (= expected (#'tc/post-tool-call-stop-info tool-calls prompt-id))
+    (are [tool-calls expected] (= expected (#'f.chat.tool-batch/post-tool-call-stop-info tool-calls prompt-id))
       ;; empty tool-calls map reports no stop
-      {} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      {} {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; no hook requested a stop
-      {"t1" {:status :completed}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      {"t1" {:status :completed}} {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; stale stop from an older prompt is ignored
       {"t1" {:post-tool-call-stop? true
              :post-tool-call-stop-prompt-id "prompt-1"
              :post-tool-call-stop-reason "old halt"
-             :post-tool-call-stop-hook-name "old-redact"}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+             :post-tool-call-stop-ended-by {:module :eca/hooks :by "hook 'old-redact'"}}}
+      {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; stop without prompt id is ignored; postToolCall stops are current-turn only
-      {"t1" {:post-tool-call-stop? true}} {:stop-turn? false :stop-reason nil :stop-hook-name nil}
+      {"t1" {:post-tool-call-stop? true}} {:stop-turn? false :stop-reason nil :ended-by nil}
       ;; current prompt stop requested without a reason
       {"t1" {:post-tool-call-stop? true
-             :post-tool-call-stop-prompt-id prompt-id}} {:stop-turn? true :stop-reason nil :stop-hook-name nil}
+             :post-tool-call-stop-prompt-id prompt-id}} {:stop-turn? true :stop-reason nil :ended-by nil}
       ;; current prompt stop requested with a reason
       {"t1" {:post-tool-call-stop? true
              :post-tool-call-stop-prompt-id prompt-id
              :post-tool-call-stop-reason "halt"
-             :post-tool-call-stop-hook-name "redact"}} {:stop-turn? true :stop-reason "halt" :stop-hook-name "redact"})
+             :post-tool-call-stop-ended-by {:module :eca/hooks :by "hook 'redact'"}}}
+      {:stop-turn? true :stop-reason "halt" :ended-by {:module :eca/hooks :by "hook 'redact'"}})
 
     (testing "reason is found even when it lives on a different current-prompt tool-call than the first stop flag"
       (is (match? {:stop-turn? true :stop-reason "halt"}
-                  (#'tc/post-tool-call-stop-info
+                  (#'f.chat.tool-batch/post-tool-call-stop-info
                    (array-map "t1" {:post-tool-call-stop? true
                                     :post-tool-call-stop-prompt-id prompt-id}
                               "t2" {:post-tool-call-stop? true
@@ -869,34 +862,35 @@
                    prompt-id))))
 
     (testing "old prompt stop does not leak when a later tool call has no stop"
-      (is (= {:stop-turn? false :stop-reason nil :stop-hook-name nil}
-             (#'tc/post-tool-call-stop-info
+      (is (= {:stop-turn? false :stop-reason nil :ended-by nil}
+             (#'f.chat.tool-batch/post-tool-call-stop-info
               (array-map "old" {:post-tool-call-stop? true
                                 :post-tool-call-stop-prompt-id "prompt-1"
                                 :post-tool-call-stop-reason "old halt"}
                          "current" {:status :completed})
               prompt-id))))))
 
-(deftest trigger-post-tool-call-hook-tags-stop-with-prompt-id-test
-  (testing "postToolCall continue:false stop state is scoped to the current prompt"
+(deftest emit-tool-called-tags-stop-with-prompt-id-test
+  (testing "a postToolCall continue:false stop state is scoped to the current prompt"
     (h/reset-components!)
     (let [db* (h/db*)]
       (swap! db* assoc-in [:chats "chat-1" :tool-calls "tool-1"] {:status :completed})
-      (with-redefs-fn {#'tc/run-post-tool-call-hooks! (constantly {:stop-turn? true
-                                                                   :stop-reason "halt"
-                                                                   :stop-hook-name "guard"})}
+      (with-redefs-fn {#'m.hooks/post-tool-call (constantly {:stop "halt" :by "hook 'guard'"})}
         (fn []
-          (#'tc/execute-action! :trigger-post-tool-call-hook
-                                db*
-                                {:chat-id "chat-1"
-                                 :prompt-id "prompt-2"
-                                 :messenger (h/messenger)}
-                                "tool-1"
-                                {:outputs [{:type :text :text "ok"}]})))
+          (#'f.chat.tool-calls/execute-action! :emit-tool-called
+                                               db*
+                                               {:chat-id "chat-1"
+                                                :prompt-id "prompt-2"
+                                                :db* db*
+                                                :config (h/config)
+                                                :messenger (h/messenger)}
+                                               "tool-1"
+                                               {:full-name "eca__shell_command" :server "eca" :arguments {}
+                                                :outputs [{:type :text :text "ok"}]})))
       (is (match? {:post-tool-call-stop? true
                    :post-tool-call-stop-prompt-id "prompt-2"
                    :post-tool-call-stop-reason "halt"
-                   :post-tool-call-stop-hook-name "guard"}
+                   :post-tool-call-stop-ended-by {:module :eca/hooks :by "hook 'guard'"}}
                   (get-in @db* [:chats "chat-1" :tool-calls "tool-1"]))))))
 
 (deftest cleanup-signal-follows-hooks-test
@@ -905,31 +899,31 @@
     (let [done (promise)
           db* (atom {:chats {"child" {:tool-calls {"tool" {:status status
                                                           :future-cleanup-complete?* done}}}}})
-          execute @#'tc/execute-action!]
-      (with-redefs [tc/execute-action!
+          execute @#'f.chat.tool-calls/execute-action!]
+      (with-redefs [f.chat.tool-calls/execute-action!
                     (fn [action & args]
                       (if (= :deliver-future-cleanup-completed action)
                         (apply execute action args)
                         (do (is (not (realized? done)) "Actions must finish before the join is released")
                             (when (= :action failure) (throw (ex-info "action failed" {}))))))
-                    lifecycle/trigger-chat-status-hook!
+                    f.chat.lifecycle/trigger-chat-status-hook!
                     (fn [_]
                       (is (not (realized? done)) "Status hook is part of tool-side work")
                       (when (= :status failure) (throw (ex-info "status failed" {}))))]
-        (try (tc/transition-tool-call! db* {:chat-id "child"} "tool" event {})
+        (try (f.chat.tool-calls/transition-tool-call! db* {:chat-id "child"} "tool" event {})
              (catch clojure.lang.ExceptionInfo e (is failure (ex-message e))))
         (is (realized? done) "Exceptions must also release the join")))))
 
 (deftest rejected-tool-call-output-contents-test
   (testing "states the call did not run and made no changes (#507)"
-    (let [text (-> (#'tc/rejected-tool-call-output-contents "Tool call rejected by user choice")
+    (let [text (-> (#'f.chat.tool-batch/rejected-tool-call-output-contents "Tool call rejected by user choice")
                    first
                    :text)]
       (is (string/includes? text "did NOT run"))
       (is (string/includes? text "made NO changes"))
       (is (string/includes? text "Reason: Tool call rejected by user choice"))))
   (testing "omits the reason line when there is no reason text"
-    (let [text (-> (#'tc/rejected-tool-call-output-contents "  ") first :text)]
+    (let [text (-> (#'f.chat.tool-batch/rejected-tool-call-output-contents "  ") first :text)]
       (is (string/includes? text "did NOT run"))
       (is (not (string/includes? text "Reason:"))))))
 
@@ -990,8 +984,8 @@
                                                                   (throw (ex-info "details need valid arguments" {}))))
                   f.tools/tool-call-details-after-invocation (constantly nil)
                   f.tools/tool-call-summary (constantly "Test tool")
-                  lifecycle/maybe-renew-auth-token (fn [_] nil)]
-      (let [on-tools-called (tc/on-tools-called! chat-ctx (atom "") add-to-history! [])]
+                  f.chat.lifecycle/maybe-renew-auth-token (fn [_] nil)]
+      (let [on-tools-called (f.chat.tool-batch/on-tools-called! chat-ctx (atom "") add-to-history! [])]
         {:results (mapv on-tools-called rounds)
          :called-arguments @called-arguments*
          :approval-count @approval-count*
@@ -1089,7 +1083,7 @@
                 (:chat-content-received (h/messages))))))
 
 (deftest invalid-arguments-tool-call-output-contents-test
-  (let [text (-> (#'tc/invalid-arguments-tool-call-output-contents invalid-arguments-error) first :text)]
+  (let [text (-> (#'f.chat.tool-batch/invalid-arguments-tool-call-output-contents invalid-arguments-error) first :text)]
     (is (string/includes? text "did NOT run"))
     (is (string/includes? text "made NO changes"))
     (is (string/includes? text invalid-arguments-error))

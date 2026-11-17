@@ -464,7 +464,7 @@ interface ChatPromptParams {
  */
 type Model = string;
 
-type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext | McpResourceContext | ImageContext | TextContext;
+type ChatContext = FileContext | DirectoryContext | WebContext | CursorContext | McpResourceContext | ImageContext | TextContext;
 
 /**
  * Context related to a file in the workspace
@@ -558,19 +558,6 @@ interface TextContext {
      * The raw text content.
      */
     content: string;
-}
-
-/**
- * Context about the workspaces repo-map, automatically calculated by server.
- * Clients should include this to chat by default but users may want exclude 
- * this context to reduce context size if needed.
- * The server delivers it in the user message like `FileContext`: in full once,
- * then a one-line notice when the workspace structure changes.
- *
- * @deprecated No longer needed, replaced by eca__directory_tree tool.
- */
-interface RepoMapContext {
-    type: 'repoMap'; 
 }
 
 /**
@@ -1876,7 +1863,7 @@ the running task, instead of injecting the command text into the conversation.
 
 Other native commands that do not affect the running turn (`/sync-system-prompt`, `/costs`,
 `/context`, `/chats`, `/skills`, `/rules`, `/subagents`, `/plugins`, `/hooks`, `/prompt-show`,
-`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
+`/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
 `/forget-approvals`) are also queued and
 executed at the turn boundary: their output is shown and the task resumes. Native commands that
 would change the chat or start another prompt (`/model`, `/agent`, `/fork`, `/resume`,
@@ -3224,16 +3211,19 @@ interface EcaServerUpdatedParams {
 }
 
 /**
- * The tools of an external module (a user's or a plugin's ECA module). Its
+ * The tools of an external module (a user's or a plugin's ECA module): its
+ * own, on a server named by its prefix, or one of its tool servers'. Its
  * tools are named `<name>__<tool>`, like MCP tools. Sent again when modules
  * load, reload, are enabled or disabled, or add or remove tools; when a
- * module has no tools anymore, `tool/serverRemoved` drops its server.
+ * module has no tools anymore, or no longer has a tool server,
+ * `tool/serverRemoved` drops that server.
  */
 interface ModuleServerUpdatedParams {
     type: 'module';
 
     /**
-     * The module's tool prefix, e.g. `jira` for `jira__issue`.
+     * The module's tool prefix, e.g. `jira` for `jira__issue`, or the name of
+     * one of its tool servers.
      */
     name: string;
 
@@ -3242,7 +3232,11 @@ interface ModuleServerUpdatedParams {
      */
     module: string;
 
-    status: 'running';
+    /**
+     * `running` for the module's own tools; a tool server's status may be
+     * any of an MCP server's.
+     */
+    status: string;
 
     /**
      * The module's tools.

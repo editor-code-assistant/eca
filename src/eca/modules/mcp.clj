@@ -9,11 +9,14 @@
    [clojure.string :as string]
    [eca.cache :as cache]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.diff :as diff]
    [eca.features.prompt :as f.prompt]
-   [eca.features.tools.util :as tools.util]
+   [eca.features.tools :as f.tools]
    [eca.logger :as logger]
+   [eca.messenger :as messenger]
+   [eca.metrics :as metrics]
+   [eca.modules :as modules]
    [eca.network :as network]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [multi-str]]
@@ -32,8 +35,6 @@
    [java.io IOException]))
 
 (set! *warn-on-reflection* true)
-
-;; TODO create tests for this ns
 
 (def ^:private logger-tag "[MCP]")
 
@@ -78,31 +79,55 @@
    so they can be interrupted during shutdown."
   (atom {}))
 
+(def ^:private stopped-init-threads*
+  "The init threads `stop-server!` or `shutdown!` stopped: their server is no
+   longer theirs, so they don't mark it failed nor tell clients."
+  (atom #{}))
+
 (defn ^:private register-init-thread! [server-name ^Thread thread]
   (swap! init-threads* assoc server-name thread))
 
-(defn ^:private deregister-init-thread! [server-name]
-  (swap! init-threads* dissoc server-name))
+(defn ^:private deregister-init-thread!
+  "Removes `thread` as `server-name`'s init thread, unless another one took
+   its place."
+  [server-name thread]
+  (swap! init-threads* (fn [threads]
+                         (cond-> threads
+                           (identical? thread (get threads server-name)) (dissoc server-name)))))
+
+(defn ^:private stop-init-thread!
+  "Stops `server-name`'s init thread `thread`: it's no longer the server's,
+   then it's interrupted."
+  [server-name ^Thread thread]
+  (swap! stopped-init-threads* conj thread)
+  (deregister-init-thread! server-name thread)
+  (.interrupt thread))
+
+(defn ^:private init-stopped?
+  "Whether the init running on this thread was stopped."
+  []
+  (contains? @stopped-init-threads* (Thread/currentThread)))
 
 (defn ^:private interrupt-init-threads!
   "Interrupt all in-flight init threads to unblock stuck startups."
   []
   (doseq [[server-name ^Thread thread] @init-threads*]
     (logger/info logger-tag (format "Interrupting init thread for server '%s'" server-name))
-    (.interrupt thread))
-  (reset! init-threads* {}))
+    (stop-init-thread! server-name thread)))
 
 (defmacro ^:private with-init-thread
   "Registers the current thread in `init-threads*` for the given server name,
   executes body, and deregisters in a finally block. Allows `stop-server!` and
   `shutdown!` to interrupt in-progress initializations."
   [server-name & body]
-  `(let [name# ~server-name]
-     (register-init-thread! name# (Thread/currentThread))
+  `(let [name# ~server-name
+         thread# (Thread/currentThread)]
+     (register-init-thread! name# thread#)
      (try
        ~@body
        (finally
-         (deregister-init-thread! name#)))))
+         (deregister-init-thread! name# thread#)
+         (swap! stopped-init-threads* disj thread#)))))
 
 (def ^:private env-var-regex
   #"\$(\w+)|\$\{([^}]+)\}")
@@ -433,7 +458,7 @@
           (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
           (swap! db* assoc-in [:mcp-auth auth-key]
                  (merge mcp-auth new-tokens))
-          (db/update-global-cache! @db* metrics)
+          (db.global-cache/update-global-cache! @db* metrics)
           true)))))
 
 (def ^:private max-init-retries 3)
@@ -514,6 +539,8 @@
                                    _ (when-not init-result
                                        (throw (ex-info "MCP initialize returned no result"
                                                        {:server name})))
+                                   _ (when (init-stopped?)
+                                       (throw (InterruptedException. "Init stopped")))
                                    version (get-in init-result [:serverInfo :version])]
                                (swap! db* assoc-in [:mcp-clients name] (cond-> {:client client
                                                                                 :status :starting
@@ -551,12 +578,19 @@
                                      :ok)))
                              (catch Exception e
                                (try (pp/stop-client-transport! transport false) (catch Exception _))
-                               (if (and (transient-transport-error? e) (< attempt max-init-retries))
+                               (cond
+                                 (init-stopped?)
+                                 (do (logger/info logger-tag (format "Initialization of MCP server %s was stopped" name))
+                                     :stopped)
+
+                                 (and (transient-transport-error? e) (< attempt max-init-retries))
                                  (do
                                    (logger/warn logger-tag (format "Transient HTTP error initializing MCP server %s (attempt %d/%d), retrying: %s"
                                                                    name attempt max-init-retries
                                                                    (some-> e .getCause .getMessage)))
                                    :retry)
+
+                                 :else
                                  (do
                                    (let [cause (.getCause e)
                                          cause-message (cond
@@ -577,12 +611,14 @@
                   (recur (inc attempt))))))))
       (catch InterruptedException _
         (logger/info logger-tag (format "Initialization of MCP server %s was interrupted" name))
-        (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed @db*)))
+        (when-not (init-stopped?)
+          (swap! db* assoc-in [:mcp-clients name :status] :failed)
+          (on-server-updated (->server name server-config :failed @db*))))
       (catch Exception e
         (logger/error logger-tag (format "Unexpected error initializing MCP server %s: %s" name (.getMessage e)))
-        (swap! db* assoc-in [:mcp-clients name :status] :failed)
-        (on-server-updated (->server name server-config :failed @db*))))))
+        (when-not (init-stopped?)
+          (swap! db* assoc-in [:mcp-clients name :status] :failed)
+          (on-server-updated (->server name server-config :failed @db*)))))))
 
 (defn ^:private start-single-server-async!
   "Spawn a daemon init thread for a single MCP server. Used by both initial
@@ -610,8 +646,10 @@
 (defn stop-server! [name db* config {:keys [on-server-updated]}]
   (when-let [^Thread init-thread (get @init-threads* name)]
     (logger/info logger-tag (format "Interrupting in-progress init thread for server '%s'" name))
-    (.interrupt init-thread)
-    (deregister-init-thread! name))
+    (stop-init-thread! name init-thread)
+    ;; a server still starting has no client yet: it's stopped now
+    (when-not (get-in @db* [:mcp-clients name])
+      (on-server-updated (->server name (get-in config [:mcpServers name]) :stopped @db*))))
   (when-let [{:keys [client http-client]} (get-in @db* [:mcp-clients name])]
     (let [server-config (get-in config [:mcpServers name])]
       (swap! db* assoc-in [:mcp-clients name :status] :stopping)
@@ -678,7 +716,7 @@
                                                                      (:client-secret oauth-info)
                                                                      (assoc :client-secret (:client-secret oauth-info)))))
                         (oauth/stop-oauth-server! callback-port)
-                        (db/update-global-cache! @db* metrics)
+                        (db.global-cache/update-global-cache! @db* metrics)
                         (initialize-server! name db* config metrics on-server-updated))
           :on-error (fn [error]
                       (oauth/stop-oauth-server! callback-port)
@@ -759,7 +797,7 @@
   [name db* config metrics {:keys [on-server-updated]}]
   (when-let [server-config (get-in config [:mcpServers name])]
     (swap! db* update :mcp-auth dissoc (mcp-auth-key name server-config @db*))
-    (db/update-global-cache! @db* metrics)
+    (db.global-cache/update-global-cache! @db* metrics)
     (restart-server! name db* config metrics on-server-updated)))
 
 (defn ^:private parse-json-with-comments [^String s]
@@ -966,13 +1004,6 @@
     (config/clear-cache!)
     (on-server-removed {:name server-name})
     {:name server-name :removed true}))
-
-(defn all-tools [db]
-  (into []
-        (mapcat (fn [[name {:keys [tools version]}]]
-                  (map #(assoc % :server {:name name
-                                          :version version}) tools)))
-        (:mcp-clients db)))
 
 (defn await-pending-tools-refresh
   "Waits for any pending tool list refreshes to complete, with a timeout.
@@ -1227,6 +1258,105 @@
             :else result))))
     (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
 
+;; --- Tool call details of the clojure-mcp server's editing tools: the diffs they
+;; make
+
+(defn ^:private clojure-edit-details-before-invocation [name args server {:keys [db chat-id ask-approval?]} new-file?]
+  (when (not= "0.1.0" (:version server))
+    (when ask-approval?
+      (let [path (get args "file_path")
+            {:keys [error contents]} (call-tool! (:name server) name (assoc args "dry_run" "new-source")
+                                                 {:db db :chat-id chat-id})]
+        (when-not error
+          (when-let [new-source (some->> contents (filter #(= :text (:type %))) first :text)]
+            (let [{:keys [added removed diff]} (diff/diff (if new-file?
+                                                            ""
+                                                            (slurp path))
+                                                          new-source
+                                                          path)]
+              {:type :fileChange
+               :path path
+               :linesAdded added
+               :linesRemoved removed
+               :diff diff})))))))
+
+(defn ^:private file-edit-details-after
+  "The details after a call of `clojure_edit`, `clojure_edit_replace_sexp` or
+   `file_edit`: the diff it made."
+  [_ctx arguments _details result]
+  (when-not (:error result)
+    (when-let [diff (some->> result :contents (filter #(= :text (:type %))) first :text)]
+      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
+        {:type :fileChange
+         :path (get arguments "file_path")
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
+(defn ^:private file-write-details-after
+  "The details after a `file_write` call: the diff it made."
+  [_ctx arguments _details result]
+  (when-not (:error result)
+    (when-let [diff (some->> result :contents
+                             (filter #(= :text (:type %)))
+                             first :text
+                             (string/split-lines)
+                             (drop 2)
+                             (string/join "\n"))]
+      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
+        {:type :fileChange
+         :path (get arguments "file_path")
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
+(defn ^:private with-clojure-mcp-details
+  "`tool` with its details when it's one of the clojure-mcp server's editing
+   tools, known by name on any server, as before modules."
+  [{tool-name :name :as tool}]
+  (case tool-name
+    ("clojure_edit" "clojure_edit_replace_sexp" "file_edit")
+    (assoc tool
+           :details-before-fn (fn [ctx args]
+                                (clojure-edit-details-before-invocation tool-name args (:server ctx) ctx false))
+           :details-after-fn #'file-edit-details-after)
+
+    "file_write"
+    (assoc tool
+           :details-before-fn (fn [ctx args]
+                                (clojure-edit-details-before-invocation tool-name args (:server ctx) ctx true))
+           :details-after-fn #'file-write-details-after)
+
+    tool))
+
+(defn ^:private tool-servers
+  "`:tool-servers` `:list`: the servers in `:mcp-clients`, with their tools,
+   then the disabled ones that don't run."
+  [{:keys [db config]}]
+  (concat
+   (for [[server-name {:keys [tools version status]}] (:mcp-clients db)]
+     {:type :mcp :name server-name :version version :status status
+      :tools (some->> tools (mapv with-clojure-mcp-details))})
+   (for [[server-name server-config] (:mcpServers config)
+         :when (and (get server-config :disabled false)
+                    (not (contains? (:mcp-clients db) server-name)))]
+     {:type :mcp :name server-name :status :disabled :tools []})))
+
+(defn ^:private call-server-tool
+  "`:tool-servers` `:call`."
+  [{:keys [db db* config metrics]} server-name tool-name arguments {:keys [chat-id on-progress]}]
+  (call-tool! server-name tool-name arguments {:db db
+                                               :db* db*
+                                               :config config
+                                               :metrics metrics
+                                               :chat-id chat-id
+                                               :on-progress on-progress}))
+
+(defn ^:private await-servers-refresh
+  "`:tool-servers` `:await-refresh`."
+  [{:keys [db]} timeout-ms]
+  (await-pending-tools-refresh db timeout-ms))
+
 (defn all-prompts [db]
   (into []
         (mapcat (fn [[server-name {:keys [prompts]}]]
@@ -1273,6 +1403,29 @@
       (logger/warn logger-tag (format "Error calling prompt %s: %s" name e))
       {:error-message (str "Error calling prompt: " (.getMessage e))})))
 
+(defn ^:private prompt-result
+  "What running MCP prompt `prompt-name` with the typed `args` gives: the
+   messages to send to the model, or a text to show when it fails or has
+   none. The args fill the prompt's arguments by position."
+  [prompt-name args db]
+  (let [{:keys [arguments]} (first (filter #(= prompt-name (:name %)) (all-prompts db)))
+        {:keys [messages error-message]} (get-prompt! prompt-name (zipmap (map :name arguments) args) db)]
+    (cond
+      error-message {:type :system-text :text error-message}
+      (seq messages) {:type :send-messages :messages messages}
+      :else {:type :system-text :text (format "No response from prompt '%s'." prompt-name)})))
+
+(defn ^:private commands
+  "Each prompt of the servers as a command, `server:prompt`."
+  [{:keys [db]}]
+  (for [{:keys [server] prompt-name :name :as prompt} (all-prompts db)]
+    [(str server ":" prompt-name)
+     (-> prompt
+         (dissoc :server :name)
+         (assoc :client-type :mcpPrompt
+                :handler (fn [{:keys [db*]} {:keys [argv]}]
+                           (prompt-result prompt-name argv @db*))))]))
+
 (defn get-resource! [uri db]
   (when-let [mcp-client (->> (vals (:mcp-clients db))
                              (keep (fn [{:keys [client resources]}]
@@ -1283,6 +1436,24 @@
                                           (logger/warn logger-tag "Error reading resource:" (format-jsonrpc-error jsonrpc-error)))}
                              (pmc/read-resource mcp-client uri))]
       {:contents (mapv ->resource-content (:contents resource))})))
+
+(defn ^:private resource-items
+  "The servers' resources, as `@` completion items."
+  [{:keys [db]}]
+  (mapv #(assoc % :type "mcpResource") (all-resources db)))
+
+(defn ^:private refine-resource
+  "An `mcpResource` context a client sent: the resource's contents."
+  [{:keys [db]} {:keys [uri]}]
+  (try
+    (mapv (fn [{:keys [text]}]
+            {:type :mcpResource
+             :uri uri
+             :content text})
+          (:contents (get-resource! uri db)))
+    (catch Exception e
+      (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
+      [])))
 
 (defn shutdown!
   "Shutdown MCP servers: interrupts in-flight init threads and disconnects
@@ -1320,6 +1491,196 @@
     (catch Exception _ nil))
   (swap! db* assoc :mcp-clients {}))
 
+;; --- The module's lifecycle and protocol methods, telling clients about the servers
+
+(defn ^:private notify-server-updated [metrics messenger tool-status-fn server]
+  (metrics/count-up! "mcp-server-status" {:name (:name server)
+                                          :status (:status server)} metrics)
+  (messenger/tool-server-updated messenger (-> server
+                                               (assoc :type :mcp)
+                                               (update :tools
+                                                       #(mapv (comp tool-status-fn
+                                                                    (fn [t] (assoc t :server {:name (:name server)})))
+                                                              %)))))
+
+(defn ^:private notify-server-removed [metrics messenger params]
+  (metrics/count-up! "mcp-server-status" {:name (:name params)
+                                          :status "removed"} metrics)
+  (messenger/tool-server-removed messenger params))
+
+(defn ^:private notifiers
+  "The callbacks that tell clients about the servers: `:on-server-updated`,
+   with the tools' status for `agent-name` (nil: the global one), and
+   `:on-server-removed`."
+  [{:keys [messenger metrics config]} agent-name]
+  (let [tool-status-fn (f.tools/make-tool-status-fn config agent-name)]
+    {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
+     :on-server-removed (partial notify-server-removed metrics messenger)}))
+
+(defn ^:private start-servers!
+  "Starts the configured servers that don't run yet."
+  [{:keys [db* metrics config] :as ctx}]
+  (initialize-servers-async! (notifiers ctx (get config :defaultAgent)) db* config metrics))
+
+(defn ^:private stop-servers!
+  "Stops every server, and tells clients they're gone."
+  [{:keys [db* config] :as ctx}]
+  (let [{:keys [on-server-updated on-server-removed]} (notifiers ctx nil)
+        server-names (distinct (concat (keys (:mcp-clients @db*))
+                                       (map name (keys (:mcpServers config)))))]
+    (->> server-names
+         (mapv (fn [server-name]
+                 (future
+                   (try
+                     (stop-server! server-name db* config {:on-server-updated on-server-updated})
+                     (on-server-removed {:name server-name})
+                     (catch Exception e
+                       (logger/error logger-tag (format "Could not stop MCP server '%s': %s"
+                                                        server-name (.getMessage e))))))))
+         (run! deref))))
+
+(defn ^:private start
+  "`:start`: once the session is ready, the servers start; before that,
+   `:session/ready` starts them."
+  [ctx]
+  (when (modules/session-ready?)
+    (start-servers! ctx))
+  nil)
+
+(defn ^:private stop
+  "`:stop`: ECA shutting down shuts the servers down; the module disabled
+   stops them, telling clients."
+  [{:keys [db*] :as ctx}]
+  (if (:stopping @db*)
+    (shutdown! db*)
+    (stop-servers! (update ctx :config #(or % (config/all @db*))))))
+
+(defn ^:private session-ready
+  "`:session/ready` handler: the servers start, after the sessionStart hooks
+   and ECA's own tool server, as before modules."
+  [ctx _event]
+  (start-servers! ctx)
+  nil)
+
+(defn ^:private config-changed
+  "`:config/changed` handler: an `mcpServers` change adds, removes or
+   restarts those servers, when the module was active already; else its
+   `:start` starts them all."
+  [{:keys [db* metrics] :as ctx} {:keys [prev-config config]}]
+  (when (and prev-config (modules/active? prev-config :eca/mcp))
+    (reconcile-servers! prev-config config db* metrics
+                        (notifiers (assoc ctx :config config) (get config :defaultAgent))))
+  nil)
+
+(defn stop-server-method
+  "`mcp/stopServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-stop-server
+    (stop-server! (:name params) db* config (notifiers ctx nil))))
+
+(defn start-server-method
+  "`mcp/startServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-start-server
+    (start-server! (:name params) db* config metrics (notifiers ctx nil))))
+
+(defn connect-server-method
+  "`mcp/connectServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-connect-server
+    (connect-server! (:name params) db* config metrics (notifiers ctx nil))))
+
+(defn logout-server-method
+  "`mcp/logoutServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-logout-server
+    (logout-server! (:name params) db* config metrics (notifiers ctx nil))))
+
+(defn update-server-method
+  "`mcp/updateServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-update-server
+    (let [server-name (:name params)
+          server-fields (cond-> {}
+                          (:command params) (assoc :command (:command params))
+                          (:args params) (assoc :args (:args params))
+                          (:url params) (assoc :url (:url params))
+                          (:env params) (assoc :env (:env params))
+                          (:headers params) (assoc :headers (:headers params)))]
+      (update-server! server-name server-fields db* config metrics (notifiers ctx nil))
+      {})))
+
+(defn disable-server-method
+  "`mcp/disableServer`."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-disable-server
+    (disable-server! (:name params) db* config (notifiers ctx nil))))
+
+(defn enable-server-method
+  "`mcp/enableServer`."
+  [{:keys [db* metrics] :as ctx} params]
+  (metrics/task metrics :eca/mcp-enable-server
+    (enable-server! (:name params) db* metrics (notifiers ctx nil))))
+
+(defn ^:private ->scope-keyword [scope]
+  (cond
+    (nil? scope) :global
+    (keyword? scope) scope
+    (string? scope) (keyword scope)
+    :else :global))
+
+(defn add-server-method
+  "`mcp/addServer`: add a new MCP server definition at runtime.
+
+   Params:
+     :name           (required) server identifier.
+     :command :args :env           for stdio servers.
+     :url :headers :clientId :clientSecret :oauthPort  for HTTP servers.
+     :disabled       optional boolean.
+     :scope          \"global\" (default) or \"workspace\".
+     :workspaceUri   required when :scope = \"workspace\".
+
+   Returns the canonical server map (as sent over tool/serverUpdated) with
+   status :starting, :disabled, or :failed."
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-add-server
+    (let [server-name (:name params)
+          server-config (cond-> {}
+                          (:command params)       (assoc :command (:command params))
+                          (:args params)          (assoc :args (:args params))
+                          (:env params)           (assoc :env (:env params))
+                          (:url params)           (assoc :url (:url params))
+                          (:headers params)       (assoc :headers (:headers params))
+                          (:clientId params)      (assoc :clientId (:clientId params))
+                          (:clientSecret params)  (assoc :clientSecret (:clientSecret params))
+                          (:oauthPort params)     (assoc :oauthPort (:oauthPort params))
+                          (contains? params :disabled) (assoc :disabled (boolean (:disabled params))))
+          opts {:scope (->scope-keyword (or (:scope params) (:workspaceScope params)))
+                :workspace-uri (or (:workspaceUri params) (:workspace-uri params))}]
+      (try
+        (let [server (add-server! server-name server-config opts db* config metrics (notifiers ctx nil))]
+          {:server server})
+        (catch clojure.lang.ExceptionInfo e
+          {:error {:code "invalid_request"
+                   :message (.getMessage e)
+                   :data (ex-data e)}})))))
+
+(defn remove-server-method
+  "`mcp/removeServer`: remove an MCP server definition at runtime. Stops the
+   server if running, removes the entry from the owning config file, and
+   emits tool/serverRemoved.
+
+   Params:
+     :name  (required)"
+  [{:keys [db* metrics config] :as ctx} params]
+  (metrics/task metrics :eca/mcp-remove-server
+    (try
+      (remove-server! (:name params) db* config (notifiers ctx nil))
+      (catch clojure.lang.ExceptionInfo e
+        {:error {:code "invalid_request"
+                 :message (.getMessage e)
+                 :data (ex-data e)}}))))
+
 (defn ^:private mcp-instructions-section [db]
   (let [servers-with-instructions
         (->> (:mcp-clients db)
@@ -1350,7 +1711,10 @@
     (when (seq resources)
       ["## MCP Resources"
        ""
-       (f.prompt/contexts-str resources nil nil
+       (f.prompt/contexts-str (map (fn [{:keys [uri content]}]
+                                     (format "<resource%s>%s</resource>" (f.prompt/attr-str {:uri uri}) content))
+                                   resources)
+                              nil
                               {:description "Resources from connected MCP servers."})
        ""])))
 
@@ -1359,78 +1723,32 @@
   [{:keys [db]}]
   (mcp-instructions-section db))
 
-;; --- Tool call details of the clojure-mcp server's editing tools: the diffs they
-;; make
-
-(defn ^:private clojure-edit-details-before-invocation [name args server {:keys [db chat-id ask-approval?]} new-file?]
-  (when (not= "0.1.0" (:version server))
-    (when ask-approval?
-      (let [path (get args "file_path")
-            {:keys [error contents]} (call-tool! (:name server) name (assoc args "dry_run" "new-source")
-                                                 {:db db :chat-id chat-id})]
-        (when-not error
-          (when-let [new-source (some->> contents (filter #(= :text (:type %))) first :text)]
-            (let [{:keys [added removed diff]} (diff/diff (if new-file?
-                                                            ""
-                                                            (slurp path))
-                                                          new-source
-                                                          path)]
-              {:type :fileChange
-               :path path
-               :linesAdded added
-               :linesRemoved removed
-               :diff diff})))))))
-
-(defmethod tools.util/tool-call-details-before-invocation :clojure_edit [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx false))
-
-(defmethod tools.util/tool-call-details-before-invocation :clojure_edit_replace_sexp [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx false))
-
-(defmethod tools.util/tool-call-details-before-invocation :file_edit [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx false))
-
-(defmethod tools.util/tool-call-details-before-invocation :file_write [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx true))
-
-(defmethod tools.util/tool-call-details-after-invocation :clojure_edit [_name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
-
-(defmethod tools.util/tool-call-details-after-invocation :clojure_edit_replace_sexp [_name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
-
-(defmethod tools.util/tool-call-details-after-invocation :file_edit [_name arguments _details result _ctx]
-  (when-not (:error result)
-    (when-let [diff (some->> result :contents (filter #(= :text (:type %))) first :text)]
-      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
-        {:type :fileChange
-         :path (get arguments "file_path")
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff}))))
-
-(defmethod tools.util/tool-call-details-after-invocation :file_write [_name arguments _details result _ctx]
-  (when-not (:error result)
-    (when-let [diff (some->> result :contents
-                             (filter #(= :text (:type %)))
-                             first :text
-                             (string/split-lines)
-                             (drop 2)
-                             (string/join "\n"))]
-      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
-        {:type :fileChange
-         :path (get arguments "file_path")
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff}))))
-
 (def module
   {:id :eca/mcp
    :description "MCP servers: their tools, prompts, resources and instructions."
-   ;; servers start after the session starts and follow config changes, as before;
+   ;; servers start when the session is ready and follow config changes, as before;
    ;; while the module is inactive no server runs and their tools and prompts are hidden
    :config-spec {:mcpServers {:type :map :default {}}
                  :mcpTimeoutSeconds {:type :number :default 60}
                  :mcpKeepAliveSeconds {:type :number :default 30}}
+   :start #'start
+   :stop #'stop
+   :event-handlers {:session/ready #'session-ready
+                    :config/changed #'config-changed}
+   :rpc {"mcp/stopServer"    {:kind :notification :handler #'stop-server-method}
+         "mcp/startServer"   {:kind :notification :handler #'start-server-method}
+         "mcp/connectServer" {:kind :notification :handler #'connect-server-method}
+         "mcp/logoutServer"  {:kind :notification :handler #'logout-server-method}
+         "mcp/disableServer" {:kind :notification :handler #'disable-server-method}
+         "mcp/enableServer"  {:kind :notification :handler #'enable-server-method}
+         "mcp/updateServer"  {:kind :request :handler #'update-server-method}
+         "mcp/addServer"     {:kind :request :handler #'add-server-method}
+         "mcp/removeServer"  {:kind :request :handler #'remove-server-method}}
+   ;; the servers' tools
+   :tool-servers {:list #'tool-servers :call #'call-server-tool :await-refresh #'await-servers-refresh}
    :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
-                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]})
+                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]
+   ;; resources, for the @ list and the contexts clients send
+   :contexts {:types {"mcpResource" {:list #'resource-items :refine #'refine-resource}}}
+   ;; each prompt as a command, listed first
+   :commands #'commands})

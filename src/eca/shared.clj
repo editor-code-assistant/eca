@@ -8,7 +8,6 @@
    [clojure.walk :as walk]
    [eca.cache :as cache]
    [eca.logger :as logger]
-   [eca.messenger :as messenger]
    [selmer.parser :as selmer])
   (:import
    [java.lang ProcessHandle]
@@ -708,47 +707,6 @@
                  (subvec messages (inc last-idx)))]
     (vec (remove #(= "flag" (:role %)) result))))
 
-(defn compact-side-effect!
-  "Performs side effects after chat compaction: appends a compact_marker tombstone
-   and summary to history, zeros token usage, and notifies the user."
-  [{:keys [chat-id full-model db* messenger] :as chat-ctx} auto-compact?]
-  ;; Append compact marker tombstone + summary to preserve full history
-  (swap! db* (fn [db]
-               (let [summary (get-in db [:chats chat-id :last-summary])
-                     messages (get-in db [:chats chat-id :messages] [])
-                     now (System/currentTimeMillis)]
-                 (assoc-in db [:chats chat-id :messages]
-                           (conj messages
-                                 {:role "compact_marker"
-                                  :content {:auto? (boolean auto-compact?)}
-                                  :created-at now}
-                                 {:role "user"
-                                  :content [{:type :text
-                                             :text (str "The conversation was compacted/summarized, consider this summary:\n"
-                                                        summary)}]
-                                  :created-at now})))))
-
-  ;; Zero chat usage and clear transient per-chat rule validations.
-  ;; Drop :last-editor-state and :sent-attached-contexts so the cursor and the
-  ;; attached contexts are re-sent next turn, since the pre-marker history
-  ;; holding them is no longer in context. #683
-  (swap! db* update-in [:chats chat-id] dissoc :usage :validated-path-rules :last-editor-state :sent-attached-contexts)
-  (messenger/chat-content-received
-   messenger
-   {:chat-id chat-id
-    :role :system
-    :content {:type :text
-              :text (if auto-compact?
-                      "Auto-compacted chat"
-                      "Compacted chat")}})
-  (when-let [usage (usage-sumary chat-id full-model @db* (select-keys chat-ctx [:subscription?]))]
-    (messenger/chat-content-received
-     messenger
-     {:chat-id chat-id
-      :role :system
-      :content (merge {:type :usage}
-                      usage)})))
-
 (defn normalize-code-result
   "Normalize code removing any markdown wrapper"
   [code]
@@ -784,3 +742,53 @@
 (defn not-blank [s]
   (when (and (string? s) (not (string/blank? s)))
     s))
+
+(def additive-config-lists
+  "Config lists that add up when config layers and modules' defaults merge:
+   a later list adds its entries to the earlier one instead of replacing
+   it. `:ANY` stands for any key, e.g. an agent's name."
+  [[:toolCall :approval :insideWorkspace]
+   [:agent :ANY :toolCall :approval :insideWorkspace]])
+
+(defn ^:private additive-list-paths
+  "The paths of `m` to lists of `additive-config-lists`. With `strings?`, the
+   keys of `m` are strings, as in config JSON."
+  [m strings?]
+  (for [pattern additive-config-lists
+        path (reduce (fn [paths k]
+                       (if (= :ANY k)
+                         (for [path paths
+                               k' (let [v (get-in m path)] (when (map? v) (keys v)))]
+                           (conj path k'))
+                         (map #(conj % (if strings? (name k) k)) paths)))
+                     [[]]
+                     pattern)
+        :when (sequential? (get-in m path))]
+    path))
+
+(defn add-up-config-lists
+  "`merged`, `layer` merged over `base`, with the lists of
+   `additive-config-lists` in `layer` added to `base`'s, without repeats,
+   instead of replacing them. With `strings?`, the maps' keys are strings,
+   as in config JSON."
+  ([merged base layer] (add-up-config-lists merged base layer false))
+  ([merged base layer strings?]
+   (reduce (fn [merged path]
+             (let [earlier (get-in base path)]
+               (assoc-in merged path (vec (distinct (concat (when (sequential? earlier) earlier)
+                                                            (get-in layer path)))))))
+           merged
+           (additive-list-paths layer strings?))))
+
+(defn plain-data?
+  "Whether `x` can be saved with a chat: nil, strings, numbers, booleans,
+   keywords, symbols, UUIDs, dates, and maps, vectors, lists and sets of
+   those."
+  [x]
+  (cond
+    (or (nil? x) (string? x) (number? x) (boolean? x) (keyword? x) (symbol? x) (char? x)
+        (uuid? x) (instance? java.util.Date x)) true
+    (record? x) false
+    (map? x) (every? (fn [[k v]] (and (plain-data? k) (plain-data? v))) x)
+    (or (vector? x) (list? x) (set? x) (seq? x)) (every? plain-data? x)
+    :else false))

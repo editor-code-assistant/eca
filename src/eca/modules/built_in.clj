@@ -7,13 +7,18 @@
    runtime with `eca.modules/set-built-ins!`."
   (:require
    [eca.modules.agents :as m.agents]
+   [eca.modules.agents-md :as m.agents-md]
    [eca.modules.agents.agent-code :as m.agent-code]
    [eca.modules.agents.agent-plan :as m.agent-plan]
    [eca.modules.approval :as m.approval]
+   [eca.modules.chat-management :as m.chat-management]
+   [eca.modules.chat-title :as m.chat-title]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
+   [eca.modules.completion :as m.completion]
    [eca.modules.core :as m.core]
    [eca.modules.custom-commands :as m.custom-commands]
    [eca.modules.hooks :as m.hooks]
+   [eca.modules.llm-providers :as m.llm-providers]
    [eca.modules.manage :as m.manage]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.otel :as m.otel]
@@ -35,7 +40,7 @@
    [eca.modules.providers.z-ai :as m.z-ai]
    [eca.modules.remote :as m.remote]
    [eca.modules.repl :as m.repl]
-   [eca.modules.repo-map :as m.repo-map]
+   [eca.modules.rewrite :as m.rewrite]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
    [eca.modules.subagents :as m.subagents]
@@ -68,9 +73,10 @@
    m.agent-plan/module
    m.subagent-explorer/module
    m.subagent-general/module
-   ;; skills, rules, tool search
+   ;; skills, rules, AGENTS.md, tool search
    m.skills/module
    m.rules/module
+   m.agents-md/module
    m.tool-search/module
    ;; MCP
    m.mcp/module
@@ -81,17 +87,21 @@
    m.plugins/module
    ;; chat behavior
    m.approval/module
+   m.chat-management/module
+   m.chat-title/module
    m.compact-as-summary/module
    m.manage/module
    ;; editor features
-   m.repo-map/module
+   m.completion/module
+   m.rewrite/module
    ;; APIs, each in its provider's namespace
    m.anthropic/api-module
    m.bedrock/api-module
    m.ollama/api-module
    m.openai/api-module
    m.openai-chat/api-module
-   ;; providers
+   ;; providers, and their logins and quotas
+   m.llm-providers/module
    m.anthropic/module
    m.azure/module
    m.bedrock/module

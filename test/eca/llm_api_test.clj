@@ -279,6 +279,40 @@
         :sync? true}))
     (is (= 512 (:max-output-tokens @captured*)))))
 
+(deftest prompt-google-request-options-test
+  (testing "Gemini gets its thought tags, its thoughts when reasoning and no parallel tool calls, through Chat Completions"
+    (let [captured* (atom nil)]
+      (with-redefs [m.openai-chat/chat-completion!
+                    (fn [opts _callbacks]
+                      (reset! captured* opts)
+                      {:output-text "ok"})]
+        (#'eca.llm-api/prompt!
+         {:provider "google"
+          :model "gemini-x"
+          :model-capabilities {:tools false
+                               :reason? true
+                               :model-name "gemini-x"}
+          :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+          :past-messages []
+          :config {:providers {"google" {:url "https://generativelanguage.googleapis.com/v1beta/openai"
+                                         :key "k"
+                                         :models {"gemini-x" {:extraPayload {:temperature 0.2}}}}}}
+          :sync? true}))
+      (is (= #{:model :instructions :user-messages :max-output-tokens :reason? :supports-image? :past-messages
+               :tools :think-tag-start :think-tag-end :reasoning-history :extra-payload :extra-headers :api-url
+               :api-key :cancelled? :stream-idle-timeout-seconds}
+             (set (keys @captured*))))
+      (is (match? {:model "gemini-x"
+                   :reason? true
+                   :think-tag-start "<thought>"
+                   :think-tag-end "</thought>"
+                   :extra-payload {:parallel_tool_calls false
+                                   :extra_body {:google {:thinking_config {:include_thoughts true}}}
+                                   :temperature 0.2}
+                   :api-url "https://generativelanguage.googleapis.com/v1beta/openai"
+                   :api-key "k"}
+                  @captured*)))))
+
 (deftest prompt-test
   (testing "Custom OpenAI provider behavior and proper passing of httpClient options to the Hato client"
     (let [req* (atom nil)]
@@ -538,6 +572,32 @@
           :sync? false}))
       (is (= true (:image-generation @captured*))
           "openai handler should receive :image-generation true")))
+
+  (testing "the contexts modules added reach the provider without their :module and :data"
+    (let [captured* (atom nil)
+          context (fn [text] {:type :text :text text :module :acme/notes :data {:v 1}})]
+      (with-redefs [m.openai/create-response!
+                    (fn [opts _callbacks] (reset! captured* opts) :ok)]
+        (#'eca.llm-api/prompt!
+         {:provider "openai"
+          :model "gpt-5.2"
+          :model-capabilities {:tools true
+                               :reason? false
+                               :web-search false
+                               :image-generation? false
+                               :model-name "gpt-5.2"}
+          :user-messages [{:role "user" :content [{:type :text :text "hi"} (context "Now.")]}]
+          :past-messages [{:role "user" :content [{:type :text :text "before"} (context "Then.")]}
+                          {:role "assistant" :content [{:type :text :text "ok"}]}]
+          :tools []
+          :provider-auth {:api-key "test-key"}
+          :config {:providers {"openai" {:url "https://api.openai.com" :key "test-key"}}}
+          :sync? false}))
+      (is (= [{:role "user" :content [{:type :text :text "hi"} {:type :text :text "Now."}]}]
+             (:user-messages @captured*)))
+      (is (= [{:role "user" :content [{:type :text :text "before"} {:type :text :text "Then."}]}
+              {:role "assistant" :content [{:type :text :text "ok"}]}]
+             (:past-messages @captured*)))))
 
   (testing "openai branch strips internal top-level message fields before reaching handler"
     (let [captured* (atom nil)]
@@ -1184,6 +1244,11 @@
         (llm-api/sync-or-async-prompt!
          (make-prompt-opts
           {:stream false
+           :provider "openai"
+           :model "gpt-5.2"
+           :config {:providers {"openai" {:key "test-key"
+                                          :url "http://test"
+                                          :models {"gpt-5.2" {:extraPayload {:stream false}}}}}}
            :on-error (fn [error] (reset! error* error))
            :on-message-received identity})))
       (is (= 1 @attempt*))

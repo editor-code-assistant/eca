@@ -1,12 +1,17 @@
-(ns eca.features.providers
+(ns eca.modules.llm-providers.providers
+  "The providers clients see (`providers/list`, `providers/updated`) and log
+   into from their providers panel (`providers/login`, `loginInput`,
+   `logout`), from the modules' provider declarations."
   (:require
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.db :as db]
-   [eca.features.quota :as f.quota]
+   [eca.db.global-cache :as db.global-cache]
+   [eca.llm-api.auth :as llm-api.auth]
+   [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
    [eca.models :as models]
    [eca.modules :as modules]
+   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -15,10 +20,11 @@
 
 (def ^:private declaration-keys
   "Keys of a provider declaration that aren't provider config."
-  #{:label :login :models-fn})
+  #{:label :login :models-fn :models-override-fn :quota :errors :request-opts :api-fn :default-model
+    :capabilities})
 
 (defn declarations
-  "Provider id → declaration (`:label`, `:login` and the config keys a login
+  "Provider id → declaration (`declaration-keys` and the config keys a login
    saves), from the active modules' `:providers`. The first module wins."
   [config]
   (reduce (fn [acc [_entry providers]]
@@ -65,7 +71,8 @@
 (defn ^:private login-methods [provider-name config]
   (let [{:keys [ask methods]} (:login (base-declaration provider-name config))]
     (cond
-      methods methods
+      ;; without their :start, a function, as clients get them
+      methods (mapv #(dissoc % :start) methods)
       ask [{:key "api-key" :label (ask-method-label ask)}])))
 
 (defn ^:private login-fields [provider-name config]
@@ -99,19 +106,13 @@
 
 ;; --- Auth resolution ---
 
-(defn ^:private ->env-var-name [provider-name]
-  (str (-> provider-name
-           (string/replace "-" "_")
-           string/upper-case)
-       "_API_KEY"))
-
 (defn ^:private resolve-auth-info
   "Determines auth status for a provider by checking each credential source
    in the same priority order as llm-util/provider-api-key."
   [provider-name provider-auth config]
   (let [config-key (not-empty (get-in config [:providers provider-name :key]))
         login-key (:api-key provider-auth)
-        env-var-name (->env-var-name provider-name)
+        env-var-name (llm-api.auth/->env-var-name provider-name)
         env-key (config/get-env env-var-name)
         [source auth-type] (cond
                              config-key ["config" :auth/token]
@@ -133,23 +134,6 @@
          :expires-at expires
          :env-var (when (= source "env") env-var-name)))
       {:status "unauthenticated"})))
-
-(defn key-auth-override-warning
-  "When a configured/env API key would take precedence over login auth for
-   `provider-name`, returns a warning string to show the user during `/login`,
-   else nil. Mirrors the precedence in `llm-util/provider-api-key`, where a
-   configured `:key` (including the `${env:..._API_KEY}` defaults) and a bare
-   `<PROVIDER>_API_KEY` env var both win over OAuth/login auth."
-  [provider-name config]
-  (let [config-key (not-empty (get-in config [:providers provider-name :key]))
-        env-var-name (->env-var-name provider-name)
-        env-key (config/get-env env-var-name)]
-    (when (or config-key env-key)
-      (format (str "⚠️ An API key is already configured for `%s` (e.g. the `%s` environment variable "
-                   "or a `key` in your ECA config). Configured API keys take precedence over login auth, "
-                   "so ECA may keep using the API key — which can incur paid API usage — even after you log in. "
-                   "Unset `%s` (or remove the provider `key`) to use your login instead.")
-              provider-name env-var-name env-var-name))))
 
 (def ^:private provider-settings-exclude-keys
   #{:key :keyRc :requiresAuth? :requiresAuth :models})
@@ -216,7 +200,7 @@
      :settings (config-settings provider-config provider-settings-exclude-keys)
      :login (when-let [methods (login-methods provider-name config)]
               {:methods methods})
-     ;; Only subscription logins (OAuth) have a quota, see eca.features.quota.
+     ;; Only subscription logins (OAuth) have a quota, see `m.llm-providers.quota`.
      :quota (when (= "oauth" (:type auth-info))
               (get-in db [:provider-quotas provider-name])))))
 
@@ -231,7 +215,7 @@
   "Best-effort fetch of the subscription quota of `provider-name` from its
    usage endpoint, notifying the client when it changed."
   [provider-name db* config messenger & {:keys [force?]}]
-  (when (f.quota/refresh! provider-name {:db* db* :config config :force? force?})
+  (when (m.llm-providers.quota/refresh! provider-name {:db* db* :config config :force? force?})
     (notify-provider-updated! provider-name db* config messenger)))
 
 (defn reset-quota!
@@ -247,7 +231,7 @@
   "Common post-login/logout action: persist auth cache, re-sync models,
    and send both config/updated and providers/updated notifications."
   [provider-name db* messenger metrics]
-  (db/update-global-auth-cache! @db* provider-name metrics)
+  (db.global-cache/update-global-auth-cache! @db* provider-name metrics)
   (let [config (config/all @db*)]
     (reset-quota! provider-name db* config messenger)
     (models/sync-models! db* config
@@ -257,29 +241,34 @@
 
 ;; --- Login dispatch ---
 
-(defmulti start-login!
-  "Starts a provider-specific async login flow (OAuth, device flow, etc.).
-   Returns an action descriptor for the client.
-   Implementations live in provider namespaces and dispatch on the provider's
-   base (see `config/provider-base`), storing auth under `provider-name`."
-  (fn [provider-name method _db* config _messenger _metrics]
-    [(config/provider-base provider-name config) method]))
+(defn ^:private base-login
+  "The `:login` of the provider `provider-name` follows (see
+   `config/provider-base`)."
+  [provider-name config]
+  (:login (llm-util/provider-declaration config (config/provider-base provider-name config))))
 
-(defmethod start-login! :default [provider-name method _ _ _ _]
-  (throw (ex-info "Unsupported login method"
-                  {:error-response {:message (str "Unsupported login method '" method "' for provider '" provider-name "'")}})))
+(defn start-login!
+  "Starts a provider-specific async login flow (OAuth, device flow, etc.):
+   the `:start` of the login method `method` of the provider's base (see
+   `config/provider-base`), storing auth under `provider-name`. Returns an
+   action descriptor for the client."
+  [provider-name method db* config messenger metrics]
+  (if-let [start (some #(when (= method (:key %)) (:start %))
+                       (:methods (base-login provider-name config)))]
+    (start provider-name db* config messenger metrics)
+    (throw (ex-info "Unsupported login method"
+                    {:error-response {:message (str "Unsupported login method '" method "' for provider '" provider-name "'")}}))))
 
-(defmulti complete-oauth-code!
-  "Exchanges an OAuth authorization code for tokens.
-   Called when client submits a code after browser-based auth.
-   Implementations live in provider namespaces and dispatch on the provider's
-   base (see `config/provider-base`), storing auth under `provider-name`."
-  (fn [provider-name _data _db* config _messenger _metrics]
-    (config/provider-base provider-name config)))
-
-(defmethod complete-oauth-code! :default [provider-name _ _ _ _ _]
-  (throw (ex-info "Provider does not support OAuth code exchange"
-                  {:error-response {:message (str "Provider '" provider-name "' does not support code-based login")}})))
+(defn complete-oauth-code!
+  "Exchanges an OAuth authorization code for tokens, when the client submits
+   a code after browser-based auth: the `:login :complete-oauth-code` of the
+   provider's base (see `config/provider-base`), storing auth under
+   `provider-name`."
+  [provider-name data db* config messenger metrics]
+  (if-let [complete (:complete-oauth-code (base-login provider-name config))]
+    (complete provider-name data db* config messenger metrics)
+    (throw (ex-info "Provider does not support OAuth code exchange"
+                    {:error-response {:message (str "Provider '" provider-name "' does not support code-based login")}}))))
 
 ;; --- Handlers ---
 

@@ -49,18 +49,14 @@
 
 (def ^:private initial-config*
   {:defaultModel nil
-   :prompts {:chatTitle "${classpath:prompts/title.md}"
-             :completion "${classpath:prompts/inline_completion.md}"
-             :rewrite "${classpath:prompts/rewrite.md}"}
-   :chat {:title true
-          :defaultTrust false
+   :chat {:defaultTrust false
           :autoSyncSystemPrompt false}
    :chatInline {}
    :chatRetentionDays 30
-   :rewrite {:fullFileMaxLines 2000}
    :extraConfigs []
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
+   :autoCompactMaxPerTurn 3
    :welcomeMessage (multi-str "# Welcome to ECA!"
                               ""
                               "Type `/` to see all commands"
@@ -79,9 +75,8 @@
                               ""
                               "Toggle **trust mode** to auto-accept all tool calls"
                               "")
-   :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
-   :includeParentAgentsFiles false
+   :index {:ignoreFiles [{:type :gitignore}]}
    :remote {:enabled false}
    :env "prod"})
 
@@ -91,7 +86,9 @@
    keys ECA sets itself. Modules' keys come from their `:config-spec`."
   (into (set (keys initial-config*))
         #{:$schema :agent :behavior :defaultBehavior :network :otlp :providers :variantsByModel
-          :pureConfig :pluginSkillDirs :compactPrompt :compactPromptFile}))
+          :pureConfig :pluginSkillDirs :compactPrompt :compactPromptFile
+          ;; prompts.tools, which core reads and no module declares
+          :prompts}))
 
 (defn ^:private parse-dynamic-string-values
   "walk through config parsing dynamic string contents if value is a string."
@@ -275,12 +272,16 @@
 (defn ^:private merge-config-layers
   "Merges file config layers into config. Non-plugin keys stay aggregated
    across layers with aggregate-merge (historical per-source behavior: shallow
-   for workspace roots, deep for extraConfigs), then each layer's plugins merge
-   one by one so install lists combine across layers."
+   for workspace roots, deep for extraConfigs), but for the lists of
+   `shared/additive-config-lists`, which add up; then each layer's plugins
+   merge one by one so install lists combine across layers."
   [aggregate-merge config layers]
   (reduce merge-config
           config
-          (cons (reduce aggregate-merge {} (map #(dissoc % "plugins") layers))
+          (cons (reduce (fn [aggregated layer]
+                          (shared/add-up-config-lists (aggregate-merge aggregated layer) aggregated layer true))
+                        {}
+                        (map #(dissoc % "plugins") layers))
                 (map #(select-keys % ["plugins"]) layers))))
 
 (defn ^:private config-from-local-file [roots config]
@@ -357,31 +358,6 @@
                            (logger/warn logger-tag (format "extraConfigs path not found, skipping: %s" (.getPath config-file))))))
                      (extra-config-paths paths))]
     (merge-config-layers deep-merge config layers)))
-
-(defn ^:private resolve-agent-inheritance
-  "Resolves :inherit keys in agent configs. When an agent has :inherit \"other\",
-   its config is deep-merged on top of the parent agent's config (child wins).
-   The :inherit key is stripped from the resolved config."
-  [agents]
-  (reduce-kv
-   (fn [result agent-name agent-config]
-     (if-let [parent-name (:inherit agent-config)]
-       (let [parent-config (get agents parent-name)]
-         (cond
-           (= parent-name agent-name)
-           (do (logger/warn logger-tag (format "Agent '%s' inherits from itself, ignoring inherit" agent-name))
-               (assoc result agent-name (dissoc agent-config :inherit)))
-
-           (nil? parent-config)
-           (do (logger/warn logger-tag (format "Agent '%s' inherits from unknown agent '%s', ignoring inherit" agent-name parent-name))
-               (assoc result agent-name (dissoc agent-config :inherit)))
-
-           :else
-           (assoc result agent-name (deep-merge (dissoc parent-config :inherit)
-                                                (dissoc agent-config :inherit)))))
-       (assoc result agent-name agent-config)))
-   {}
-   agents))
 
 (def ^:private provider-credential-keys
   "Never inherited: an inheriting provider is a separate account."
@@ -544,44 +520,6 @@
     [:otlp]
     [:plugins]]})
 
-(defn ^:private migrate-legacy-agent-name
-  "Migrates legacy agent names 'agent' and 'build' to 'code'."
-  [agent-name]
-  (case agent-name
-    ("agent" "build") "code"
-    agent-name))
-
-(defn ^:private migrate-legacy-config
-  "Migrates legacy config keys to new names for backward compatibility:
-   - 'behavior' config key → 'agent'
-   - 'defaultBehavior' → 'defaultAgent'
-   - 'agent'/'build' agent name → 'code' (inside agent map)"
-  [config]
-  (cond-> config
-    ;; Migrate 'behavior' key → 'agent' (merge, don't overwrite)
-    (contains? config :behavior)
-    (-> (update :agent (fn [existing]
-                         (let [legacy (:behavior config)
-                               ;; Rename legacy "agent"/"build" entries to "code"
-                               migrated (reduce-kv (fn [m k v]
-                                                     (assoc m (migrate-legacy-agent-name k) v))
-                                                   {}
-                                                   legacy)]
-                           (merge migrated existing))))
-        (dissoc :behavior))
-
-    ;; Migrate 'defaultBehavior' → 'defaultAgent'
-    (and (contains? config :defaultBehavior)
-         (not (contains? config :defaultAgent)))
-    (-> (assoc :defaultAgent (migrate-legacy-agent-name (:defaultBehavior config)))
-        (dissoc :defaultBehavior))
-
-    ;; Also migrate defaultBehavior when nested under :chat (legacy)
-    (and (get-in config [:chat :defaultBehavior])
-         (not (get-in config [:chat :defaultAgent])))
-    (-> (assoc-in [:chat :defaultAgent] (migrate-legacy-agent-name (get-in config [:chat :defaultBehavior])))
-        (update :chat dissoc :defaultBehavior))))
-
 (def ^:private ^:dynamic *module-string-key-paths*
   "Paths of external modules' `:map` keys (`eca.modules/external-map-paths`),
    bound while the layers merge: their entries keep string names, like
@@ -591,7 +529,8 @@
 (defn ^:private merge-config
   "Deep-merges a normalized config layer into config. The plugins install
    lists combine across layers: a layer's entries append unless its own
-   installMode is \"replace\"."
+   installMode is \"replace\"; so do `shared/additive-config-lists`, e.g.
+   `toolCall.approval.insideWorkspace`."
   [config layer]
   (let [layer (normalize-fields (cond-> normalization-rules
                                   (seq *module-string-key-paths*)
@@ -599,7 +538,7 @@
                                 layer)
         plugins (:plugins layer)
         {:strs [install installMode]} plugins
-        merged (deep-merge config layer)]
+        merged (shared/add-up-config-lists (deep-merge config layer) config layer)]
     (if (contains? plugins "install")
       (assoc-in merged [:plugins "install"]
                 (->> (concat (when-not (= "replace" installMode)
@@ -647,8 +586,7 @@
                           ;; commands/rules are vectors — separate them to avoid deep-merge replacement
                           (dissoc cfg :commands :rules)))
         plugin-commands (:commands plugin-data)
-        plugin-rules (:rules plugin-data)
-        plugin-agents (:agents plugin-data)]
+        plugin-rules (:rules plugin-data)]
     (-> (as-> {} $
           (merge-config $ (initial-config {:modules modules-config} db))
           (merge-config $ initialization-config)
@@ -668,26 +606,18 @@
         (cond->
          (seq plugin-commands) (update :commands #(vec (concat % plugin-commands)))
          (seq plugin-rules) (update :rules #(vec (concat % plugin-rules))))
-        migrate-legacy-config
         enable-optional-modules
-        ;; Merge the modules' agents, e.g. markdown-defined ones (lowest priority —
-        ;; JSON config agents win). Plugin agents merge at the same level
-        (as-> config
-              (let [module-agents (when-not pure-config?
-                                    (modules/contributed-agents {:modules modules-config} db))]
-                (if (or (seq module-agents) (seq plugin-agents))
-                  (update config :agent (fn [existing]
-                                          (merge module-agents plugin-agents existing)))
-                  config)))
-        (update :agent resolve-agent-inheritance)
+        ;; the legacy agent keys, the modules' and plugins' agents and their
+        ;; inheritance: eca/agents, in :config/resolve
         (update :providers resolve-provider-inheritance))))
 
 (defn ^:private run-resolve-event
   "Runs the `:config/resolve` event on the merged `config`: modules may change
-   it, e.g. to enforce rules users can't override. The `modules` key stays as
-   the layers set it, as it decides which modules are active."
-  [config]
-  (let [event (events/emit! {:config config} :config/resolve {:config config})
+   it, e.g. to enforce rules users can't override, or add their agents (`db`
+   gives them the workspaces). The `modules` key stays as the layers set it,
+   as it decides which modules are active."
+  [config db]
+  (let [event (events/emit! {:config config :db db} :config/resolve {:config config})
         changed (:config event)]
     (cond
       (identical? config changed) config
@@ -712,7 +642,7 @@
 (defn ^:private all*
   "The merged layers, then what modules change (`:config/resolve`)."
   [db]
-  (run-resolve-event (merged-layers db)))
+  (run-resolve-event (merged-layers db) db))
 
 (def ^:private all-memo
   (memoize/ttl (fn [workspace-folders _modules-version]

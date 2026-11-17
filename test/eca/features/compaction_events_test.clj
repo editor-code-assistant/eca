@@ -5,10 +5,12 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
-   [eca.features.chat :as f.chat]
-   [eca.features.chat.lifecycle :as lifecycle]
+   [eca.features.chat.compaction :as f.chat.compaction]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.replay :as f.chat.replay]
    [eca.features.commands :as f.commands]
    [eca.modules :as modules]
+   [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.hooks :as m.hooks]
    [eca.shared :as shared]
    [eca.test-helper :as h]
@@ -98,12 +100,12 @@
 (deftest checkpoint-replay-test
   (testing "a module's checkpoint shows its label when the chat is opened again"
     (is (match? [{:role :system :content {:text "── Compacted (acme) ──"}}]
-                (#'f.chat/message-content->chat-content "compact_marker" {:module :acme/compact :label "Compacted (acme)"} nil))))
+                (#'f.chat.replay/message-content->chat-content "compact_marker" {:module :acme/compact :label "Compacted (acme)"} nil))))
   (testing "markers of older chats show as before"
     (is (match? [{:content {:text "── Chat auto-compacted ──"}}]
-                (#'f.chat/message-content->chat-content "compact_marker" {:auto? true} nil)))
+                (#'f.chat.replay/message-content->chat-content "compact_marker" {:auto? true} nil)))
     (is (match? [{:content {:text "── Chat compacted ──"}}]
-                (#'f.chat/message-content->chat-content "compact_marker" {:auto? false} nil)))))
+                (#'f.chat.replay/message-content->chat-content "compact_marker" {:auto? false} nil)))))
 
 (deftest compact-command-with-a-module-test
   (testing "a module compacts the chat on /compact, even with eca/compact-as-summary disabled"
@@ -116,7 +118,7 @@
     (is (match? (conj history
                       {:role "compact_marker" :content {:module :acme/compact :label "Compacted chat (acme)"}}
                       {:role "user" :content [{:type :text :text "Summary. focus on tests"}
-                                              {:type :text :text (context-text "Keep the plan.")}]})
+                                              {:type :text :text (context-text "Keep the plan.") :module :acme/compact}]})
                 (get-in (h/db) [:chats chat-id :messages])))
     (is (some #{"Compacted by acme."} (system-texts)))
     (is (match? [[:chat/before-compact {:trigger :manual :instructions "focus on tests" :chat-id chat-id}]
@@ -163,14 +165,15 @@
     (with-module! {:chat/after-compact (constantly {:additional-context "Keep the plan." :stop "Review first."})})
     (let [hooks* (atom [])
           result (with-redefs [m.hooks/trigger-if-matches! (fn [hook-type & _] (swap! hooks* conj hook-type) nil)]
-                   (lifecycle/complete-compact! (ctx) "auto"))]
-      (is (match? {:compacted? true :stop-turn? true :stop-reason "Review first." :stop-module :acme/compact} result))
+                   (f.chat.compaction/complete-compaction! (ctx) "auto" #'m.compact-as-summary/apply-summary!))]
+      (is (match? {:compacted? true :stop-turn? true :stop-reason "Review first." :ended-by {:module :acme/compact}} result))
       (is (not-any? #{:postCompact} @hooks*)))
     (is (match? [[:chat/after-compact {:trigger :auto
                                        :checkpoint {:marker {:role "compact_marker" :content {:auto? true}}
                                                     :messages [{:role "user" :content [{:text #"The summary\.$"}]}]}}]]
                 @events*))
-    (is (match? {:role "user" :content [{:text #"The summary\.$"} {:text (context-text "Keep the plan.")}]}
+    (is (match? {:role "user" :content [{:text #"The summary\.$"}
+                                        {:text (context-text "Keep the plan.") :module :acme/compact}]}
                 (last (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest mid-turn-module-compaction-test
@@ -179,10 +182,11 @@
     (with-module! {:chat/before-compact (constantly nil)
                    :chat/compact (fn [ctx event] (summarize ctx event) {:status :done :resume? true})})
     (let [resumed* (atom nil)]
-      (with-redefs-fn {#'f.chat/resume-after-compact! (fn [chat-ctx user-messages]
-                                                        (reset! resumed* [chat-ctx user-messages])
-                                                        nil)}
-        #(#'f.chat/trigger-auto-compact! (assoc (ctx) :compact-trigger :overflow) [] [{:role "user" :content "go on"}]))
+      (with-redefs-fn {#'f.chat.compaction/resume-after-compact! (fn [chat-ctx user-messages]
+                                                                   (reset! resumed* [chat-ctx user-messages])
+                                                                   nil)}
+        #(#'f.chat.compaction/trigger-requested-compact! (ctx) [] [{:role "user" :content "go on"}]
+                                                         {:module :acme/compact :trigger :overflow} (constantly nil)))
       (is (= [{:role "user" :content "go on"}] (second @resumed*)))
       (is (not (contains? (first @resumed*) :compact-trigger)) "the trigger is only for this compaction")
       (is (= 1 (:auto-compactions (first @resumed*)))))
@@ -195,16 +199,16 @@
       (with-module! {:chat/compact (fn [ctx event] (summarize ctx event) answer)})
       (let [resumed* (atom false)
             finished* (atom false)]
-        (with-redefs-fn {#'f.chat/resume-after-compact! (fn [& _] (reset! resumed* true) nil)
-                         #'lifecycle/finish-chat-prompt! (fn [& _] (reset! finished* true) nil)}
-          #(#'f.chat/trigger-auto-compact! (ctx) [] []))
+        (with-redefs-fn {#'f.chat.compaction/resume-after-compact! (fn [& _] (reset! resumed* true) nil)
+                         #'f.chat.lifecycle/finish-chat-prompt! (fn [& _] (reset! finished* true) nil)}
+          #(#'f.chat.compaction/trigger-requested-compact! (ctx) [] [] {:module :acme/compact} (constantly nil)))
         (is (= [resumes? (not resumes?)] [@resumed* @finished*]) (pr-str answer)))))
   (testing "a failed compaction stops the turn"
     (setup-chat!)
     (with-module! {:chat/compact (constantly {:status :failed :message "The summarizer is down."})})
     (let [stopped* (atom false)]
-      (with-redefs [lifecycle/finish-chat-prompt-stopped! (fn [& _] (reset! stopped* true))]
-        (#'f.chat/trigger-auto-compact! (ctx) [] []))
+      (with-redefs [f.chat.lifecycle/finish-chat-prompt-stopped! (fn [& _] (reset! stopped* true))]
+        (#'f.chat.compaction/trigger-requested-compact! (ctx) [] [] {:module :acme/compact} (constantly nil)))
       (is @stopped*)
       (is (some #{"The summarizer is down."} (system-texts)))
       (is (= history (get-in (h/db) [:chats chat-id :messages]))))))

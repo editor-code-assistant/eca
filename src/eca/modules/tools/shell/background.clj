@@ -1,8 +1,8 @@
 (ns eca.modules.tools.shell.background
   (:require
    [clojure.string :as string]
-   [eca.features.background-tasks :as bg]
-   [eca.features.tools.util :as tools.util]))
+   [eca.features.tools.util :as tools.util]
+   [eca.modules.tools.shell.jobs :as m.shell.jobs]))
 
 (set! *warn-on-reflection* true)
 
@@ -14,7 +14,7 @@
     id))
 
 (defn ^:private action-list [_arguments]
-  (let [jobs (remove :notified (bg/list-jobs))]
+  (let [jobs (remove :notified (m.shell.jobs/list-jobs))]
     (if (seq jobs)
       (tools.util/single-text-content
        (string/join
@@ -24,19 +24,19 @@
                     " [" (name type) "] "
                     (name status)
                     (when exit-code (str " (exit " exit-code ")"))
-                    " | " (bg/elapsed-str job)
+                    " | " (m.shell.jobs/elapsed-str job)
                     " | " label))
              jobs)))
       (tools.util/single-text-content "No background jobs."))))
 
 (defn ^:private action-read-output [{:keys [job-id]}]
-  (if-let [result (bg/read-output! job-id)]
+  (if-let [result (m.shell.jobs/read-output! job-id)]
     (let [{:keys [lines dropped status exit-code]} result
-          prefix (if-let [job (bg/get-job job-id)]
+          prefix (if-let [job (m.shell.jobs/get-job job-id)]
                    (job-prefix job)
                    job-id)
           output (if (seq lines)
-                   (string/join "\n" (map bg/format-output-line lines))
+                   (string/join "\n" (map m.shell.jobs/format-output-line lines))
                    "(no new output)")]
       (tools.util/single-text-content
        (str "Job " prefix " — " (name status)
@@ -46,10 +46,10 @@
     (tools.util/single-text-content (str "Background job " job-id " not found.") true)))
 
 (defn ^:private action-kill [{:keys [job-id]}]
-  (if-let [job (bg/get-job job-id)]
-    (if (bg/kill-job! job-id)
+  (if-let [job (m.shell.jobs/get-job job-id)]
+    (if (m.shell.jobs/kill-job! job-id)
       (tools.util/single-text-content (str "Background job " (job-prefix job) " killed."))
-      (let [current-status (:status (bg/get-job job-id))]
+      (let [current-status (:status (m.shell.jobs/get-job job-id))]
         (tools.util/single-text-content
          (str "Background job " (job-prefix job) " is not running"
               (when current-status (str " (status: " (name current-status) ")")) ".")
@@ -83,7 +83,7 @@
                   (let [action (get args "action")
                         job-id (get args "job_id")
                         label (when job-id
-                                (if-let [job (bg/get-job job-id)]
+                                (if-let [job (m.shell.jobs/get-job job-id)]
                                   (job-prefix job)
                                   job-id))]
                     (case action

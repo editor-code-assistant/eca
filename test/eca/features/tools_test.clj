@@ -1,10 +1,13 @@
 (ns eca.features.tools-test
   (:require
    [babashka.fs :as fs]
+   [babashka.process :as p]
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.tools :as f.tools]
+   [eca.features.tools.util :as tools.util]
+   [eca.modules :as modules]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.rules :as m.rules]
    [eca.modules.tools.filesystem :as m.filesystem]
@@ -393,6 +396,54 @@
              (deferred-names (defer-all-db big)
                              {:agent {"code" {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}}}}))))))
 
+(deftest transform-tools-test
+  (let [calls* (atom [])
+        dropping (fn [id tool-name]
+                   {:id id
+                    :transform-tools (fn [ctx tools]
+                                       (swap! calls* conj (assoc (select-keys ctx [:module-id :chat-id :agent :full-model])
+                                                                 :names (set (map :full-name tools))))
+                                       (remove #(= tool-name (:full-name %)) tools))})]
+    (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with :eca/filesystem)
+                                                             (dropping :eca/test-a "eca__read_file")
+                                                             (dropping :eca/test-b "eca__write_file")))]
+      (let [names (set (map :full-name (f.tools/all-tools "123" "code" {} {} {:full-model "prov/model"})))]
+        (testing "each built-in's transform gets the tools the one before returned, in module order"
+          (is (match? [{:module-id :eca/test-a :chat-id "123" :agent "code" :full-model "prov/model"
+                        :names #(contains? % "eca__read_file")}
+                       {:module-id :eca/test-b :chat-id "123" :agent "code" :full-model "prov/model"
+                        :names #(and (not (contains? % "eca__read_file")) (contains? % "eca__write_file"))}]
+                      @calls*)))
+        (testing "the last transform's tools are the result"
+          (is (not (contains? names "eca__read_file")))
+          (is (not (contains? names "eca__write_file")))
+          (is (contains? names "eca__directory_tree")))))))
+
+(deftest tool-details-test
+  (let [db (h/db)
+        config (h/config)
+        before (fn [tool arguments]
+                 (f.tools/tool-call-details-before-invocation tool arguments db config "chat-1" true "call-1"))]
+    (testing "a tool's own details come first"
+      (is (= {:mine true}
+             (before {:name "write_file" :server {:name "fs"} :details-before-fn (fn [_ctx _args] {:mine true})}
+                     {"path" "/tmp/x" "content" "y"}))))
+    (testing "another server's tool without them takes the ones of ECA's tool with its name, as an MCP write_file"
+      (is (match? {:type :fileChange :path "/tmp/new.txt" :linesAdded 1}
+                  (before {:name "write_file" :server {:name "fs"}} {"path" "/tmp/new.txt" "content" "hello"}))))
+    (testing "else none before the call, and its JSON outputs after it"
+      (is (nil? (before {:name "lookup" :server {:name "docs"}} {})))
+      (is (match? {:type :jsonOutputs}
+                  (f.tools/tool-call-details-after-invocation
+                   {:name "lookup" :server {:name "docs"}} {} nil
+                   {:error false :contents [{:type :text :text "{\"a\": 1}"}]}
+                   {:db db :config config}))))
+    (testing "a call's resources go to its tool's cleanup, found by full name"
+      (let [destroyed* (atom nil)]
+        (with-redefs [p/destroy-tree #(reset! destroyed* %)]
+          (f.tools/tool-call-destroy-resource! "eca__shell_command" :process :the-process db config))
+        (is (= :the-process @destroyed*))))))
+
 (defn ^:private db-remembering
   "A db whose chat \"c1\" remembered `approvals` via approve & remember."
   [approvals]
@@ -495,6 +546,31 @@
     (testing "trust promotion keeps the matched rule"
       (is (= {:decision :trust/allow :rule {:source :fallback}}
              (f.tools/approval-decision all-tools request-tool {} {} {} nil {:trust true}))))))
+
+(deftest inside-workspace-approval-test
+  (let [read-tool {:name "read_file" :server {:name "eca"} :origin :native
+                   :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])}
+        write-tool (assoc read-tool :name "write_file")
+        all-tools [read-tool write-tool]
+        notes (h/file-path "/tmp/notes")
+        note {"path" (h/file-path "/tmp/notes/today.md")}
+        config (fn [approval] {:toolCall {:approval (merge {:allow {"eca__read_file" {}} :byDefault "ask"} approval)}})]
+    (testing "a path outside the workspace asks, whatever the rules say"
+      (is (= {:decision :ask :rule {:source :tool-built-in-check}}
+             (f.tools/approval-decision all-tools read-tool note {} (config {}) nil))))
+    (testing "in a folder of toolCall.approval.insideWorkspace, the rules decide"
+      (is (= {:decision :allow :rule {:source :config-allow :selector "eca__read_file"}}
+             (f.tools/approval-decision all-tools read-tool note {} (config {:insideWorkspace [notes]}) nil)))
+      (is (= {:decision :ask :rule {:source :by-default}}
+             (f.tools/approval-decision all-tools write-tool note {} (config {:insideWorkspace [notes]}) nil))))
+    (testing "an agent's list adds to the global one"
+      (let [config (assoc-in (config {:insideWorkspace [(h/file-path "/tmp/other")]})
+                             [:agent "plan" :toolCall :approval :insideWorkspace] [notes])]
+        (is (= {:decision :allow :rule {:source :config-allow :selector "eca__read_file"}}
+               (f.tools/approval-decision all-tools read-tool note {} config "plan")))
+        (is (= {:decision :ask :rule {:source :tool-built-in-check}}
+               (f.tools/approval-decision all-tools read-tool note {} config "code"))
+            "only for that agent")))))
 
 (deftest granular-approval-test
   (let [shell-tool {:name "shell_command" :server {:name "eca"} :origin :native
@@ -792,21 +868,31 @@
         (Thread/sleep 250)
         (is (= [1] @calls*))))))
 
+(defn ^:private mcp-db*
+  "A db atom where the MCP server `server-name` runs `tools`."
+  [server-name tools]
+  (atom (assoc (h/db) :mcp-clients {server-name {:status :running :tools tools}})))
+
+(def ^:private mcp-eval-tool
+  {:name        "mcp_eval"
+   :description "eval code"
+   :parameters  {"type"      "object"
+                 :properties {"code" {:type "string"}}
+                 :required   ["code"]}})
+
 (deftest call-tool!-mcp-progress-test
   (testing "MCP progress reaches on-progress, and nothing is reported after the call returns"
     (let [reported* (atom [])
           on-progress* (atom nil)]
-      (with-redefs [m.mcp/all-tools  (fn [_]
-                                       [{:name "slow" :server {:name "srv"}
-                                         :parameters {"type" "object" :properties {}}}])
-                    m.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
+      (with-redefs [m.mcp/call-tool! (fn [_server _name _args {:keys [on-progress]}]
                                        (reset! on-progress* on-progress)
                                        (on-progress {:progress 1 :total 2})
                                        (on-progress {:progress 2 :total 2})
                                        {:error false :contents [{:type :text :text "done"}]})]
         (is (match? {:error false}
                     (f.tools/call-tool! "srv__slow" {} "chat-1" "call-1" "code"
-                                        (h/db*) (h/config) (h/messenger) (h/metrics)
+                                        (mcp-db* "srv" [{:name "slow" :parameters {"type" "object" :properties {}}}])
+                                        (h/config) (h/messenger) (h/metrics)
                                         identity identity
                                         {:on-progress #(swap! reported* conj %)})))
         (@on-progress* {:progress 3 :total 2})
@@ -817,14 +903,12 @@
 (deftest call-tool!-mcp-chat-id-test
   (testing "the calling chat's id reaches the MCP call, which sends it as _meta.sessionId"
     (let [ctx* (atom nil)]
-      (with-redefs [m.mcp/all-tools  (fn [_]
-                                       [{:name "tool" :server {:name "srv"}
-                                         :parameters {"type" "object" :properties {}}}])
-                    m.mcp/call-tool! (fn [_server _name _args ctx]
+      (with-redefs [m.mcp/call-tool! (fn [_server _name _args ctx]
                                        (reset! ctx* ctx)
                                        {:error false :contents []})]
         (f.tools/call-tool! "srv__tool" {} "chat-1" "call-1" "code"
-                            (h/db*) (h/config) (h/messenger) (h/metrics)
+                            (mcp-db* "srv" [{:name "tool" :parameters {"type" "object" :properties {}}}])
+                            (h/config) (h/messenger) (h/metrics)
                             identity identity nil))
       (is (= "chat-1" (:chat-id @ctx*))))))
 
@@ -834,14 +918,7 @@
          {:error    true
           :contents [{:type :text
                       :text "INVALID_ARGS: missing required params: `code`"}]}
-         (with-redefs [m.mcp/all-tools  (fn [_]
-                                          [{:name        "mcp_eval"
-                                            :server      {:name "clojureMCP"}
-                                            :description "eval code"
-                                            :parameters  {"type"      "object"
-                                                          :properties {"code" {:type "string"}}
-                                                          :required   ["code"]}}])
-                       m.mcp/call-tool! (fn [& _]
+         (with-redefs [m.mcp/call-tool! (fn [& _]
                                           {:error    false
                                            :contents [{:type :text :text "should-not-be-called"}]})]
            (f.tools/call-tool!
@@ -850,7 +927,7 @@
             "chat-1"
             "call-2"
             "code"
-            (h/db*)
+            (mcp-db* "clojureMCP" [mcp-eval-tool])
             (h/config)
             (h/messenger)
             (h/metrics)
@@ -920,14 +997,7 @@
     (is (match?
          {:error    false
           :contents [{:type :text :text "OK"}]}
-         (with-redefs [m.mcp/all-tools  (fn [_]
-                                          [{:name        "mcp_eval"
-                                            :server      {:name "clojureMCP"}
-                                            :description "eval code"
-                                            :parameters  {"type"      "object"
-                                                          :properties {"code" {:type "string"}}
-                                                          :required   ["code"]}}])
-                       m.mcp/call-tool! (fn [& _]
+         (with-redefs [m.mcp/call-tool! (fn [& _]
                                           {:error    false
                                            :contents [{:type :text :text "OK"}]})]
            (f.tools/call-tool!
@@ -936,7 +1006,7 @@
             "chat-3"
             "call-5"
             "code"
-            (h/db*)
+            (mcp-db* "clojureMCP" [mcp-eval-tool])
             (h/config)
             (h/messenger)
             (h/metrics)

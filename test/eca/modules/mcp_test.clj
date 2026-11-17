@@ -6,7 +6,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.modules.mcp :as m.mcp]
    [eca.network :as network]
    [eca.oauth :as oauth]
@@ -16,37 +16,33 @@
    [plumcp.core.protocol :as pp]
    [plumcp.core.support.http-client :as phc]))
 
-(deftest all-tools-test
-  (testing "empty db"
-    (is (= []
-           (m.mcp/all-tools {}))))
+(deftest tool-servers-test
+  (let [tool-servers #(#'m.mcp/tool-servers {:db %1 :config (or %2 {})})]
+    (testing "no servers"
+      (is (= [] (tool-servers {} nil)))
+      (is (= [] (tool-servers {:some-other-key "value"} nil)))
+      (is (= [] (tool-servers {:mcp-clients {}} nil))))
 
-  (testing "db with no mcp-clients"
-    (is (= []
-           (m.mcp/all-tools {:some-other-key "value"}))))
+    (testing "a server without tools is listed without tools"
+      (is (= [{:type :mcp :name "server1" :version nil :status nil :tools nil}]
+             (tool-servers {:mcp-clients {"server1" {}}} nil))))
 
-  (testing "db with empty mcp-clients"
-    (is (= []
-           (m.mcp/all-tools {:mcp-clients {}}))))
+    (testing "servers with their version, status and tools, in order"
+      (let [tools1 [{:name "tool1" :description "desc1"}]
+            tools2 [{:name "tool2" :description "desc2"}
+                    {:name "tool3" :description "desc3"}]]
+        (is (= [{:type :mcp :name "server1" :version "1.0.0" :status :running :tools tools1}
+                {:type :mcp :name "server2" :version nil :status nil :tools tools2}]
+               (tool-servers {:mcp-clients (array-map "server1" {:version "1.0.0" :status :running :tools tools1}
+                                                      "server2" {:tools tools2})}
+                             nil)))))
 
-  (testing "db with mcp-clients but no tools"
-    (is (= []
-           (m.mcp/all-tools {:mcp-clients {"server1" {}}}))))
-
-  (testing "db with single server with tools"
-    (let [tools [{:name "tool1" :description "desc1" :server {:name "server1" :version "1.0.0"}}
-                 {:name "tool2" :description "desc2" :server {:name "server1" :version "1.0.0"}}]]
-      (is (= tools
-             (m.mcp/all-tools {:mcp-clients {"server1" {:version "1.0.0"
-                                                        :tools tools}}})))))
-
-  (testing "db with multiple servers with tools"
-    (let [tools1 [{:name "tool1" :description "desc1" :server {:name "server1" :version nil}}]
-          tools2 [{:name "tool2" :description "desc2" :server {:name "server2" :version nil}}
-                  {:name "tool3" :description "desc3" :server {:name "server2" :version nil}}]]
-      (is (= (concat tools1 tools2)
-             (m.mcp/all-tools {:mcp-clients {"server1" {:tools tools1}
-                                             "server2" {:tools tools2}}}))))))
+    (testing "the disabled servers that don't run come last, without tools"
+      (is (= [{:type :mcp :name "on" :version nil :status :running :tools []}
+              {:type :mcp :name "off" :status :disabled :tools []}]
+             (tool-servers {:mcp-clients {"on" {:status :running :tools []}}}
+                           {:mcpServers {"on" {:command "on"}
+                                         "off" {:command "off" :disabled true}}}))))))
 
 (deftest call-tool-routes-to-server-test
   (testing "uses the requested MCP server when tool names collide"
@@ -161,6 +157,44 @@
       (is (= {:mcp-clients {}
               :workspace-folders []
               :other-key "value"} @db*)))))
+
+(deftest stop-a-starting-server-test
+  (let [db* (atom {:workspace-folders [{:uri "file:///tmp" :name "test"}]})
+        config {:mcpServers {"slow" {:command "slow-server"}} :mcpTimeoutSeconds 5}
+        statuses* (atom [])
+        notifiers {:on-server-updated #(swap! statuses* conj (:status %))}
+        calls* (atom 0)
+        first-init* (promise)
+        second-init* (promise)]
+    (with-redefs-fn {#'m.mcp/->transport (fn [& _] {:transport :mock-transport :needs-reinit?* (atom false)})
+                     ;; the handshake waits until the init is stopped; the first init, once stopped,
+                     ;; ends only after a second one started
+                     #'m.mcp/->client (fn [& _]
+                                        (if (= 1 (swap! calls* inc))
+                                          (do (deliver first-init* (Thread/currentThread))
+                                              (try @(promise)
+                                                   (catch InterruptedException e
+                                                     (deref second-init* 5000 nil)
+                                                     (throw e))))
+                                          (do (deliver second-init* (Thread/currentThread))
+                                              @(promise))))
+                     #'pp/stop-client-transport! (fn [_t _g] nil)}
+      (fn []
+        (m.mcp/initialize-servers-async! notifiers db* config nil)
+        (let [^Thread first-init (deref first-init* 5000 nil)]
+          (m.mcp/stop-server! "slow" db* config notifiers)
+          (m.mcp/initialize-servers-async! notifiers db* config nil)
+          (let [^Thread second-init (deref second-init* 5000 nil)]
+            (.join first-init 5000)
+            (testing "a server stopped while it starts is stopped, not failed, so it can start again"
+              (is (= [:starting :stopped :starting] @statuses*))
+              (is (nil? (get-in @db* [:mcp-clients "slow"]))))
+            (testing "the init that took its place is still the server's, so it can be stopped"
+              (is (identical? second-init (get @@#'m.mcp/init-threads* "slow"))))
+            (m.mcp/stop-server! "slow" db* config notifiers)
+            (.join second-init 5000)
+            (is (= [:starting :stopped :starting :stopped] @statuses*))
+            (is (= {} @@#'m.mcp/init-threads*))))))))
 
 (def ^:private ->transport #'m.mcp/->transport)
 
@@ -534,7 +568,7 @@
                                            {:access-token "new-access"
                                             :refresh-token "refresh-2"
                                             :expires-at 9999})
-                    db/update-global-cache! (fn [_db _metrics] nil)]
+                    db.global-cache/update-global-cache! (fn [_db _metrics] nil)]
         (is (true? (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
         (is (= {:url "https://example.com/mcp"
                 :client-id "client-abc"
@@ -564,7 +598,7 @@
                                         :client-id cid :client-secret csecret :resource url})
                     oauth/refresh-token! (fn [_te _cid _rt & _opts]
                                            {:access-token "a" :refresh-token "r" :expires-at 2})
-                    db/update-global-cache! (fn [_db _metrics] nil)]
+                    db.global-cache/update-global-cache! (fn [_db _metrics] nil)]
         (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil
                                     {:clientId "cfg-id" :clientSecret "cfg-secret"})
         (is (= {:client-id "cfg-id" :client-secret "cfg-secret"} @oauth-info-args*)))))

@@ -4,13 +4,18 @@
 
 - Add modular ECA: its features are now modules, which you can list, enable or disable, and extend with your own modules. #699
   - `/modules` lists them and enables or disables one for the session; `modules.<id>.enabled` does it in the config.
-  - Write your own in Clojure, run with SCI: tools, commands, prompt sections and event handlers, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
+  - Write your own in Clojure, run with SCI, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
+  - A module adds tools, tool servers, commands, protocol methods, prompt sections, providers and event handlers.
   - Optional modules, off by default: `eca/repl` (`--repl`), `eca/remote` and `eca/otel`; `remote.enabled` and `otlp` still enable these two.
   - New `eca-manage` skill, to change ECA itself, from its config to modules, following the docs at eca.dev.
+- Add `toolCall.approval.insideWorkspace`: folders outside the workspace that file and shell tools treat as inside it, so your approval rules decide for them.
+- Remove the `repoMap` context and `/repo-map-show`, deprecated since 0.59.0: `eca__directory_tree` replaces them.
+- Fix a compaction blocked by a preCompact hook in the middle of a turn sending the user's message to the model again.
 - Fix `initialize` failing when `initializationOptions` has a key with a slash, e.g. a module id in `modules`.
 - Add AWS Bedrock to `/login` and to the providers list; it only had a login form.
 - Fix `/login azure` saving no URL, and the Azure login form saving the Chat Completions API instead of the Responses API.
 - Add dark mode to the docs site: it follows the OS and the header toggle persists, and document installing the CLI with `mise` at eca.dev/install#cli.
+- Tell the code agent to run independent tool calls in parallel and dependent or potentially conflicting calls sequentially.
 
 ## 0.171.1
 

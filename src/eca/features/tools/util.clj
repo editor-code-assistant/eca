@@ -1,5 +1,6 @@
 (ns eca.features.tools.util
   (:require
+   [babashka.fs :as fs]
    [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.java.shell :as shell]
@@ -11,17 +12,6 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[TOOLS-UTIL]")
-
-(defmulti tool-call-details-before-invocation
-  "Return the tool call details before invoking the tool."
-  (fn [full-name _arguments _server _ctx] (keyword full-name)))
-
-(defmethod tool-call-details-before-invocation :default [_full-name _arguments _server _ctx]
-  nil)
-
-(defmulti tool-call-details-after-invocation
-  "Return the tool call details after invoking the tool."
-  (fn [name _arguments _before-details _result _ctx] (keyword name)))
 
 (defn ^:private json-outputs-if-any [result]
   (when-let [jsons (->> (:contents result)
@@ -41,17 +31,13 @@
     {:type :jsonOutputs
      :jsons jsons}))
 
-(defmethod tool-call-details-after-invocation :default [_name _arguments before-details result _ctx]
+(defn details-after-default
+  "A tool call's details after it ran, for tools without a
+   `:details-after-fn`: the details from before the call, else its JSON
+   outputs, pretty-printed."
+  [before-details result]
   (or before-details
       (json-outputs-if-any result)))
-
-(defmulti tool-call-destroy-resource!
-  "Destroy the tool call resource."
-  (fn [full-name _resource-kwd _resource] (keyword full-name)))
-
-(defmethod tool-call-destroy-resource! :default [_name _resource-kwd _resource]
-  ;; By default, do nothing
-  )
 
 (defn single-text-content [text & [error]]
   {:error (boolean error)
@@ -107,27 +93,43 @@
   [db]
   (mapv (comp shared/uri->filename :uri) (:workspace-folders db)))
 
+(defn inside-workspace-folders
+  "The folders of `toolCall.approval.insideWorkspace` lists, with `~`
+   expanded, without repeats. Relative ones are left out, as they have no
+   folder to be relative to."
+  [folders]
+  (into []
+        (comp (keep (fn [folder]
+                      (let [folder (str (fs/expand-home (str folder)))]
+                        (when (fs/absolute? folder)
+                          folder))))
+              (distinct))
+        (when (sequential? folders) folders)))
+
 (defn path-outside-workspace?
-  "Returns true if `path` is outside any workspace root in `db`.
+  "Returns true if `path` is outside any workspace root in `db` and outside
+   `inside-folders`, the folders that count as inside the workspace (see
+   `inside-workspace-folders`).
    Paths inside the ECA tool-call-outputs cache dir are always considered 'inside'.
    Uses shared path normalization so existing and non-existing paths behave consistently."
-  [db path]
-  (let [p (shared/normalize-path path)
-        roots (workspace-root-paths db)]
-    (and p
-         (not (shared/path-inside-root? p (cache/tool-call-outputs-dir)))
-         (not-any? #(shared/path-inside-root? p %) roots))))
+  ([db path] (path-outside-workspace? db path nil))
+  ([db path inside-folders]
+   (let [p (shared/normalize-path path)
+         roots (concat (workspace-root-paths db) inside-folders)]
+     (and p
+          (not (shared/path-inside-root? p (cache/tool-call-outputs-dir)))
+          (not-any? #(shared/path-inside-root? p %) roots)))))
 
 (defn require-approval-when-outside-workspace
   "Returns a function suitable for tool `:require-approval-fn` that triggers
    approval when any of the provided `path-keys` in args is outside the
-   workspace roots."
+   workspace roots and the ctx's `:inside-workspace` folders."
   [path-keys]
-  (fn [args {:keys [db]}]
+  (fn [args {:keys [db inside-workspace]}]
     (when (seq path-keys)
       (some (fn [k]
               (when-let [p (get args k)]
-                (path-outside-workspace? db p)))
+                (path-outside-workspace? db p inside-workspace)))
             path-keys))))
 
 (defn ->module-tools

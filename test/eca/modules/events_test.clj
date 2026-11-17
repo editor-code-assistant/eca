@@ -26,7 +26,7 @@
                  :chat/compact {:kind :handle}
                  :session/started {:kind :notify}}
                 (events/definitions {})))
-    (is (= 21 (count events/core-events)))))
+    (is (= 27 (count events/core-events)))))
 
 (deftest transform-test
   (let [calls* (atom [])
@@ -38,7 +38,8 @@
                    {:id :acme/last :priority -1000
                     :event-handlers {:test/changed (handler :last nil)}}]
       (testing "handlers run by priority and see earlier changes; context adds up; unaccepted keys are dropped"
-        (is (= {:text "b" :additional-context "one\ntwo"}
+        (is (= {:text "b" :additional-context "one\ntwo"
+                ::events/contexts [{:module :acme/first :content "one"} {:module :acme/second :content "two"}]}
                (events/emit! {} :test/changed {:text "a"})))
         (is (= [[:first "a"] [:second "b"] [:last "b"]] @calls*)))))
   (testing ":block ends the chain"
@@ -58,6 +59,18 @@
                                                       (fn [_ _] (swap! calls* conj :b2) nil)]}}]
         (events/emit! {} :test/changed {})
         (is (= [:b1 :a :b2] @calls*)))))
+  (testing "external handlers run before the last built-in ones, in their own order among themselves"
+    (let [calls* (atom [])
+          handler (fn [id] (fn [_ _] (swap! calls* conj id) nil))]
+      (with-modules [{:id :eca/last :priority -1000 :event-handlers {:test/changed (handler :built-in-last)}}]
+        (modules/add-external! "/tmp/acme-low.clj" {:id :acme/low :priority -1000
+                                                    :event-handlers {:test/changed (handler :low)}})
+        (modules/add-external! "/tmp/acme-lower.clj" {:id :acme/lower
+                                                      :event-handlers {:test/changed {:priority -2000 :handler (handler :lower)}}})
+        (modules/add-external! "/tmp/acme-mid.clj" {:id :acme/mid :priority -950
+                                                    :event-handlers {:test/changed (handler :mid)}})
+        (events/emit! {} :test/changed {})
+        (is (= [:mid :low :lower :built-in-last] @calls*)))))
   (testing "handlers get the caller's ctx plus their module id"
     (let [ctx* (atom nil)]
       (with-modules [{:id :acme/ctx :event-handlers {:test/changed (fn [ctx _] (reset! ctx* ctx) nil)}}]
@@ -66,7 +79,8 @@
 
 (deftest notify-test
   (with-modules [{:id :acme/a :event-handlers {:test/notified (fn [_ _] {:additional-context "x" :text "ignored"})}}]
-    (is (= {:n 1 :additional-context "x"} (events/emit! {} :test/notified {:n 1}))))
+    (is (= {:n 1 :additional-context "x" ::events/contexts [{:module :acme/a :content "x"}]}
+           (events/emit! {} :test/notified {:n 1}))))
   (testing "a notify event that accepts nothing can't be changed or stopped by a handler"
     (let [seen* (atom [])]
       (with-modules [{:id :acme/a :priority 10
@@ -75,6 +89,33 @@
                       :event-handlers {:test/plain (fn [_ e] (swap! seen* conj [:b (:n e)]) nil)}}]
         (is (= {:n 1} (events/emit! {} :test/plain {:n 1})))
         (is (= [[:a 1] [:b 1]] @seen*) "every handler is notified, with the event as it was")))))
+
+(def ^:private seen* (atom nil))
+
+(deftest contexts-test
+  (with-modules [{:id :acme/first :priority 10
+                  :event-handlers {:test/changed (constantly {:additional-context {:text "one" :data {:n 1}}})}}
+                 {:id :acme/second :priority 5
+                  :event-handlers {:test/changed (constantly {:additional-context "two"})}}
+                 {:id :acme/third :priority -10
+                  :event-handlers {:test/changed (constantly {:additional-context {:text "three" :data {:f (fn [])}}})}}
+                 {:id :acme/blank :priority -20
+                  :event-handlers {:test/changed (fn [_ event]
+                                                   (reset! seen* event)
+                                                   {:additional-context {:text "  " :data {:n 4}}})}}]
+    (let [event (events/emit! {} :test/changed {})]
+      (testing "the contexts join, a map giving its :text"
+        (is (= "one\ntwo\nthree" (:additional-context event))))
+      (testing "and each module's is kept, with its :data; data that isn't plain data is left out"
+        (is (= [{:module :acme/first :content "one" :data {:n 1}}
+                {:module :acme/second :content "two"}
+                {:module :acme/third :content "three"}]
+               (::events/contexts event))))
+      (testing "on the result only: handlers see the joined text"
+        (is (= {:additional-context "one\ntwo\nthree"} @seen*)))))
+  (testing "an event that takes no context gets none"
+    (with-modules [{:id :acme/a :event-handlers {:test/plain (constantly {:additional-context "x"})}}]
+      (is (= {} (events/emit! {} :test/plain {}))))))
 
 (deftest falsy-stop-and-block-test
   (testing "a nil or false :stop or :block is no change: the chain goes on"

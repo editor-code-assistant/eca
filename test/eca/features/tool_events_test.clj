@@ -5,9 +5,8 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat :as f.chat]
-   [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.chat.tool-calls :as tc]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.tools :as f.tools]
    [eca.modules :as modules]
    [eca.modules.hooks :as m.hooks]
@@ -72,8 +71,8 @@
                                f.tools/tool-call-details-before-invocation (constantly nil)
                                f.tools/tool-call-details-after-invocation (constantly nil)
                                f.tools/tool-call-summary (constantly "Tool")
-                               lifecycle/maybe-renew-auth-token (fn [_] nil)]
-                   ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls))
+                               f.chat.lifecycle/maybe-renew-auth-token (fn [_] nil)]
+                   ((f.chat.tool-batch/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls))
         messages (get-in @db* [:chats chat-id :messages])]
     {:continue continue
      :outputs (into {} (keep (fn [{:keys [role content]}]
@@ -115,11 +114,12 @@
     (with-module! {:tool/after-call (constantly {:result 42})})
     (let [{:keys [outputs]} (run-tools! [(tool-call "call-1" "eca__tool_a")])]
       (is (= {"call-1" {:error false :contents [{:type :text :text "ok"}]}} outputs))))
-  (testing "context goes to the model only"
+  (testing "context goes to the model only, with the module's id"
     (with-module! {:tool/after-call (constantly {:additional-context "Lint: 2 warnings."})})
     (let [{:keys [outputs called]} (run-tools! [(tool-call "call-1" "eca__tool_a")])]
       (is (= {"call-1" {:error false :contents [{:type :text :text "ok"}
-                                                {:type :text :text (context-text "Lint: 2 warnings.")}]}}
+                                                {:type :text :text (context-text "Lint: 2 warnings.")
+                                                 :module :acme/tools}]}}
              outputs))
       (is (= {"call-1" [{:type :text :text "ok"}]} called))))
   (testing "a module stops the turn after the batch, and the postToolCall hooks don't run"
@@ -140,11 +140,12 @@
     (is (not-any? #(contains? % :result) @events*))))
 
 (deftest tool-before-call-additional-context-test
-  (testing "the context is added to the output of a call that runs"
+  (testing "the context is added to the output of a call that runs, with the module's id"
     (with-module! {:tool/before-call (constantly {:additional-context "Prefer small edits."})})
     (let [{:keys [outputs called]} (run-tools! [(tool-call "call-1" "eca__tool_a")])]
       (is (= {"call-1" {:error false :contents [{:type :text :text "ok"}
-                                                {:type :text :text (context-text "Prefer small edits.")}]}}
+                                                {:type :text :text (context-text "Prefer small edits.")
+                                                 :module :acme/tools}]}}
              outputs))
       (is (= {"call-1" [{:type :text :text "ok"}]} called))))
   (testing "after the :tool/after-call context"
@@ -263,7 +264,7 @@
       (testing "preRequest hooks too"
         (reset! opts* [])
         (reset! events* [])
-        (#'f.chat/run-pre-request-hooks! {:db* (h/db*) :config (h/config) :chat-id "chat-1"
-                                          :messenger (h/messenger) :message "hi"})
+        (#'m.hooks/run-pre-request-hooks! {:db* (h/db*) :config (h/config) :chat-id "chat-1"
+                                           :messenger (h/messenger) :message "hi"})
         (is (match? [{:script "sandbox check-prompt"}] @opts*))
         (is (match? [{:source :hook :hook "check" :hook-type :preRequest :timeout-ms 30000}] @events*))))))

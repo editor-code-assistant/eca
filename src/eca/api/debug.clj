@@ -52,7 +52,7 @@
       (not-empty (into {}
                        (keep (fn [[k v]]
                                (when (not= v (get event k))
-                                 [(if (= ::events/ended-by k) :ended-by k) v])))
+                                 [(get {::events/ended-by :ended-by ::events/by :by} k k) v])))
                        result)))))
 
 (defn ^:private trace-line [chat-id event-id kind event result]

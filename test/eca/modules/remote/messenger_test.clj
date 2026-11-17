@@ -50,14 +50,20 @@
         (Thread/sleep 100)
         (is (not (.contains (.toString os2 "UTF-8") "editor")))))
 
-    (testing "rewrite-content-received delegates to inner only (no broadcast)"
+    (testing "notify! delegates to inner; SSE clients get only jobs/updated, as jobs:updated"
       (let [os3 (java.io.ByteArrayOutputStream.)
             _client3 (m.remote.sse/add-client! sse-connections* os3)
-            data {:chat-id "c1" :content {:type :text :text "rewritten"}}]
-        (messenger/rewrite-content-received broadcast-messenger data)
+            data {:rewrite-id "r1" :content {:type :text :text "rewritten"}}]
+        (messenger/notify! broadcast-messenger "rewrite/contentReceived" data)
         (Thread/sleep 100)
-        (is (seq (:rewrite-content-received (h/messages))))
-        (is (not (.contains (.toString os3 "UTF-8") "rewrite")))))
+        (is (seq (get-in (h/messages) [:notifications "rewrite/contentReceived"])))
+        (is (not (.contains (.toString os3 "UTF-8") "rewrite")))
+        (messenger/notify! broadcast-messenger "jobs/updated" {:jobs [{:id "job-1" :chat-id "c1"}]})
+        (Thread/sleep 100)
+        (is (seq (get-in (h/messages) [:notifications "jobs/updated"])))
+        (let [output (.toString os3 "UTF-8")]
+          (is (.contains output "jobs:updated"))
+          (is (.contains output "\"chatId\"")))))
 
     (m.remote.sse/close-all! sse-connections*)))
 

@@ -5,11 +5,13 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.api :as eca]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
+   [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -90,6 +92,31 @@
       (is (empty? requests))
       (is (some #{"Turn stopped by module 'acme/events': Not now."} (system-texts))))))
 
+(deftest compact-is-not-a-request-for-modules-test
+  (testing "/compact runs no :chat/before-request, and contexts added for the next request wait for it"
+    (with-module! {:chat/before-request (constantly nil)})
+    (h/config! {:prompts {:compact "Summarize the chat."}
+                :hooks {"guard" {:type "preRequest" :actions [{:type "command" :shell "true"}]}}})
+    (let [hooks* (atom [])]
+      (with-redefs [m.hooks/run-hook-action! (fn [_action hook-name hook-type & _]
+                                               (swap! hooks* conj [hook-type hook-name])
+                                               nil)]
+        (let [{:keys [chat-id]} (prompt! {:message "hi"})]
+          (eca/add-context! {:module-id :acme/events :chat-id chat-id :db* (h/db*)} "Notes index.")
+          (reset! events* [])
+          (reset! hooks* [])
+          (let [{:keys [requests]} (prompt! {:message "/compact" :chat-id chat-id})]
+            (is (= 1 (count requests)) "the summary request was sent")
+            (is (not (string/includes? (request-text (first requests)) "Notes index.")))
+            (is (empty? @events*))
+            (is (= [[:preRequest "guard"]] @hooks*) "the preRequest hooks still run, as before modules")
+            (is (= [{:module :acme/events :content "Notes index."}]
+                   (get-in (h/db) [:chats chat-id :module-contexts]))))
+          (testing "the next request gets them"
+            (let [{:keys [requests]} (prompt! {:message "go on" :chat-id chat-id})]
+              (is (string/includes? (request-text (first requests)) "Notes index."))
+              (is (= 1 (count @events*))))))))))
+
 (deftest chat-started-test
   (testing "the first prompt of a chat starts it, with the module's context"
     (with-module! {:chat/started (fn [_ _] {:additional-context "Project notes."})})
@@ -134,6 +161,61 @@
   (h/config! {:chat {:title true}})
   (let [{:keys [chat-id]} (prompt! {:message "caching"})]
     (testing "a module gives the chat its title, instead of the model"
+      (is (= "About caching"
+             (loop [n 0]
+               (or (get-in (h/db) [:chats chat-id :title])
+                   (when (< n 50) (Thread/sleep 50) (recur (inc n))))))))))
+
+(defn- wait-for [pred]
+  (loop [n 0]
+    (or (pred)
+        (when (< n 50) (Thread/sleep 50) (recur (inc n))))))
+
+(deftest blank-chat-title-test
+  (testing "a blank title keeps the chat's title"
+    (with-module! {:chat/title (constantly {:title "  "})})
+    (let [{:keys [chat-id]} (prompt! {:message "one"})]
+      (wait-for #(seq @events*))
+      (Thread/sleep 200)
+      (is (nil? (get-in (h/db) [:chats chat-id :title]))))))
+
+(deftest chat-title-asked-at-every-request-test
+  (testing "modules are asked at every request, with the request count and the chat's title"
+    (with-module! {:chat/title (fn [_ {:keys [prompt-count]}]
+                                 (when (= 1 prompt-count) {:title "First"}))})
+    (let [{:keys [chat-id]} (prompt! {:message "one"})]
+      (wait-for #(get-in (h/db) [:chats chat-id :title]))
+      (prompt! {:message "two" :chat-id chat-id})
+      (wait-for #(= 2 (count @events*)))
+      (is (match? [{:prompt-count 1 :title nil} {:prompt-count 2 :title "First"}] @events*))
+      (is (= "First" (get-in (h/db) [:chats chat-id :title])))))
+  (testing "but not once the user named the chat"
+    (with-module! {:chat/title (constantly {:title "Generated"})})
+    (let [{:keys [chat-id]} (prompt! {:message "one"})]
+      (wait-for #(get-in (h/db) [:chats chat-id :title]))
+      (swap! (h/db*) update-in [:chats chat-id] assoc :title "Mine" :title-custom? true)
+      (reset! events* [])
+      (prompt! {:message "two" :chat-id chat-id})
+      (Thread/sleep 200)
+      (is (empty? @events*))
+      (is (= "Mine" (get-in (h/db) [:chats chat-id :title]))))))
+
+(deftest module-contexts-in-messages-test
+  (testing "a module's context carries its id and :data, in the request and in the history"
+    (with-module! {:chat/before-request (constantly {:additional-context {:text "Notes index." :data {:v 1}}})})
+    (let [{:keys [chat-id requests]} (prompt! {:message "explain"})
+          content [{:type :text :text "explain"}
+                   {:type :text :text "<additionalContext>\nNotes index.\n</additionalContext>"
+                    :module :acme/events :data {:v 1}}]]
+      (is (= content (:content (first (first requests)))))
+      (is (= content (:content (first (get-in (h/db) [:chats chat-id :messages])))))))
+  (testing "the chat's title isn't made from it"
+    (h/reset-messenger!)
+    (with-module! {:chat/before-request (constantly {:additional-context "Notes index."})
+                   :chat/title (fn [_ {:keys [messages]}]
+                                 {:title (str "About " (string/join " " (mapcat #(keep :text (:content %)) messages)))})})
+    (h/config! {:chat {:title true}})
+    (let [{:keys [chat-id]} (prompt! {:message "caching"})]
       (is (= "About caching"
              (loop [n 0]
                (or (get-in (h/db) [:chats chat-id :title])

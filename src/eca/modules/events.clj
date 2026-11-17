@@ -13,7 +13,8 @@
   (:require
    [clojure.string :as string]
    [eca.logger :as logger]
-   [eca.modules :as modules]))
+   [eca.modules :as modules]
+   [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -26,6 +27,9 @@
   {:session/started {:kind :notify
                      :doc "ECA started: plugins and modules are loaded."
                      :payload {:workspaces "The workspace folders."}}
+   :session/ready {:kind :notify
+                   :doc (str "ECA finished starting, after :session/started: the client got the chat config "
+                             "and ECA's own tool servers. MCP servers start here.")}
    :session/ended {:kind :notify
                    :doc "ECA is shutting down."}
    :chat/started {:kind :notify
@@ -46,21 +50,25 @@
                         :doc "A message was added to a chat's history."
                         :payload {:message "The message: :role and :content."}}
    :chat/usage-updated {:kind :notify
-                        :doc "A response reported its token usage."
+                        :doc "A response reported its token usage, or /context refreshed it."
                         :payload {:usage "The chat's usage, as clients get it: tokens, costs and limits."
                                   :session-tokens "Tokens the chat's context holds."
                                   :context-limit "The model's context limit."
-                                  :context-used "From 0 to 1."}}
+                                  :context-used "From 0 to 1."}
+                        :accepts {:auto-compact-percentage (str "Where the chat compacts on its own, in percent of "
+                                                                "the context limit, shown to clients.")}}
    :chat/input {:kind :transform
                 :doc "Text the user sent, before command and skill expansion."
                 :payload {:text "The text." :source ":user or :module."}
                 :accepts {:text "Replaces the text."
                           :handled "A reply string, or true: the model isn't called."}}
    :chat/before-request {:kind :transform
-                         :doc "Once per user message, before the first LLM request."
-                         :payload {:prompt "The user's prompt."}
-                         :accepts {:prompt "Replaces the prompt."
-                                   :additional-context "Added to the request."
+                         :doc (str "Once per user message, before the first LLM request. Not for /compact: "
+                                   "its summary request isn't a user request; only built-in handlers with "
+                                   ":compaction? true get it, with :compaction? true.")
+                         :payload {:prompt "The user's prompt; for a command or an MCP prompt, what was typed."}
+                         :accepts {:prompt "Replaces the prompt; not for commands and MCP prompts."
+                                   :additional-context "Added to the request: a string, or {:text .. :data ..}."
                                    :block "Skips the request, with this reason."
                                    :stop "Ends the turn, with this reason."}}
    :llm/before-request {:kind :transform
@@ -80,6 +88,10 @@
                                   :error "The error, classified: :type (e.g. :context-overflow), :message, :status."}
                         :accepts {:retry "true: send the request again. Request changes aren't supported yet."
                                   :compact "Compaction options, :trigger and :instructions: compact, then resume the turn."}}
+   :llm/response-headers {:kind :notify
+                          :doc (str "A response's headers, for a subscription login (OAuth). "
+                                    "E.g. eca/llm-providers reads the quota from them.")
+                          :payload {:provider "The provider." :headers "The response's headers."}}
    :chat/after-request {:kind :notify
                         :doc "The model finished responding to a user message."
                         :payload {:response "The response."}
@@ -105,6 +117,20 @@
                      :accepts {:result "Replaces the result: a result map, or a string for a text result."
                                :additional-context "Added to the result for the model only."
                                :stop "Ends the turn after this batch of tool calls, with this reason."}}
+   :tool/called {:kind :transform
+                 :doc (str "After the client got a tool call's result, before the model sees it; the postToolCall "
+                           "hooks run here. Not when a :tool/after-call handler stopped the turn.")
+                 :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."
+                           :result "The result: {:error :contents}." :error? "Whether it failed."
+                           :tool-call-id "The tool call's id."}
+                 :accepts {:result (str "Replaces what the model sees of the result, a result map's :contents or "
+                                        "a string for a text; the client keeps the original.")
+                           :additional-context "Added to the result for the model."
+                           :stop "Ends the turn after this batch of tool calls, with this reason."}}
+   :chat/next-round {:kind :notify
+                     :doc "In the tool loop: after a response's tools ran, before the model gets their results."
+                     :accepts {:notes (str "Texts the chat's history gets first, each a user message: the event's "
+                                           "and yours. E.g. eca/shell's finished background jobs.")}}
    :chat/before-compact {:kind :transform
                          :doc "Before a compaction."
                          :payload {:trigger ":manual, :auto or :overflow." :instructions "Extra instructions."}
@@ -122,14 +148,18 @@
    :chat/after-compact {:kind :notify
                         :doc "After a compaction wrote a checkpoint."
                         :payload {:trigger ":manual, :auto or :overflow."
-                                  :checkpoint "The checkpoint: its :marker and the :messages after it."}
+                                  :checkpoint "The checkpoint: its :marker and the :messages after it."
+                                  :summary "The compaction's summary, as text."}
                         :accepts {:additional-context "Added after the checkpoint."
                                   :stop "Ends the turn, with this reason."}}
    :chat/title {:kind :handle
-                :doc "Give a chat its title."
-                :payload {:messages "The chat's user and assistant messages since the last checkpoint."
-                          :retitle? "Whether the chat is titled again, at its third prompt, with more context."}
-                :accepts {:title "The title."}}
+                :doc "Asked at every request of a chat the user didn't name: the first answer titles it."
+                :payload {:messages (str "The chat's user and assistant messages since the last checkpoint, "
+                                         "the new request's last.")
+                          :prompt-messages "The new request's messages, without the attached contexts."
+                          :prompt-count "The chat's requests, this one included."
+                          :title "The chat's title, or nil."}
+                :accepts {:title "The title; nil keeps the chat's."}}
    :shell/before-exec {:kind :transform
                        :doc (str "Before every shell command ECA runs: the shell and git tools, custom tools, "
                                  "shell hooks and eca.api/shell!.")
@@ -145,10 +175,17 @@
                               "Read the config from the event, not through eca.api.")
                     :payload {:config "The config."}
                     :accepts {:config "Replaces the config, except its modules key."}}
+   :config/changed {:kind :notify
+                    :doc "ECA saw the config change."
+                    :payload {:prev-config "The config before." :config "The config now."}}
    :models/resolve {:kind :transform
                     :doc "After the model list is built."
                     :payload {:models "Full model name → capabilities."}
-                    :accepts {:models "Replaces the model list."}}})
+                    :accepts {:models "Replaces the model list."}}
+   :models/synced {:kind :notify
+                   :doc (str "The models were synced: at startup and when the providers' config changed, "
+                             "after renewing login tokens; not after a login or logout. "
+                             "E.g. eca/llm-providers fetches the subscription quotas.")}})
 
 ;; --- Index of definitions and handlers, rebuilt when the active modules change
 
@@ -159,6 +196,12 @@
     (sequential? spec) (mapv #(if (map? %) % {:handler %}) spec)
     (map? spec) [spec]
     :else [{:handler spec}]))
+
+(def ^:private lowest-external-priority
+  "The lowest priority of an external module's handler: they all run before
+   the last built-in ones, `:eca/approval` keeping a deny from the config
+   (-900) and the shell hooks (-1000)."
+  -899)
 
 (defn ^:private build-index [{:keys [active]}]
   (let [definitions (reduce (fn [acc entry]
@@ -175,13 +218,18 @@
                             active)
         handlers (for [entry active
                        [event-id spec] (:event-handlers (:module entry))
-                       [i h] (map-indexed vector (handler-entries spec))]
+                       [i h] (map-indexed vector (handler-entries spec))
+                       :let [own-priority (if (integer? (:priority h)) (:priority h) (:priority entry))]]
                    {:event-id event-id
                     :entry entry
                     :handler (:handler h)
                     :match (:match h)
+                    ;; a built-in's handler of :chat/before-request may also take a compaction's request
+                    :compaction? (boolean (and (:built-in? entry) (:compaction? h)))
                     :timeout-ms (:timeout-ms h)
-                    :priority (if (integer? (:priority h)) (:priority h) (:priority entry))
+                    ;; an external one lower than that runs there, in its own order among the others
+                    :priority (if (:built-in? entry) own-priority (max lowest-external-priority own-priority))
+                    :own-priority own-priority
                     :index i})]
     (doseq [[event-id module-ids] (->> handlers
                                        (remove #(contains? definitions (:event-id %)))
@@ -190,7 +238,8 @@
                                       (string/join ", " (distinct (map (comp :id :entry) module-ids))) event-id)))
     {:definitions definitions
      :handlers (update-vals (group-by :event-id handlers)
-                            (fn [hs] (vec (sort-by (juxt (comp - :priority) (comp :id :entry) :index) hs))))}))
+                            (fn [hs] (vec (sort-by (juxt (comp - :priority) (comp - :own-priority) (comp :id :entry) :index)
+                                                   hs))))}))
 
 (def ^:private index-cache* (atom nil))
 
@@ -226,21 +275,52 @@
   [match event]
   (every? (fn [[k expected]] (value-matches? expected (get event k))) match))
 
+(defn ^:private context-text
+  "The text of an `:additional-context` change, a string, a map's `:text` or
+   a list of them, one per line; nil when blank or none."
+  [v]
+  (if (sequential? v)
+    (shared/not-blank (string/join "\n" (keep context-text v)))
+    (shared/not-blank (if (map? v) (:text v) v))))
+
 (defn merge-changes
   "Merges a handler's changes into the event: `:additional-context` adds up
-   (strings only), other keys replace; a nil or false `:stop` or `:block` is
-   no change. With `accepted`, other keys are ignored."
+   (a string, a map's `:text` or a list of them), other keys replace; a nil
+   or false `:stop` or `:block` is no change. With `accepted`, other keys are
+   ignored."
   [event changes accepted]
   (reduce-kv (fn [event k v]
                (cond
                  (and accepted (not (contains? accepted k))) event
                  (and (#{:stop :block} k) (not v)) event
-                 (= :additional-context k) (if (or (not (string? v)) (string/blank? v))
-                                             event
-                                             (update event k #(if (string/blank? %) v (str % "\n" v))))
+                 (= :additional-context k) (if-let [text (context-text v)]
+                                             (update event k #(if (string/blank? %) text (str % "\n" text)))
+                                             event)
                  :else (assoc event k v)))
              event
              changes))
+
+(defn ^:private module-contexts
+  "The contexts module `entry` added with an `:additional-context` change,
+   one per string or map of a list, as `{:module :content :data}`. `:data`
+   comes from a map's `:data`, when it's plain data. A built-in module's map
+   with `:label? false` gives a context without the module, `{:content ..}`,
+   which ECA keeps like the user's text, as the shell hooks' are."
+  [entry v]
+  (if (sequential? v)
+    (into [] (mapcat #(module-contexts entry %)) v)
+    (when-let [text (context-text v)]
+      (let [id (:id entry)
+            data (when (map? v) (:data v))]
+        (cond
+          (and (:built-in? entry) (map? v) (false? (:label? v)))
+          [{:content text}]
+
+          :else
+          (do (when (and (some? data) (not (shared/plain-data? data)))
+                (logger/warn logger-tag (format "Module %s gave context :data that isn't plain data, leaving it out" id)))
+              [(cond-> {:module id :content text}
+                 (and (some? data) (shared/plain-data? data)) (assoc :data data))]))))))
 
 ;; --- Tracing, for eca.api.debug/trace!
 
@@ -298,8 +378,11 @@
    what handlers get as their ctx (`:db*`, `:messenger`, `:chat-id`...).
    - notify and transform events return the event with the handlers' accepted
      changes merged; the first `:block` or `:stop` ends the chain, and
-     `::ended-by` names the module that ended it.
-   - handle events return the first non-nil answer, or nil."
+     `::ended-by` names the module that ended it. A built-in module may name
+     who acted for it with `:by` (e.g. \"hook 'lint'\"), kept in `::by`.
+   - handle events return the first non-nil answer, or nil.
+   An event with `:compaction? true`, a compaction's request, only reaches
+   the handlers registered with `:compaction? true`."
   [ctx event-id event]
   (let [{:keys [definitions handlers]} (index (:config ctx))
         definition (get definitions event-id)
@@ -309,7 +392,10 @@
                    (:accepts definition) (set (keys (:accepts definition)))
                    (= :notify (:kind definition)) #{}
                    :else nil)
-        hs (get handlers event-id)
+        hs (cond->> (get handlers event-id)
+             (:compaction? event) (filterv :compaction?))
+        ;; `{:module :content :data}` of each handler's :additional-context
+        contexts* (volatile! [])
         result (if (= :handle (:kind definition))
                  (some (fn [h]
                          (when (matches? (:match h) event)
@@ -328,12 +414,21 @@
                                      event)
 
                                  :else
-                                 (let [changed (merge-changes event changes accepted)]
+                                 (let [built-in? (:built-in? (:entry h))
+                                       by (when built-in? (shared/not-blank (:by changes)))
+                                       changed (merge-changes event (cond-> changes built-in? (dissoc :by)) accepted)]
+                                   (when (or (nil? accepted) (contains? accepted :additional-context))
+                                     (vswap! contexts* into (module-contexts (:entry h) (:additional-context changes))))
                                    (if (or (and (:block changed) (not (:block event)))
                                            (and (contains? changed :stop) (not (contains? event :stop))))
-                                     (reduced (assoc changed ::ended-by (:id (:entry h))))
+                                     (reduced (cond-> (assoc changed ::ended-by (:id (:entry h)))
+                                                by (assoc ::by by)))
                                      changed))))))
                          event
-                         hs))]
+                         hs))
+        ;; each module's context, besides the joined text, on the result only:
+        ;; handlers don't see it
+        result (cond-> result
+                 (seq @contexts*) (assoc ::contexts @contexts*))]
     (trace-event! ctx event-id (:kind definition) event result)
     result))

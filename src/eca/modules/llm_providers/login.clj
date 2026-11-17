@@ -1,28 +1,38 @@
-(ns eca.features.login
+(ns eca.modules.llm-providers.login
+  "`/login`'s chat flow: picks the provider, then runs its login steps (its
+   declaration's `:login :steps`, or the fields of `:login :ask`), while the
+   chat is in the `:login` status."
   (:require
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.db :as db]
-   [eca.features.providers :as f.providers]
+   [eca.db.global-cache :as db.global-cache]
+   [eca.llm-api.auth :as llm-api.auth]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
+   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
    [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[LOGIN]")
 
-(defmulti login-step
-  "Login state machine. Dispatches on the provider's base (see
-   `config/provider-base`), so a provider inheriting e.g. `anthropic` runs
-   Anthropic's login steps while `:provider` keeps its own name, storing its
-   auth separately."
-  (fn [{:keys [provider step config]}]
-    [(config/provider-base provider config) step]))
+(declare ^:private pick-provider!)
 
-(defmethod login-step :default [{:keys [send-msg!]}]
-  (send-msg! "Error: Unknown login step"))
+(defn login-step
+  "Login state machine: runs `step` of the provider's base (see
+   `config/provider-base`), its `:login :steps`, so a provider inheriting
+   e.g. `anthropic` runs Anthropic's login steps while `:provider` keeps its
+   own name, storing its auth separately. Without a provider, the first step
+   asks which one."
+  [{:keys [provider step config send-msg!] :as ctx}]
+  (if-let [step-fn (if provider
+                     (get-in (llm-util/provider-declaration config (config/provider-base provider config))
+                             [:login :steps step])
+                     (when (= :login/start step) pick-provider!))]
+    (step-fn ctx)
+    (send-msg! "Error: Unknown login step")))
 
 (def ^:private ask-timeout-ms (* 5 60 1000))
 
@@ -89,7 +99,7 @@
    configured providers, or providers with login state, that inherit from one
    of them."
   [db config]
-  (let [loginable (f.providers/login-provider-ids config)]
+  (let [loginable (m.llm-providers.providers/login-provider-ids config)]
     (->> (concat (keys (:auth db)) (keys (:providers config)))
          (filter #(contains? loginable (config/provider-base % config)))
          (into loginable)
@@ -119,7 +129,7 @@
   "One step of an `:ask` login: ask for each field in turn, then save the
    declaration's config keys and the answers to the global config."
   [{:keys [db* chat-id provider step input send-msg!] :as ctx} declaration]
-  (let [fields (f.providers/ask-fields (get-in declaration [:login :ask]))
+  (let [fields (m.llm-providers.providers/ask-fields (get-in declaration [:login :ask]))
         next-field (fn [field] (second (drop-while #(not= field %) fields)))]
     (if (= :login/start step)
       (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
@@ -136,7 +146,7 @@
                 (do (swap! db* assoc-in [:auth provider] (assoc answers :step (ask-step (first field))))
                     (send-msg! (ask-prompt field)))
                 (do (config/update-global-config!
-                     {:providers {provider (f.providers/login-config declaration answers)}})
+                     {:providers {provider (m.llm-providers.providers/login-config declaration answers)}})
                     (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
                     (send-msg! (format "%s saved to %s" (saved-text fields)
                                        (.getCanonicalPath (config/global-config-file))))
@@ -145,20 +155,20 @@
 
 (defn ^:private run-login-step!
   "Runs the current login step: the provider's `:ask` flow when it declares
-   one, otherwise its `login-step` methods."
+   one, otherwise its `:login :steps`."
   [{:keys [provider config] :as ctx}]
-  (if-let [declaration (when provider (f.providers/ask-declaration provider config))]
+  (if-let [declaration (when provider (m.llm-providers.providers/ask-declaration provider config))]
     (ask-login-step! ctx declaration)
     (login-step ctx)))
 
 ;; No provider selected
-(defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
+(defn ^:private pick-provider! [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
   (let [provider (string/trim input)
         providers (login-providers @db* config)]
     (if (some #{provider} providers)
       (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
           (swap! db* assoc-in [:auth provider] {:step :login/start})
-          (when-let [warning (f.providers/key-auth-override-warning provider config)]
+          (when-let [warning (llm-api.auth/key-auth-override-warning provider config)]
             (send-msg! warning))
           (run-login-step! (assoc ctx :provider provider)))
       (if ask!
@@ -218,82 +228,21 @@
         {:chat-id chat-id
          :status :login}))))
 
-(defn ^:private renew-auth!
-  [provider
-   {:keys [db* messenger config metrics]}
-   {:keys [on-error]}]
-  (try
-    ;; Serialize across ECA processes that share `~/.cache/eca/db.transit.json`.
-    ;; OAuth refresh tokens are single-use, so two concurrent processes
-    ;; both POSTing with the same token would have one win and the other
-    ;; receive `invalid_grant`. Holding the cache lock + re-reading disk
-    ;; lets the loser adopt the winner's rotated tokens instead. #462
-    (db/with-global-cache-lock
-      (db/sync-auth-from-cache! db* provider metrics)
-      (let [expires-at (get-in @db* [:auth provider :expires-at])
-            now-plus-60 (+ 60 (quot (System/currentTimeMillis) 1000))]
-        (if (and expires-at (> (long expires-at) now-plus-60))
-          (logger/info logger-tag
-                       (format "Skipping %s renew; peer process already refreshed." provider))
-          (do
-            (login-step
-             {:provider provider
-              :metrics metrics
-              :messenger messenger
-              :config config
-              :step :login/renew-token
-              :db* db*})
-            (db/update-global-auth-cache! @db* provider metrics)))))
-    (catch Exception e
-      (on-error (.getMessage e)))))
-
-(defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
-  (when-not (f.providers/key-auth-override-warning provider (:config ctx))
-    (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
-      ;; Renew 60s before expiration to avoid race between check and request
-      (when (<= (long expires-at) (+ 60 (quot (System/currentTimeMillis) 1000)))
-        (when on-renewing
-          (on-renewing))
-        (renew-auth! provider ctx
-                     {:on-error on-error})))))
-
-(defn renew-expiring-auth-tokens!
-  "Best-effort proactive renewal of any provider auth tokens that are at/near
-   expiry. Used by non-interactive paths like model-catalog sync, which would
-   otherwise call provider endpoints with a stale short-lived token (e.g.
-   Copilot's session token) and get a 401. `ctx` needs {:db* :messenger :config
-   :metrics}."
-  [{:keys [db*] :as ctx}]
-  (doseq [provider (keys (:auth @db*))]
-    (maybe-renew-auth-token!
-     {:provider provider
-      :on-error (fn [msg]
-                  (logger/warn logger-tag
-                               (format "Could not renew '%s' auth token before sync: %s" provider msg)))}
-     ctx)))
-
-(defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}
-                   & {:keys [silent? skip-models-sync?]
-                      :or {silent? false
-                           skip-models-sync? false}}]
+(defn login-done! [{:keys [chat-id db* messenger metrics provider send-msg!]}]
   (when (get-in @db* [:auth provider])
-    (db/update-global-auth-cache! @db* provider metrics))
-  ;; Silent logins are token renewals, keeping the same account and quota.
-  (when-not silent?
-    (f.providers/reset-quota! provider db* (config/all @db*) messenger))
-  (when-not skip-models-sync?
-    (models/sync-models! db*
-                         (config/all @db*) ;; force get updated config
-                         (fn [new-models]
-                           (messenger/config-updated
-                            messenger
-                            {:chat
-                             {:models (sort (keys new-models))}}))))
+    (db.global-cache/update-global-auth-cache! @db* provider metrics))
+  (m.llm-providers.providers/reset-quota! provider db* (config/all @db*) messenger)
+  (models/sync-models! db*
+                       (config/all @db*) ;; force get updated config
+                       (fn [new-models]
+                         (messenger/config-updated
+                          messenger
+                          {:chat
+                           {:models (sort (keys new-models))}})))
   (swap! db* assoc-in [:chats chat-id :login-provider] nil)
   (swap! db* assoc-in [:chats chat-id :status] :idle)
-  (when-not silent?
-    (send-msg! (format "\nLogin successful! You can now use the '%s' models." provider))
-    ;; Login may complete asynchronously (OAuth callback, device-flow polling,
-    ;; askQuestion answer), where there is no chat/prompt response to carry the
-    ;; new status, so notify the client explicitly.
-    (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle})))
+  (send-msg! (format "\nLogin successful! You can now use the '%s' models." provider))
+  ;; Login may complete asynchronously (OAuth callback, device-flow polling,
+  ;; askQuestion answer), where there is no chat/prompt response to carry the
+  ;; new status, so notify the client explicitly.
+  (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle}))

@@ -1,21 +1,25 @@
-(ns eca.features.rewrite
+(ns eca.modules.rewrite
+  "The `:eca/rewrite` module: rewrite a selection with the model,
+   `rewrite/prompt`, streaming the text back in `rewrite/contentReceived`."
   (:require
    [clojure.string :as string]
-   [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
-   [eca.shared :as shared :refer [future*]]))
+   [eca.metrics :as metrics]
+   [eca.shared :as shared :refer [future* multi-str]]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[REWRITE]")
 
 (defn ^:private send-content! [ctx content]
-  (messenger/rewrite-content-received
+  (messenger/notify!
    (:messenger ctx)
+   "rewrite/contentReceived"
    {:rewrite-id (:rewrite-id ctx)
     :content content}))
 
@@ -40,6 +44,38 @@
             (str (format ";; [File truncated: showing lines %d-%d of %d]\n" start end total)
                  windowed)))))))
 
+(defn ^:private build-rewrite-instructions [text path full-text range all-tools config db]
+  (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
+        legacy-config-prompt (-> config :rewrite :systemPrompt)
+        config-prompt (f.prompt/get-config-prompt :rewrite nil config)
+        prompt-str (cond
+                     legacy-config-prompt
+                     legacy-config-prompt
+
+                     config-prompt
+                     config-prompt
+
+                     :else
+                     (f.prompt/prompt-file legacy-prompt-file))]
+    (shared/safe-selmer-render prompt-str
+                               (merge
+                                (f.prompt/->base-selmer-ctx all-tools db)
+                                {:text text
+                                 :path (when path
+                                         (str "- File path: " path))
+                                 :rangeText (multi-str
+                                             (str "- Start line: " (-> range :start :line))
+                                             (str "- Start character: " (-> range :start :character))
+                                             (str "- End line: " (-> range :end :line))
+                                             (str "- End character: " (-> range :end :character)))
+                                 :fullText (when full-text
+                                             (multi-str
+                                              "- Full file content"
+                                              "```"
+                                              full-text
+                                              "```"))})
+                               "rewrite-prompt")))
+
 (defn prompt
   [{:keys [id prompt text path range]} db* config messenger metrics]
   (let [db @db*
@@ -53,13 +89,13 @@
         full-text (rewrite-file-context path range max-file-lines)
         start-time (System/currentTimeMillis)
         all-tools (f.tools/all-tools nil nil @db* config)
-        instructions (f.prompt/build-rewrite-instructions text path full-text range all-tools config db)
+        instructions (build-rewrite-instructions text path full-text range all-tools config db)
         ctx {:db* db*
              :config config
              :messenger messenger
              :metrics metrics
              :rewrite-id id}
-        _ (f.login/maybe-renew-auth-token!
+        _ (llm-api.auth/maybe-renew-auth-token!
            {:provider provider
             :on-error (fn [error-msg]
                         (logger/error logger-tag (format "Auth token renew failed: %s" error-msg))
@@ -101,3 +137,22 @@
                                           :message (or message (str "Error: " (ex-message exception)))}))})))
     {:status "prompting"
      :model full-model}))
+
+(defn ^:private rewrite-prompt
+  "`rewrite/prompt`: an error the client should show (`:error-response`, e.g.
+   a failed login) is the answer's `:error`."
+  [{:keys [db* config metrics messenger]} params]
+  (metrics/task metrics :eca/rewrite-prompt
+    (try
+      (prompt params db* config messenger metrics)
+      (catch clojure.lang.ExceptionInfo e
+        (if-let [error-response (:error-response (ex-data e))]
+          {:error error-response}
+          (throw e))))))
+
+(def module
+  {:id :eca/rewrite
+   :description "Rewrite the selected code with the model."
+   :config-spec {:rewrite {:fullFileMaxLines {:type :number :default 2000}}
+                 :prompts {:rewrite {:type :string :default "${classpath:prompts/rewrite.md}"}}}
+   :rpc {"rewrite/prompt" {:kind :request :handler #'rewrite-prompt}}})

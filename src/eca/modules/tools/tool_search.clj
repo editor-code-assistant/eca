@@ -6,8 +6,9 @@
    [cheshire.core :as json]
    [clojure.string :as string]
    [eca.features.prompt :as f.prompt]
+   [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
-   [eca.shared :refer [multi-str]]))
+   [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
 
@@ -155,6 +156,82 @@
   [{:keys [all-tools]}]
   (deferred-tools-section all-tools))
 
+(defn ^:private get-defer-all-percent
+  "Percentage of the model context window the MCP tool definitions may take
+   before all of them are deferred without any pattern. The agent value overrides
+   the global one; nil (the default) leaves them unlimited."
+  [config agent-name]
+  (let [agent-config (get-in config [:agent agent-name :mcpToolSearch])]
+    (if (contains? agent-config :deferAllWhenTotalTokensExceedPercentOfContext)
+      (:deferAllWhenTotalTokensExceedPercentOfContext agent-config)
+      (get-in config [:mcpToolSearch :deferAllWhenTotalTokensExceedPercentOfContext]))))
+
+(defn ^:private tools-tokens
+  "Rough token cost of the tool definitions sent on every request, measured over
+   the same wire fields `shared/context-breakdown` reports as Tool definitions."
+  [tools]
+  (shared/estimate-tokens
+   (pr-str (mapv #(select-keys % [:name :description :parameters]) tools))))
+
+(defn ^:private defer-all-by-total-tokens?
+  "True when the MCP tool definitions as a whole outgrow
+   `deferAllWhenTotalTokensExceedPercentOfContext` of the model context window.
+   False without a percent or a known context window, so an unknown model never
+   silently hides its tools."
+  [mcp-tools config agent-name db full-model]
+  (let [percent (get-defer-all-percent config agent-name)
+        context-limit (get-in db [:models full-model :limit :context])]
+    (boolean (and (number? percent)
+                  (not (neg? percent))
+                  (number? context-limit)
+                  (pos? context-limit)
+                  (seq mcp-tools)
+                  (> (tools-tokens mcp-tools)
+                     (* context-limit (/ (double percent) 100.0)))))))
+
+(defn ^:private mark-deferred-tools
+  "Marks MCP tools kept out of the LLM context with `:deferrable`, and with
+   `:deferred` while the chat has not loaded them yet via `eca__search_tools`.
+   A tool is deferred when the MCP tool definitions as a whole outgrow
+   `mcpToolSearch.deferAllWhenTotalTokensExceedPercentOfContext` of the context
+   window, or when it matches `includePattern`, and in both cases only if it does
+   not match `excludePattern`.
+   Deferred tools stay resolvable and callable; they are simply kept out of the
+   tool schemas sent to the LLM.
+   Native ECA tools are never deferred: they are the agent's baseline capabilities,
+   and a catch-all pattern taking them away would break the agent. They are also
+   left out of the token count, so the limit tracks what MCP actually adds."
+  [tools {:keys [config agent-name activated db full-model]}]
+  (let [include-patterns (f.tools/get-tool-patterns config agent-name [:mcpToolSearch :includePattern])
+        exclude-patterns (f.tools/get-tool-patterns config agent-name [:mcpToolSearch :excludePattern])
+        mcp-tools (filterv #(not= :native (:origin %)) tools)
+        defer-all? (defer-all-by-total-tokens? mcp-tools config agent-name db full-model)]
+    (if-not (or defer-all? (seq include-patterns))
+      tools
+      (mapv (fn [tool]
+              (if (and (not= :native (:origin tool))
+                       (or defer-all? (f.tools/tool-matches-any? tool include-patterns))
+                       (not (f.tools/tool-matches-any? tool exclude-patterns)))
+                (assoc tool
+                       :deferrable true
+                       :deferred (not (contains? activated (:full-name tool))))
+                tool))
+            tools))))
+
+(defn ^:private transform-tools
+  "`:transform-tools`: defers the MCP tools the config asks to. search_tools
+   only earns its context slot when something is actually deferred."
+  [{:keys [config agent db chat-id full-model]} tools]
+  (let [tools (mark-deferred-tools tools
+                                   {:config config
+                                    :agent-name agent
+                                    :activated (tools.util/activated-deferred-tools db chat-id)
+                                    :db db
+                                    :full-model full-model})]
+    (if (some :deferrable tools)
+      tools
+      (remove #(= "eca__search_tools" (:full-name %)) tools))))
+
 (def module
   {:id :eca/tool-search
    :description "Hide MCP tools behind search_tools when there are too many."
@@ -164,4 +241,5 @@
                                            :excludePattern []}}}
    :config-defaults {:toolCall {:approval {:allow {"eca__search_tools" {}}}}}
    :system-prompts [{:id :eca/deferred-tools :content #'deferred-tools-prompt-section}]
-   :tools (fn [_ctx] (tools.util/->module-tools definitions))})
+   :tools (fn [_ctx] (tools.util/->module-tools definitions))
+   :transform-tools #'transform-tools})

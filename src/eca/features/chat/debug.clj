@@ -186,7 +186,7 @@
                                   :user-prompt-count :subagent :parent-chat-id])
                (assoc :title (obf-or-nil obf (:title chat))
                       :startup-context (obf-or-nil obf (:startup-context chat))
-                      :flags (select-keys chat [:prompt-finished? :compacting? :auto-compacting? :max-steps-reached?])
+                      :flags (select-keys chat [:prompt-finished? :compacting? :auto-compacting? :continuing? :max-steps-reached?])
                       :message-count (count messages)
                       :messages-by-role (frequencies (map :role messages))
                       :task (obfuscate-data obf (:task chat))

@@ -7,7 +7,6 @@
    [eca.features.index :as f.index]
    [eca.llm-api :as llm-api]
    [eca.modules.mcp :as m.mcp]
-   [eca.shared :as shared :refer [multi-str]]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -15,7 +14,7 @@
 (h/reset-components-before-test)
 
 (deftest all-contexts-test
-  (testing "includes repoMap, root directories, files/dirs, and mcp resources"
+  (testing "includes the cursor, root directories, files/dirs, and mcp resources"
     (h/reset-components!)
     (let [root (h/file-path "/fake/repo")
           ;; Fake filesystem entries under the root
@@ -28,8 +27,7 @@
                     fs/directory? (fn [p] (string/ends-with? (str p) "/dir"))
                     m.mcp/all-resources (fn [_db] [{:uri "mcp://r1"}])]
         (is (match?
-             [{:type "repoMap"}
-              {:type "cursor"}
+             [{:type "cursor"}
               {:type "directory" :path root}
               {#_#_:type "directory" :path (h/file-path (str root "/dir"))}
               {:type "file" :path (h/file-path (str root "/foo.txt"))}
@@ -79,7 +77,7 @@
           (is (some #(= {:type "file" :path (str root1 "/a.clj")} %) result))
           (is (some #(= {:type "file" :path (str root2 "/b.clj")} %) result))))))
 
-  (testing "files-only skips repoMap, cursor, root dirs and mcp resources"
+  (testing "files-only skips the cursor, root dirs and mcp resources"
     (h/reset-components!)
     (let [root (h/file-path "/fake/repo")
           fake-paths [(h/file-path (str root "/foo.txt"))]]
@@ -126,8 +124,7 @@
                     f.index/filter-allowed (fn [files _root _config] files)
                     m.mcp/all-resources (fn [_] [])]
         (is (match?
-             [{:type "repoMap"}
-              {:type "cursor"}
+             [{:type "cursor"}
               {:type "directory" :path root}
               {:type "directory" :path (str src "/pkg")}
               {:type "file" :path (str src "/a.clj")}]
@@ -146,8 +143,7 @@
                     f.index/filter-allowed (fn [files _root _config] files)
                     m.mcp/all-resources (fn [_] [])]
         (is (match?
-             [{:type "repoMap"}
-              {:type "cursor"}
+             [{:type "cursor"}
               {:type "directory" :path root}
               {:type "directory" :path (str src "/pkg")}
               {:type "file" :path (str src "/a.clj")}]
@@ -169,8 +165,7 @@
                     fs/canonicalize identity
                     m.mcp/all-resources (fn [_] [])]
         (is (match?
-             [{:type "repoMap"}
-              {:type "cursor"}
+             [{:type "cursor"}
               {:type "directory" :path root}
               {:type "directory" :path (str root "/chatter")}
               {:type "file" :path f-chat}
@@ -252,282 +247,6 @@
           ;; Entries from home listing
           (is (some #(= {:type "file" :path (str home "/.bashrc")} %) result))
           (is (some #(= {:type "directory" :path (str home "/projects")} %) result)))))))
-
-(deftest parse-agents-file-test
-  (testing "simple agents file with no path inclusion"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
-                                                    a-file a-content))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}])
-             (#'f.context/parse-agents-file a-file))))))
-  (testing "Single relative path inclusion"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo"
-                     "- follow @b.md")
-          b-file (h/file-path "/fake/b.md")
-          b-content (multi-str
-                     "- do bar")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
-                                                    a-file a-content
-                                                    b-file b-content))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}
-               {:type :agents-file
-                :path b-file
-                :content b-content}])
-             (#'f.context/parse-agents-file a-file))))))
-  (testing "Single absolute path inclusion"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo"
-                     "@/fake/src/b.md is where the nice things live")
-          b-file (h/file-path "/fake/src/b.md")
-          b-content (multi-str
-                     "- do bar")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = (h/file-path p)
-                                                    a-file a-content
-                                                    b-file b-content))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}
-               {:type :agents-file
-                :path b-file
-                :content b-content}])
-             (#'f.context/parse-agents-file a-file))))))
-  (testing "Multiple path inclusions with different extensions"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo"
-                     "- check @./src/b.md for b things"
-                     "- also follow @../c.txt")
-          b-file (h/file-path "/fake/src/b.md")
-          b-content (multi-str
-                     "- do bar")
-          c-file (h/file-path "/c.txt")
-          c-content (multi-str
-                     "- do bazzz")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
-                                                    a-file a-content
-                                                    b-file b-content
-                                                    c-file c-content))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}
-               {:type :agents-file
-                :path b-file
-                :content b-content}
-               {:type :agents-file
-                :path c-file
-                :content c-content}])
-             (#'f.context/parse-agents-file a-file))))))
-  (testing "Recursive path inclusions"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo"
-                     "- check @b.md for b things")
-          b-file (h/file-path "/fake/b.md")
-          b-content (multi-str
-                     "- check @../c.md")
-          c-file (h/file-path "/c.md")
-          c-content (multi-str
-                     "- do bazzz")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
-                                                    a-file a-content
-                                                    b-file b-content
-                                                    c-file c-content))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}
-               {:type :agents-file
-                :path b-file
-                :content b-content}
-               {:type :agents-file
-                :path c-file
-                :content c-content}])
-             (#'f.context/parse-agents-file a-file))))))
-  (testing "Multiple mentions to same file include it once"
-    (let [a-file (h/file-path "/fake/AGENTS.md")
-          a-content (multi-str
-                     "- do foo"
-                     "- check @b.md for b things"
-                     "- make sure you check @b.md for sure")
-          b-file (h/file-path "/fake/b.md")
-          b-content (multi-str
-                     "- yeah")]
-      (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                  (condp = p
-                                                    a-file a-content
-                                                    b-file b-content))]
-        (is (match?
-             (m/in-any-order
-              [{:type :agents-file
-                :path a-file
-                :content a-content}
-               {:type :agents-file
-                :path b-file
-                :content b-content}])
-             (#'f.context/parse-agents-file a-file)))))))
-(testing "Missing referenced file is ignored"
-  (let [a-file (h/file-path "/fake/AGENTS.md")
-        a-content (multi-str
-                   "- do foo"
-                   "- check @missing.md for missing things")
-        missing-file (h/file-path "/fake/missing.md")]
-    (with-redefs [llm-api/refine-file-context (fn [p _l]
-                                                (condp = p
-                                                  a-file a-content
-                                                  missing-file nil))]
-      (is (match?
-           (m/in-any-order
-            [{:type :agents-file
-              :path a-file
-              :content a-content}])
-           (#'f.context/parse-agents-file a-file))))))
-
-(deftest agents-file-contexts-test
-  (testing "Flag disabled: only the workspace's own AGENTS.md plus global"
-    (h/reset-components!)
-    (let [ws "/a/b/c/d"
-          ws-agents (str ws "/AGENTS.md")
-          global-dir "/global"
-          global-agents (str global-dir "/AGENTS.md")
-          readable #{ws-agents global-agents}]
-      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b/c/d"}])
-      (with-redefs [shared/uri->filename (constantly ws)
-                    shared/global-config-dir (constantly global-dir)
-                    fs/canonicalize identity
-                    fs/path (fn [& parts] (string/join "/" (map str parts)))
-                    fs/readable? (fn [p] (contains? readable (str p)))
-                    llm-api/refine-file-context (constantly "content")]
-        (is (match?
-             [{:type :agents-file :path ws-agents :content "content"}
-              {:type :agents-file :path global-agents :content "content"}]
-             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles false}))))))
-
-  (testing "Flag enabled: parents emitted outermost first, then workspace, then global"
-    (h/reset-components!)
-    (let [ws "/a/b/c/d"
-          parent-ab-agents "/a/b/AGENTS.md"
-          parent-abc-agents "/a/b/c/AGENTS.md"
-          global-dir "/global"
-          global-agents (str global-dir "/AGENTS.md")
-          readable #{parent-ab-agents parent-abc-agents global-agents}
-          parent-map {"/a/b/c/d" "/a/b/c"
-                      "/a/b/c" "/a/b"
-                      "/a/b" "/a"
-                      "/a" "/"
-                      "/" nil}]
-      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b/c/d"}])
-      (with-redefs [shared/uri->filename (constantly ws)
-                    shared/global-config-dir (constantly global-dir)
-                    fs/canonicalize identity
-                    fs/parent (fn [p] (get parent-map (str p)))
-                    fs/path (fn [& parts] (string/join "/" (map str parts)))
-                    fs/readable? (fn [p] (contains? readable (str p)))
-                    llm-api/refine-file-context (constantly "content")]
-        (is (match?
-             [{:type :agents-file :path parent-ab-agents :content "content"}
-              {:type :agents-file :path parent-abc-agents :content "content"}
-              {:type :agents-file :path global-agents :content "content"}]
-             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
-
-  (testing "Flag enabled but no parent has AGENTS.md: behaves like disabled"
-    (h/reset-components!)
-    (let [ws "/a/b/c/d"
-          ws-agents (str ws "/AGENTS.md")
-          global-dir "/global"
-          global-agents (str global-dir "/AGENTS.md")
-          readable #{ws-agents global-agents}
-          parent-map {"/a/b/c/d" "/a/b/c"
-                      "/a/b/c" "/a/b"
-                      "/a/b" "/a"
-                      "/a" "/"
-                      "/" nil}]
-      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b/c/d"}])
-      (with-redefs [shared/uri->filename (constantly ws)
-                    shared/global-config-dir (constantly global-dir)
-                    fs/canonicalize identity
-                    fs/parent (fn [p] (get parent-map (str p)))
-                    fs/path (fn [& parts] (string/join "/" (map str parts)))
-                    fs/readable? (fn [p] (contains? readable (str p)))
-                    llm-api/refine-file-context (constantly "content")]
-        (is (match?
-             [{:type :agents-file :path ws-agents :content "content"}
-              {:type :agents-file :path global-agents :content "content"}]
-             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
-
-  (testing "Two nested workspaces share ancestors via dedup"
-    (h/reset-components!)
-    (let [a-agents "/a/AGENTS.md"
-          ab-agents "/a/b/AGENTS.md"
-          abc-agents "/a/b/c/AGENTS.md"
-          global-dir "/global"
-          global-agents (str global-dir "/AGENTS.md")
-          readable #{a-agents ab-agents abc-agents global-agents}
-          parent-map {"/a/b/c/d" "/a/b/c"
-                      "/a/b/c" "/a/b"
-                      "/a/b" "/a"
-                      "/a" "/"
-                      "/" nil}
-          uri->filename-map {"file:///a/b" "/a/b"
-                             "file:///a/b/c/d" "/a/b/c/d"}]
-      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///a/b"}
-                                               {:uri "file:///a/b/c/d"}])
-      (with-redefs [shared/uri->filename (fn [u] (get uri->filename-map u))
-                    shared/global-config-dir (constantly global-dir)
-                    fs/canonicalize identity
-                    fs/parent (fn [p] (get parent-map (str p)))
-                    fs/path (fn [& parts] (string/join "/" (map str parts)))
-                    fs/readable? (fn [p] (contains? readable (str p)))
-                    llm-api/refine-file-context (constantly "content")]
-        (is (match?
-             [{:type :agents-file :path a-agents}
-              {:type :agents-file :path ab-agents}
-              {:type :agents-file :path abc-agents}
-              {:type :agents-file :path global-agents}]
-             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true}))))))
-
-  (testing "Workspace at filesystem root: no parent walk"
-    (h/reset-components!)
-    (let [ws "/"
-          ws-agents "//AGENTS.md"
-          global-dir "/global"
-          global-agents (str global-dir "/AGENTS.md")
-          readable #{ws-agents global-agents}
-          parent-map {"/" nil}]
-      (swap! (h/db*) assoc :workspace-folders [{:uri "file:///"}])
-      (with-redefs [shared/uri->filename (constantly ws)
-                    shared/global-config-dir (constantly global-dir)
-                    fs/canonicalize identity
-                    fs/parent (fn [p] (get parent-map (str p)))
-                    fs/path (fn [& parts] (string/join "/" (map str parts)))
-                    fs/readable? (fn [p] (contains? readable (str p)))
-                    llm-api/refine-file-context (constantly "content")]
-        (is (match?
-             [{:type :agents-file :path ws-agents}
-              {:type :agents-file :path global-agents}]
-             (f.context/agents-file-contexts (h/db) {:includeParentAgentsFiles true})))))))
 
 (deftest contexts-str-from-prompt-test
   (testing "not context mention"
@@ -648,46 +367,39 @@
       (is (= abs (f.context/attached-context-key {:type :file :path abs})))
       (is (= (str abs ":L1-L10")
              (f.context/attached-context-key {:type :file :path abs :lines-range {:start 1 :end 10}})))))
-  (testing "repoMap has a fixed key and other contexts have none"
-    (is (= "repoMap" (f.context/attached-context-key {:type :repoMap})))
+  (testing "other contexts have no key"
     (is (nil? (f.context/attached-context-key {:type :cursor :path "a.clj"})))
     (is (nil? (f.context/attached-context-key {:type :image :path "a.png"})))))
 
 (deftest attached-contexts-delta-test
   (let [a {:type :file :path (h/file-path "/fake/a.clj") :content "(ns a)"}
         b {:type :file :path (h/file-path "/fake/b.clj") :content "(ns b)"}
-        repo-map {:type :repoMap}
         key-of f.context/attached-context-key
-        tree* (delay "TREE")
-        first-turn (f.context/attached-contexts-delta [a repo-map {:type :cursor :path "a.clj"}] nil #{} tree*)]
+        first-turn (f.context/attached-contexts-delta [a {:type :cursor :path "a.clj"}] nil #{})]
     (testing "new contexts are returned to be sent in full and tracked (#683)"
-      (is (= [a repo-map] (:new first-turn)))
+      (is (= [a] (:new first-turn)))
       (is (= [] (:changed first-turn)))
-      (is (= #{(key-of a) "repoMap"} (set (keys (:sent first-turn))))))
+      (is (= #{(key-of a)} (set (keys (:sent first-turn))))))
     (testing "unchanged contexts are not returned again"
       (is (= {:new [] :changed [] :sent (:sent first-turn)}
-             (f.context/attached-contexts-delta [a repo-map] (:sent first-turn) #{} tree*))))
+             (f.context/attached-contexts-delta [a] (:sent first-turn) #{}))))
     (testing "changed contexts are returned to be announced"
       (let [a2 (assoc a :content "(ns a2)")
-            delta (f.context/attached-contexts-delta [a2 repo-map] (:sent first-turn) #{} (delay "TREE2"))]
+            delta (f.context/attached-contexts-delta [a2] (:sent first-turn) #{})]
         (is (= [] (:new delta)))
-        (is (= [a2 repo-map] (:changed delta)))
+        (is (= [a2] (:changed delta)))
         (is (not= (:sent first-turn) (:sent delta)))))
     (testing "removed contexts are dropped, so attaching them again sends them in full"
-      (let [removed (f.context/attached-contexts-delta [b] (:sent first-turn) #{} tree*)]
+      (let [removed (f.context/attached-contexts-delta [b] (:sent first-turn) #{})]
         (is (= [b] (:new removed)))
         (is (= #{(key-of b)} (set (keys (:sent removed)))))
-        (is (= [a] (:new (f.context/attached-contexts-delta [a b] (:sent removed) #{} tree*))))))
+        (is (= [a] (:new (f.context/attached-contexts-delta [a b] (:sent removed) #{}))))))
     (testing "contexts already expanded from the prompt text are tracked but not returned"
-      (let [delta (f.context/attached-contexts-delta [a b] nil #{(key-of a)} tree*)]
+      (let [delta (f.context/attached-contexts-delta [a b] nil #{(key-of a)})]
         (is (= [b] (:new delta)))
         (is (= #{(key-of a) (key-of b)} (set (keys (:sent delta)))))))
     (testing "duplicated contexts are returned once"
-      (is (= [a] (:new (f.context/attached-contexts-delta [a a] nil #{} tree*)))))
+      (is (= [a] (:new (f.context/attached-contexts-delta [a a] nil #{})))))
     (testing "the same file with another lines range is another context"
       (let [a-range (assoc a :lines-range {:start 1 :end 2})]
-        (is (= [a-range] (:new (f.context/attached-contexts-delta [a-range] (:sent first-turn) #{} tree*))))))
-    (testing "the repo map is only computed when attached"
-      (let [computed? (atom false)]
-        (f.context/attached-contexts-delta [a] nil #{} (delay (reset! computed? true) "TREE"))
-        (is (false? @computed?))))))
+        (is (= [a-range] (:new (f.context/attached-contexts-delta [a-range] (:sent first-turn) #{}))))))))

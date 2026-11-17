@@ -1,13 +1,13 @@
-(ns eca.features.completion-test
+(ns eca.modules.completion-test
   (:require
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
-   [eca.db :as db]
-   [eca.features.completion :as f.completion]
-   [eca.features.login :as f.login]
+   [eca.db.global-cache :as db.global-cache]
    [eca.llm-api :as llm-api]
+   [eca.llm-api.auth :as llm-api.auth]
+   [eca.modules.completion :as m.completion]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
@@ -32,8 +32,8 @@
         (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
           (let [login-ctx* (atom nil)
                 api-opts* (atom nil)
-                result (with-redefs [db/update-global-cache! (fn [& _] nil)
-                                     f.login/login-step
+                result (with-redefs [db.global-cache/update-global-cache! (fn [& _] nil)
+                                     llm-api.auth/renew-token!
                                      (fn [{:keys [db*] :as ctx}]
                                        (reset! login-ctx* ctx)
                                        (swap! db* assoc-in [:auth "github-copilot"] {:api-key "renewed"
@@ -42,7 +42,7 @@
                                      (fn [opts]
                                        (reset! api-opts* opts)
                                        {:output-text "completion"})]
-                         (f.completion/complete {:doc-text "abc"
+                         (m.completion/complete {:doc-text "abc"
                                                  :doc-version 3
                                                  :position {:line 1 :character 4}}
                                                 (h/db*) (h/config) (h/messenger) (h/metrics)))]

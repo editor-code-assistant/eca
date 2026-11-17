@@ -4,7 +4,6 @@
    Supports context overflow, rate limiting, authentication, and overload detection
    across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.)."
   (:require
-   [cheshire.core :as json]
    [clojure.string :as string]
    [eca.llm-util :as llm-util]))
 
@@ -236,69 +235,56 @@
          (classify-by-message {:message (ex-message exception)}))
        {:error/type :unknown})))
 
-(defn ^:private dispatch-provider
-  "Multimethods below dispatch on `:provider-base` (the provider `:provider`
-   inherits from, see `config/provider-base`) when given, else `:provider`."
-  [{:keys [provider provider-base]}]
-  (or provider-base provider))
+(defn ^:private provider-errors-fn
+  "The provider's `:errors` function `k`: of `:provider-base` (the provider
+   `:provider` inherits from, see `config/provider-base`) when given, else
+   of `:provider`."
+  [k {:keys [provider provider-base config]}]
+  (get-in (llm-util/provider-declaration config (or provider-base provider)) [:errors k]))
 
-(defmulti enrich-provider-error
+(defn enrich-provider-error
   "Rewrites a provider-specific raw error into an actionable one before it is
-   delivered to error callbacks. Dispatches on the provider (see
-   `dispatch-provider`); receives a context map {:provider :provider-base
-   :model :error-data} and returns the (possibly updated) error-data.
-   Default: error-data unchanged."
-  dispatch-provider)
-
-(defmethod enrich-provider-error :default [{:keys [error-data]}] error-data)
-
-(defn ^:private anthropic-structured-error
-  "Parses Anthropic's structured error body, e.g.
-   {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"...\"},\"request_id\":\"...\"}.
-   Returns {:code .. :message .. :request-id ..} or nil when not parseable."
-  [body]
-  (when (string? body)
-    (let [parsed (try (json/parse-string body) (catch Exception _ nil))
-          error (when (map? parsed) (get parsed "error"))
-          code (when (map? error) (get error "type"))
-          message (when (map? error) (get error "message"))]
-      (when (or code message)
-        (cond-> {}
-          code (assoc :code code)
-          message (assoc :message message)
-          (get parsed "request_id") (assoc :request-id (get parsed "request_id")))))))
-
-(defmethod enrich-provider-error "anthropic"
-  [{:keys [error-data]}]
-  (if-let [{:keys [code message request-id]} (anthropic-structured-error (:body error-data))]
-    (cond-> error-data
-      code (assoc :code code)
-      message (assoc :message (str "Anthropic " (or code "error") ": " message))
-      request-id (assoc :request-id request-id))
+   delivered to error callbacks: the provider's `:errors :enrich` (see
+   `provider-errors-fn`). It gets a context map {:provider :provider-base
+   :model :error-data :config} and returns the (possibly updated)
+   error-data. Without one: error-data unchanged."
+  [{:keys [error-data] :as ctx}]
+  (if-let [enrich (provider-errors-fn :enrich ctx)]
+    (enrich ctx)
     error-data))
 
-(defmulti recoverable-error?
+(defn recoverable-error?
   "Pure predicate: true when the provider offers an interactive recovery for
-   this terminal error (e.g. Copilot per-model policy consent). Dispatches on
-   the provider (see `dispatch-provider`); receives {:provider :provider-base
-   :error-data :db}. Default: false."
-  dispatch-provider)
+   this terminal error (e.g. Copilot per-model policy consent): its
+   `:errors :recoverable?` (see `provider-errors-fn`). It gets {:provider
+   :provider-base :error-data :db :config}. Without one: false."
+  [ctx]
+  (if-let [recoverable? (provider-errors-fn :recoverable? ctx)]
+    (recoverable? ctx)
+    false))
 
-(defmethod recoverable-error? :default [_] false)
-
-(defmulti recover-error!
-  "Runs the provider-specific interactive recovery for a terminal error.
-   Dispatches on the provider (see `dispatch-provider`); receives {:provider
-   :provider-base :model :error-data :db :messenger :chat-id}. Returns nil
-   when nothing was recovered, or a map:
+(defn recover-error!
+  "Runs the provider-specific interactive recovery for a terminal error: its
+   `:errors :recover!` (see `provider-errors-fn`). It gets {:provider
+   :provider-base :model :error-data :db :messenger :chat-id :config}.
+   Returns nil when nothing was recovered, or a map:
      :retry?             - true when the failed prompt should be retried
      :notice             - system text to show the user (optional)
      :retry-user-message - user message replayed when the original messages
                            are already in history (optional)
-   Default: nil."
-  dispatch-provider)
+   Without one: nil."
+  [ctx]
+  (when-let [recover! (provider-errors-fn :recover! ctx)]
+    (recover! ctx)))
 
-(defmethod recover-error! :default [_] nil)
+(defn provider-retry-after-ms
+  "When, in epoch millis, the provider says a rate-limited request can be
+   retried, from its error response (e.g. ChatGPT Codex's usage limit): its
+   `:errors :retry-after-ms` (see `provider-errors-fn`). It gets {:provider
+   :provider-base :error-data :config}. Without one: nil."
+  [ctx]
+  (when-let [f (provider-errors-fn :retry-after-ms ctx)]
+    (f ctx)))
 
 (defn context-overflow?
   "Returns true if the error is a context window overflow."
@@ -317,7 +303,7 @@
    (contains? retryable-error-types
               (:error/type (classify-error error-data retry-rules)))))
 
-(defn ^:private header-str
+(defn header-str
   "Header value as trimmed non-blank string, unwrapping multi-value collections."
   [headers k]
   (let [v (get headers k)
@@ -330,7 +316,7 @@
   (when (and s (re-matches #"\d+" s))
     (parse-long s)))
 
-(defn ^:private epoch-str->ms
+(defn epoch-str->ms
   "Unix epoch string to millis; values already in millis are kept as-is."
   [s]
   (when-let [n (parse-long-str s)]
@@ -371,27 +357,6 @@
              (reduce +)
              long)))
 
-(defn ^:private response-field [m field]
-  (when (map? m)
-    (or (get m field)
-        (get m (keyword field)))))
-
-(defn ^:private codex-usage-limit-reset-ms
-  "ChatGPT Codex OAuth usage-limit reset from the 429 JSON response body."
-  [body]
-  (let [body (cond
-               (map? body) body
-               (string? body) (try
-                                (json/parse-string body)
-                                (catch Exception _ nil))
-               :else nil)
-        error (response-field body "error")
-        error-type (response-field error "type")
-        reset-at (response-field error "resets_at")]
-    (when (and (= "usage_limit_reached" error-type)
-               (integer? reset-at))
-      (* (long reset-at) 1000))))
-
 (defn ^:private future-reset-ms [reset-ms now-ms]
   (when (and reset-ms (> (long reset-ms) (long now-ms)))
     (long reset-ms)))
@@ -415,16 +380,15 @@
         headers))
 
 (defn rate-limit-wait
-  "Computes when a rate-limited request can be retried.
-
-   The two-argument arity reads HTTP response headers. The three-argument arity
-   additionally reads the response body used by ChatGPT Codex OAuth errors.
+  "Computes when a rate-limited request can be retried, from its response
+   headers and `provider-reset-ms`, when the provider says it can (see
+   `provider-retry-after-ms`).
 
    Precedence:
    1. `retry-after` (delta seconds or HTTP-date)
-   2. ChatGPT Codex `usage_limit_reached` body `error.resets_at` (epoch seconds)
-   3. `anthropic-ratelimit-unified-reset` (epoch seconds; subscription session limits)
-   4. rate-limit reset buckets (Anthropic `*ratelimit*-reset` RFC 3339/epoch,
+   2. `provider-reset-ms`, e.g. ChatGPT Codex's usage-limit reset or Anthropic's
+      subscription session reset
+   3. rate-limit reset buckets (Anthropic `*ratelimit*-reset` RFC 3339/epoch,
       OpenAI `*ratelimit*-reset-<bucket>` Go-style durations): latest exhausted
       bucket (remaining = 0), else earliest future reset.
 
@@ -434,7 +398,7 @@
    is present (callers should fall back to exponential backoff)."
   ([headers now-ms]
    (rate-limit-wait headers nil now-ms))
-  ([headers body now-ms]
+  ([headers provider-reset-ms now-ms]
    (let [headers (if (map? headers) headers {})
          buckets (filter #(> (long (:reset-ms %)) (long now-ms)) (bucket-resets headers now-ms))
          exhausted (filter #(some-> (:remaining %) (<= 0)) buckets)
@@ -442,8 +406,7 @@
                           (some->> (seq buckets) (map :reset-ms) (apply min)))
          resets-at (some #(future-reset-ms % now-ms)
                          [(retry-after-ms headers now-ms)
-                          (codex-usage-limit-reset-ms body)
-                          (epoch-str->ms (header-str headers "anthropic-ratelimit-unified-reset"))
+                          provider-reset-ms
                           bucket-reset])]
      (when resets-at
        {:delay-ms (- resets-at (long now-ms))

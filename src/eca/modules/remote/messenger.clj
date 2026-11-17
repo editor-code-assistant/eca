@@ -6,7 +6,7 @@
    clients get the full-replay equivalent of incremental notifications
    (truncation, positioned flags and paged server-created chats)."
   (:require
-   [eca.features.chat :as f.chat]
+   [eca.features.chat.replay :as f.chat.replay]
    [eca.messenger :as messenger]
    [eca.modules.remote.sse :as m.remote.sse]
    [eca.shared :as shared]))
@@ -21,7 +21,7 @@
   [sse-connections* db chat-id messages]
   ;; Skip building the payloads when nobody listens: replays cost O(chat).
   (when (seq @sse-connections*)
-    (doseq [payload (f.chat/messages->contents messages {:chat-id chat-id :db db})]
+    (doseq [payload (f.chat.replay/messages->contents messages {:chat-id chat-id :db db})]
       (m.remote.sse/broadcast! sse-connections* "chat:content-received" (->camel payload)))))
 
 (defn ^:private broadcast-replay!
@@ -96,6 +96,11 @@
       @result
       (cancel-handle! handle))))
 
+(def ^:private sse-events
+  "The SSE event of each `notify!` method remote clients get; the others go
+   to the editor only (e.g. `rewrite/contentReceived`)."
+  {"jobs/updated" "jobs:updated"})
+
 (defrecord BroadcastMessenger [inner sse-connections* pending-questions* db*]
   messenger/IMessenger
 
@@ -138,9 +143,6 @@
                                                                 (- total returned))))))))
       (m.remote.sse/broadcast! sse-connections* "chat:opened" (->camel params))))
 
-  (rewrite-content-received [_this data]
-    (messenger/rewrite-content-received inner data))
-
   (tool-server-updated [_this params]
     (messenger/tool-server-updated inner params)
     (m.remote.sse/broadcast! sse-connections* "tool:server-updated" (->camel params)))
@@ -153,9 +155,10 @@
     (messenger/provider-updated inner params)
     (m.remote.sse/broadcast! sse-connections* "providers:updated" (->camel params)))
 
-  (jobs-updated [_this params]
-    (messenger/jobs-updated inner params)
-    (m.remote.sse/broadcast! sse-connections* "jobs:updated" (->camel params)))
+  (notify! [_this method params]
+    (messenger/notify! inner method params)
+    (when-let [event (get sse-events method)]
+      (m.remote.sse/broadcast! sse-connections* event (->camel params))))
 
   (config-updated [_this params]
     (messenger/config-updated inner params)

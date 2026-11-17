@@ -1,6 +1,5 @@
 (ns eca.features.prompt
   (:require
-   [babashka.fs :as fs]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.cache :as cache]
@@ -18,13 +17,6 @@
 
 (def ^:private load-builtin-prompt (memoize load-builtin-prompt*))
 
-(defn ^:private compact-prompt-template* [file-path]
-  (if (fs/relative? file-path)
-    (slurp (io/resource file-path))
-    (slurp (io/file file-path))))
-
-(def ^:private compact-prompt-template (memoize compact-prompt-template*))
-
 (defn get-config-prompt
   "The prompt `key` of the `prompts` config: the agent's own, else the
    global one."
@@ -35,6 +27,14 @@
 (defn ^:private absolute-path? [path]
   (and (string? path)
        (.isAbsolute (io/file path))))
+
+(defn prompt-file
+  "The text of prompt file `path`, a legacy `systemPromptFile`: the file
+   itself when absolute, else ECA's own prompt under `prompts/`."
+  [path]
+  (if (absolute-path? path)
+    (slurp path)
+    (load-builtin-prompt (some-> path (string/replace-first #"prompts/" "")))))
 
 (defn eca-chat-prompt
   "Selected chat prompt template; single source of truth for rendering and cache identity."
@@ -90,7 +90,7 @@
                  (format " %s=%s" (name k) (attr-value-str v)))))
        string/join))
 
-(defn ^:private render-context [{:keys [type path position content lines-range uri label]} repo-map*]
+(defn ^:private render-context [{:keys [type path position content lines-range label]}]
   (case type
     :file (if lines-range
             (format "<file%s>%s</file>"
@@ -105,25 +105,23 @@
                                      :path path}))
                   content
                   "</agents-file>")
-    :repoMap (format "<repo-map%s>%s</repo-map>"
-                     (attr-str {:description "Workspace structure tree; spaces represent file hierarchy."})
-                     @repo-map*)
     :cursor (format "<cursor%s/>"
                     (attr-str {:description "Editor cursor position (line:character)."
                                :path path
                                :start (str (:line (:start position)) ":" (:character (:start position)))
                                :end (str (:line (:end position)) ":" (:character (:end position)))}))
-    :mcpResource (format "<resource%s>%s</resource>" (attr-str {:uri uri}) content)
     :text (format "<text%s>%s</text>" (attr-str {:label label}) content)
     nil))
 
 (defn contexts-str
-  ([refined-contexts repo-map* startup-ctx]
-   (contexts-str refined-contexts repo-map* startup-ctx {}))
-  ([refined-contexts repo-map* startup-ctx {:keys [tag description]
-                                            :or {tag "contexts"
-                                                 description "User-provided context. Treat as current and accurate."}}]
-   (let [body (cond-> (vec (keep #(render-context % repo-map*) refined-contexts))
+  "The `<contexts>` block of `refined-contexts`. A context may also be its
+   text already, as a module renders the contexts of its own types."
+  ([refined-contexts startup-ctx]
+   (contexts-str refined-contexts startup-ctx {}))
+  ([refined-contexts startup-ctx {:keys [tag description]
+                                  :or {tag "contexts"
+                                       description "User-provided context. Treat as current and accurate."}}]
+   (let [body (cond-> (vec (keep #(if (string? %) % (render-context %)) refined-contexts))
                 startup-ctx (conj (multi-str "<additional-context>"
                                              startup-ctx
                                              "</additional-context>")))]
@@ -176,7 +174,7 @@
 
 (def ^:private static-prompt-context-types
   "Context types rendered into the cached static prompt block.
-   Context-area files and repoMap are data that changes between turns, so they
+   Context-area files are data that changes between turns, so they
    are delivered in the user message instead, see `build-attached-contexts`. #683"
   #{:agents-file})
 
@@ -207,29 +205,35 @@
 (defn context-section
   "`:eca/context`: AGENTS.md files, attached stable contexts and the chat's
    startup context."
-  [{:keys [refined-contexts repo-map* chat-id db]}]
+  [{:keys [refined-contexts chat-id db]}]
   (let [stable-contexts (filter static-prompt-context? refined-contexts)
         startup-ctx (get-in db [:chats chat-id :startup-context])]
     (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
       [""
        "## Context"
        ""
-       (contexts-str stable-contexts repo-map* startup-ctx)])))
+       (contexts-str stable-contexts startup-ctx)])))
 
 (def ^:private built-in-static-sections
   "The order of the built-in static sections."
   [:eca/agent-prompt :eca/rules :eca/skills :eca/deferred-tools :eca/additional-info
    :eca/workspace-roots :eca/path-resolution :eca/context])
 
+(defn ^:private section-items
+  "The active modules' sections of one part (static or dynamic), as
+   `{:entry :section}`, in module order."
+  [config dynamic?]
+  (for [[entry sections] (modules/contributions config :system-prompts)
+        section sections
+        :when (= (boolean dynamic?) (boolean (:dynamic? section)))]
+    {:entry entry :section section}))
+
 (defn ^:private place-sections
   "The active modules' sections of one part (static or dynamic), in order:
    built-in ones in `built-in-order`; the others right before or after the
    section their `:before`/`:after` names, else at the end, in module order."
   [config dynamic? built-in-order]
-  (let [sections (for [[entry sections] (modules/contributions config :system-prompts)
-                       section sections
-                       :when (= (boolean dynamic?) (boolean (:dynamic? section)))]
-                   {:entry entry :section section})
+  (let [sections (section-items config dynamic?)
         order (zipmap built-in-order (range))
         {built-ins true others false} (group-by #(contains? order (:id (:section %))) sections)]
     (reduce (fn [placed {:keys [entry section] :as item}]
@@ -261,22 +265,61 @@
                                  {:timeout-ms (modules/timeout-for entry nil modules/default-handler-timeout-ms)}
                                  content module-ctx))))
 
+(defn ^:private static-prompt-ctx
+  "The prompt ctx static sections get: `prompt-ctx` and its Selmer ctx."
+  [{:keys [all-tools chat-id db] :as prompt-ctx}]
+  (assoc prompt-ctx :selmer-ctx (->base-selmer-ctx all-tools chat-id db)))
+
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix, from the active modules'
-   static `:system-prompts` sections."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
-  (let [ctx {:refined-contexts refined-contexts
-             :static-rules static-rules
-             :path-scoped-rules path-scoped-rules
-             :skills skills
-             :repo-map* repo-map*
-             :agent agent-name
-             :config config
-             :chat-id chat-id
-             :all-tools all-tools
-             :db db
-             :selmer-ctx (->base-selmer-ctx all-tools chat-id db)}]
+   static `:system-prompts` sections. `prompt-ctx` is what a chat's system
+   prompt is built from: `:refined-contexts`, `:agent`, `:config`,
+   `:chat-id`, `:all-tools`, `:db` and `:full-model`; sections compute their
+   own data from it."
+  [{:keys [config] :as prompt-ctx}]
+  (let [ctx (static-prompt-ctx prompt-ctx)]
     (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
+
+(defn section-signatures
+  "What the cache signature follows of the built-in static sections that
+   give a `:signature` (built-in only): `[key signature resync?]` of each,
+   keyed by its id's name (`:rules`, `:skills`), in prompt order. Computed
+   whether their module is active or not, as core followed their data before
+   modules. `resync?` is false for a section with `:resync? false`: its
+   changes alone never re-sync a chat's pinned prompt (skills)."
+  [prompt-ctx]
+  (let [by-id (into {} (for [module (modules/built-in-modules)
+                             section (:system-prompts module)
+                             :when (and (:signature section) (not (:dynamic? section)))]
+                         [(:id section) [module section]]))]
+    (vec (for [id built-in-static-sections
+               :let [[module section] (by-id id)]
+               :when section]
+           [(keyword (name id))
+            ((:signature section) (modules/module-ctx prompt-ctx {:id (:id module) :module module :built-in? true}))
+            (not (false? (:resync? section)))]))))
+
+(defn uncategorized-static-sections
+  "What the static prompt holds that the cache signature's categories
+   (prompt, contexts, rules, skills, tools) don't follow, or nil when that's
+   nothing: `:sections`, `[id before after text]` of each static section
+   that isn't a built-in module's built-in section, its text as it renders
+   now, and `:missing`, the built-in sections no active module gives, e.g.
+   when `eca/skills` is turned off."
+  [{:keys [config] :as prompt-ctx}]
+  (let [items (section-items config false)
+        built-in-ids (set built-in-static-sections)
+        categorized? (fn [{:keys [entry section]}]
+                       (boolean (and (:built-in? entry) (built-in-ids (:id section)))))
+        given (into #{} (comp (filter categorized?) (map (comp :id :section))) items)
+        others (remove categorized? items)
+        missing (filterv (complement given) built-in-static-sections)]
+    (when (or (seq others) (seq missing))
+      (let [ctx (static-prompt-ctx prompt-ctx)]
+        {:sections (mapv (fn [{:keys [section] :as item}]
+                           [(:id section) (:before section) (:after section) (section-part ctx item)])
+                         others)
+         :missing missing}))))
 
 (def ^:private built-in-dynamic-sections
   "The order of the built-in dynamic sections."
@@ -297,7 +340,7 @@
   [refined-contexts]
   (let [editor-state-contexts (filter #(editor-state-context-types (:type %)) refined-contexts)]
     (when (seq editor-state-contexts)
-      (contexts-str editor-state-contexts nil nil
+      (contexts-str editor-state-contexts nil
                     {:tag "editor-state"
                      :description "Editor state reference; not a user request. Use only when relevant."}))))
 
@@ -307,26 +350,25 @@
   [refined-contexts]
   (let [text-contexts (filter #(= :text (:type %)) refined-contexts)]
     (when (seq text-contexts)
-      (contexts-str text-contexts nil nil))))
+      (contexts-str text-contexts nil))))
 
 (defn ^:private changed-context-entry [{:keys [type path lines-range]}]
   (case type
     :file (format "<file%s/>" (attr-str {:path path
                                          :line-start (:start lines-range)
                                          :line-end (:end lines-range)}))
-    :repoMap "<repo-map/>"
     nil))
 
 (defn build-attached-contexts
-  "Renders context-area contexts (files, repoMap) for the user message:
+  "Renders context-area contexts (files) for the user message:
    `new-contexts` in full, `changed-contexts` as one-line notices since their
    earlier copy in the chat history is outdated. Returns nil when none. #683"
-  [new-contexts changed-contexts repo-map*]
+  [new-contexts changed-contexts]
   (let [changed-entries (keep changed-context-entry changed-contexts)]
     (when (or (seq new-contexts) (seq changed-entries))
       (multi-str
        (when (seq new-contexts)
-         (contexts-str new-contexts repo-map* nil
+         (contexts-str new-contexts nil
                        {:description "Context attached by the user, current as of this message. Later changes are announced."}))
        (when (seq changed-entries)
          [(format "<changed-contexts%s>"
@@ -335,10 +377,10 @@
           "</changed-contexts>"])))))
 
 (defn build-chat-instructions
-  "Returns {:static :dynamic} system instructions."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
-  {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills repo-map*
-                                      agent-name config chat-id all-tools db)
+  "Returns {:static :dynamic} system instructions, see
+   `build-static-instructions` for `prompt-ctx`."
+  [{:keys [refined-contexts db config] :as prompt-ctx}]
+  {:static (build-static-instructions prompt-ctx)
    :dynamic (build-dynamic-instructions refined-contexts db config)})
 
 (defn instructions->str
@@ -347,75 +389,3 @@
   (if dynamic
     (multi-str static "" dynamic)
     static))
-
-(defn build-rewrite-instructions [text path full-text range all-tools config db]
-  (let [legacy-prompt-file (-> config :rewrite :systemPromptFile)
-        legacy-config-prompt (-> config :rewrite :systemPrompt)
-        config-prompt (get-config-prompt :rewrite nil config)
-        prompt-str (cond
-                     legacy-config-prompt
-                     legacy-config-prompt
-
-                     config-prompt
-                     config-prompt
-
-                     ;; Absolute path
-                     (absolute-path? legacy-prompt-file)
-                     (slurp legacy-prompt-file)
-
-                     ;; Resource path
-                     :else
-                     (load-builtin-prompt (some-> legacy-prompt-file (string/replace-first #"prompts/" ""))))]
-    (shared/safe-selmer-render prompt-str
-                               (merge
-                                (->base-selmer-ctx all-tools db)
-                                {:text text
-                                 :path (when path
-                                         (str "- File path: " path))
-                                 :rangeText (multi-str
-                                             (str "- Start line: " (-> range :start :line))
-                                             (str "- Start character: " (-> range :start :character))
-                                             (str "- End line: " (-> range :end :line))
-                                             (str "- End character: " (-> range :end :character)))
-                                 :fullText (when full-text
-                                             (multi-str
-                                              "- Full file content"
-                                              "```"
-                                              full-text
-                                              "```"))})
-                               "rewrite-prompt")))
-
-(defn chat-title-prompt [agent-name config]
-  (get-config-prompt :chatTitle agent-name config))
-
-(defn compact-prompt [additional-input all-tools agent-name config db]
-  (shared/safe-selmer-render
-   (or (:compactPrompt config) ;; legacy
-       (get-config-prompt :compact agent-name config)
-       (compact-prompt-template (:compactPromptFile config)) ;; legacy
-       )
-   (merge
-    (->base-selmer-ctx all-tools db)
-    {:additionalUserInput (if additional-input
-                            (format "You MUST respect this user input in the summarization: %s." additional-input)
-                            "")})
-   "compact-prompt"))
-
-(defn inline-completion-prompt [config]
-  (let [legacy-config-file-prompt (get-in config [:completion :systemPromptFile])
-        legacy-config-prompt (get-in config [:completion :systemPrompt])
-        config-prompt (get-config-prompt :completion nil config)]
-    (cond
-      legacy-config-prompt
-      legacy-config-prompt
-
-      config-prompt
-      config-prompt
-
-      ;; Absolute path
-      (absolute-path? legacy-config-file-prompt)
-      (slurp legacy-config-file-prompt)
-
-      ;; Resource path
-      :else
-      (load-builtin-prompt (some-> legacy-config-file-prompt (string/replace-first #"prompts/" ""))))))

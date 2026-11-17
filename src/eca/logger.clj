@@ -81,6 +81,16 @@
     (let [[^String msg ^Throwable t] (build-message args)]
       (if t (.warn eca-logger msg t) (.warn eca-logger msg)))))
 
+(defonce ^:private warned* (atom #{}))
+
+(defn warn-once
+  "Like `warn`, but once per `k` in the session: for a warning a path called
+   often would repeat."
+  [k & args]
+  (let [[warned] (swap-vals! warned* conj k)]
+    (when-not (contains? warned k)
+      (apply warn args))))
+
 (defn info [& args]
   (when (.isInfoEnabled eca-logger)
     (let [[^String msg ^Throwable t] (build-message args)]

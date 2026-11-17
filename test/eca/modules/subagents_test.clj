@@ -4,7 +4,9 @@
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
    [eca.features.chat :as f.chat]
-   [eca.features.chat.tool-calls :as tool-calls]
+   [eca.features.chat.ops :as f.chat.ops]
+   [eca.features.chat.replay :as f.chat.replay]
+   [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.commands :as f.commands]
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
@@ -435,7 +437,7 @@
                       (fn [{:keys [on-first-response-received on-message-received
                                    on-prepare-tool-call on-tools-called]}]
                         (on-first-response-received {:type :text :text "start"})
-                        (f.chat/update-chat {:chat-id "parent" :trust toggled-trust}
+                        (f.chat.ops/update-chat {:chat-id "parent" :trust toggled-trust}
                                             (h/db*) (h/messenger) (h/metrics))
                         (on-prepare-tool-call {:id "lookup" :full-name "eca__lookup" :arguments-text "{}"})
                         (on-tools-called [{:id "lookup" :full-name "eca__lookup" :arguments {}}])
@@ -909,9 +911,9 @@
                    :model "anthropic/claude-sonnet-4-6"
                    :variant "high"
                    :agent-name "variant-worker"}
-                  (tools.util/tool-call-details-before-invocation
-                   :spawn_agent {"agent" "variant-worker" "task" "work"} nil
-                   {:db db :config test-config :chat-id "chat-1" :tool-call-id "tc-1"}))))))
+                  (#'m.subagents/spawn-agent-details-before
+                   {:db db :config test-config :chat-id "chat-1" :tool-call-id "tc-1"}
+                   {"agent" "variant-worker" "task" "work"}))))))
 
 (deftest spawn-agent-invalid-variant-test
   (testing "throws when user specifies a variant not valid for the resolved model"
@@ -1247,9 +1249,10 @@
                                     (handler changed-args changed-context)))
               (is (= before @db*))))
           (testing "tool-call details link only a child of this parent, never disclosing another's settings"
-            (let [details (tools.util/tool-call-details-before-invocation
-                           :spawn_agent changed-args nil {:db @db* :config (:config changed-context)
-                                                          :chat-id (:chat-id changed-context) :tool-call-id "x"})]
+            (let [details (#'m.subagents/spawn-agent-details-before
+                           {:db @db* :config (:config changed-context)
+                            :chat-id (:chat-id changed-context) :tool-call-id "x"}
+                           changed-args)]
               (if linked?
                 (is (= "subagent-isolation" (:subagent-chat-id details)))
                 (is (match? {:subagent-chat-id nil :model nil} details)))))))
@@ -1293,7 +1296,7 @@
                             :details (merge {:type :subagent :agent-name "explorer" :subagent-chat-id id} details)
                             :output {:contents [{:type :text :text "Tool result"}]}}})
         child-texts (fn [message]
-                      (->> (f.chat/messages->contents [message] {:chat-id "parent" :db db})
+                      (->> (f.chat.replay/messages->contents [message] {:chat-id "parent" :db db})
                            (filter #(= id (:chat-id %)))
                            (keep #(get-in % [:content :text]))
                            (map string/trim)))]
@@ -1313,12 +1316,13 @@
                  :chat-id "parent" :tool-call-id "first"
                  :call-state-fn (constantly {:status :executing})}
         details (fn [tool-call-id arguments]
-                  (tools.util/tool-call-details-after-invocation
-                   :spawn_agent arguments
-                   (tools.util/tool-call-details-before-invocation :spawn_agent arguments nil
-                                                                   {:db @db* :config test-config :chat-id "parent"
-                                                                    :tool-call-id tool-call-id})
-                   nil {:db @db* :chat-id "parent" :tool-call-id tool-call-id}))]
+                  (#'m.subagents/spawn-agent-details-after
+                   {:db @db* :chat-id "parent" :tool-call-id tool-call-id}
+                   arguments
+                   (#'m.subagents/spawn-agent-details-before
+                    {:db @db* :config test-config :chat-id "parent" :tool-call-id tool-call-id}
+                    arguments)
+                   nil))]
     (with-redefs [f.chat/prompt (fn [{:keys [chat-id message]} & _]
                                  (swap! db* update-in [:chats chat-id]
                                         ;; Like prompt-messages!, it stores the variant even when nil.
@@ -1588,8 +1592,8 @@
             context {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
                      :chat-id "parent" :tool-call-id "cancel" :call-state-fn #(deref call-state*)}
             handler (spawn-handler)
-            transition tool-calls/transition-tool-call!
-            active tool-calls/get-active-tool-calls
+            transition f.chat.tool-calls/transition-tool-call!
+            active f.chat.tool-calls/get-active-tool-calls
             ;; Ignore cancellation only until the test explicitly releases old work.
             wait! (fn [] (loop []
                            (let [result (try (deref release 30000 ::timeout)
@@ -1611,10 +1615,10 @@
                       f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
                                                       :server {:name "eca"} :origin :native}])
                       f.tools/approval (constantly :allow)
-                      tool-calls/get-active-tool-calls (fn [db chat-id]
-                                                        (when (realized? stopped) (deliver joining true))
-                                                        (active db chat-id))
-                      tool-calls/transition-tool-call!
+                      f.chat.tool-calls/get-active-tool-calls (fn [db chat-id]
+                                                               (when (realized? stopped) (deliver joining true))
+                                                               (active db chat-id))
+                      f.chat.tool-calls/transition-tool-call!
                       (fn [db* ctx tool-id event & data]
                         (try
                           (let [result (apply transition db* ctx tool-id event data)]

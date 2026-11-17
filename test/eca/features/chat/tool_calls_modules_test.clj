@@ -3,7 +3,7 @@
    the approval from the config rules, then other modules may change it."
   (:require
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.tool-calls :as tc]
+   [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules :as modules]
@@ -19,7 +19,7 @@
 
 (defn- decide [config]
   (with-redefs [m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
-    (#'tc/decide-tool-call-action tool-call all-tools (h/db) config "code" "chat-1")))
+    (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools (h/db) config "code" "chat-1")))
 
 (defn- with-module [module f]
   (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with :eca/approval) module))]
@@ -83,7 +83,7 @@
       #(is (match? {:decision :deny
                     :stop-turn? true
                     :stop-reason "Budget reached."
-                    :stop-hook-name ":eca/test-approval"
+                    :ended-by {:module :eca/test-approval}
                     :reason {:code :hook-stopped}}
                    (decide (config-by-default "allow"))))))
   (testing "a module may change the arguments"
@@ -117,3 +117,12 @@
                                         :deny {"eca__test_tool" {:argsMatchers {"path" ["/tmp/x"]}}}}}}]
       (with-module (before-call 2000 (constantly {:arguments {"path" "/tmp/y"}}))
         #(is (match? {:decision :deny} (decide config)))))))
+
+(deftest external-module-approval-test
+  (testing "an external module's handler runs before the config deny is kept, whatever its priority"
+    (modules/add-external! "/tmp/acme-approval.clj"
+                           {:id :acme/approval
+                            :event-handlers {:tool/before-call {:priority -950 :handler (constantly {:approval :allow})}}})
+    (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/approval))]
+      (is (match? {:decision :deny :reason {:code :user-config-deny}}
+                  (decide (config-by-default "deny")))))))

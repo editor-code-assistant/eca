@@ -37,6 +37,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | **Skills, rules and MCP** | |
     | [`eca/skills`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/skills.clj) | Skills: `SKILL.md` folders the model loads when it needs them. |
     | [`eca/rules`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rules.clj) | Rules: global, project and path-scoped. |
+    | [`eca/agents-md`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/agents_md.clj) | AGENTS.md files: the workspaces', their parents' and the global one, in every chat. |
     | [`eca/mcp`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/mcp.clj) | MCP servers: their tools, prompts, resources and instructions. |
     | [`eca/tool-search`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/tools/tool_search.clj) | Hides MCP tools behind `search_tools` when there are too many. |
     | **Your extensions** | |
@@ -46,9 +47,13 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/plugins`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/plugins.clj) | Plugin marketplaces: install, update and remove bundles. |
     | **Chat** | |
     | [`eca/approval`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/approval.clj) | Tool approval from the `toolCall.approval` rules. |
+    | [`eca/chat-management`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_management.clj) | Fork chats, ask side questions, and resume, list, delete, export and import chats. |
+    | [`eca/chat-title`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/chat_title.clj) | The chat model titles each chat, and titles it again at its third request. |
     | [`eca/compact-as-summary`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/compact_as_summary.clj) | When the context fills up, the chat model summarizes the chat. |
-    | [`eca/repo-map`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repo_map.clj) | A map of the repository, for the `repoMap` context. |
     | [`eca/manage`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/manage.clj) | Set up, debug and change ECA: `/init`, `/skill-create`, and the `eca-info` and `eca-manage` skills. |
+    | **Editor features** | |
+    | [`eca/completion`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/completion.clj) | Inline code completion, as you type. |
+    | [`eca/rewrite`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/rewrite.clj) | Rewrite the selected code with the model. |
     | **LLM APIs** | |
     | [`eca/api-anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj) | The Anthropic Messages API. |
     | [`eca/api-openai-responses`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/openai.clj) | The OpenAI Responses API. |
@@ -56,6 +61,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/api-ollama`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/ollama.clj) | The Ollama chat API. |
     | [`eca/api-bedrock`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/bedrock.clj) | The AWS Bedrock Converse API. |
     | **Providers** | |
+    | [`eca/llm-providers`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/llm_providers.clj) | Logging into providers, with `/login` or the providers panel, and their subscription quotas (`/quota`). Requests don't need it. |
     | [`eca/anthropic`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/anthropic.clj) | Claude models from Anthropic: a Max subscription, a Console key or a pasted key. |
     | [`eca/azure`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/azure.clj) | Azure OpenAI, at your resource URL. |
     | [`eca/bedrock`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/providers/bedrock.clj) | Models on AWS Bedrock, with a bearer token. |
@@ -98,7 +104,7 @@ These changes last for the session. To keep them, set them in your config:
 
 - `enabled` turns a module on or off. Modules that require it turn off with it.
 - `source` loads an external module from a file or folder.
-- `priority` orders the module's event handlers, higher first. It's `0` by default, and `-100` for built-in modules.
+- `priority` orders the module's event handlers, higher first. It's `0` by default, and `-100` for built-in modules. A handler's own `:priority` wins over it.
 
 ## Writing a module
 
@@ -194,6 +200,27 @@ ECA warns about config keys that neither it nor a loaded module knows, at startu
 
 A tool's full name is `<prefix>__<name>`: `jira__issue` above. The prefix is the name in the module's `:id`, unless the module sets `:prefix`. Use the full name in approval rules and `disabledTools`, or just `jira` for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.
 
+### Tool servers
+
+A module whose tools come and go, as ECA's MCP support's do, serves them from tool servers instead of `:tools`:
+
+```clojure
+:tool-servers {:list (fn [_ctx]
+                       [{:name "docs" :status "running"
+                         :tools [{:name "lookup" :description "Look up the docs."
+                                  :parameters {:type "object" :properties {"q" {:type "string"}}}}]}])
+               :call (fn [_ctx _server _tool args _opts]
+                       (str "Found " (get args "q")))}
+```
+
+| Key | |
+|-----|--|
+| `:list` | `(fn [ctx])`. The module's servers now: each with `:name`, `:status` and `:tools` (`:name`, `:description`, `:parameters`), maybe `:version`. ECA asks often, so keep it fast. A server or a tool without a `:name` is left out, with a warning. |
+| `:call` | `(fn [ctx server tool args opts])`, with string keys in `args` and the calling chat's `:chat-id` in `opts`. Returns what a tool's handler returns; `(eca/progress! ctx text)` shows its progress. |
+| `:await-refresh` | Optional `(fn [ctx timeout-ms])`. Blocks while a server updates its tools, `timeout-ms` at most. ECA waits after a batch of tool calls, so the model sees the new tools. |
+
+A server's tools are named `<server>__<tool>`, like MCP tools, and work like them in approval rules, `disabledTools` and tool search. When two modules have a server with the same name, the first one to start keeps it. Clients get each server as one of the module's tool servers, with its status: at startup, when modules change, and when the tools' approval changes (another agent, a config change).
+
 ### Commands
 
 `:commands` maps each command's name to its definition:
@@ -207,6 +234,22 @@ A tool's full name is `<prefix>__<name>`: `jira__issue` above. The prefix is the
 The handler returns a string to show in the chat, `{:prompt "..."}` to send a message to the model as if you typed it, or `nil`.
 
 You type `/name`, or `/<prefix>:<name>` when two modules have a command with the same name.
+
+### Protocol methods
+
+`:rpc` adds methods to [ECA's protocol](../protocol.md), for editors and other clients:
+
+```clojure
+:rpc {"acme/status" {:kind :request
+                     :handler (fn [_ctx params] {:ok true :echo params})}}
+```
+
+| Key | |
+|-----|--|
+| `:kind` | `:request`, answered with what the handler returns, or `:notification`. |
+| `:handler` | `(fn [ctx params])`. It runs on a thread of its own. |
+
+ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling `eca/mcp` drops the `mcp/*` methods, `eca/llm-providers` the `providers/*` ones.
 
 ### Events
 
@@ -228,33 +271,41 @@ There are three kinds of events:
 - **transform**: the handler can change the event, or stop it with `{:block "reason"}` or `{:stop "reason"}`.
 - **handle**: the first handler that answers wins.
 
-A handler is a function `(fn [ctx event])`, a vector of them, or a map with `:handler` and optional `:match`, `:priority` and `:timeout-ms`. `:match` filters events by key, with a value, a set or a regex. Module handlers run before your [shell hooks](hooks.md); when a module blocks or stops something, the hooks don't run.
+A handler is a function `(fn [ctx event])`, a vector of them, or a map with `:handler` and optional `:match`, `:priority` and `:timeout-ms`. `:match` filters events by key, with a value, a set or a regex. Your [shell hooks](hooks.md) are `eca/hooks`' handlers, at priority `-1000`, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run. An external module's handlers run before the hooks and before `eca/approval` makes sure a deny from your config stays (`-900`): a lower priority runs right before those, in its order among the external handlers.
 
 Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:parent-chat-id` in a subagent's chat.
 
 | Event | Kind | Keys | Changes it accepts |
 |-------|------|------|--------------------|
 | `:session/started` | notify | `:workspaces` | — |
+| `:session/ready` | notify | Once ECA finished starting, after `:session/started`: the client got the chat config and ECA's own tools. MCP servers start here. | — |
 | `:session/ended` | notify | — | — |
 | `:chat/input` | transform | `:text`, `:source` (`:user` or `:module`). Runs before commands and skills. | `:text`, `:handled` (a reply, or `true`: the model isn't called) |
 | `:chat/started` | notify | `:resumed?`. Runs on a chat's first prompt. | `:additional-context` (added to the chat's startup context), `:stop` |
-| `:chat/before-request` | transform | `:prompt`. Runs once per user message. | `:prompt`, `:additional-context`, `:block`, `:stop` |
+| `:chat/before-request` | transform | `:prompt`, what was typed for a command or an MCP prompt. Runs once per user message, not for `/compact`. | `:prompt` (not for commands and MCP prompts), `:additional-context`, `:block`, `:stop` |
 | `:llm/before-request` | transform | `:request` (`:model`, `:instructions`, `:past-messages`, `:user-messages`, `:tools`), `:history`, `:since-checkpoint`, `:turn`, `:budget`. Runs before every LLM call of a chat, tool loop included. | `:request`'s messages, `:instructions` (not in the tool loop) and `:tools`. This changes what the model sees, not the chat history. `:model` can't change yet. |
-| `:llm/request-failed` | handle | `:request` (`:model`, `:user-messages`), `:error` (`:type` like `:context-overflow`, `:message`, `:status`). Runs after ECA's own retries, once per turn. | `{:retry true}` to send it again, or `{:compact {:trigger :instructions}}` to compact and resume. Without an answer, ECA handles the error. |
+| `:llm/response-headers` | notify | `:provider`, `:headers`. A response's headers, for a subscription login (OAuth). `eca/llm-providers` reads the quota from them. | — |
+| `:llm/request-failed` | handle | `:request` (`:model`, `:user-messages`), `:error` (`:type` like `:context-overflow`, `:message`, `:status`). Runs after ECA's own retries; not again in the turn once a module answered `:retry`. | `{:retry true}` to send it again, or `{:compact {:trigger :instructions}}` to compact and resume, unless the turn can't compact again (see `request-compaction!`). Without an answer, ECA handles the error. `eca/compact-as-summary` answers a context overflow last. |
 | `:chat/after-request` | notify | `:response` | `:follow-up` (sent as the next user message), `:stop` |
 | `:chat/message-added` | notify | `:message` (`:role`, `:content`) | — |
-| `:chat/title` | handle | `:messages`, `:retitle?` | `{:title ".."}`, used instead of the model's |
+| `:chat/title` | handle | `:messages` (the conversation, the new request's messages last), `:prompt-messages` (the new request's messages without the attached contexts), `:prompt-count` (the chat's requests, this one included), `:title` (nil when untitled). Asked in the background at every request, unless the user named the chat. | `{:title ".."}` titles the chat; nil keeps its title. `eca/chat-title` answers last: the first request, then the third. |
 | `:chat/ended` | notify | `:chat-id`, `:agent`, `:model` | — |
 | `:chat/status-changed` | notify | `:status`, `:pending-approval-ids`, `:running-tool-ids`... | — |
-| `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used` | — |
+| `:chat/usage-updated` | notify | `:usage`, `:session-tokens`, `:context-limit`, `:context-used`. After each response, and when `/context` refreshes the usage. | `:auto-compact-percentage`: where the chat compacts on its own, in percent of the context limit, shown to clients |
 | `:tool/before-call` | transform | `:tool` (full name), `:server`, `:arguments`, `:approval`, `:tool-call-id` | `:arguments`, `:approval`, `:reason`, `:block`, `:stop`, `:additional-context` (added to the call's output for the model) |
 | `:tool/after-call` | transform | `:tool`, `:server`, `:arguments`, `:result`, `:error?`, `:tool-call-id`. Runs before the model, the editor and postToolCall hooks see the result. | `:result` (a result map or a string), `:additional-context` (for the model only), `:stop` (after this batch of calls) |
+| `:tool/called` | transform | `:tool`, `:server`, `:arguments`, `:result`, `:error?`, `:tool-call-id`. Runs once the editor got the result, before the model sees it; postToolCall hooks run here. Not when a `:tool/after-call` handler stopped the turn. | `:result` (what the model sees of it: a result map's `:contents` or a string), `:additional-context`, `:stop` (after this batch of calls) |
+| `:chat/next-round` | notify | Runs in the tool loop, after a response's tools ran, before the model gets their results. | `:notes`, the event's and yours: texts the chat's history gets first, each a user message, like `eca/shell`'s finished background jobs |
 | `:chat/before-compact` | transform | `:trigger` (`:manual`, `:auto` or `:overflow`), `:instructions` | `:block` (skips the compaction), `:stop`, `:instructions` |
-| `:chat/compact` | handle | `:trigger`, `:instructions`. Asked before `eca/compact-as-summary` writes its summary. | `{:status :done :resume? true :message ".."}`, or `:status :failed`. Write the result with `checkpoint!`. An interrupted turn goes on unless `:resume? false`. |
-| `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
+| `:chat/compact` | handle | `:trigger`, `:instructions`. `eca/compact-as-summary` answers last, with its summary. | `{:status :done :resume? true :message ".."}`, or `:status :failed`. Write the result with `checkpoint!`. An interrupted turn goes on unless `:resume? false`. |
+| `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`), `:summary` (its text). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, named by `:tool`, `:hook` and `:hook-type`, or `:module`). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and `eca/shell!`. | `:command`, `:cwd`, `:env` |
-| `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. | `:config`, except its `modules` key |
+| `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. `eca/agents` merges the agents first, at priority `1000`. The ctx's `:db` has only `:workspace-folders`. | `:config`, except its `modules` key |
+| `:config/changed` | notify | `:prev-config`, `:config`. When ECA sees the config change; `:prev-config` is nil the first time, a few seconds after startup. | — |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
+| `:models/synced` | notify | The models were synced: at startup and when the providers' config changes, after renewing login tokens; not after a login or logout. `eca/llm-providers` fetches the subscription quotas then. | — |
+
+`:additional-context` is a string, `{:text "..." :data {...}}` to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so `(eca/added-contexts ctx)` finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in `:chat/after-compact`.
 
 A module can also define its own events in `:defines` and send them with `(eca/emit! ctx event-id event)`.
 
@@ -272,6 +323,8 @@ A module can also define its own events in `:defines` and send them with `(eca/e
 | `:config-defaults` | Defaults for keys other modules own, like an approval rule for its tool: `{:toolCall {:approval {:allow {"jira__issue" {}}}}}`. |
 | `:start`, `:stop` | `(fn [ctx])`. What `:start` returns is the module's state, `(eca/state ctx)`. |
 | `:tools`, `:commands` | See [Tools](#tools) and [Commands](#commands). |
+| `:tool-servers` | Servers of tools that come and go. See [Tool servers](#tool-servers). |
+| `:rpc` | Protocol methods. See [Protocol methods](#protocol-methods). |
 | `:prefix` | Prefix of its tools and commands. The name in `:id` by default. |
 | `:system-prompts` | Sections it adds to the system prompt: `[{:id :acme/conventions :after :eca/rules :content "..."}]`. `:content` is a string or `(fn [ctx])`. `:before` or `:after` place it next to another section; `:dynamic? true` is for content that changes every turn. |
 | `:event-handlers` | `{event-id handler}`. See [Events](#events). |
@@ -285,7 +338,7 @@ Every function takes the module's `ctx` as its first argument.
 | Area | Functions |
 |------|-----------|
 | Module | `config`, `state`, `module-id`, `client`, `log`, `workspaces` |
-| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state` and `swap-chat-state!` (plain data saved with the chat), `send-prompt!`, `add-context!` (for the next request), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it), `request-compaction!` (`{:trigger :instructions}`: compacts before the next LLM request) |
+| Chat | `chat`, `messages` (`{:since-checkpoint? true}` for what the model sees), `chat-state` and `swap-chat-state!` (plain data saved with the chat, copied by forks and exports, dropped when the chat is cleared), `send-prompt!`, `add-context!` (for the next request; `{:data ..}` keeps plain data with it), `added-contexts` (the module's contexts in the chat, with their data), `checkpoint!` (`{:messages [..] :label ".." :data {..}}`: the model sees only what comes after it), `request-compaction!` (`{:trigger :instructions}`: compacts before the next LLM request), `cancel-compaction!` (drops the module's request) |
 | User | `notify!`, `progress!` (in a tool), `ui?`, `confirm`, `select`, `input` |
 | Events | `emit!` |
 | Tools and commands | `tools`, `call-tool!`, `register-tool!`, `unregister-tool!`, `register-command!`, `unregister-command!` |
