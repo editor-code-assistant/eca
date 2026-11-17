@@ -113,6 +113,12 @@
            (modules/problems {:id :acme/x :tool-servers {:list (fn [_]) :call (fn [_ _ _ _ _])}} {})))
     (is (match? {:errors [#":skills is only for built-in modules"]}
                 (modules/problems {:id :acme/x :skills []} {})))
+    (is (match? {:errors [#":providers \"p\": :quota, :errors, .* are only for built-in modules"]}
+                (modules/problems {:id :acme/x :providers {"p" {:quota {:fetch (fn [_])}}}} {})))
+    (is (match? {:errors [#":providers \"p\": .*method's :start are only for built-in modules"]}
+                (modules/problems {:id :acme/x :providers {"p" {:login {:methods [{:key "k" :start (fn [& _])}]}}}} {})))
+    (is (= [] (:errors (modules/problems {:id :eca/x :providers {"p" {:login {:steps {}} :errors {}}}}
+                                         {:built-in? true}))))
     (is (match? {:errors [#":transform-tools is only for built-in modules"]}
                 (modules/problems {:id :acme/x :transform-tools (fn [_ tools] tools)} {})))
     (is (match? {:errors [#":transform-tools must be a function"]}

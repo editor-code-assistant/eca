@@ -34,14 +34,7 @@
 
 (def ^:private allowed-extended-multimethods
   "Core multimethods the built-in modules extend with `defmethod`. Only shrinks."
-  '#{eca.features.login/login-step
-     eca.features.providers/complete-oauth-code!
-     eca.features.providers/start-login!
-     eca.features.quota/fetch-quota
-     eca.llm-api.errors/enrich-provider-error
-     eca.llm-api.errors/recover-error!
-     eca.llm-api.errors/recoverable-error?
-     eca.llm-util/provider-models-override})
+  '#{})
 
 (defn ^:private libspecs
   "The libs of a `:require` clause's specs, as maps of `:ns` and the options (`:as`...); prefix lists expanded."

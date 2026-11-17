@@ -4,6 +4,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.providers :as f.providers]
+   [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
@@ -13,16 +14,21 @@
 
 (def ^:private logger-tag "[LOGIN]")
 
-(defmulti login-step
-  "Login state machine. Dispatches on the provider's base (see
-   `config/provider-base`), so a provider inheriting e.g. `anthropic` runs
-   Anthropic's login steps while `:provider` keeps its own name, storing its
-   auth separately."
-  (fn [{:keys [provider step config]}]
-    [(config/provider-base provider config) step]))
+(declare ^:private pick-provider!)
 
-(defmethod login-step :default [{:keys [send-msg!]}]
-  (send-msg! "Error: Unknown login step"))
+(defn login-step
+  "Login state machine: runs `step` of the provider's base (see
+   `config/provider-base`), its `:login :steps`, so a provider inheriting
+   e.g. `anthropic` runs Anthropic's login steps while `:provider` keeps its
+   own name, storing its auth separately. Without a provider, the first step
+   asks which one."
+  [{:keys [provider step config send-msg!] :as ctx}]
+  (if-let [step-fn (if provider
+                     (get-in (llm-util/provider-declaration config (config/provider-base provider config))
+                             [:login :steps step])
+                     (when (= :login/start step) pick-provider!))]
+    (step-fn ctx)
+    (send-msg! "Error: Unknown login step")))
 
 (def ^:private ask-timeout-ms (* 5 60 1000))
 
@@ -145,14 +151,14 @@
 
 (defn ^:private run-login-step!
   "Runs the current login step: the provider's `:ask` flow when it declares
-   one, otherwise its `login-step` methods."
+   one, otherwise its `:login :steps`."
   [{:keys [provider config] :as ctx}]
   (if-let [declaration (when provider (f.providers/ask-declaration provider config))]
     (ask-login-step! ctx declaration)
     (login-step ctx)))
 
 ;; No provider selected
-(defmethod login-step [nil :login/start] [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
+(defn ^:private pick-provider! [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
   (let [provider (string/trim input)
         providers (login-providers @db* config)]
     (if (some #{provider} providers)

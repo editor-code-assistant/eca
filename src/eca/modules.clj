@@ -142,6 +142,27 @@
 
 (defn ^:private qualified-kw? [x] (qualified-keyword? x))
 
+(defn ^:private provider-problems
+  "Problems of a provider declaration. The functions core calls (login
+   steps and methods' `:start`, the OAuth code exchange, quota, errors,
+   the models override) are for built-in modules, for now."
+  [built-in? declaration]
+  (let [login (:login declaration)]
+    (cond
+      (not (map? declaration))
+      ["must be a map"]
+
+      (and (not built-in?)
+           (or (some #(contains? declaration %) [:quota :errors :models-override-fn])
+               (and (map? login)
+                    (or (contains? login :steps)
+                        (contains? login :complete-oauth-code)
+                        (and (sequential? (:methods login)) (some #(and (map? %) (:start %)) (:methods login)))))))
+      [(str ":quota, :errors, :models-override-fn, :login :steps, :login :complete-oauth-code and a login"
+            " method's :start are only for built-in modules")]
+
+      :else [])))
+
 (defn ^:private map-of-problems
   "Problems of a map of name → entry, with `entry-problems` for each entry."
   [k m key-pred key-desc entry-problems]
@@ -271,7 +292,7 @@
                     []
                     (map-of-problems ":commands" commands string? "a string" command-problems))
                   (section-problems (:system-prompts module))
-                  (map-of-problems ":providers" providers string? "a string" #(if (map? %) [] ["must be a map"]))
+                  (map-of-problems ":providers" providers string? "a string" (partial provider-problems built-in?))
                   (map-of-problems ":apis" apis string? "a string"
                                    #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))
                   (map-of-problems ":rpc" (:rpc module) string? "a string"

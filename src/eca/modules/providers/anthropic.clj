@@ -759,7 +759,9 @@
 
 (def ^:private oauth-usage-url "https://api.anthropic.com/api/oauth/usage")
 
-(defmethod f.quota/fetch-quota "anthropic" [{:keys [provider-auth]}]
+(defn ^:private fetch-quota
+  "`:quota :fetch`: the subscription's usage."
+  [{:keys [provider-auth]}]
   (let [{:keys [status body]} (http/get oauth-usage-url
                                         {:headers {"Authorization" (str "Bearer " (:api-key provider-auth))
                                                    "anthropic-beta" "oauth-2025-04-20"}
@@ -854,7 +856,9 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["anthropic" "max"] [provider _ db* _config _messenger _metrics]
+(defn ^:private start-max-login!
+  "The `max` login method's `:start`: OAuth, for a Claude subscription."
+  [provider db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :max)]
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                           :mode :max
@@ -864,7 +868,9 @@
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/start-login! ["anthropic" "console"] [provider _ db* _config _messenger _metrics]
+(defn ^:private start-console-login!
+  "The `console` login method's `:start`: OAuth, creating an API key."
+  [provider db* _config _messenger _metrics]
   (let [{:keys [verifier url]} (oauth-url :console)]
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                           :mode :console
@@ -874,7 +880,9 @@
      :message "Complete authentication in your browser, then paste the authorization code"
      :fields [{:key "code" :label "Authorization code" :type "text"}]}))
 
-(defmethod f.providers/complete-oauth-code! "anthropic" [provider data db* _config messenger metrics]
+(defn ^:private complete-oauth-code!
+  "`:login :complete-oauth-code`: the code pasted after the browser login."
+  [provider data db* _config messenger metrics]
   (let [code (:code data)
         {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
@@ -896,7 +904,7 @@
 
 ;; --- Chat-based login (legacy /login command) ---
 
-(defmethod f.login/login-step ["anthropic" :login/start] [{:keys [db* chat-id provider send-msg! ask!]}]
+(defn ^:private start-step [{:keys [db* chat-id provider send-msg! ask!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
   (if ask!
@@ -910,7 +918,7 @@
                           "- console: Automatically create API Key and use it (non subscription)"
                           "- manual: Manually enter API Key (non subscriptions)"))))
 
-(defmethod f.login/login-step ["anthropic" :login/waiting-login-method] [{:keys [db* input provider send-msg!]}]
+(defn ^:private waiting-login-method-step [{:keys [db* input provider send-msg!]}]
   (case input
     "max"
     (let [{:keys [verifier url]} (oauth-url :max)]
@@ -933,7 +941,7 @@
       (send-msg! "Paste your Anthropic API Key"))
     (send-msg! (format "Unknown login method '%s'. Inform one of the options: max, console, manual" input))))
 
-(defmethod f.login/login-step ["anthropic" :login/waiting-provider-code] [{:keys [db* input provider] :as ctx}]
+(defn ^:private waiting-provider-code-step [{:keys [db* input provider] :as ctx}]
   (let [provider-code input
         {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
@@ -953,7 +961,7 @@
                                                      :expires-at expires-at})
         (f.login/login-done! ctx)))))
 
-(defmethod f.login/login-step ["anthropic" :login/waiting-api-key] [{:keys [db* input provider send-msg!] :as ctx}]
+(defn ^:private waiting-api-key-step [{:keys [db* input provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
     (do
       (config/update-global-config! {:providers {provider {:key input}}})
@@ -962,7 +970,7 @@
       (f.login/login-done! ctx))
     (send-msg! "Invalid API key, it should start with 'sk-'")))
 
-(defmethod f.login/login-step ["anthropic" :login/renew-token] [{:keys [db* provider] :as ctx}]
+(defn ^:private renew-token-step [{:keys [db* provider] :as ctx}]
   (let [{:keys [refresh-token]} (get-in @db* [:auth provider])
         {:keys [refresh-token access-token expires-at]} (oauth-refresh refresh-token)]
     (swap! db* update-in [:auth provider] merge {:step :login/done
@@ -971,6 +979,32 @@
                                                  :api-key access-token
                                                  :expires-at expires-at})
     (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+
+(defn ^:private structured-error
+  "Parses Anthropic's structured error body, e.g.
+   {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"...\"},\"request_id\":\"...\"}.
+   Returns {:code .. :message .. :request-id ..} or nil when not parseable."
+  [body]
+  (when (string? body)
+    (let [parsed (try (json/parse-string body) (catch Exception _ nil))
+          error (when (map? parsed) (get parsed "error"))
+          code (when (map? error) (get error "type"))
+          message (when (map? error) (get error "message"))]
+      (when (or code message)
+        (cond-> {}
+          code (assoc :code code)
+          message (assoc :message message)
+          (get parsed "request_id") (assoc :request-id (get parsed "request_id")))))))
+
+(defn ^:private enrich-error
+  "`:errors :enrich`: the code, message and request id of a structured error body."
+  [{:keys [error-data]}]
+  (if-let [{:keys [code message request-id]} (structured-error (:body error-data))]
+    (cond-> error-data
+      code (assoc :code code)
+      message (assoc :message (str "Anthropic " (or code "error") ": " message))
+      request-id (assoc :request-id request-id))
+    error-data))
 
 (def api-module
   {:id :eca/api-anthropic
@@ -983,10 +1017,18 @@
    :description "Claude models from Anthropic: a Max subscription, a Console key or a pasted key."
    :requires #{:eca/api-anthropic}
    :providers {"anthropic" {:label "Anthropic"
-                            ;; the flows are the login-step and start-login! methods above
-                            :login {:methods [{:key "max" :label "Max (subscription via OAuth)"}
-                                              {:key "console" :label "Console (API key via OAuth)"}
-                                              {:key "manual" :label "Manual (paste API key)"}]}}}
+                            :login {:methods [{:key "max" :label "Max (subscription via OAuth)" :start #'start-max-login!}
+                                              {:key "console" :label "Console (API key via OAuth)" :start #'start-console-login!}
+                                              {:key "manual" :label "Manual (paste API key)"}]
+                                    :complete-oauth-code #'complete-oauth-code!
+                                    ;; the chat's /login
+                                    :steps {:login/start #'start-step
+                                            :login/waiting-login-method #'waiting-login-method-step
+                                            :login/waiting-provider-code #'waiting-provider-code-step
+                                            :login/waiting-api-key #'waiting-api-key-step
+                                            :login/renew-token #'renew-token-step}}
+                            :quota {:fetch #'fetch-quota}
+                            :errors {:enrich #'enrich-error}}}
    :config-defaults {:providers {"anthropic" {:api "anthropic"
                                               :url "${env:ANTHROPIC_API_URL:https://api.anthropic.com}"
                                               :key "${env:ANTHROPIC_API_KEY}"

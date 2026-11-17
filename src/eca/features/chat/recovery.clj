@@ -231,6 +231,7 @@
         {:keys [retry? notice retry-user-message]}
         (llm-providers.errors/recover-error! {:provider provider
                                               :provider-base (config/provider-base provider config)
+                                              :config config
                                               :model real-model
                                               :error-data error-data
                                               :db db
@@ -422,6 +423,7 @@
            (not (:error-recovery-attempted? chat-ctx))
            (llm-providers.errors/recoverable-error? {:provider provider
                                                      :provider-base (config/provider-base provider config)
+                                                     :config config
                                                      :error-data error-data
                                                      :db db}))
       (recover-provider-error! turn chat-ctx failure)

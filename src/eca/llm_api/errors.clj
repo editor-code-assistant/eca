@@ -236,69 +236,47 @@
          (classify-by-message {:message (ex-message exception)}))
        {:error/type :unknown})))
 
-(defn ^:private dispatch-provider
-  "Multimethods below dispatch on `:provider-base` (the provider `:provider`
-   inherits from, see `config/provider-base`) when given, else `:provider`."
-  [{:keys [provider provider-base]}]
-  (or provider-base provider))
+(defn ^:private provider-errors-fn
+  "The provider's `:errors` function `k`: of `:provider-base` (the provider
+   `:provider` inherits from, see `config/provider-base`) when given, else
+   of `:provider`."
+  [k {:keys [provider provider-base config]}]
+  (get-in (llm-util/provider-declaration config (or provider-base provider)) [:errors k]))
 
-(defmulti enrich-provider-error
+(defn enrich-provider-error
   "Rewrites a provider-specific raw error into an actionable one before it is
-   delivered to error callbacks. Dispatches on the provider (see
-   `dispatch-provider`); receives a context map {:provider :provider-base
-   :model :error-data} and returns the (possibly updated) error-data.
-   Default: error-data unchanged."
-  dispatch-provider)
-
-(defmethod enrich-provider-error :default [{:keys [error-data]}] error-data)
-
-(defn ^:private anthropic-structured-error
-  "Parses Anthropic's structured error body, e.g.
-   {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"...\"},\"request_id\":\"...\"}.
-   Returns {:code .. :message .. :request-id ..} or nil when not parseable."
-  [body]
-  (when (string? body)
-    (let [parsed (try (json/parse-string body) (catch Exception _ nil))
-          error (when (map? parsed) (get parsed "error"))
-          code (when (map? error) (get error "type"))
-          message (when (map? error) (get error "message"))]
-      (when (or code message)
-        (cond-> {}
-          code (assoc :code code)
-          message (assoc :message message)
-          (get parsed "request_id") (assoc :request-id (get parsed "request_id")))))))
-
-(defmethod enrich-provider-error "anthropic"
-  [{:keys [error-data]}]
-  (if-let [{:keys [code message request-id]} (anthropic-structured-error (:body error-data))]
-    (cond-> error-data
-      code (assoc :code code)
-      message (assoc :message (str "Anthropic " (or code "error") ": " message))
-      request-id (assoc :request-id request-id))
+   delivered to error callbacks: the provider's `:errors :enrich` (see
+   `provider-errors-fn`). It gets a context map {:provider :provider-base
+   :model :error-data :config} and returns the (possibly updated)
+   error-data. Without one: error-data unchanged."
+  [{:keys [error-data] :as ctx}]
+  (if-let [enrich (provider-errors-fn :enrich ctx)]
+    (enrich ctx)
     error-data))
 
-(defmulti recoverable-error?
+(defn recoverable-error?
   "Pure predicate: true when the provider offers an interactive recovery for
-   this terminal error (e.g. Copilot per-model policy consent). Dispatches on
-   the provider (see `dispatch-provider`); receives {:provider :provider-base
-   :error-data :db}. Default: false."
-  dispatch-provider)
+   this terminal error (e.g. Copilot per-model policy consent): its
+   `:errors :recoverable?` (see `provider-errors-fn`). It gets {:provider
+   :provider-base :error-data :db :config}. Without one: false."
+  [ctx]
+  (if-let [recoverable? (provider-errors-fn :recoverable? ctx)]
+    (recoverable? ctx)
+    false))
 
-(defmethod recoverable-error? :default [_] false)
-
-(defmulti recover-error!
-  "Runs the provider-specific interactive recovery for a terminal error.
-   Dispatches on the provider (see `dispatch-provider`); receives {:provider
-   :provider-base :model :error-data :db :messenger :chat-id}. Returns nil
-   when nothing was recovered, or a map:
+(defn recover-error!
+  "Runs the provider-specific interactive recovery for a terminal error: its
+   `:errors :recover!` (see `provider-errors-fn`). It gets {:provider
+   :provider-base :model :error-data :db :messenger :chat-id :config}.
+   Returns nil when nothing was recovered, or a map:
      :retry?             - true when the failed prompt should be retried
      :notice             - system text to show the user (optional)
      :retry-user-message - user message replayed when the original messages
                            are already in history (optional)
-   Default: nil."
-  dispatch-provider)
-
-(defmethod recover-error! :default [_] nil)
+   Without one: nil."
+  [ctx]
+  (when-let [recover! (provider-errors-fn :recover! ctx)]
+    (recover! ctx)))
 
 (defn context-overflow?
   "Returns true if the error is a context window overflow."

@@ -4,6 +4,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.quota :as f.quota]
+   [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
    [eca.models :as models]
    [eca.modules :as modules]
@@ -15,7 +16,7 @@
 
 (def ^:private declaration-keys
   "Keys of a provider declaration that aren't provider config."
-  #{:label :login :models-fn})
+  #{:label :login :models-fn :models-override-fn :quota :errors})
 
 (defn declarations
   "Provider id → declaration (`:label`, `:login` and the config keys a login
@@ -65,7 +66,8 @@
 (defn ^:private login-methods [provider-name config]
   (let [{:keys [ask methods]} (:login (base-declaration provider-name config))]
     (cond
-      methods methods
+      ;; without their :start, a function, as clients get them
+      methods (mapv #(dissoc % :start) methods)
       ask [{:key "api-key" :label (ask-method-label ask)}])))
 
 (defn ^:private login-fields [provider-name config]
@@ -257,29 +259,34 @@
 
 ;; --- Login dispatch ---
 
-(defmulti start-login!
-  "Starts a provider-specific async login flow (OAuth, device flow, etc.).
-   Returns an action descriptor for the client.
-   Implementations live in provider namespaces and dispatch on the provider's
-   base (see `config/provider-base`), storing auth under `provider-name`."
-  (fn [provider-name method _db* config _messenger _metrics]
-    [(config/provider-base provider-name config) method]))
+(defn ^:private base-login
+  "The `:login` of the provider `provider-name` follows (see
+   `config/provider-base`)."
+  [provider-name config]
+  (:login (llm-util/provider-declaration config (config/provider-base provider-name config))))
 
-(defmethod start-login! :default [provider-name method _ _ _ _]
-  (throw (ex-info "Unsupported login method"
-                  {:error-response {:message (str "Unsupported login method '" method "' for provider '" provider-name "'")}})))
+(defn start-login!
+  "Starts a provider-specific async login flow (OAuth, device flow, etc.):
+   the `:start` of the login method `method` of the provider's base (see
+   `config/provider-base`), storing auth under `provider-name`. Returns an
+   action descriptor for the client."
+  [provider-name method db* config messenger metrics]
+  (if-let [start (some #(when (= method (:key %)) (:start %))
+                       (:methods (base-login provider-name config)))]
+    (start provider-name db* config messenger metrics)
+    (throw (ex-info "Unsupported login method"
+                    {:error-response {:message (str "Unsupported login method '" method "' for provider '" provider-name "'")}}))))
 
-(defmulti complete-oauth-code!
-  "Exchanges an OAuth authorization code for tokens.
-   Called when client submits a code after browser-based auth.
-   Implementations live in provider namespaces and dispatch on the provider's
-   base (see `config/provider-base`), storing auth under `provider-name`."
-  (fn [provider-name _data _db* config _messenger _metrics]
-    (config/provider-base provider-name config)))
-
-(defmethod complete-oauth-code! :default [provider-name _ _ _ _ _]
-  (throw (ex-info "Provider does not support OAuth code exchange"
-                  {:error-response {:message (str "Provider '" provider-name "' does not support code-based login")}})))
+(defn complete-oauth-code!
+  "Exchanges an OAuth authorization code for tokens, when the client submits
+   a code after browser-based auth: the `:login :complete-oauth-code` of the
+   provider's base (see `config/provider-base`), storing auth under
+   `provider-name`."
+  [provider-name data db* config messenger metrics]
+  (if-let [complete (:complete-oauth-code (base-login provider-name config))]
+    (complete provider-name data db* config messenger metrics)
+    (throw (ex-info "Provider does not support OAuth code exchange"
+                    {:error-response {:message (str "Provider '" provider-name "' does not support code-based login")}}))))
 
 ;; --- Handlers ---
 
