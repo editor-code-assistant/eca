@@ -21,7 +21,6 @@
    [eca.metrics :as metrics]
    [eca.models :as models]
    [eca.modules.events :as events]
-   [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
    [eca.shared :as shared :refer [assoc-some future*]]))
@@ -212,14 +211,12 @@
                                                       db
                                                       config
                                                       agent)))))
-            repo-map* (delay (m.repo-map/repo-map db config {:as-string? true}))
             instructions (f.chat.system-prompt/chat-instructions
                           base-chat-ctx db full-model
                           {:refined-contexts refined-contexts
                            :static-rules static-rules
                            :path-scoped-rules path-scoped-rules
                            :skills skills
-                           :repo-map* repo-map*
                            :all-tools all-tools})
             image-contents (->> refined-contexts
                                 (filter #(= :image (:type %))))
@@ -228,10 +225,10 @@
             prompt-contexts (f.context/contexts-str-from-prompt message db)
             expanded-prompt-contexts (when-let [contexts-str (some-> prompt-contexts
                                                                      seq
-                                                                     (f.prompt/contexts-str repo-map* nil))]
+                                                                     (f.prompt/contexts-str nil))]
                                        [{:type :text :text contexts-str}])
             decision (f.chat.steer/message->decision message db config)
-            ;; Context-area files and repoMap are delivered in the user message too,
+            ;; Context-area files are delivered in the user message too,
             ;; keeping the cached system prompt stable: in full when new, as a
             ;; one-line notice when changed and not at all once removed or when the
             ;; prompt text already expands them with @path. What was sent is only
@@ -239,12 +236,10 @@
             attached-delta (f.context/attached-contexts-delta
                             refined-contexts
                             (get-in db [:chats chat-id :sent-attached-contexts])
-                            (set (keep f.context/attached-context-key prompt-contexts))
-                            repo-map*)
+                            (set (keep f.context/attached-context-key prompt-contexts)))
             attached-contents (when-let [attached-str (f.prompt/build-attached-contexts
                                                        (:new attached-delta)
-                                                       (:changed attached-delta)
-                                                       repo-map*)]
+                                                       (:changed attached-delta))]
                                 [{:type :text :text attached-str}])
             ;; Cursor (and other volatile editor-state) is delivered per-turn in the
             ;; user message - never the system prompt - and only re-sent when it

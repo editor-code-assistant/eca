@@ -111,7 +111,7 @@
                         ;; before the next LLM request; none after one was blocked in a prompt
                         :compaction-request {:module :keyword :trigger :keyword :instructions :string}
                         :compaction-blocked-prompt-id :uuid
-                        ;; Context-area files/repoMap already delivered in the
+                        ;; Context-area files already delivered in the
                         ;; user message history: context key -> content sha-256. #683
                         :sent-attached-contexts {"<context-key>" :string}
                         :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason" "compact_marker" "flag" "server_tool_use" "server_tool_result")

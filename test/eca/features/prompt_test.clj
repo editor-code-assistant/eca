@@ -7,11 +7,11 @@
    [eca.test-helper :as h]))
 
 (defn ^:private build-instructions
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
   (let [db (cond-> db
              (empty? (:workspace-folders db))
              (assoc :workspace-folders [{:uri "file:///workspace"}]))]
-    (prompt/build-chat-instructions refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db)))
+    (prompt/build-chat-instructions refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db)))
 
 (deftest contexts-attribute-formatting-test
   (testing "keeps copy-sensitive attribute values raw while preserving quote delimiters"
@@ -24,14 +24,14 @@
                                        {:type :file
                                         :path "/tmp/has\"both'quotes.clj"
                                         :content "content"}]
-                                      nil nil)]
+                                      nil)]
       (is (string/includes? result "path=\"/tmp/a&b<c>.clj\""))
       (is (string/includes? result "path='/tmp/has\"quote.clj'"))
       (is (string/includes? result "path=\"/tmp/has&quot;both'quotes.clj\"")))))
 
 (deftest deferred-tools-section-test
   (let [static-for (fn [all-tools]
-                     (:static (build-instructions [] [] [] [] (delay "TREE") "code" {} nil all-tools (h/db))))]
+                     (:static (build-instructions [] [] [] [] "code" {} nil all-tools (h/db))))]
     (testing "no section when nothing is deferred"
       (is (not (string/includes? (static-for [{:full-name "eca__read_file" :description "Read"}])
                                  "<deferred-tools"))))
@@ -55,7 +55,7 @@
 
 (deftest build-instructions-test
   (testing "Should return a map with :static and :dynamic keys"
-    (let [result (build-instructions [] [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+    (let [result (build-instructions [] [] [] [] "code" {} nil [] (h/db))]
       (is (map? result))
       (is (contains? result :static))
       (is (contains? result :dynamic))
@@ -64,8 +64,7 @@
   (testing "Should create instructions with static rules, path-scoped catalog, contexts, and code agent"
     (let [refined-contexts [{:type :agents-file :path "/workspace/AGENTS.md" :content "Be nice"}
                             {:type :file :path "foo.clj" :content "(ns foo)"}
-                            {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
-                            {:type :repoMap}]
+                            {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}]
           static-rules [{:name "rule1" :content "First rule" :scope :global}
                         {:name "rule2" :content "Second rule" :scope :project}]
           path-scoped-rules [{:id "/workspace/a/.eca/rules/format.md" :name "format.md" :scope :project :workspace-root "/workspace/a" :paths ["**/*.clj"]}
@@ -73,10 +72,9 @@
           skills [{:name "review-pr" :description "Review a PR"}
                   {:name "grill-me" :description "Use when user mentions \"grill me\"."}
                   {:name "lint-fix" :description "Fix a lint"}]
-          fake-repo-map (delay "TREE")
           agent-name "code"
           config {}
-          {:keys [static dynamic]} (build-instructions refined-contexts static-rules path-scoped-rules skills fake-repo-map agent-name config nil [{:full-name "eca__fetch_rule"}] (h/db))]
+          {:keys [static dynamic]} (build-instructions refined-contexts static-rules path-scoped-rules skills agent-name config nil [{:full-name "eca__fetch_rule"}] (h/db))]
       (is (string/includes? static "You are ECA"))
       (is (string/includes? static "<rules description=\"Rules defined by user. Follow them as closely as possible.\">"))
       (is (string/includes? static "<global-rules description=\"Global user rules; project rules are more specific.\">"))
@@ -94,10 +92,9 @@
       (is (string/includes? static "<contexts description=\"User-provided context. Treat as current and accurate.\">"))
       (is (string/includes? static "<agents-file description=\"Primary System Directives & Coding Standards.\" path=\"/workspace/AGENTS.md\">"))
       (is (string/includes? static "</contexts>"))
-      (testing "context-area files and repoMap are sent in the user message instead (#683)"
+      (testing "context-area files are sent in the user message instead (#683)"
         (is (not (string/includes? static "(ns foo)")))
-        (is (not (string/includes? static "(def a 1)")))
-        (is (not (string/includes? static "<repo-map"))))
+        (is (not (string/includes? static "(def a 1)"))))
       (is (string/includes? static "## Workspace Roots"))
       (is (string/includes? static "<workspace-roots description=\"Workspace roots used for path resolution and tool scoping.\">"))
       (is (string/includes? static "<workspace-root path="))
@@ -108,17 +105,15 @@
   (testing "Should create instructions with static rules, path-scoped catalog, contexts, and plan agent"
     (let [refined-contexts [{:type :agents-file :path "/workspace/AGENTS.md" :content "Be nice"}
                             {:type :file :path "foo.clj" :content "(ns foo)"}
-                            {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}
-                            {:type :repoMap}]
+                            {:type :file :path "bar.clj" :content "(def a 1)" :lines-range {:start 1 :end 1}}]
           static-rules [{:name "rule1" :content "First rule" :scope :global}
                         {:name "rule2" :content "Second rule" :scope :project}]
           path-scoped-rules [{:id "/workspace/a/.eca/rules/format.md" :name "format.md" :scope :project :workspace-root "/workspace/a" :paths ["**/*.clj"]}]
           skills [{:name "review-pr" :description "Review a PR"}
                   {:name "lint-fix" :description "Fix a lint"}]
-          fake-repo-map (delay "TREE")
           agent-name "plan"
           config {}
-          {:keys [static dynamic]} (build-instructions refined-contexts static-rules path-scoped-rules skills fake-repo-map agent-name config nil [{:full-name "eca__fetch_rule"}] (h/db))]
+          {:keys [static dynamic]} (build-instructions refined-contexts static-rules path-scoped-rules skills agent-name config nil [{:full-name "eca__fetch_rule"}] (h/db))]
       (is (string/includes? static "You are ECA"))
       (is (string/includes? static "<rule name=\"rule1\">First rule</rule>"))
       (is (string/includes? static "<rule name=\"rule2\">Second rule</rule>"))
@@ -131,7 +126,6 @@
       (is (string/includes? static "</contexts>"))
       (is (not (string/includes? static "(ns foo)")))
       (is (not (string/includes? static "(def a 1)")))
-      (is (not (string/includes? static "<repo-map")))
       (is (string/includes? static "## Workspace Roots"))
       (is (string/includes? static "<workspace-roots description=\"Workspace roots used for path resolution and tool scoping.\">"))
       (is (string/includes? static "<workspace-root path="))
@@ -142,7 +136,7 @@
 (deftest build-instructions-empty-workspace-roots-test
   (testing "omits Workspace Roots section when there are no workspace folders, but keeps Path Resolution"
     (let [db (assoc (h/db) :workspace-folders [])
-          {:keys [static]} (prompt/build-chat-instructions [] [] [] [] (delay "TREE") "code" {} nil [] db)]
+          {:keys [static]} (prompt/build-chat-instructions [] [] [] [] "code" {} nil [] db)]
       (is (not (string/includes? static "## Workspace Roots")))
       (is (not (string/includes? static "<workspace-roots")))
       (is (string/includes? static "## Path Resolution")))))
@@ -150,18 +144,18 @@
 (deftest build-instructions-startup-context-test
   (testing "chatStart startup-context renders even without any stable contexts"
     (let [db (assoc-in (h/db) [:chats "chat-1" :startup-context] "injected by chatStart")
-          {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" [] db)]
+          {:keys [static]} (build-instructions [] [] [] [] "code" {} "chat-1" [] db)]
       (is (string/includes? static "<contexts description=\"User-provided context. Treat as current and accurate.\">"))
       (is (string/includes? static "<additional-context>\ninjected by chatStart\n</additional-context>"))))
 
   (testing "no Contexts section when there are neither stable contexts nor startup-context"
-    (let [{:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
+    (let [{:keys [static]} (build-instructions [] [] [] [] "code" {} "chat-1" [] (h/db))]
       (is (not (string/includes? static "<contexts description"))))))
 
 (deftest build-instructions-skip-empty-rule-group-test
   (testing "omits empty global rules section when only project-scoped rules render"
     (let [static-rules [{:name "rule1" :content "Only project rule" :scope :project}]
-          {:keys [static]} (build-instructions [] static-rules [] [] (delay "TREE") "code" {} nil [] (h/db))]
+          {:keys [static]} (build-instructions [] static-rules [] [] "code" {} nil [] (h/db))]
       (is (string/includes? static "<project-rules description=\"Workspace rules; prefer over global rules when they conflict.\">"))
       (is (not (string/includes? static "<global-rules"))))))
 
@@ -172,7 +166,7 @@
                               :scope :project
                               :workspace-root "/workspace/a"
                               :paths ["**/*.clj" "**/*.cljs"]}]
-          {:keys [static]} (build-instructions [] [] path-scoped-rules [] (delay "TREE") "code" {} nil [{:full-name "eca__fetch_rule"}] (h/db))]
+          {:keys [static]} (build-instructions [] [] path-scoped-rules [] "code" {} nil [{:full-name "eca__fetch_rule"}] (h/db))]
       (is (string/includes? static "<path-scoped-rules description=\"Rules that apply to matching file paths. Use fetch_rule before actions required by enforce (read, modify, or both). Each rule only needs to be fetched once per chat.\">"))
       (is (string/includes? static "<workspace-path-scoped-rules root=\"/workspace/a\">"))
       (is (string/includes? static "<rule id=\"/workspace/a/.eca/rules/format.md\" name=\"format.md\" scope=\"project\" workspace-root=\"/workspace/a\" paths=\"**/*.clj,**/*.cljs\" enforce=\"modify\"/>"))
@@ -187,7 +181,7 @@
                               :workspace-root "/workspace/a"
                               :paths ["**/*.clj"]
                               :content "Inline rule"}]
-          {:keys [static]} (build-instructions [] [] path-scoped-rules [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
+          {:keys [static]} (build-instructions [] [] path-scoped-rules [] "code" {} "chat-1" [] (h/db))]
       (is (not (string/includes? static "<path-scoped-rules")))
       (is (not (string/includes? static "format.md")))
       (is (not (string/includes? static "call the fetch_rule tool"))))))
@@ -196,13 +190,13 @@
   (let [config {:prompts {:chat "{% if isSubagent %}SUBAGENT{% endif %}{% if not isSubagent %}MAIN{% endif %}"}}]
     (testing "renders subagent-only content for subagent chats"
       (let [db (assoc-in (h/db) [:chats "sub-chat" :subagent] {:name "explorer"})
-            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" config "sub-chat" [] db)]
+            {:keys [static]} (build-instructions [] [] [] [] "code" config "sub-chat" [] db)]
         (is (string/includes? static "SUBAGENT"))
         (is (not (string/includes? static "MAIN")))))
 
     (testing "renders main-agent-only content for non-subagent chats"
       (let [db (assoc-in (h/db) [:chats "main-chat"] {:id "main-chat"})
-            {:keys [static]} (build-instructions [] [] [] [] (delay "TREE") "code" config "main-chat" [] db)]
+            {:keys [static]} (build-instructions [] [] [] [] "code" config "main-chat" [] db)]
         (is (string/includes? static "MAIN"))
         (is (not (string/includes? static "SUBAGENT")))))))
 
@@ -210,7 +204,7 @@
   (testing "MCP instructions go into :dynamic, not :static"
     (let [db (assoc (h/db) :mcp-clients {:test-server {:status :running
                                                        :instructions "Use test-server for testing"}})
-          {:keys [static dynamic]} (build-instructions [] [] [] [] (delay "TREE") "code" {} nil [] db)]
+          {:keys [static dynamic]} (build-instructions [] [] [] [] "code" {} nil [] db)]
       (is (not (string/includes? static "test-server")))
       (is (string? dynamic))
       (is (string/includes? dynamic "test-server"))
@@ -222,24 +216,22 @@
                             {:type :cursor :path "bar.clj"
                              :position {:start {:line 10 :character 0}
                                         :end {:line 10 :character 5}}}]
-          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] "code" {} nil [] (h/db))]
       (is (string/includes? static "Be nice"))
       (is (not (string/includes? static "cursor")))
       (is (nil? dynamic))))
 
-  (testing "file and repoMap contexts are excluded from both :static and :dynamic (delivered in the user message, #683)"
-    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}
-                            {:type :repoMap}]
-          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+  (testing "file contexts are excluded from both :static and :dynamic (delivered in the user message, #683)"
+    (let [refined-contexts [{:type :file :path "foo.clj" :content "(ns foo)"}]
+          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] "code" {} nil [] (h/db))]
       (is (not (string/includes? static "(ns foo)")))
-      (is (not (string/includes? static "TREE")))
       (is (not (string/includes? static "## Context")))
       (is (nil? dynamic))))
 
   (testing "mcpResource context goes into :dynamic, not :static"
     (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}
                             {:type :mcpResource :uri "custom://my-resource" :content "volatile-content"}]
-          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+          {:keys [static dynamic]} (build-instructions refined-contexts [] [] [] "code" {} nil [] (h/db))]
       (is (string/includes? static "Be nice"))
       (is (not (string/includes? static "volatile-content")))
       (is (string? dynamic))
@@ -276,29 +268,24 @@
 (deftest build-attached-contexts-test
   (testing "renders new contexts in full and changed ones as one-line notices (#683)"
     (let [result (prompt/build-attached-contexts
-                  [{:type :file :path "/a.clj" :content "(ns a)"}
-                   {:type :repoMap}]
+                  [{:type :file :path "/a.clj" :content "(ns a)"}]
                   [{:type :file :path "/b.clj" :content "(ns b)"}
-                   {:type :file :path "/c.clj" :content "(ns c)" :lines-range {:start 1 :end 2}}
-                   {:type :repoMap}]
-                  (delay "TREE"))]
+                   {:type :file :path "/c.clj" :content "(ns c)" :lines-range {:start 1 :end 2}}])]
       (is (string/includes? result "<contexts description=\"Context attached by the user, current as of this message. Later changes are announced.\">"))
       (is (string/includes? result "<file path=\"/a.clj\">(ns a)</file>"))
-      (is (string/includes? result "<repo-map description=\"Workspace structure tree; spaces represent file hierarchy.\">TREE</repo-map>"))
       (is (string/includes? result "<changed-contexts description=\"Attached context changed since it was sent, its earlier copy in this chat is outdated. Re-read it with tools when relevant.\">"))
       (is (string/includes? result "<file path=\"/b.clj\"/>"))
       (is (string/includes? result "<file path=\"/c.clj\" line-start=\"1\" line-end=\"2\"/>"))
-      (is (string/includes? result "<repo-map/>"))
       (is (not (string/includes? result "(ns b)")))
       (is (not (string/includes? result "(ns c)")))))
   (testing "only changed contexts"
-    (let [result (prompt/build-attached-contexts [] [{:type :file :path "/b.clj" :content "(ns b)"}] (delay "TREE"))]
+    (let [result (prompt/build-attached-contexts [] [{:type :file :path "/b.clj" :content "(ns b)"}])]
       (is (not (string/includes? result "<contexts")))
       (is (string/includes? result "<changed-contexts"))
       (is (string/includes? result "<file path=\"/b.clj\"/>"))))
   (testing "nil when there is nothing to send"
-    (is (nil? (prompt/build-attached-contexts [] [] (delay "TREE"))))
-    (is (nil? (prompt/build-attached-contexts nil nil nil)))))
+    (is (nil? (prompt/build-attached-contexts [] [])))
+    (is (nil? (prompt/build-attached-contexts nil nil)))))
 
 (deftest instructions->str-test
   (testing "flattens map with both parts to joined string separated by a blank line"
@@ -309,7 +296,7 @@
 (deftest build-instructions-context-sections-ordering-test
   (testing "Context section is labeled and rendered after Environment, workspace, and path sections"
     (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}]
-          {:keys [static]} (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db))]
+          {:keys [static]} (build-instructions refined-contexts [] [] [] "code" {} nil [] (h/db))]
       (is (string/includes? static "## Context"))
       (is (string/includes? static "## Environment Context"))
       (is (string/includes? static "## Workspace Roots"))
@@ -322,7 +309,7 @@
     (let [refined-contexts [{:type :agents-file :path "AGENTS.md" :content "Be nice"}
                             {:type :mcpResource :uri "custom://my-resource" :content "volatile-content"}]
           flat (prompt/instructions->str
-                (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db)))]
+                (build-instructions refined-contexts [] [] [] "code" {} nil [] (h/db)))]
       (is (< (string/index-of flat "\n## Context")
              (string/index-of flat "## MCP Resources"))))))
 
@@ -330,7 +317,7 @@
   (testing "static-to-dynamic boundary has exactly one blank line, not two, when no Context section"
     (let [refined-contexts [{:type :mcpResource :uri "custom://my-resource" :content "volatile-content"}]
           flat (prompt/instructions->str
-                (build-instructions refined-contexts [] [] [] (delay "TREE") "code" {} nil [] (h/db)))]
+                (build-instructions refined-contexts [] [] [] "code" {} nil [] (h/db)))]
       (is (string/includes? flat "## Path Resolution"))
       (is (string/includes? flat "## MCP Resources"))
       (is (not (string/includes? flat "\n\n\n## MCP Resources"))
@@ -347,7 +334,7 @@
                                            [{:name "rule1" :content "A rule" :scope :project}]
                                            []
                                            [{:name "review-pr" :description "Review a PR"}]
-                                           (delay "TREE") "code" {} "chat-1"
+                                           "code" {} "chat-1"
                                            [{:full-name "github__x" :description "X tool" :deferrable true :deferred true}]
                                            db)
           tokens (->> (shared/context-breakdown {:system-prompt (prompt/instructions->str instructions)})
@@ -365,7 +352,7 @@
                          :scope :project}]
           all-tools [{:full-name "eca__shell_command"}]
           db (assoc-in (h/db) [:chats "sub-chat" :subagent] {:name "explorer"})
-          {:keys [static]} (build-instructions [] static-rules [] [] (delay "TREE") "code" {} "sub-chat" all-tools db)]
+          {:keys [static]} (build-instructions [] static-rules [] [] "code" {} "sub-chat" all-tools db)]
       (is (string/includes? static "<rule name=\"rule1\">SUB-RULE HAS-SHELL</rule>"))
       (is (not (string/includes? static "MAIN-RULE"))))))
 
@@ -374,6 +361,6 @@
     (let [static-rules [{:name "broken-rule"
                          :content "{% if isSubagent %}BROKEN"
                          :scope :project}]
-          {:keys [static]} (build-instructions [] static-rules [] [] (delay "TREE") "code" {} "chat-1" [] (h/db))]
+          {:keys [static]} (build-instructions [] static-rules [] [] "code" {} "chat-1" [] (h/db))]
       (is (not (string/includes? static "broken-rule")))
       (is (not (string/includes? static "## Rules"))))))

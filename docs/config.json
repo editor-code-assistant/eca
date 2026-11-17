@@ -265,26 +265,6 @@
               }
             }
           }
-        },
-        "repoMap": {
-          "type": "object",
-          "description": "Repository map configuration for context building.",
-          "markdownDescription": "Repository map configuration for context building.",
-          "additionalProperties": false,
-          "properties": {
-            "maxTotalEntries": {
-              "type": "integer",
-              "description": "Maximum total entries in the repo map.",
-              "markdownDescription": "Maximum total entries in the repo map.",
-              "default": 800
-            },
-            "maxEntriesPerDir": {
-              "type": "integer",
-              "description": "Maximum entries per directory in the repo map.",
-              "markdownDescription": "Maximum entries per directory in the repo map.",
-              "default": 50
-            }
-          }
         }
       }
     },

@@ -38,7 +38,6 @@
    [eca.modules.providers.z-ai :as m.z-ai]
    [eca.modules.remote :as m.remote]
    [eca.modules.repl :as m.repl]
-   [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rewrite :as m.rewrite]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
@@ -92,7 +91,6 @@
    ;; editor features
    m.completion/module
    m.rewrite/module
-   m.repo-map/module
    ;; APIs, each in its provider's namespace
    m.anthropic/api-module
    m.bedrock/api-module

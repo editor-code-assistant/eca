@@ -13,7 +13,7 @@
   "The order in which clients list the built-in commands."
   ["init" "login" "model" "agent" "skills" "skill-create" "costs" "quota" "context" "approvals"
    "forget-approvals" "compact" "fork" "btw" "resume" "chats" "delete-chat" "export" "import" "remote"
-   "config" "doctor" "debug-chat" "repo-map-show" "rules" "prompt-show" "sync-system-prompt" "subagents"
+   "config" "doctor" "debug-chat" "rules" "prompt-show" "sync-system-prompt" "subagents"
    "plugins" "plugin-install" "plugin-update" "plugin-uninstall" "hooks" "modules"])
 
 (defn ^:private command-entries
@@ -162,7 +162,7 @@
   (if-let [contexts-str (some-> (keep file-context-arg args)
                                 (f.context/raw-contexts->refined db)
                                 seq
-                                (f.prompt/contexts-str nil nil))]
+                                (f.prompt/contexts-str nil))]
     [{:type :text :text prompt}
      {:type :text :text contexts-str}]
     prompt))

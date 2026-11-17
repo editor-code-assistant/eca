@@ -26,7 +26,6 @@
    [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.hooks :as m.hooks]
    [eca.modules.mcp :as m.mcp]
-   [eca.modules.repo-map :as m.repo-map]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
    [eca.modules.tools.shell.jobs :as m.shell.jobs]
@@ -3401,41 +3400,6 @@
           (is (not-any? #(string/includes? (str (get-in % [:content :text])) "System prompt changed")
                         (:chat-content-received (h/messages)))
               "No system prompt changed notice"))))))
-
-(deftest prompt-cache-repo-map-in-user-message-test
-  (testing "repoMap goes in the user message, so its changes are announced without rebuilding static instructions (#683)"
-    (h/reset-components!)
-    (h/config! {:chat {:autoSyncSystemPrompt true}})
-    (let [build-calls* (atom 0)
-          tree* (atom "TREE-1")
-          user-msgs* (atom [])
-          real-build f.prompt/build-chat-instructions]
-      (with-redefs [f.context/agents-file-contexts (constantly [])
-                    f.context/raw-contexts->refined (fn [contexts _db] contexts)
-                    m.repo-map/repo-map (fn [& _] @tree*)
-                    f.prompt/build-chat-instructions
-                    (fn [& args]
-                      (swap! build-calls* inc)
-                      (apply real-build args))]
-        (let [mocks {:all-tools-mock (constantly [])
-                     :api-mock (fn [{:keys [user-messages on-first-response-received on-message-received]}]
-                                 (swap! user-msgs* conj user-messages)
-                                 (on-first-response-received {:type :text :text "ok"})
-                                 (on-message-received {:type :text :text "ok"})
-                                 (on-message-received {:type :finish}))}
-              turn-text (fn [idx] (->> (get @user-msgs* idx) first :content (keep :text) (string/join "\n")))
-              ctx {:type :repoMap}
-              {:keys [chat-id]} (prompt! {:message "Hi" :contexts [ctx]} mocks)]
-          (is (string/includes? (turn-text 0) "TREE-1"))
-          (h/reset-messenger!)
-          (prompt! {:message "Again" :chat-id chat-id :contexts [ctx]} mocks)
-          (is (not (string/includes? (turn-text 1) "repo-map")) "Unchanged repoMap is not sent again")
-          (reset! tree* "TREE-2")
-          (h/reset-messenger!)
-          (prompt! {:message "Files changed" :chat-id chat-id :contexts [ctx]} mocks)
-          (is (string/includes? (turn-text 2) "<repo-map/>") "Changed repoMap is announced")
-          (is (not (string/includes? (turn-text 2) "TREE-2")))
-          (is (= 1 @build-calls*) "repoMap never rebuilds the static instructions"))))))
 
 (deftest prompt-cache-absolute-prompt-file-change-test
   (testing "Static prompt cache is rebuilt when an absolute systemPromptFile changes"

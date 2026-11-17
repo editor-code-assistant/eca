@@ -90,7 +90,7 @@
                  (format " %s=%s" (name k) (attr-value-str v)))))
        string/join))
 
-(defn ^:private render-context [{:keys [type path position content lines-range uri label]} repo-map*]
+(defn ^:private render-context [{:keys [type path position content lines-range uri label]}]
   (case type
     :file (if lines-range
             (format "<file%s>%s</file>"
@@ -105,9 +105,6 @@
                                      :path path}))
                   content
                   "</agents-file>")
-    :repoMap (format "<repo-map%s>%s</repo-map>"
-                     (attr-str {:description "Workspace structure tree; spaces represent file hierarchy."})
-                     @repo-map*)
     :cursor (format "<cursor%s/>"
                     (attr-str {:description "Editor cursor position (line:character)."
                                :path path
@@ -118,12 +115,12 @@
     nil))
 
 (defn contexts-str
-  ([refined-contexts repo-map* startup-ctx]
-   (contexts-str refined-contexts repo-map* startup-ctx {}))
-  ([refined-contexts repo-map* startup-ctx {:keys [tag description]
-                                            :or {tag "contexts"
-                                                 description "User-provided context. Treat as current and accurate."}}]
-   (let [body (cond-> (vec (keep #(render-context % repo-map*) refined-contexts))
+  ([refined-contexts startup-ctx]
+   (contexts-str refined-contexts startup-ctx {}))
+  ([refined-contexts startup-ctx {:keys [tag description]
+                                  :or {tag "contexts"
+                                       description "User-provided context. Treat as current and accurate."}}]
+   (let [body (cond-> (vec (keep render-context refined-contexts))
                 startup-ctx (conj (multi-str "<additional-context>"
                                              startup-ctx
                                              "</additional-context>")))]
@@ -176,7 +173,7 @@
 
 (def ^:private static-prompt-context-types
   "Context types rendered into the cached static prompt block.
-   Context-area files and repoMap are data that changes between turns, so they
+   Context-area files are data that changes between turns, so they
    are delivered in the user message instead, see `build-attached-contexts`. #683"
   #{:agents-file})
 
@@ -207,14 +204,14 @@
 (defn context-section
   "`:eca/context`: AGENTS.md files, attached stable contexts and the chat's
    startup context."
-  [{:keys [refined-contexts repo-map* chat-id db]}]
+  [{:keys [refined-contexts chat-id db]}]
   (let [stable-contexts (filter static-prompt-context? refined-contexts)
         startup-ctx (get-in db [:chats chat-id :startup-context])]
     (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
       [""
        "## Context"
        ""
-       (contexts-str stable-contexts repo-map* startup-ctx)])))
+       (contexts-str stable-contexts startup-ctx)])))
 
 (def ^:private built-in-static-sections
   "The order of the built-in static sections."
@@ -269,12 +266,11 @@
 
 (defn ^:private static-prompt-ctx
   "The prompt ctx static sections get."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
   {:refined-contexts refined-contexts
    :static-rules static-rules
    :path-scoped-rules path-scoped-rules
    :skills skills
-   :repo-map* repo-map*
    :agent agent-name
    :config config
    :chat-id chat-id
@@ -285,8 +281,8 @@
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix, from the active modules'
    static `:system-prompts` sections."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
-  (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills repo-map* agent-name
+  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
+  (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills agent-name
                                config chat-id all-tools db)]
     (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
 
@@ -297,7 +293,7 @@
    that isn't a built-in module's built-in section, its text as it renders
    now, and `:missing`, the built-in sections no active module gives, e.g.
    when `eca/skills` is turned off."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
+  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
   (let [items (section-items config false)
         built-in-ids (set built-in-static-sections)
         categorized? (fn [{:keys [entry section]}]
@@ -306,7 +302,7 @@
         others (remove categorized? items)
         missing (filterv (complement given) built-in-static-sections)]
     (when (or (seq others) (seq missing))
-      (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills repo-map* agent-name
+      (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills agent-name
                                    config chat-id all-tools db)]
         {:sections (mapv (fn [{:keys [section] :as item}]
                            [(:id section) (:before section) (:after section) (section-part ctx item)])
@@ -332,7 +328,7 @@
   [refined-contexts]
   (let [editor-state-contexts (filter #(editor-state-context-types (:type %)) refined-contexts)]
     (when (seq editor-state-contexts)
-      (contexts-str editor-state-contexts nil nil
+      (contexts-str editor-state-contexts nil
                     {:tag "editor-state"
                      :description "Editor state reference; not a user request. Use only when relevant."}))))
 
@@ -342,26 +338,25 @@
   [refined-contexts]
   (let [text-contexts (filter #(= :text (:type %)) refined-contexts)]
     (when (seq text-contexts)
-      (contexts-str text-contexts nil nil))))
+      (contexts-str text-contexts nil))))
 
 (defn ^:private changed-context-entry [{:keys [type path lines-range]}]
   (case type
     :file (format "<file%s/>" (attr-str {:path path
                                          :line-start (:start lines-range)
                                          :line-end (:end lines-range)}))
-    :repoMap "<repo-map/>"
     nil))
 
 (defn build-attached-contexts
-  "Renders context-area contexts (files, repoMap) for the user message:
+  "Renders context-area contexts (files) for the user message:
    `new-contexts` in full, `changed-contexts` as one-line notices since their
    earlier copy in the chat history is outdated. Returns nil when none. #683"
-  [new-contexts changed-contexts repo-map*]
+  [new-contexts changed-contexts]
   (let [changed-entries (keep changed-context-entry changed-contexts)]
     (when (or (seq new-contexts) (seq changed-entries))
       (multi-str
        (when (seq new-contexts)
-         (contexts-str new-contexts repo-map* nil
+         (contexts-str new-contexts nil
                        {:description "Context attached by the user, current as of this message. Later changes are announced."}))
        (when (seq changed-entries)
          [(format "<changed-contexts%s>"
@@ -371,8 +366,8 @@
 
 (defn build-chat-instructions
   "Returns {:static :dynamic} system instructions."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent-name config chat-id all-tools db]
-  {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills repo-map*
+  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
+  {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills
                                       agent-name config chat-id all-tools db)
    :dynamic (build-dynamic-instructions refined-contexts db config)})
 

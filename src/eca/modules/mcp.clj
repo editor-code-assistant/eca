@@ -1373,7 +1373,7 @@
     (when (seq resources)
       ["## MCP Resources"
        ""
-       (f.prompt/contexts-str resources nil nil
+       (f.prompt/contexts-str resources nil
                               {:description "Resources from connected MCP servers."})
        ""])))
 

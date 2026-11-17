@@ -123,7 +123,7 @@
    instead (`steer-divertible-commands`) and /compact has its own boundary
    handling. #610"
   #{"sync-system-prompt" "costs" "context" "chats" "skills" "rules" "subagents"
-    "plugins" "hooks" "prompt-show" "repo-map-show" "doctor" "config" "remote"
+    "plugins" "hooks" "prompt-show" "doctor" "config" "remote"
     "debug-chat" "export" "approvals" "forget-approvals"})
 
 (defn send-command-chat-messages!

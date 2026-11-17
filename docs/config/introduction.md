@@ -173,11 +173,7 @@ By default ECA consider the following as the base configuration:
       "index" : {
         "ignoreFiles" : [ {
           "type" : "gitignore"
-        } ],
-        "repoMap": {
-          "maxTotalEntries": 800,
-          "maxEntriesPerDir": 50
-        }
+        } ]
       },
       "prompts": {
         "chat": "${classpath:prompts/code_agent.md}", // default to code agent

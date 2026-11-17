@@ -149,7 +149,6 @@
                          :content content}]
                        (do (logger/warn logger-tag "Text context missing label or content; ignoring")
                            []))
-              "repoMap" [{:type :repoMap}]
               "cursor" [{:type :cursor
                          :path path
                          :position position}]
@@ -194,10 +193,10 @@
 (def ^:private attached-context-types
   "Context-area types delivered in the user message and tracked per chat:
    sent in full once, then only announced when they change. #683"
-  #{:file :repoMap})
+  #{:file})
 
 (defn attached-context?
-  "True when ctx is a context-area item tracked per chat (file or repoMap)."
+  "True when ctx is a context-area item tracked per chat (a file)."
   [ctx]
   (boolean (attached-context-types (:type ctx))))
 
@@ -206,7 +205,6 @@
    range for files, so the same file given as `~/x`, `./x` or `/abs/x` matches."
   [{:keys [type path lines-range]}]
   (case type
-    :repoMap "repoMap"
     :file (cond-> (str (safe-canonicalize path))
             lines-range (str ":L" (:start lines-range) "-L" (:end lines-range)))
     nil))
@@ -218,14 +216,13 @@
    updated `:sent` map. Removed contexts are dropped from `:sent`, so attaching
    one again sends it in full. Contexts whose key is in the `skip-keys` set
    (already expanded from the prompt text) are recorded as sent but not returned."
-  [contexts sent skip-keys repo-map*]
+  [contexts sent skip-keys]
   (reduce
    (fn [acc ctx]
      (let [k (attached-context-key ctx)]
        (if (contains? (:sent acc) k)
          acc
-         (let [content (if (= :repoMap (:type ctx)) @repo-map* (:content ctx))
-               content-digest (digest/sha-256-hex (str content))
+         (let [content-digest (digest/sha-256-hex (str (:content ctx)))
                previous-digest (get sent k)
                acc (assoc-in acc [:sent k] content-digest)]
            (cond
@@ -359,8 +356,7 @@
       (concat relative-files
               workspace-listed-files
               workspace-files)
-      (concat [{:type "repoMap"}
-               {:type "cursor"}]
+      (concat [{:type "cursor"}]
               (mapv (fn [root] {:type "directory" :path root}) roots)
               relative-files
               workspace-listed-files

@@ -28,11 +28,11 @@
    `f.prompt/uncategorized-static-sections`). The modules category is only
    there when such sections are, so the signature of a chat with the
    built-in sections stays as it was."
-  [refined-contexts static-rules path-scoped-rules skills repo-map* agent config chat-id all-tools db]
+  [refined-contexts static-rules path-scoped-rules skills agent config chat-id all-tools db]
   (let [static-contexts (vec (filter f.prompt/static-prompt-context? refined-contexts))
         sha (comp digest/sha-256-hex pr-str)
         uncategorized (f.prompt/uncategorized-static-sections refined-contexts static-rules path-scoped-rules skills
-                                                              repo-map* agent config chat-id all-tools db)]
+                                                              agent config chat-id all-tools db)]
     (cond-> {:prompt (sha {:agent agent
                            :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
                            :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
@@ -106,11 +106,11 @@
    skills changed; the user hears of the change once), else a new one, which
    the chat caches (the user hears what changed)."
   [{:keys [db* chat-id agent config] :as chat-ctx} db full-model
-   {:keys [refined-contexts static-rules path-scoped-rules skills repo-map* all-tools]}]
+   {:keys [refined-contexts static-rules path-scoped-rules skills all-tools]}]
   (let [prompt-cache (get-in db [:chats chat-id :prompt-cache])
         auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
         static-signature (static-prompt-cache-signature
-                          refined-contexts static-rules path-scoped-rules skills repo-map*
+                          refined-contexts static-rules path-scoped-rules skills
                           agent config chat-id all-tools db)
         session-match? (and prompt-cache
                             (= (:agent prompt-cache) agent)
@@ -144,7 +144,7 @@
         {:static (:static prompt-cache)
          :dynamic (f.prompt/build-dynamic-instructions refined-contexts db config)})
       (let [result (f.prompt/build-chat-instructions
-                    refined-contexts static-rules path-scoped-rules skills repo-map*
+                    refined-contexts static-rules path-scoped-rules skills
                     agent config chat-id all-tools db)]
         (when prompt-cache
           (send-system-prompt-changed-notice!

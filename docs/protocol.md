@@ -464,7 +464,7 @@ interface ChatPromptParams {
  */
 type Model = string;
 
-type ChatContext = FileContext | DirectoryContext | WebContext | RepoMapContext | CursorContext | McpResourceContext | ImageContext | TextContext;
+type ChatContext = FileContext | DirectoryContext | WebContext | CursorContext | McpResourceContext | ImageContext | TextContext;
 
 /**
  * Context related to a file in the workspace
@@ -558,19 +558,6 @@ interface TextContext {
      * The raw text content.
      */
     content: string;
-}
-
-/**
- * Context about the workspaces repo-map, automatically calculated by server.
- * Clients should include this to chat by default but users may want exclude 
- * this context to reduce context size if needed.
- * The server delivers it in the user message like `FileContext`: in full once,
- * then a one-line notice when the workspace structure changes.
- *
- * @deprecated No longer needed, replaced by eca__directory_tree tool.
- */
-interface RepoMapContext {
-    type: 'repoMap'; 
 }
 
 /**
@@ -1876,7 +1863,7 @@ the running task, instead of injecting the command text into the conversation.
 
 Other native commands that do not affect the running turn (`/sync-system-prompt`, `/costs`,
 `/context`, `/chats`, `/skills`, `/rules`, `/subagents`, `/plugins`, `/hooks`, `/prompt-show`,
-`/repo-map-show`, `/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
+`/doctor`, `/config`, `/remote`, `/debug-chat`, `/export`, `/approvals`,
 `/forget-approvals`) are also queued and
 executed at the turn boundary: their output is shown and the task resumes. Native commands that
 would change the chat or start another prompt (`/model`, `/agent`, `/fork`, `/resume`,

@@ -16,7 +16,7 @@
   (testing "built-in commands keep their order and type"
     (is (= ["init" "login" "model" "agent" "skills" "skill-create" "costs" "quota" "context" "approvals"]
            (take 10 (command-names {}))))
-    (is (every? #(= :native (:type %)) (take 34 (f.commands/all-commands (h/db) {})))))
+    (is (every? #(= :native (:type %)) (take 33 (f.commands/all-commands (h/db) {})))))
   (testing "disabling a module removes its commands"
     (let [names (set (command-names {:modules {:eca/plugins {:enabled false}
                                                :eca/manage {:enabled false}}}))]

@@ -12,7 +12,7 @@
 (def ^:private skills [{:name "review" :description "Review code."}])
 
 (defn- build [config]
-  (f.prompt/build-static-instructions [] [] [] skills (delay nil) "code" config "chat-1" [] (h/db)))
+  (f.prompt/build-static-instructions [] [] [] skills "code" config "chat-1" [] (h/db)))
 
 (defn- index-of [s sub]
   (string/index-of s sub))
@@ -46,7 +46,7 @@
         (is (not (string/includes? prompt "nil")))))))
 
 (defn- uncategorized [config]
-  (f.prompt/uncategorized-static-sections [] [] [] skills (delay nil) "code" config "chat-1" [] (h/db)))
+  (f.prompt/uncategorized-static-sections [] [] [] skills "code" config "chat-1" [] (h/db)))
 
 (deftest uncategorized-static-sections-test
   (testing "the built-in sections are all followed by the cache signature's categories"

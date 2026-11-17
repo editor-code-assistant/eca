@@ -81,6 +81,7 @@
    :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :includeParentAgentsFiles false
+   :index {:ignoreFiles [{:type :gitignore}]}
    :remote {:enabled false}
    :env "prod"})
 
