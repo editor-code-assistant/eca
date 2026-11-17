@@ -1,6 +1,7 @@
 (ns eca.features.tools-test
   (:require
    [babashka.fs :as fs]
+   [babashka.process :as p]
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
@@ -417,6 +418,31 @@
           (is (not (contains? names "eca__read_file")))
           (is (not (contains? names "eca__write_file")))
           (is (contains? names "eca__directory_tree")))))))
+
+(deftest tool-details-test
+  (let [db (h/db)
+        config (h/config)
+        before (fn [tool arguments]
+                 (f.tools/tool-call-details-before-invocation tool arguments db config "chat-1" true "call-1"))]
+    (testing "a tool's own details come first"
+      (is (= {:mine true}
+             (before {:name "write_file" :server {:name "fs"} :details-before-fn (fn [_ctx _args] {:mine true})}
+                     {"path" "/tmp/x" "content" "y"}))))
+    (testing "another server's tool without them takes the ones of ECA's tool with its name, as an MCP write_file"
+      (is (match? {:type :fileChange :path "/tmp/new.txt" :linesAdded 1}
+                  (before {:name "write_file" :server {:name "fs"}} {"path" "/tmp/new.txt" "content" "hello"}))))
+    (testing "else none before the call, and its JSON outputs after it"
+      (is (nil? (before {:name "lookup" :server {:name "docs"}} {})))
+      (is (match? {:type :jsonOutputs}
+                  (f.tools/tool-call-details-after-invocation
+                   {:name "lookup" :server {:name "docs"}} {} nil
+                   {:error false :contents [{:type :text :text "{\"a\": 1}"}]}
+                   {:db db :config config}))))
+    (testing "a call's resources go to its tool's cleanup, found by full name"
+      (let [destroyed* (atom nil)]
+        (with-redefs [p/destroy-tree #(reset! destroyed* %)]
+          (f.tools/tool-call-destroy-resource! "eca__shell_command" :process :the-process db config))
+        (is (= :the-process @destroyed*))))))
 
 (defn ^:private db-remembering
   "A db whose chat \"c1\" remembered `approvals` via approve & remember."

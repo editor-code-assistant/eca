@@ -253,8 +253,9 @@
                     (str text "\n\n" list-text))]
     (assoc (tools.util/single-text-content full-text) :details (task-details state))))
 
-(defmethod tools.util/tool-call-details-after-invocation :task
-  [_name _arguments before-details result _ctx]
+(defn ^:private task-details-after
+  "`task`'s details after a call: the task list it gives."
+  [_ctx _arguments before-details result]
   (or (:details result) before-details))
 
 ;; --- Auto-clear ---
@@ -532,7 +533,8 @@
                                                            :blocked_by {:type "array" :items {:type "integer"}}}
                                               :required ["subject" "description"]}}}
                  :required ["op"]}
-    :handler execute-task}})
+    :handler execute-task
+    :details-after-fn #'task-details-after}})
 
 (defn ^:private clear-done-tasks
   "`:chat/input` handler: as a prompt starts, clears the chat's task list when

@@ -395,7 +395,7 @@
     (when-let [resources (get-in @db* [:chats (:chat-id chat-ctx) :tool-calls tool-call-id :resources])]
       (when-not (empty? resources)
         (doseq [[resource-kwd resource] resources]
-          (f.tools/tool-call-destroy-resource! (:full-name event-data) resource-kwd resource))))
+          (f.tools/tool-call-destroy-resource! (:full-name event-data) resource-kwd resource @db* (:config chat-ctx)))))
 
     ;; State management actions
     :init-tool-call-state

@@ -911,9 +911,9 @@
                    :model "anthropic/claude-sonnet-4-6"
                    :variant "high"
                    :agent-name "variant-worker"}
-                  (tools.util/tool-call-details-before-invocation
-                   :spawn_agent {"agent" "variant-worker" "task" "work"} nil
-                   {:db db :config test-config :chat-id "chat-1" :tool-call-id "tc-1"}))))))
+                  (#'m.subagents/spawn-agent-details-before
+                   {:db db :config test-config :chat-id "chat-1" :tool-call-id "tc-1"}
+                   {"agent" "variant-worker" "task" "work"}))))))
 
 (deftest spawn-agent-invalid-variant-test
   (testing "throws when user specifies a variant not valid for the resolved model"
@@ -1249,9 +1249,10 @@
                                     (handler changed-args changed-context)))
               (is (= before @db*))))
           (testing "tool-call details link only a child of this parent, never disclosing another's settings"
-            (let [details (tools.util/tool-call-details-before-invocation
-                           :spawn_agent changed-args nil {:db @db* :config (:config changed-context)
-                                                          :chat-id (:chat-id changed-context) :tool-call-id "x"})]
+            (let [details (#'m.subagents/spawn-agent-details-before
+                           {:db @db* :config (:config changed-context)
+                            :chat-id (:chat-id changed-context) :tool-call-id "x"}
+                           changed-args)]
               (if linked?
                 (is (= "subagent-isolation" (:subagent-chat-id details)))
                 (is (match? {:subagent-chat-id nil :model nil} details)))))))
@@ -1315,12 +1316,13 @@
                  :chat-id "parent" :tool-call-id "first"
                  :call-state-fn (constantly {:status :executing})}
         details (fn [tool-call-id arguments]
-                  (tools.util/tool-call-details-after-invocation
-                   :spawn_agent arguments
-                   (tools.util/tool-call-details-before-invocation :spawn_agent arguments nil
-                                                                   {:db @db* :config test-config :chat-id "parent"
-                                                                    :tool-call-id tool-call-id})
-                   nil {:db @db* :chat-id "parent" :tool-call-id tool-call-id}))]
+                  (#'m.subagents/spawn-agent-details-after
+                   {:db @db* :chat-id "parent" :tool-call-id tool-call-id}
+                   arguments
+                   (#'m.subagents/spawn-agent-details-before
+                    {:db @db* :config test-config :chat-id "parent" :tool-call-id tool-call-id}
+                    arguments)
+                   nil))]
     (with-redefs [f.chat/prompt (fn [{:keys [chat-id message]} & _]
                                  (swap! db* update-in [:chats chat-id]
                                         ;; Like prompt-messages!, it stores the variant even when nil.

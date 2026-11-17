@@ -38,9 +38,6 @@
      eca.features.providers/complete-oauth-code!
      eca.features.providers/start-login!
      eca.features.quota/fetch-quota
-     eca.features.tools.util/tool-call-destroy-resource!
-     eca.features.tools.util/tool-call-details-after-invocation
-     eca.features.tools.util/tool-call-details-before-invocation
      eca.llm-api.errors/enrich-provider-error
      eca.llm-api.errors/recover-error!
      eca.llm-api.errors/recoverable-error?

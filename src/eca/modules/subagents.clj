@@ -523,6 +523,42 @@
                      (str "- " name ": " description)))
               (str/join "\n")))))
 
+(defn ^:private spawn-agent-details-before
+  "`spawn_agent`'s details: the subagent chat, agent and model it runs."
+  [{:keys [db config chat-id tool-call-id]} arguments]
+  (let [agent-name (get arguments "agent")
+        subagent (when agent-name
+                   (get-agent agent-name config (get-in db [:chats chat-id :agent])))
+        resume-id (get arguments "chat_id")
+        resume? (some? resume-id)
+        child (when (and resume? subagent)
+                (owned-subagent db resume-id chat-id agent-name))
+        [model variant] (if resume?
+                          (continued-model+variant child subagent (get arguments "model") (get arguments "variant"))
+                          (new-model+variant db subagent chat-id (get arguments "model") (get arguments "variant")))]
+    (shared/assoc-some {:type :subagent
+                        :subagent-chat-id (if resume?
+                                            (:id child)
+                                            (some-> tool-call-id ->subagent-chat-id))
+                        :model model
+                        :agent-name agent-name
+                        :step 1
+                        :max-steps (:max-steps subagent)}
+                       :variant variant)))
+
+(defn ^:private spawn-agent-details-after
+  "`spawn_agent`'s details after a call: its steps, the part of the subagent
+   chat it ran, and the model it used."
+  [{:keys [db chat-id tool-call-id]} _arguments before-details _result]
+  (let [{:keys [subagent-final-step subagent-message-range]} (get-in db [:chats chat-id :tool-calls tool-call-id])
+        child (get-in db [:chats (:subagent-chat-id before-details)])]
+    (cond-> (assoc before-details
+                   :step (or subagent-final-step (:step before-details) 1)
+                   ;; Replay shows only this part of the subagent chat; none when the call did not run.
+                   :subagent-message-range (or subagent-message-range [0 0]))
+      ;; The subagent ran, so report the model it really used.
+      subagent-final-step (shared/assoc-some :model (:model child) :variant (:variant child)))))
+
 (defn definitions
   ([config db]
    (definitions config db nil))
@@ -548,45 +584,14 @@
                                               :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
                      :required   ["agent" "task"]}
        :handler     #'spawn-agent
+       :details-before-fn #'spawn-agent-details-before
+       :details-after-fn #'spawn-agent-details-after
        :summary-fn  (fn [{:keys [args]}]
                       (if-let [agent-name (get args "agent")]
                         (if-let [activity (get (normalize-arguments args) "activity")]
                           (format "%s: %s" agent-name activity)
                           agent-name)
                         "Spawning agent"))}})))
-
-(defmethod tools.util/tool-call-details-before-invocation :spawn_agent
-  [_name arguments _server {:keys [db config chat-id tool-call-id]}]
-  (let [agent-name (get arguments "agent")
-        subagent (when agent-name
-                   (get-agent agent-name config (get-in db [:chats chat-id :agent])))
-        resume-id (get arguments "chat_id")
-        resume? (some? resume-id)
-        child (when (and resume? subagent)
-                (owned-subagent db resume-id chat-id agent-name))
-        [model variant] (if resume?
-                          (continued-model+variant child subagent (get arguments "model") (get arguments "variant"))
-                          (new-model+variant db subagent chat-id (get arguments "model") (get arguments "variant")))]
-    (shared/assoc-some {:type :subagent
-                        :subagent-chat-id (if resume?
-                                            (:id child)
-                                            (some-> tool-call-id ->subagent-chat-id))
-                        :model model
-                        :agent-name agent-name
-                        :step 1
-                        :max-steps (:max-steps subagent)}
-                       :variant variant)))
-
-(defmethod tools.util/tool-call-details-after-invocation :spawn_agent
-  [_name _arguments before-details _result {:keys [db chat-id tool-call-id]}]
-  (let [{:keys [subagent-final-step subagent-message-range]} (get-in db [:chats chat-id :tool-calls tool-call-id])
-        child (get-in db [:chats (:subagent-chat-id before-details)])]
-    (cond-> (assoc before-details
-                   :step (or subagent-final-step (:step before-details) 1)
-                   ;; Replay shows only this part of the subagent chat; none when the call did not run.
-                   :subagent-message-range (or subagent-message-range [0 0]))
-      ;; The subagent ran, so report the model it really used.
-      subagent-final-step (shared/assoc-some :model (:model child) :variant (:variant child)))))
 
 (defn ^:private format-tool-permissions [{:keys [toolCall]}]
   (when-let [approval (:approval toolCall)]

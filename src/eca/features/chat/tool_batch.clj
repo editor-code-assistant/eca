@@ -341,7 +341,7 @@
                         tool-call                                                     (assoc tool-call :arguments arguments)
                         ask?                                                          (= :ask decision)
                         details                                                       (when-not arguments-error
-                                                                                        (f.tools/tool-call-details-before-invocation name arguments server @db* config chat-id ask? id))
+                                                                                        (f.tools/tool-call-details-before-invocation resolved-tool arguments @db* config chat-id ask? id))
                         summary                                                       (f.tools/tool-call-summary all-tools full-name arguments config @db*)]
                     {:ask? ask?
                      :stop-batch? (and tool-call-blocked-by-hook? stop-turn?)
@@ -381,7 +381,7 @@
                                                                                           (partial f.chat.tool-calls/transition-tool-call! db* chat-ctx id)
                                                                                           {:trust       (db/resolve-trust @db* chat-id)
                                                                                            :on-progress (partial f.chat.tool-calls/report-tool-call-progress! db* chat-ctx id)})
-                                                 details              (f.tools/tool-call-details-after-invocation name arguments details tool-result
+                                                 details              (f.tools/tool-call-details-after-invocation resolved-tool arguments details tool-result
                                                                                                                   {:db           @db*
                                                                                                                    :config       config
                                                                                                                    :chat-id      chat-id

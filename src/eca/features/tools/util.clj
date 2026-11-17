@@ -13,17 +13,6 @@
 
 (def ^:private logger-tag "[TOOLS-UTIL]")
 
-(defmulti tool-call-details-before-invocation
-  "Return the tool call details before invoking the tool."
-  (fn [full-name _arguments _server _ctx] (keyword full-name)))
-
-(defmethod tool-call-details-before-invocation :default [_full-name _arguments _server _ctx]
-  nil)
-
-(defmulti tool-call-details-after-invocation
-  "Return the tool call details after invoking the tool."
-  (fn [name _arguments _before-details _result _ctx] (keyword name)))
-
 (defn ^:private json-outputs-if-any [result]
   (when-let [jsons (->> (:contents result)
                         (keep (fn [content]
@@ -42,17 +31,13 @@
     {:type :jsonOutputs
      :jsons jsons}))
 
-(defmethod tool-call-details-after-invocation :default [_name _arguments before-details result _ctx]
+(defn details-after-default
+  "A tool call's details after it ran, for tools without a
+   `:details-after-fn`: the details from before the call, else its JSON
+   outputs, pretty-printed."
+  [before-details result]
   (or before-details
       (json-outputs-if-any result)))
-
-(defmulti tool-call-destroy-resource!
-  "Destroy the tool call resource."
-  (fn [full-name _resource-kwd _resource] (keyword full-name)))
-
-(defmethod tool-call-destroy-resource! :default [_name _resource-kwd _resource]
-  ;; By default, do nothing
-  )
 
 (defn single-text-content [text & [error]]
   {:error (boolean error)

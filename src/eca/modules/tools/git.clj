@@ -17,9 +17,19 @@
 
 (def ^:private default-timeout 120000)
 
-(defmethod tools.util/tool-call-details-before-invocation :git
-  [_name arguments _server {:keys [db chat-id]}]
+(defn ^:private git-details-before
+  "`git`'s details: its commands."
+  [{:keys [db chat-id]} arguments]
   (m.shell/shell-command-details "eca__git" (get arguments "command") db chat-id))
+
+(defn ^:private destroy-resource!
+  "`git`'s cleanup: kills the process a call left."
+  [resource-kwd resource]
+  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
+  (case resource-kwd
+    :process (p/destroy-tree resource)
+    (logger/warn logger-tag "Unknown resource keyword" {:tool-name "eca__git"
+                                                        :resource-kwd resource-kwd})))
 
 (defn ^:private heredoc-in-substitution-hint
   "Some shells (e.g. macOS bash 3.2) fail to parse heredocs inside $(...) when
@@ -77,7 +87,7 @@
                                   (let [msg (or (.getMessage e) "Git tool call was interrupted")]
                                     (logger/debug logger-tag "Git tool call was interrupted"
                                                   {:tool-call-id tool-call-id :message msg})
-                                    (tools.util/tool-call-destroy-resource! "eca__git" :process proc)
+                                    (destroy-resource! :process proc)
                                     (state-transition-fn :resources-destroyed {:resources [:process]})
                                     {:exit 1 :err msg}))))
                          {:exit 1 :err "Tool call is :stopping, so process not spawned"})
@@ -89,7 +99,7 @@
                          (let [state (call-state-fn)]
                            (when-let [resources (:resources state)]
                              (doseq [[res-kwd res] resources]
-                               (tools.util/tool-call-destroy-resource! "eca__git" res-kwd res))
+                               (destroy-resource! res-kwd res))
                              (when (#{:executing :stopping} (:status state))
                                (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))]
           (if (= result ::timeout)
@@ -136,14 +146,9 @@
                  :required ["command" "operation"]}
     :handler #'git-command
     :approval-keys-fn (fn [arguments] (m.shell.parser/approval-keys (get arguments "command")))
-    :summary-fn #'git-command-summary}})
-
-(defmethod tools.util/tool-call-destroy-resource! :eca__git [name resource-kwd resource]
-  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
-  (case resource-kwd
-    :process (p/destroy-tree resource)
-    (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
-                                                        :resource-kwd resource-kwd})))
+    :summary-fn #'git-command-summary
+    :details-before-fn #'git-details-before
+    :cleanup-fn #'destroy-resource!}})
 
 (def module
   {:id :eca/git

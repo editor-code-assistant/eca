@@ -567,6 +567,51 @@
           (str "Moving " (fs/file-name (fs/file source)))))
       "Moving file")))
 
+(defn ^:private edit-file-details-before
+  "`edit_file`'s and `preview_file_change`'s details: the diff of the edit."
+  [_ctx arguments]
+  (let [path (get arguments "path")
+        original-content (get arguments "original_content")
+        new-content (get arguments "new_content")
+        all? (get arguments "all_occurrences")
+        file-exists? (and path (fs/exists? path))]
+    (cond
+      (and file-exists? original-content new-content)
+      (let [result (apply-file-edit-strategy (slurp path) original-content new-content (boolean all?) path)
+            original-full-content (:original-full-content result)]
+        (when original-full-content
+          (if-let [new-full-content (:new-full-content result)]
+            (let [{:keys [added removed diff]} (diff/diff original-full-content new-full-content path)]
+              {:type :fileChange
+               :path path
+               :linesAdded added
+               :linesRemoved removed
+               :diff diff})
+            (logger/warn "tool-call-details-before-invocation - NO DIFF GENERATED because match failed for path:" path))))
+
+      (and (not file-exists?) (= original-content "") new-content path)
+      (let [{:keys [added removed diff]} (diff/diff "" new-content path)]
+        {:type :fileChange
+         :path path
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff})
+
+      :else nil)))
+
+(defn ^:private write-file-details-before
+  "`write_file`'s details: the diff of the new content."
+  [_ctx arguments]
+  (let [path (get arguments "path")
+        content (get arguments "content")]
+    (when (and path content)
+      (let [{:keys [added removed diff]} (diff/diff "" content path)]
+        {:type :fileChange
+         :path path
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
 (def definitions
   {"directory_tree"
    {:description (tools.util/read-tool-description "directory_tree")
@@ -612,7 +657,8 @@
                  :required ["path" "content"]}
     :handler #'write-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
-    :summary-fn #'write-file-summary}
+    :summary-fn #'write-file-summary
+    :details-before-fn #'write-file-details-before}
    "edit_file"
    {:description (tools.util/read-tool-description "edit_file")
     :parameters {:type "object"
@@ -627,7 +673,8 @@
                  :required ["path" "original_content" "new_content"]}
     :handler #'edit-file
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
-    :summary-fn #'edit-file-summary}
+    :summary-fn #'edit-file-summary
+    :details-before-fn #'edit-file-details-before}
    "preview_file_change"
    {:description (tools.util/read-tool-description "preview_file_change")
     :parameters {:type "object"
@@ -642,7 +689,8 @@
                  :required ["path" "original_content" "new_content"]}
     :handler #'preview-file-change
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
-    :summary-fn (constantly "Previewing change")}
+    :summary-fn (constantly "Previewing change")
+    :details-before-fn #'edit-file-details-before}
    "move_file"
    {:description (tools.util/read-tool-description "move_file")
     :parameters {:type "object"
@@ -672,50 +720,6 @@
     :handler #'grep
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["path"])
     :summary-fn #'grep-summary}})
-
-(defmethod tools.util/tool-call-details-before-invocation :edit_file [_name arguments _server _ctx]
-  (let [path (get arguments "path")
-        original-content (get arguments "original_content")
-        new-content (get arguments "new_content")
-        all? (get arguments "all_occurrences")
-        file-exists? (and path (fs/exists? path))]
-    (cond
-      (and file-exists? original-content new-content)
-      (let [result (apply-file-edit-strategy (slurp path) original-content new-content (boolean all?) path)
-            original-full-content (:original-full-content result)]
-        (when original-full-content
-          (if-let [new-full-content (:new-full-content result)]
-            (let [{:keys [added removed diff]} (diff/diff original-full-content new-full-content path)]
-              {:type :fileChange
-               :path path
-               :linesAdded added
-               :linesRemoved removed
-               :diff diff})
-            (logger/warn "tool-call-details-before-invocation - NO DIFF GENERATED because match failed for path:" path))))
-
-      (and (not file-exists?) (= original-content "") new-content path)
-      (let [{:keys [added removed diff]} (diff/diff "" new-content path)]
-        {:type :fileChange
-         :path path
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff})
-
-      :else nil)))
-
-(defmethod tools.util/tool-call-details-before-invocation :preview_file_change [_name arguments server ctx]
-  (tools.util/tool-call-details-before-invocation :edit_file arguments server ctx))
-
-(defmethod tools.util/tool-call-details-before-invocation :write_file [_name arguments _server _ctx]
-  (let [path (get arguments "path")
-        content (get arguments "content")]
-    (when (and path content)
-      (let [{:keys [added removed diff]} (diff/diff "" content path)]
-        {:type :fileChange
-         :path path
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff}))))
 
 (def module
   {:id :eca/filesystem

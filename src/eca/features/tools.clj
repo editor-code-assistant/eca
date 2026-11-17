@@ -268,6 +268,10 @@
                               (modules/fn-like? (:description tool))
                               (update :description #(wrap "tool description" % (with-module ctx)))
 
+                              ;; details and cleanup functions are for built-in tools, for now
+                              (not (:built-in? entry))
+                              (dissoc :details-before-fn :details-after-fn :cleanup-fn)
+
                               ;; `(fn [args])`, without ctx
                               (and (:approval-keys-fn tool) (not (:built-in? entry)))
                               (update :approval-keys-fn
@@ -397,7 +401,9 @@
   [ctx]
   (for [[entry {server-name :name :keys [version tools]}] (listed-tool-servers ctx)
         tool tools]
-    (assoc tool :server {:name server-name :version version} ::module-id (:id entry))))
+    (cond-> (assoc tool :server {:name server-name :version version} ::module-id (:id entry))
+      ;; details and cleanup functions are for built-in modules' tools, for now
+      (not (:built-in? entry)) (dissoc :details-before-fn :details-after-fn :cleanup-fn))))
 
 (defn await-tool-servers-refresh!
   "Waits until the tool servers' pending tool list refreshes finish
@@ -659,29 +665,48 @@
         (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
         nil))))
 
+(defn ^:private tool-fn
+  "Tool `tool`'s `k` function: its own, else, for a tool of another server,
+   the one of ECA's tool with its bare name, as when these went by the bare
+   tool name."
+  [k tool db config]
+  (or (get tool k)
+      (when (and (:name tool) (not (eca-server-tool? tool)))
+        (get-in (module-definitions {:db db :config config}) [(:name tool) k]))))
+
 (defn tool-call-details-before-invocation
-  "Return the tool call details before invoking the tool."
-  [name arguments server db config chat-id ask-approval? tool-call-id]
+  "Return the tool call details before invoking the tool (its
+   `:details-before-fn`)."
+  [tool arguments db config chat-id ask-approval? tool-call-id]
   (try
-    (tools.util/tool-call-details-before-invocation name arguments server {:db db
-                                                                           :config config
-                                                                           :chat-id chat-id
-                                                                           :ask-approval? ask-approval?
-                                                                           :tool-call-id tool-call-id})
+    (when-let [details-fn (tool-fn :details-before-fn tool db config)]
+      (details-fn {:db db
+                   :config config
+                   :chat-id chat-id
+                   :ask-approval? ask-approval?
+                   :tool-call-id tool-call-id
+                   :server (:server tool)}
+                  arguments))
     (catch Exception e
       ;; Avoid failling tool call because of error on getting details.
-      (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
+      (logger/error logger-tag (format "Error getting details for %s with args %s: %s" (:name tool) arguments e))
       nil)))
 
 (defn tool-call-details-after-invocation
-  "Return the tool call details after invoking the tool."
-  [name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation name arguments details result ctx))
+  "Return the tool call details after invoking the tool (its
+   `:details-after-fn`)."
+  [tool arguments details result ctx]
+  (if-let [details-fn (tool-fn :details-after-fn tool (:db ctx) (:config ctx))]
+    (details-fn (assoc ctx :server (:server tool)) arguments details result)
+    (tools.util/details-after-default details result)))
 
 (defn tool-call-destroy-resource!
-  "Destroy the resource in the tool call named `name`."
-  [full-name resource-kwd resource]
-  (tools.util/tool-call-destroy-resource! full-name resource-kwd resource))
+  "Destroys a resource a call of the tool `full-name` left (its `:cleanup-fn`)."
+  [full-name resource-kwd resource db config]
+  (let [[server-name tool-name] (split-full-name full-name)]
+    (when-let [cleanup (get-in (module-definitions {:db db :config config})
+                               [(definition-key server-name tool-name) :cleanup-fn])]
+      (cleanup resource-kwd resource))))
 
 (defn refresh-tool-servers!
   "Updates all tool servers (native, modules' and their tool servers) with new agent status."
@@ -701,7 +726,8 @@
     (messenger/tool-server-updated messenger {:type type
                                               :name server-name
                                               :status (name (or status :unknown))
-                                              :tools (mapv tool-status-fn (or tools []))})))
+                                              :tools (mapv #(select-keys (tool-status-fn %) [:name :description :parameters :disabled])
+                                                           (or tools []))})))
 
 (defn refresh-module-tool-servers!
   "Sends ECA's tool server and the external modules' ones: at startup, and

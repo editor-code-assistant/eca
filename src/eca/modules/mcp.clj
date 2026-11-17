@@ -13,7 +13,6 @@
    [eca.diff :as diff]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
-   [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
@@ -1224,13 +1223,85 @@
             :else result))))
     (tool-call-error (format "Tool '%s' not found in MCP server '%s'" name server-name))))
 
+;; --- Tool call details of the clojure-mcp server's editing tools: the diffs they
+;; make
+
+(defn ^:private clojure-edit-details-before-invocation [name args server {:keys [db chat-id ask-approval?]} new-file?]
+  (when (not= "0.1.0" (:version server))
+    (when ask-approval?
+      (let [path (get args "file_path")
+            {:keys [error contents]} (call-tool! (:name server) name (assoc args "dry_run" "new-source")
+                                                 {:db db :chat-id chat-id})]
+        (when-not error
+          (when-let [new-source (some->> contents (filter #(= :text (:type %))) first :text)]
+            (let [{:keys [added removed diff]} (diff/diff (if new-file?
+                                                            ""
+                                                            (slurp path))
+                                                          new-source
+                                                          path)]
+              {:type :fileChange
+               :path path
+               :linesAdded added
+               :linesRemoved removed
+               :diff diff})))))))
+
+(defn ^:private file-edit-details-after
+  "The details after a call of `clojure_edit`, `clojure_edit_replace_sexp` or
+   `file_edit`: the diff it made."
+  [_ctx arguments _details result]
+  (when-not (:error result)
+    (when-let [diff (some->> result :contents (filter #(= :text (:type %))) first :text)]
+      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
+        {:type :fileChange
+         :path (get arguments "file_path")
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
+(defn ^:private file-write-details-after
+  "The details after a `file_write` call: the diff it made."
+  [_ctx arguments _details result]
+  (when-not (:error result)
+    (when-let [diff (some->> result :contents
+                             (filter #(= :text (:type %)))
+                             first :text
+                             (string/split-lines)
+                             (drop 2)
+                             (string/join "\n"))]
+      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
+        {:type :fileChange
+         :path (get arguments "file_path")
+         :linesAdded added
+         :linesRemoved removed
+         :diff diff}))))
+
+(defn ^:private with-clojure-mcp-details
+  "`tool` with its details when it's one of the clojure-mcp server's editing
+   tools, known by name on any server, as before modules."
+  [{tool-name :name :as tool}]
+  (case tool-name
+    ("clojure_edit" "clojure_edit_replace_sexp" "file_edit")
+    (assoc tool
+           :details-before-fn (fn [ctx args]
+                                (clojure-edit-details-before-invocation tool-name args (:server ctx) ctx false))
+           :details-after-fn #'file-edit-details-after)
+
+    "file_write"
+    (assoc tool
+           :details-before-fn (fn [ctx args]
+                                (clojure-edit-details-before-invocation tool-name args (:server ctx) ctx true))
+           :details-after-fn #'file-write-details-after)
+
+    tool))
+
 (defn ^:private tool-servers
   "`:tool-servers` `:list`: the servers in `:mcp-clients`, with their tools,
    then the disabled ones that don't run."
   [{:keys [db config]}]
   (concat
    (for [[server-name {:keys [tools version status]}] (:mcp-clients db)]
-     {:type :mcp :name server-name :version version :status status :tools tools})
+     {:type :mcp :name server-name :version version :status status
+      :tools (some->> tools (mapv with-clojure-mcp-details))})
    (for [[server-name server-config] (:mcpServers config)
          :when (and (get server-config :disabled false)
                     (not (contains? (:mcp-clients db) server-name)))]
@@ -1616,71 +1687,6 @@
   "`:eca/mcp-instructions`: the running MCP servers' instructions."
   [{:keys [db]}]
   (mcp-instructions-section db))
-
-;; --- Tool call details of the clojure-mcp server's editing tools: the diffs they
-;; make
-
-(defn ^:private clojure-edit-details-before-invocation [name args server {:keys [db chat-id ask-approval?]} new-file?]
-  (when (not= "0.1.0" (:version server))
-    (when ask-approval?
-      (let [path (get args "file_path")
-            {:keys [error contents]} (call-tool! (:name server) name (assoc args "dry_run" "new-source")
-                                                 {:db db :chat-id chat-id})]
-        (when-not error
-          (when-let [new-source (some->> contents (filter #(= :text (:type %))) first :text)]
-            (let [{:keys [added removed diff]} (diff/diff (if new-file?
-                                                            ""
-                                                            (slurp path))
-                                                          new-source
-                                                          path)]
-              {:type :fileChange
-               :path path
-               :linesAdded added
-               :linesRemoved removed
-               :diff diff})))))))
-
-(defmethod tools.util/tool-call-details-before-invocation :clojure_edit [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx false))
-
-(defmethod tools.util/tool-call-details-before-invocation :clojure_edit_replace_sexp [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx false))
-
-(defmethod tools.util/tool-call-details-before-invocation :file_edit [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx false))
-
-(defmethod tools.util/tool-call-details-before-invocation :file_write [name args server ctx]
-  (clojure-edit-details-before-invocation name args server ctx true))
-
-(defmethod tools.util/tool-call-details-after-invocation :clojure_edit [_name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
-
-(defmethod tools.util/tool-call-details-after-invocation :clojure_edit_replace_sexp [_name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation :file_edit arguments details result ctx))
-
-(defmethod tools.util/tool-call-details-after-invocation :file_edit [_name arguments _details result _ctx]
-  (when-not (:error result)
-    (when-let [diff (some->> result :contents (filter #(= :text (:type %))) first :text)]
-      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
-        {:type :fileChange
-         :path (get arguments "file_path")
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff}))))
-
-(defmethod tools.util/tool-call-details-after-invocation :file_write [_name arguments _details result _ctx]
-  (when-not (:error result)
-    (when-let [diff (some->> result :contents
-                             (filter #(= :text (:type %)))
-                             first :text
-                             (string/split-lines)
-                             (drop 2)
-                             (string/join "\n"))]
-      (let [{:keys [added removed]} (diff/unified-diff-counts diff)]
-        {:type :fileChange
-         :path (get arguments "file_path")
-         :linesAdded added
-         :linesRemoved removed
-         :diff diff}))))
 
 (def module
   {:id :eca/mcp

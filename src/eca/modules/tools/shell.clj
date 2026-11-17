@@ -41,14 +41,24 @@
                                     commands)))
           (assoc :type :shellCommand)))))
 
-(defmethod tools.util/tool-call-details-before-invocation :shell_command
-  [_name arguments _server {:keys [db chat-id]}]
+(defn ^:private shell-command-details-before
+  "`shell_command`'s details: its commands, and whether it runs in the background."
+  [{:keys [db chat-id]} arguments]
   (let [background? (boolean (get arguments "background"))]
     (if-let [details (shell-command-details "eca__shell_command" (get arguments "command") db chat-id)]
       (cond-> details
         background? (assoc :background true))
       (when background?
         {:background true}))))
+
+(defn ^:private destroy-resource!
+  "`shell_command`'s cleanup: kills the process a call left."
+  [resource-kwd resource]
+  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
+  (case resource-kwd
+    :process (p/destroy-tree resource)
+    (logger/warn logger-tag "Unknown resource keyword" {:tool-name "eca__shell_command"
+                                                        :resource-kwd resource-kwd})))
 
 (def ^:private initial-output-wait-ms 2000)
 (def ^:private initial-output-poll-ms 200)
@@ -176,7 +186,7 @@
                           (catch InterruptedException e
                             (let [msg (or (.getMessage e) "Shell tool call was interrupted")]
                               (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
-                              (tools.util/tool-call-destroy-resource! "eca__shell_command" :process proc)
+                              (destroy-resource! :process proc)
                               (state-transition-fn :resources-destroyed {:resources [:process]})
                               {:exit 1 :err msg}))))
                    {:exit 1 :err "Tool call is :stopping, so shell process not spawned"})
@@ -188,7 +198,7 @@
                    (let [state (call-state-fn)]
                      (when-let [resources (:resources state)]
                        (doseq [[res-kwd res] resources]
-                         (tools.util/tool-call-destroy-resource! "eca__shell_command" res-kwd res))
+                         (destroy-resource! res-kwd res))
                        (when (#{:executing :stopping} (:status state))
                          (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
         err (some-> (:err result) string/trim)
@@ -258,14 +268,9 @@
     :handler #'shell-command
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])
     :approval-keys-fn (fn [arguments] (m.shell.parser/approval-keys (get arguments "command")))
-    :summary-fn #'shell-command-summary}})
-
-(defmethod tools.util/tool-call-destroy-resource! :eca__shell_command [name resource-kwd resource]
-  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
-  (case resource-kwd
-    :process (p/destroy-tree resource)
-    (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
-                                                        :resource-kwd resource-kwd})))
+    :summary-fn #'shell-command-summary
+    :details-before-fn #'shell-command-details-before
+    :cleanup-fn #'destroy-resource!}})
 
 (defn ^:private jobs-list [{:keys [db* metrics]} _params]
   (metrics/task metrics :eca/jobs-list
