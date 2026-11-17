@@ -265,26 +265,38 @@
                                  content module-ctx))))
 
 (defn ^:private static-prompt-ctx
-  "The prompt ctx static sections get."
-  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
-  {:refined-contexts refined-contexts
-   :static-rules static-rules
-   :path-scoped-rules path-scoped-rules
-   :skills skills
-   :agent agent-name
-   :config config
-   :chat-id chat-id
-   :all-tools all-tools
-   :db db
-   :selmer-ctx (->base-selmer-ctx all-tools chat-id db)})
+  "The prompt ctx static sections get: `prompt-ctx` and its Selmer ctx."
+  [{:keys [all-tools chat-id db] :as prompt-ctx}]
+  (assoc prompt-ctx :selmer-ctx (->base-selmer-ctx all-tools chat-id db)))
 
 (defn build-static-instructions
   "Builds the cacheable static system-prompt prefix, from the active modules'
-   static `:system-prompts` sections."
-  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
-  (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills agent-name
-                               config chat-id all-tools db)]
+   static `:system-prompts` sections. `prompt-ctx` is what a chat's system
+   prompt is built from: `:refined-contexts`, `:agent`, `:config`,
+   `:chat-id`, `:all-tools`, `:db` and `:full-model`; sections compute their
+   own data from it."
+  [{:keys [config] :as prompt-ctx}]
+  (let [ctx (static-prompt-ctx prompt-ctx)]
     (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
+
+(defn section-signatures
+  "What the cache signature follows of the built-in static sections that
+   give a `:signature` (built-in only): `[key signature resync?]` of each,
+   keyed by its id's name (`:rules`, `:skills`), in prompt order. Computed
+   whether their module is active or not, as core followed their data before
+   modules. `resync?` is false for a section with `:resync? false`: its
+   changes alone never re-sync a chat's pinned prompt (skills)."
+  [prompt-ctx]
+  (let [by-id (into {} (for [module (modules/built-in-modules)
+                             section (:system-prompts module)
+                             :when (and (:signature section) (not (:dynamic? section)))]
+                         [(:id section) [module section]]))]
+    (vec (for [id built-in-static-sections
+               :let [[module section] (by-id id)]
+               :when section]
+           [(keyword (name id))
+            ((:signature section) (modules/module-ctx prompt-ctx {:id (:id module) :module module :built-in? true}))
+            (not (false? (:resync? section)))]))))
 
 (defn uncategorized-static-sections
   "What the static prompt holds that the cache signature's categories
@@ -293,7 +305,7 @@
    that isn't a built-in module's built-in section, its text as it renders
    now, and `:missing`, the built-in sections no active module gives, e.g.
    when `eca/skills` is turned off."
-  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
+  [{:keys [config] :as prompt-ctx}]
   (let [items (section-items config false)
         built-in-ids (set built-in-static-sections)
         categorized? (fn [{:keys [entry section]}]
@@ -302,8 +314,7 @@
         others (remove categorized? items)
         missing (filterv (complement given) built-in-static-sections)]
     (when (or (seq others) (seq missing))
-      (let [ctx (static-prompt-ctx refined-contexts static-rules path-scoped-rules skills agent-name
-                                   config chat-id all-tools db)]
+      (let [ctx (static-prompt-ctx prompt-ctx)]
         {:sections (mapv (fn [{:keys [section] :as item}]
                            [(:id section) (:before section) (:after section) (section-part ctx item)])
                          others)
@@ -365,10 +376,10 @@
           "</changed-contexts>"])))))
 
 (defn build-chat-instructions
-  "Returns {:static :dynamic} system instructions."
-  [refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db]
-  {:static (build-static-instructions refined-contexts static-rules path-scoped-rules skills
-                                      agent-name config chat-id all-tools db)
+  "Returns {:static :dynamic} system instructions, see
+   `build-static-instructions` for `prompt-ctx`."
+  [{:keys [refined-contexts db config] :as prompt-ctx}]
+  {:static (build-static-instructions prompt-ctx)
    :dynamic (build-dynamic-instructions refined-contexts db config)})
 
 (defn instructions->str

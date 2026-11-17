@@ -519,10 +519,16 @@
   [path-scoped-rules]
   (path-scoped-rule-sections path-scoped-rules path-scoped-rule-catalog-entry))
 
+(defn ^:private prompt-rules
+  "The rules of the chat's system prompt: `{:static :path-scoped}`."
+  [{:keys [config db agent full-model]}]
+  (all-rules config (:workspace-folders db) agent full-model))
+
 (defn rules-section
   "`:eca/rules`: the static rules, and the catalog of path-scoped ones."
-  [{:keys [static-rules path-scoped-rules all-tools selmer-ctx]}]
-  (let [rendered-static-rules (keep (fn [{:keys [name content scope]}]
+  [{:keys [all-tools selmer-ctx] :as ctx}]
+  (let [{static-rules :static path-scoped-rules :path-scoped} (prompt-rules ctx)
+        rendered-static-rules (keep (fn [{:keys [name content scope]}]
                                       (when-let [rendered (shared/safe-selmer-render content selmer-ctx (str "rule:" name) nil)]
                                         (when-not (string/blank? rendered)
                                           {:scope (if (= :global scope) :global :project)
@@ -554,12 +560,19 @@
        "</rules>"
        ""])))
 
+(defn ^:private rules-signature
+  "What the chat's cache signature follows of the rules."
+  [ctx]
+  (let [{static-rules :static path-scoped-rules :path-scoped} (prompt-rules ctx)]
+    {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
+     :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)}))
+
 (def module
   {:id :eca/rules
    :description "Rules: global, project and path-scoped."
    :config-spec {:rules {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
-   :system-prompts [{:id :eca/rules :content #'rules-section}]
+   :system-prompts [{:id :eca/rules :content #'rules-section :signature #'rules-signature}]
    ;; fetch_rule exists only when the chat has path-scoped rules
    :tools (fn [{:keys [config db chat-id agent]}]
             (tools.util/->module-tools (definitions config db chat-id agent)))

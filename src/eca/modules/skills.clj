@@ -10,6 +10,7 @@
    [eca.config :as config]
    [eca.features.commands :as f.commands]
    [eca.features.prompt :as f.prompt]
+   [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
@@ -219,10 +220,23 @@
                        :handler (fn [{:keys [db*]} {:keys [argv]}]
                                   {:prompt (skill-prompt skill argv @db*)})}])))
 
+(defn ^:private prompt-skills
+  "The skills of the chat's system prompt: all but the ones the `skill`
+   tool's approval denies."
+  [{:keys [config db agent all-tools]}]
+  (->> (all config (:workspace-folders db))
+       (remove (fn [skill]
+                 (= :deny (f.tools/approval all-tools
+                                            {:server {:name "eca"} :name "skill"}
+                                            {"name" (:name skill)}
+                                            db
+                                            config
+                                            agent))))))
+
 (defn skills-section
   "`:eca/skills`: the skills' names and descriptions."
-  [{:keys [skills]}]
-  (when (seq skills)
+  [ctx]
+  (when-let [skills (seq (prompt-skills ctx))]
     ["## Skills"
      ""
      (str (format "<skills%s>" (f.prompt/attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
@@ -234,12 +248,18 @@
      "</skills>"
      ""]))
 
+(defn ^:private skills-signature
+  "What the chat's cache signature follows of the skills."
+  [ctx]
+  (mapv #(select-keys % [:name :description]) (prompt-skills ctx)))
+
 (def module
   {:id :eca/skills
    :description "Skills: SKILL.md folders the model loads when it needs them."
    :config-spec {:skills {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
-   :system-prompts [{:id :eca/skills :content #'skills-section}]   ; names and descriptions only
+   ;; names and descriptions only; their changes alone never re-sync a chat's prompt
+   :system-prompts [{:id :eca/skills :content #'skills-section :signature #'skills-signature :resync? false}]
    :tools (fn [_ctx] (tools.util/->module-tools definitions))
    ;; /skills, and each skill as a command, listed after the modules' own commands
    :commands #'commands})

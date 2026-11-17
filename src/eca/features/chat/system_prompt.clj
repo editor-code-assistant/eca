@@ -23,33 +23,33 @@
 (defn static-prompt-cache-signature
   "Per-component SHA-256 cache identity for static prompt reuse.
    Returns a map of category -> hash so mid-chat instruction changes
-   can be attributed to what changed (prompt, contexts, rules, skills, tools,
-   and modules: the static sections those don't follow, see
-   `f.prompt/uncategorized-static-sections`). The modules category is only
-   there when such sections are, so the signature of a chat with the
-   built-in sections stays as it was."
-  [refined-contexts static-rules path-scoped-rules skills agent config chat-id all-tools db]
+   can be attributed to what changed: prompt, contexts, the sections with
+   their own signature (rules, skills: `sections`, see
+   `f.prompt/section-signatures`), tools, and modules: the static sections
+   those don't follow, see `f.prompt/uncategorized-static-sections`. The
+   modules category is only there when such sections are, so the signature
+   of a chat with the built-in sections stays as it was."
+  [{:keys [refined-contexts agent config chat-id all-tools db] :as prompt-ctx} sections]
   (let [static-contexts (vec (filter f.prompt/static-prompt-context? refined-contexts))
         sha (comp digest/sha-256-hex pr-str)
-        uncategorized (f.prompt/uncategorized-static-sections refined-contexts static-rules path-scoped-rules skills
-                                                              agent config chat-id all-tools db)]
-    (cond-> {:prompt (sha {:agent agent
-                           :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
-                           :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
-                                         :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
-                                         :user-name (System/getProperty "user.name")
-                                         :home-dir (cache/user-home)}
-                           :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
-                           :startup-context (get-in db [:chats chat-id :startup-context])})
-             :contexts (sha {:workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
-                             :static-contexts static-contexts})
-             :rules (sha {:static-rules (mapv #(select-keys % [:id :name :scope :content]) static-rules)
-                          :path-scoped-rules (mapv #(select-keys % [:id :name :scope :workspace-root :paths :enforce]) path-scoped-rules)})
-             :skills (sha (mapv #(select-keys % [:name :description]) skills))
-             ;; Deferred tools are tracked separately because they render a catalog into
-             ;; the static prompt, unlike normal tools whose schemas are sent per turn.
-             :tools (sha {:names (sort (map :full-name all-tools))
-                          :deferrable (sort (map :full-name (filter :deferrable all-tools)))})}
+        uncategorized (f.prompt/uncategorized-static-sections prompt-ctx)]
+    (cond-> (-> (array-map
+                 :prompt (sha {:agent agent
+                               :chat-prompt-template (f.prompt/eca-chat-prompt agent config chat-id db)
+                               :environment {:os-name (str (System/getProperty "os.name") " " (System/getProperty "os.version"))
+                                             :shell (or (System/getenv "SHELL") (System/getenv "ComSpec"))
+                                             :user-name (System/getProperty "user.name")
+                                             :home-dir (cache/user-home)}
+                               :is-subagent (boolean (get-in db [:chats chat-id :subagent]))
+                               :startup-context (get-in db [:chats chat-id :startup-context])})
+                 :contexts (sha {:workspace-roots (mapv (comp shared/uri->filename :uri) (:workspace-folders db))
+                                 :static-contexts static-contexts}))
+                ;; in a small map, so the order notices name categories in stays
+                (into (map (fn [[k signature]] [k (sha signature)])) sections)
+                ;; Deferred tools are tracked separately because they render a catalog into
+                ;; the static prompt, unlike normal tools whose schemas are sent per turn.
+                (assoc :tools (sha {:names (sort (map :full-name all-tools))
+                                    :deferrable (sort (map :full-name (filter :deferrable all-tools)))})))
       uncategorized (assoc :modules (sha uncategorized)))))
 
 (defn changed-system-prompt-categories
@@ -105,25 +105,32 @@
    change that doesn't re-sync: `chat.autoSyncSystemPrompt` off, or only
    skills changed; the user hears of the change once), else a new one, which
    the chat caches (the user hears what changed)."
-  [{:keys [db* chat-id agent config] :as chat-ctx} db full-model
-   {:keys [refined-contexts static-rules path-scoped-rules skills all-tools]}]
-  (let [prompt-cache (get-in db [:chats chat-id :prompt-cache])
+  [{:keys [db* chat-id agent config] :as chat-ctx} db full-model {:keys [refined-contexts all-tools]}]
+  (let [prompt-ctx {:refined-contexts refined-contexts
+                    :agent agent
+                    :config config
+                    :chat-id chat-id
+                    :all-tools all-tools
+                    :db db
+                    :full-model full-model}
+        prompt-cache (get-in db [:chats chat-id :prompt-cache])
         auto-sync-system-prompt? (boolean (get-in config [:chat :autoSyncSystemPrompt]))
-        static-signature (static-prompt-cache-signature
-                          refined-contexts static-rules path-scoped-rules skills
-                          agent config chat-id all-tools db)
+        sections (f.prompt/section-signatures prompt-ctx)
+        static-signature (static-prompt-cache-signature prompt-ctx sections)
         session-match? (and prompt-cache
                             (= (:agent prompt-cache) agent)
                             (= (:model prompt-cache) full-model))
         signature-match? (= (:static-signature prompt-cache) static-signature)
         ;; Skills changes (add/remove/rename/description) never re-sync an
-        ;; existing chat: the catalog is routing metadata and skill bodies
-        ;; are read from disk at tool-call time anyway, so invalidating the
-        ;; LLM prompt cache for them is not worth it.
-        skills-only-drift? (let [old-sig (:static-signature prompt-cache)]
-                             (and (map? old-sig)
-                                  (= (dissoc old-sig :skills)
-                                     (dissoc static-signature :skills))))]
+        ;; existing chat (a section with :resync? false): the catalog is
+        ;; routing metadata and skill bodies are read from disk at tool-call
+        ;; time anyway, so invalidating the LLM prompt cache for them is not
+        ;; worth it.
+        no-resync (keep (fn [[k _ resync?]] (when-not resync? k)) sections)
+        no-resync-drift? (let [old-sig (:static-signature prompt-cache)]
+                           (and (map? old-sig)
+                                (= (apply dissoc old-sig no-resync)
+                                   (apply dissoc static-signature no-resync))))]
     (if (and session-match?
              ;; When auto-sync is off, the system prompt is pinned for the
              ;; chat's lifetime: signature drift keeps the cached static
@@ -131,7 +138,7 @@
              ;; only to new chats or via /sync-system-prompt.
              (or signature-match?
                  (not auto-sync-system-prompt?)
-                 skills-only-drift?))
+                 no-resync-drift?))
       (do
         (when (and (not signature-match?)
                    (not= static-signature (:stale-signature prompt-cache)))
@@ -143,9 +150,7 @@
           (swap! db* assoc-in [:chats chat-id :prompt-cache :stale-signature] static-signature))
         {:static (:static prompt-cache)
          :dynamic (f.prompt/build-dynamic-instructions refined-contexts db config)})
-      (let [result (f.prompt/build-chat-instructions
-                    refined-contexts static-rules path-scoped-rules skills
-                    agent config chat-id all-tools db)]
+      (let [result (f.prompt/build-chat-instructions prompt-ctx)]
         (when prompt-cache
           (send-system-prompt-changed-notice!
            chat-ctx

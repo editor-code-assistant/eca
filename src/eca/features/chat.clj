@@ -21,8 +21,6 @@
    [eca.metrics :as metrics]
    [eca.models :as models]
    [eca.modules.events :as events]
-   [eca.modules.rules :as m.rules]
-   [eca.modules.skills :as m.skills]
    [eca.shared :as shared :refer [assoc-some future*]]))
 
 (set! *warn-on-reflection* true)
@@ -200,23 +198,11 @@
             refined-contexts (concat
                               (f.context/agents-file-contexts db config)
                               (f.context/raw-contexts->refined contexts db))
-            {static-rules :static path-scoped-rules :path-scoped} (m.rules/all-rules config (:workspace-folders db) agent full-model)
             all-tools (f.tools/all-tools chat-id agent @db* config {:full-model full-model})
-            skills (->> (m.skills/all config (:workspace-folders db))
-                        (remove
-                         (fn [skill]
-                           (= :deny (f.tools/approval all-tools
-                                                      {:server {:name "eca"} :name "skill"}
-                                                      {"name" (:name skill)}
-                                                      db
-                                                      config
-                                                      agent)))))
+            ;; the system prompt's sections compute their own data (rules, skills...)
             instructions (f.chat.system-prompt/chat-instructions
                           base-chat-ctx db full-model
                           {:refined-contexts refined-contexts
-                           :static-rules static-rules
-                           :path-scoped-rules path-scoped-rules
-                           :skills skills
                            :all-tools all-tools})
             image-contents (->> refined-contexts
                                 (filter #(= :image (:type %))))

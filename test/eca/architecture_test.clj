@@ -19,9 +19,7 @@
 
 (def ^:private allowed-module-requires
   "Core namespaces that still require a built-in module (the built-in list aside). Only shrinks."
-  '#{[eca.features.chat eca.modules.rules]
-     [eca.features.chat eca.modules.skills]
-     [eca.features.chat.tool-batch eca.modules.mcp]
+  '#{[eca.features.chat.tool-batch eca.modules.mcp]
      [eca.features.context eca.modules.mcp]
      [eca.features.tools eca.modules.mcp]
      [eca.handlers eca.modules.mcp]

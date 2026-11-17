@@ -3,6 +3,8 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.prompt :as prompt]
+   [eca.modules.rules :as m.rules]
+   [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
    [eca.test-helper :as h]))
 
@@ -11,7 +13,11 @@
   (let [db (cond-> db
              (empty? (:workspace-folders db))
              (assoc :workspace-folders [{:uri "file:///workspace"}]))]
-    (prompt/build-chat-instructions refined-contexts static-rules path-scoped-rules skills agent-name config chat-id all-tools db)))
+    ;; the rules and skills sections read their own data
+    (with-redefs [m.rules/all-rules (constantly {:static static-rules :path-scoped path-scoped-rules})
+                  m.skills/all (constantly skills)]
+      (prompt/build-chat-instructions {:refined-contexts refined-contexts :agent agent-name :config config
+                                       :chat-id chat-id :all-tools all-tools :db db}))))
 
 (deftest contexts-attribute-formatting-test
   (testing "keeps copy-sensitive attribute values raw while preserving quote delimiters"
@@ -136,7 +142,10 @@
 (deftest build-instructions-empty-workspace-roots-test
   (testing "omits Workspace Roots section when there are no workspace folders, but keeps Path Resolution"
     (let [db (assoc (h/db) :workspace-folders [])
-          {:keys [static]} (prompt/build-chat-instructions [] [] [] [] "code" {} nil [] db)]
+          {:keys [static]} (with-redefs [m.rules/all-rules (constantly {:static [] :path-scoped []})
+                                         m.skills/all (constantly [])]
+                             (prompt/build-chat-instructions {:refined-contexts [] :agent "code" :config {}
+                                                              :chat-id nil :all-tools [] :db db}))]
       (is (not (string/includes? static "## Workspace Roots")))
       (is (not (string/includes? static "<workspace-roots")))
       (is (string/includes? static "## Path Resolution")))))
