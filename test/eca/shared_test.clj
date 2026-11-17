@@ -377,17 +377,6 @@
   (testing "returns nil when base is blank"
     (is (nil? (shared/join-api-url "   " "/chat/completions")))))
 
-(deftest compact-side-effect-clears-validated-path-rules-test
-  (let [db* (atom {:chats {"chat-1" {:last-summary "Short summary"
-                                     :messages []
-                                     :validated-path-rules #{"/workspace/a/.eca/rules/format.md"}}}})]
-    (shared/compact-side-effect! {:chat-id "chat-1"
-                                  :full-model "openai/gpt-5.2"
-                                  :db* db*
-                                  :messenger (h/messenger)}
-                                 false)
-    (is (nil? (get-in @db* [:chats "chat-1" :validated-path-rules])))))
-
 (deftest messages-after-last-compact-marker-test
   (testing "returns all messages when no compact_marker exists"
     (let [messages [{:role "user" :content [{:type :text :text "hello"}]}

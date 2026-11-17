@@ -8,7 +8,9 @@
    [babashka.fs :as fs]
    [clojure.java.io :as io]
    [eca.config :as config]
+   [eca.features.commands :as f.commands]
    [eca.features.prompt :as f.prompt]
+   [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
@@ -188,10 +190,53 @@
    "Skills available:\n\n"
    (all config (:workspace-folders @db*))))
 
+(defn ^:private skill-prompt
+  "What a skill typed as a command sends to the model: its body with the
+   typed `args` and the files `@path` args name; without args, or when a
+   module builds the body when the skill loads, a nudge to load it."
+  [{:keys [body] skill-name :name} args db]
+  (cond
+    ;; a module's skill may build its body when loaded, via the `eca__skill`
+    ;; tool; the slash form just nudges the LLM to load it.
+    (modules/fn-like? body)
+    (str "Load skill: " skill-name)
+
+    (seq args)
+    (f.commands/add-file-context (f.commands/substitute-args body args) args db)
+
+    :else
+    (str "Load skill: " skill-name)))
+
+(defn ^:private commands
+  "`/skills`, then each skill as a command."
+  [{:keys [config db]}]
+  (into [["skills" {:description "List available skills"
+                    :arguments []
+                    :handler #'skills-command}]]
+        (for [{skill-name :name :keys [description arguments] :as skill} (all config (:workspace-folders db))]
+          [skill-name {:client-type :skill
+                       :description description
+                       :arguments arguments
+                       :handler (fn [{:keys [db*]} {:keys [argv]}]
+                                  {:prompt (skill-prompt skill argv @db*)})}])))
+
+(defn ^:private prompt-skills
+  "The skills of the chat's system prompt: all but the ones the `skill`
+   tool's approval denies."
+  [{:keys [config db agent all-tools]}]
+  (->> (all config (:workspace-folders db))
+       (remove (fn [skill]
+                 (= :deny (f.tools/approval all-tools
+                                            {:server {:name "eca"} :name "skill"}
+                                            {"name" (:name skill)}
+                                            db
+                                            config
+                                            agent))))))
+
 (defn skills-section
   "`:eca/skills`: the skills' names and descriptions."
-  [{:keys [skills]}]
-  (when (seq skills)
+  [ctx]
+  (when-let [skills (seq (prompt-skills ctx))]
     ["## Skills"
      ""
      (str (format "<skills%s>" (f.prompt/attr-str {:description "Available skills; load with eca__skill when relevant."})) "\n")
@@ -203,14 +248,18 @@
      "</skills>"
      ""]))
 
+(defn ^:private skills-signature
+  "What the chat's cache signature follows of the skills."
+  [ctx]
+  (mapv #(select-keys % [:name :description]) (prompt-skills ctx)))
+
 (def module
   {:id :eca/skills
    :description "Skills: SKILL.md folders the model loads when it needs them."
    :config-spec {:skills {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
-   :system-prompts [{:id :eca/skills :content #'skills-section}]   ; names and descriptions only
+   ;; names and descriptions only; their changes alone never re-sync a chat's prompt
+   :system-prompts [{:id :eca/skills :content #'skills-section :signature #'skills-signature :resync? false}]
    :tools (fn [_ctx] (tools.util/->module-tools definitions))
-   ;; each skill is also a command, listed after the built-in ones
-   :commands {"skills" {:description "List available skills"
-                        :arguments []
-                        :handler #'skills-command}}})
+   ;; /skills, and each skill as a command, listed after the modules' own commands
+   :commands #'commands})

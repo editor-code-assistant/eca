@@ -9,12 +9,12 @@
    [eca.api.fs :as api.fs]
    [eca.api.http :as api.http]
    [eca.api.json :as api.json]
-   [eca.db :as db]
-   [eca.features.chat :as f.chat]
-   [eca.features.commands :as f.commands]
+   [eca.db.chats :as db.chats]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.features.modules :as f.modules]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
+   [eca.modules.core :as m.core]
    [eca.modules.data :as modules.data]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]
@@ -75,13 +75,13 @@
       (is (fs/directory? chat-dir)))
     (testing "the chat's folders go with the chat"
       (spit (str (fs/path chat-dir "notes.md")) "notes")
-      (f.chat/delete-chat {:chat-id "chat-1"} (h/db*) (h/messenger) {} (h/metrics))
+      (f.chat.ops/delete-chat {:chat-id "chat-1"} (h/db*) (h/messenger) {} (h/metrics))
       (is (not (fs/exists? chat-dir)))
       (is (fs/directory? module-dir)))
     (testing "also when old chats are cleaned up"
       (swap! (h/db*) assoc-in [:chats "old"] {:id "old" :updated-at 1})
       (let [old-dir (eca/data-dir (assoc (ctx) :chat-id "old") {:chat? true})]
-        (db/cleanup-old-chats! (h/db*) (h/metrics) 1)
+        (db.chats/cleanup-old-chats! (h/db*) (h/metrics) 1)
         (is (not (fs/exists? old-dir)))))
     (testing "ids that aren't file names are made safe"
       (is (string/ends-with? (str (modules.data/chat-dir (h/db) :acme/x "../../etc")) "_.._etc")))))
@@ -138,7 +138,7 @@
       (testing "/costs shows a line per module"
         (is (= ["\nModules' own LLM calls, not in the totals above:"
                 "- `acme/worker`: 2 calls, 2000 input tokens, 400 output tokens, $0.004"]
-               (f.commands/module-usage-lines (get-in (h/db) [:chats "chat-1" :module-usage])))))
+               (m.core/module-usage-lines (get-in (h/db) [:chats "chat-1" :module-usage])))))
       (testing "/modules shows the session's calls"
         (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with))]
           (modules/add-external! "/tmp/worker.clj" worker)

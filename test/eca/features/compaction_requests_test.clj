@@ -2,15 +2,18 @@
   "Compactions modules ask for: eca.api/request-compaction! and the
    answers to :llm/request-failed."
   (:require
+   [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
    [eca.test-helper :as h]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
@@ -93,7 +96,7 @@
   (let [request {:module :acme/compact :trigger :auto}
         take! (fn [ctx]
                 (swap! (h/db*) assoc-in [:chats chat-id :compaction-request] request)
-                [(#'f.chat/take-compaction-request! (merge {:db* (h/db*) :chat-id chat-id :prompt-id "p1" :config {}} ctx))
+                [(#'f.chat.compaction/take-compaction-request! (merge {:db* (h/db*) :chat-id chat-id :prompt-id "p1" :config {}} ctx))
                  (get-in (h/db) [:chats chat-id :compaction-request])])]
     (setup-chat!)
     (testing "it's taken off the chat"
@@ -179,7 +182,7 @@
                    :chat/compact summarize})
     (let [pruned* (atom 0)
           calls* (atom 0)]
-      (with-redefs-fn {#'f.chat/prune-tool-results! (fn [& _] (swap! pruned* inc) 0)}
+      (with-redefs-fn {#'f.chat.compaction/prune-tool-results! (fn [& _] (swap! pruned* inc) 0)}
         #(prompt! "hi" (fn [{:keys [on-error] :as opts}]
                          (if (= 1 (swap! calls* inc))
                            (on-error {:error/type :context-overflow :message "token limit exceeded"})
@@ -199,9 +202,85 @@
       (is (match? [[:llm/request-failed {:error {:type :context-overflow}}]] @events*) "nothing compacted")
       (is (some #(re-find #"Context window exceeded" %) (system-texts))))))
 
+(defn- past-threshold-model!
+  "The chat's model has a 1000-token context: 750 tokens reach the summary
+   module's threshold, 75%."
+  []
+  (h/config! {:autoCompactPercentage 75})
+  (swap! (h/db*) assoc-in [:models "openai/gpt-5.2"] {:tools true :limit {:context 1000}}))
+
+(deftest compaction-at-a-user-request-test
+  (testing "a chat already past the threshold, e.g. resumed after a restart, compacts before the request"
+    (setup-chat!)
+    (past-threshold-model!)
+    (with-module! {:chat/compact summarize})
+    (swap! (h/db*) assoc-in [:chats chat-id :usage] {:last-input-tokens 900 :last-output-tokens 0})
+    (let [requests* (atom [])]
+      (prompt! "add a test" (fn [{:keys [user-messages] :as opts}]
+                              (swap! requests* conj (texts user-messages))
+                              (answer! opts)))
+      (is (= [[resume-text "add a test"]] @requests*))
+      (is (match? [[:chat/compact {:trigger :auto}]] @events*))))
+  (testing "one no longer past it doesn't, even when a compaction was asked for before"
+    (setup-chat!)
+    (past-threshold-model!)
+    (with-module! {:chat/compact summarize})
+    (swap! (h/db*) update-in [:chats chat-id] assoc
+           :usage {:last-input-tokens 100 :last-output-tokens 0}
+           :compaction-request {:module :eca/compact-as-summary :trigger :auto})
+    (let [requests* (atom [])]
+      (prompt! "add a test" (fn [{:keys [user-messages] :as opts}]
+                              (swap! requests* conj (texts user-messages))
+                              (answer! opts)))
+      (is (= [["add a test"]] @requests*))
+      (is (empty? @events*)))))
+
+(deftest blocked-compaction-in-the-tool-loop-test
+  (testing "past the threshold in a turn, a blocked compaction lets the turn go on with the tool results"
+    (setup-chat!)
+    (h/reset-messenger!)
+    (past-threshold-model!)
+    (with-module! {:chat/before-compact (constantly {:block "not now"})})
+    (let [requests* (atom [])
+          loop-results* (atom [])]
+      (prompt! "fix it"
+               (fn [{:keys [user-messages on-usage-updated on-prepare-tool-call on-tools-called] :as opts}]
+                 (swap! requests* conj (texts user-messages))
+                 (on-usage-updated {:input-tokens 900 :output-tokens 0})
+                 (on-prepare-tool-call {:id "call-1" :full-name "eca__tool_a" :arguments-text "{}"})
+                 (swap! loop-results* conj (on-tools-called [{:id "call-1" :full-name "eca__tool_a" :arguments {}}]))
+                 (answer! opts)))
+      (is (match? [{:new-messages (m/embeds [{:role "tool_call_output" :content {:id "call-1"}}])}] @loop-results*))
+      (is (= [["fix it"]] @requests*) "the user's message isn't sent again")
+      (is (some #{"Compaction blocked by module 'acme/compact': not now"} (system-texts))))))
+
+(deftest blocked-compaction-stays-blocked-in-the-turn-test
+  (testing "after a blocked compaction, the turn's next requests don't compact again, as before modules"
+    (setup-chat!)
+    (h/reset-messenger!)
+    (past-threshold-model!)
+    (with-module! {:chat/before-compact (constantly {:block "not now"})
+                   :llm/request-failed (constantly {:retry true})})
+    (let [requests* (atom 0)]
+      (prompt! "fix it"
+               (fn [{:keys [on-usage-updated on-prepare-tool-call on-tools-called on-error] :as opts}]
+                 (let [n (swap! requests* inc)
+                       call-id (str "call-" n)]
+                   (on-usage-updated {:input-tokens 900 :output-tokens 0})
+                   (on-prepare-tool-call {:id call-id :full-name "eca__tool_a" :arguments-text "{}"})
+                   (on-tools-called [{:id call-id :full-name "eca__tool_a" :arguments {}}])
+                   (if (= 1 n)
+                     ;; the tool loop's next request fails: the module sends it again, a new request
+                     (on-error {:status 400 :message "Bad request"})
+                     (answer! opts)))))
+      (is (= 2 @requests*))
+      (is (= 1 (count (filter #(= :chat/before-compact (first %)) @events*))))
+      (is (= ["Compaction blocked by module 'acme/compact': not now"]
+             (filter #(string/starts-with? % "Compaction blocked") (system-texts)))))))
+
 (deftest compaction-requests-are-not-saved-test
   (testing "a pending request is for the running session only"
     (is (= {:id chat-id :messages []}
-           (#'db/normalize-chat-for-write chat-id {:messages []
-                                                   :compaction-request {:module :acme/compact :trigger :auto}
-                                                   :compaction-blocked-prompt-id (random-uuid)})))))
+           (#'db.chats/normalize-chat-for-write chat-id {:messages []
+                                                         :compaction-request {:module :acme/compact :trigger :auto}
+                                                         :compaction-blocked-prompt-id (random-uuid)})))))

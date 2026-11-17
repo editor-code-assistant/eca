@@ -649,6 +649,7 @@
                                (let [args (llm-providers.errors/enrich-provider-error
                                            {:provider provider
                                             :provider-base (config/provider-base provider config)
+                                            :config config
                                             :model (real-model-name model model-capabilities)
                                             :error-data args})]
                                  (logger/error args)

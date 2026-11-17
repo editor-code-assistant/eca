@@ -304,14 +304,14 @@
       {:updated-at (now-seconds)
        :windows (sort-windows windows)})))
 
-(defmulti fetch-quota
+(defn fetch-quota
   "Fetches the subscription quota of `provider` from its usage endpoint,
-   returning a snapshot or nil. Implementations live in provider namespaces
-   and dispatch on the provider's base (see `config/provider-base`)."
-  (fn [{:keys [provider config]}]
-    (config/provider-base provider config)))
-
-(defmethod fetch-quota :default [_] nil)
+   returning a snapshot or nil: the `:quota :fetch` of the provider's base
+   (see `config/provider-base`)."
+  [{:keys [provider config] :as ctx}]
+  (when-let [fetch (get-in (llm-util/provider-declaration config (config/provider-base provider config))
+                           [:quota :fetch])]
+    (fetch ctx)))
 
 (defn refresh!
   "Fetches the quota of `provider` when it uses a subscription login and

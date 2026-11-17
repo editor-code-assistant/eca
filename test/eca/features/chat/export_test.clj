@@ -4,7 +4,7 @@
    [clojure.edn :as edn]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.export :as sut]))
+   [eca.features.chat.export :as f.chat.export]))
 
 (def ^:private sample-chat
   {:id "chat-1"
@@ -39,7 +39,7 @@
   {:chats {"chat-1" sample-chat}})
 
 (deftest build-export-test
-  (let [export (sut/build-export sample-db "chat-1")
+  (let [export (f.chat.export/build-export sample-db "chat-1")
         chat (:chat export)]
     (testing "envelope carries version tags"
       (is (contains? export :eca/version))
@@ -79,46 +79,46 @@
                                                                                    {:type :text :text "Lint." :module :acme/lint}]}}}]}}}]
       (is (= [{:role "user" :content [{:type :text :text "hi"} hook-context]}
               {:role "tool_call_output" :content {:id "t1" :output {:error false :contents [{:type :text :text "ok"}]}}}]
-             (get-in (sut/build-export db "chat-1") [:chat :messages]))))))
+             (get-in (f.chat.export/build-export db "chat-1") [:chat :messages]))))))
 
 (deftest export->edn-round-trips-test
   (testing "the export serializes and reads back equal (incl. #uuid prompt-id)"
-    (let [export (sut/build-export sample-db "chat-1")
-          read-back (edn/read-string (sut/export->edn export))]
+    (let [export (f.chat.export/build-export sample-db "chat-1")
+          read-back (edn/read-string (f.chat.export/export->edn export))]
       (is (= export read-back))
       (is (= #uuid "00000000-0000-0000-0000-000000000001" (get-in read-back [:chat :prompt-id]))))))
 
 (deftest export-import-round-trip-test
   (testing "export-chat! then import-chat! preserves the chat"
     (let [tmp (str (fs/path (fs/temp-dir) (str "eca-export-test-" (random-uuid) ".edn")))
-          {:keys [path message-count error]} (sut/export-chat! {:db sample-db :chat-id "chat-1" :filepath tmp})]
+          {:keys [path message-count error]} (f.chat.export/export-chat! {:db sample-db :chat-id "chat-1" :filepath tmp})]
       (is (nil? error))
       (is (= 3 message-count))
       (is (fs/exists? path))
-      (let [{:keys [chat error]} (sut/import-chat! {:filepath path})]
+      (let [{:keys [chat error]} (f.chat.export/import-chat! {:filepath path})]
         (is (nil? error))
         (is (= "chat-1" (:id chat)))
         (is (= "anthropic/claude-sonnet-4-6" (:model chat)))
         (is (= "high" (:variant chat)))
         (is (= {:total-input-tokens 100 :total-output-tokens 50} (:usage chat)))
-        (is (= (get-in (sut/build-export sample-db "chat-1") [:chat :messages]) (:messages chat))))
+        (is (= (get-in (f.chat.export/build-export sample-db "chat-1") [:chat :messages]) (:messages chat))))
       (fs/delete-if-exists path))))
 
 (deftest export-chat!-defaults-and-errors-test
   (testing "blank filepath falls back to a slugified temp path"
-    (let [{:keys [path error]} (sut/export-chat! {:db sample-db :chat-id "chat-1" :filepath ""})]
+    (let [{:keys [path error]} (f.chat.export/export-chat! {:db sample-db :chat-id "chat-1" :filepath ""})]
       (is (nil? error))
       (is (fs/exists? path))
       (is (string/includes? path "eca-chat-fix-the-login-bug"))
       (fs/delete-if-exists path)))
   (testing "missing chat returns an error"
-    (is (:error (sut/export-chat! {:db sample-db :chat-id "nope" :filepath "/tmp/x.edn"})))))
+    (is (:error (f.chat.export/export-chat! {:db sample-db :chat-id "nope" :filepath "/tmp/x.edn"})))))
 
 (deftest export-chat!-directory-target-test
   (testing "an existing directory writes the default filename inside it"
     (let [dir (str (fs/path (fs/temp-dir) (str "eca-export-dir-" (random-uuid))))]
       (fs/create-dirs dir)
-      (let [{:keys [path error]} (sut/export-chat! {:db sample-db :chat-id "chat-1" :filepath dir})]
+      (let [{:keys [path error]} (f.chat.export/export-chat! {:db sample-db :chat-id "chat-1" :filepath dir})]
         (is (nil? error))
         (is (= "eca-chat-fix-the-login-bug.edn" (fs/file-name path)))
         (is (string/starts-with? path dir))
@@ -126,7 +126,7 @@
       (fs/delete-tree dir)))
   (testing "a trailing-separator path creates the directory and writes inside it"
     (let [dir (str (fs/path (fs/temp-dir) (str "eca-export-newdir-" (random-uuid))))
-          {:keys [path error]} (sut/export-chat! {:db sample-db :chat-id "chat-1" :filepath (str dir "/")})]
+          {:keys [path error]} (f.chat.export/export-chat! {:db sample-db :chat-id "chat-1" :filepath (str dir "/")})]
       (is (nil? error))
       (is (= "eca-chat-fix-the-login-bug.edn" (fs/file-name path)))
       (is (string/starts-with? path dir))
@@ -135,11 +135,11 @@
 
 (deftest import-chat!-errors-test
   (testing "blank filepath errors"
-    (is (:error (sut/import-chat! {:filepath ""}))))
+    (is (:error (f.chat.export/import-chat! {:filepath ""}))))
   (testing "non-existent file errors"
-    (is (:error (sut/import-chat! {:filepath (str (fs/path (fs/temp-dir) (str "nope-" (random-uuid) ".edn")))}))))
+    (is (:error (f.chat.export/import-chat! {:filepath (str (fs/path (fs/temp-dir) (str "nope-" (random-uuid) ".edn")))}))))
   (testing "content that is not an ECA export errors"
     (let [tmp (str (fs/path (fs/temp-dir) (str "eca-bad-" (random-uuid) ".edn")))]
       (spit tmp (pr-str {:not "an export"}))
-      (is (:error (sut/import-chat! {:filepath tmp})))
+      (is (:error (f.chat.export/import-chat! {:filepath tmp})))
       (fs/delete-if-exists tmp))))

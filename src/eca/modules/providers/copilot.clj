@@ -9,7 +9,6 @@
    [eca.features.login :as f.login]
    [eca.features.providers :as f.providers]
    [eca.features.quota :as f.quota]
-   [eca.llm-api.errors :as llm-providers.errors]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -166,17 +165,17 @@
           :else
           {:result :declined})))))
 
-(defmethod llm-providers.errors/enrich-provider-error "github-copilot"
+(defn ^:private enrich-error
   [{:keys [error-data model]}]
   (enrich-model-not-supported-error error-data model))
 
-(defmethod llm-providers.errors/recoverable-error? "github-copilot"
+(defn ^:private recoverable-error?
   [{:keys [error-data db]}]
   (boolean
    (and (model-not-supported-error? error-data)
         (get-in db [:client-capabilities :code-assistant :chat-capabilities :ask-question]))))
 
-(defmethod llm-providers.errors/recover-error! "github-copilot"
+(defn ^:private recover-error!
   [{:keys [provider model db messenger chat-id]}]
   (let [auth (get-in db [:auth provider])]
     (messenger/chat-content-received messenger
@@ -274,7 +273,9 @@
                           {:status status
                            :body body})))))))
 
-(defmethod f.quota/fetch-quota "github-copilot" [{:keys [provider provider-auth config]}]
+(defn ^:private fetch-quota
+  "`:quota :fetch`: the account's Copilot usage."
+  [{:keys [provider provider-auth config]}]
   (let [url (str (github-api-base-url (get-in config [:providers provider])) "/copilot_internal/user")
         {:keys [status body]} (http/get url
                                         {:headers (merge (auth-headers)
@@ -320,7 +321,9 @@
               (recur (inc attempts))))
           (on-timeout))))))
 
-(defmethod f.providers/start-login! ["github-copilot" "device"] [provider _ db* config messenger metrics]
+(defn ^:private start-device-login!
+  "The `device` login method's `:start`: GitHub's device flow."
+  [provider db* config messenger metrics]
   (let [provider-settings (get-in config [:providers provider])
         {:keys [user-code device-code url]} (oauth-url provider-settings)]
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
@@ -355,7 +358,7 @@
                          github-url
                          github-url)))))
 
-(defmethod f.login/login-step ["github-copilot" :login/start] [{:keys [db* chat-id provider config send-msg!] :as ctx}]
+(defn ^:private start-step [{:keys [db* chat-id provider config send-msg!] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
         {:keys [user-code device-code url]} (oauth-url provider-settings)
         github-url (github-base-url provider-settings)]
@@ -379,7 +382,7 @@
      {:on-token (fn [token-data] (complete-chat-device-login! ctx token-data))
       :on-timeout (fn [] (send-msg! "GitHub authorization timed out. Type 'cancel' and start the login again."))})))
 
-(defmethod f.login/login-step ["github-copilot" :login/waiting-user-confirmation] [{:keys [db* provider config send-msg!] :as ctx}]
+(defn ^:private waiting-user-confirmation-step [{:keys [db* provider config send-msg!] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
         token-data (try
                      (when-let [access-token (oauth-access-token provider-settings (get-in @db* [:auth provider :device-code]))]
@@ -390,7 +393,7 @@
       (complete-chat-device-login! ctx token-data)
       (send-msg! "Waiting for the browser authorization to complete, type 'cancel' to abort."))))
 
-(defmethod f.login/login-step ["github-copilot" :login/renew-token] [{:keys [db* provider config] :as ctx}]
+(defn ^:private renew-token-step [{:keys [db* provider config] :as ctx}]
   (let [provider-settings (get-in config [:providers provider])
         access-token (get-in @db* [:auth provider :access-token])
         token-data (oauth-renew-token provider-settings access-token)]
@@ -403,8 +406,15 @@
    ;; picks the Responses or the Chat Completions API by model
    :requires #{:eca/api-openai-responses :eca/api-openai-chat}
    :providers {"github-copilot" {:label "GitHub Copilot"
-                                 ;; the flow is the login-step and start-login! methods above
-                                 :login {:methods [{:key "device" :label "GitHub device flow"}]}}}
+                                 :login {:methods [{:key "device" :label "GitHub device flow" :start #'start-device-login!}]
+                                         ;; the chat's /login
+                                         :steps {:login/start #'start-step
+                                                 :login/waiting-user-confirmation #'waiting-user-confirmation-step
+                                                 :login/renew-token #'renew-token-step}}
+                                 :quota {:fetch #'fetch-quota}
+                                 :errors {:enrich #'enrich-error
+                                          :recoverable? #'recoverable-error?
+                                          :recover! #'recover-error!}}}
    :config-defaults {:providers {"github-copilot" {:api "openai-chat"
                                                    :url "${env:GITHUB_COPILOT_API_URL:https://api.githubcopilot.com}"
                                                    :key nil ;; not supported, requires login auth

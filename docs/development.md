@@ -21,28 +21,28 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `deps.edn`                  | Clojure dependency coordinates and aliases used by the JVM build and the native GraalVM image.
    `docs/`                     | Markdown documentation shown at https://eca.dev
    `src/eca/main.clj`          | The CLI interface (`eca server`, etc.).
-   `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`.
+   `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`: the protocol methods core serves, then the modules' (`:rpc`).
    `src/eca/handlers.clj`      | Entrypoint for all features; every JSON-RPC request/notification lands here.
    `src/eca/messenger.clj`     | Protocol to send requests/notifications back to the client (stdio or remote).
-   `src/eca/db.clj`            | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here.
+   `src/eca/db.clj` + `db/`    | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here. `db/` saves and loads it: the cache files (`io`), chat files (`chats`), the global cache (`global_cache`), loading and migrating (`migration`), other workspaces' chats (`workspaces`).
    `src/eca/config.clj`        | Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).
    `src/eca/logger.clj`        | Logger interface, logs to stderr (stdout is reserved for JSON-RPC).
    `src/eca/shared.clj`        | Shared utility fns for the whole project.
    `src/eca/llm_api.clj`       | Public façade used by features to call an LLM, through the provider modules' APIs.
    `src/eca/llm_util.clj`      | Streaming/event helpers shared by providers.
    `src/eca/features/`         | **Core capabilities exposed to the editor**
-   ├─ `chat.clj` + `chat/`     | Streaming chat orchestration & tool-call pipeline (lifecycle, history, tool calls).
-   ├─ `commands.clj`           | Core chat commands (`/login`, `/compact`, `/context`, ...) and running commands.
-   ├─ `context.clj`            | Contexts attached to prompts (files, repo map, ...).
+   ├─ `chat.clj` + `chat/`     | The chat engine: `chat.clj` is its entry (prompt, commands, tool-call answers, stop); `chat/` has a turn's requests (`turn`, their `callbacks`, `recovery`), `compaction`, the lifecycle (content, events, finish), the tool-call state machine and batches, steering, replay, chat operations and the system prompt.
+   ├─ `commands.clj`           | Lists the modules' commands, with the skills, custom commands and MCP prompts they give, and runs the one typed.
+   ├─ `context.clj`            | Contexts attached to prompts: files, folders, the cursor, and the ones modules give.
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `login.clj`              | Provider auth flows.
    ├─ `providers.clj`          | Model/provider resolution.
-   ├─ `completion.clj`         | Non-chat LLM feature: code completion.
-   ├─ `rewrite.clj`            | Non-chat LLM feature: text rewrite.
+   ├─ `quota.clj`              | Subscription quotas: from response headers and the providers' usage endpoints.
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
    ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
    `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`, which `eca.main` hands to the runtime
+   ├─ `core.clj`               | ECA's own commands (`/login`, `/compact`, `/context`, ...); the chat ones (`/fork`, `/resume`, `/export`, ...) are in `chat_management.clj`.
    ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...
    ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...).
    ├─ `agents.clj` + `agents/` | Agents from config and Markdown files, and the agents ECA ships; `subagents.clj` + `subagents/` likewise.
@@ -50,7 +50,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `hooks.clj`              | User-configured hooks triggered on server events.
    ├─ `skills.clj`, `rules.clj`| Skills and rules: discovery, loading, their tools and prompt sections.
    ├─ `remote.clj` + `remote/` | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
-   └─ ...                      | `plugins.clj`, `approval.clj`, `create.clj`, `otel.clj`, `repl.clj`, ...
+   └─ ...                      | `agents_md.clj` (AGENTS.md files), `chat_title.clj`, `compact_as_summary.clj`, `completion.clj` and `rewrite.clj` (inline completion and rewrite), `plugins.clj`, `approval.clj`, `manage.clj`, `otel.clj`, `repl.clj`, ...
    `src/eca/api.clj` + `api/`  | The module API: all that external modules see.
    `src/eca/nrepl.clj`         | Starts an nREPL when built with `bb debug-cli`.
 
@@ -63,6 +63,25 @@ With this map you can usually answer:
 - _"Where does request X enter the system?"_ – look in `handlers.clj`.
 - _"How is tool Y executed?"_ – see `src/eca/modules/tools/<y>.clj`.
 - _"How do we talk to provider Z?"_ – its module under `src/eca/modules/providers/`.
+
+### Core and modules
+
+ECA is a core plus modules. Core is layered, lowest first, and a namespace requires only its own layer and lower ones:
+
+1. Libs: `eca.logger`, `eca.shared`, `eca.messenger`, `eca.cache`, ...
+2. The module runtime: `eca.modules`, `eca.modules.events`, `eca.modules.config-spec`, `eca.modules.data`; `eca.shell`.
+3. State and config: `eca.config`, `eca.db`, `eca.models`, `eca.llm-util`, ...
+4. The module loader and the module API (`eca.api*`).
+5. Engines: `eca.features.*` (chat, tools, commands, prompt, ...), `eca.llm-api`.
+6. Wiring: `eca.server`, `eca.handlers`, `eca.main`, the built-in modules list.
+
+Every other feature is a module under `src/eca/modules/`, built in or external, with these rules:
+
+- Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.
+- Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote, otel and repl aside) or offer a multimethod for modules to extend.
+- New module keys start built-in only; open one to external modules when one needs it.
+
+`test/eca/architecture_test.clj` checks the layers and the rules, also in `requiring-resolve`s and fully qualified calls. Its allowlists hold the couplings left from before the rules (and the module API resolving the engines at runtime), and only shrink.
 
 ### Unit Tests
 

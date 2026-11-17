@@ -14,6 +14,14 @@
                      "+b"
                      "+c"]))
 
+(defn ^:private clojure-mcp-tool
+  "The tool `tool-name` of a running clojure-mcp server, as the MCP module lists it."
+  [tool-name]
+  (let [[server] (#'m.mcp/tool-servers {:db {:mcp-clients {"clojure-mcp" {:version "0.2.0"
+                                                                          :tools [{:name tool-name}]}}}
+                                        :config {}})]
+    (assoc (first (:tools server)) :server {:name (:name server) :version (:version server)})))
+
 (deftest tool-call-details-before-invocation-clojure-mcp-dry-run-test
   (testing "the dry run previewing the change is called with the chat id"
     (let [call* (atom nil)]
@@ -26,9 +34,8 @@
                      :linesAdded 1
                      :linesRemoved 0}
                     (f.tools/tool-call-details-before-invocation
-                     "file_write"
+                     (clojure-mcp-tool "file_write")
                      {"file_path" "/home/alice/my-org/my-proj/new.clj" "content" "new content"}
-                     {:name "clojure-mcp" :version "0.2.0"}
                      {} {} "chat-1" true "call-1"))))
       (is (match? {:server-name "clojure-mcp"
                    :name "file_write"
@@ -44,7 +51,7 @@
                  :linesRemoved 1
                  :diff example-diff}
                 (f.tools/tool-call-details-after-invocation
-                 :clojure_edit
+                 (clojure-mcp-tool "clojure_edit")
                  {"file_path" "/home/alice/my-org/my-proj/project.clj"
                   "form_identifier" "a"
                   "form_type" "atom"
@@ -62,7 +69,7 @@
                  :linesRemoved 1
                  :diff example-diff}
                 (f.tools/tool-call-details-after-invocation
-                 :clojure_edit_replace_sexp
+                 (clojure-mcp-tool "clojure_edit_replace_sexp")
                  {"file_path" "/home/alice/my-org/my-proj/project.clj"
                   "match_form" "a"
                   "new_form" "b\nc"
@@ -79,7 +86,7 @@
                  :linesRemoved 1
                  :diff example-diff}
                 (f.tools/tool-call-details-after-invocation
-                 :file_edit
+                 (clojure-mcp-tool "file_edit")
                  {"file_path" "/home/alice/my-org/my-proj/project.clj"
                   "old_string" "a"
                   "new_string" "b\nc"}
@@ -95,7 +102,7 @@
                  :linesRemoved 1
                  :diff example-diff}
                 (f.tools/tool-call-details-after-invocation
-                 :file_write
+                 (clojure-mcp-tool "file_write")
                  {"file_path" "/home/alice/my-org/my-proj/project.clj"
                   "content" "my-content"}
                  nil

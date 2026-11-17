@@ -145,7 +145,6 @@ The built-in commands are:
 - `/forget-approvals`: Forget the tool call approvals remembered in the current chat, so those tool calls ask for approval again.
 - `/config`: Show ECA config for troubleshooting.
 - `/doctor`: Show information about ECA, useful for troubleshooting.
-- `/repo-map-show`: Show the current repoMap context of the session.
 - `/debug-chat`: Dump the current chat (obfuscated) to a file for debugging a corrupted/stuck chat.
 - `/prompt-show`: Show the final prompt sent to LLM with all contexts and ECA details.
 - `/sync-system-prompt`: Re-sync the current chat's system prompt (AGENTS.md, rules, skills) on the next message, invalidating its prompt cache. Useful with `chat.autoSyncSystemPrompt` disabled (default), where changes apply only to new chats. Skill catalog changes never auto-sync regardless of the flag (skill contents are always read fresh when loaded).

@@ -6,7 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.features.login :as login]
    [eca.modules :as modules]
    [eca.modules.providers.anthropic :as m.anthropic]
@@ -246,7 +246,7 @@
                 stale {:type :auth/oauth :mode :max :step :login/done
                        :refresh-token "mine-stale" :api-key "mine-access"
                        :expires-at 1000}
-                _ (db/update-global-cache! {:auth {"anthropic" fresh}} nil)
+                _ (db.global-cache/update-global-cache! {:auth {"anthropic" fresh}} nil)
                 db* (atom {:auth {"anthropic" stale}})
                 step-calls (atom 0)
                 on-error-msgs (atom [])]
@@ -270,7 +270,7 @@
           (let [stale {:type :auth/oauth :mode :max :step :login/done
                        :refresh-token "stale" :api-key "stale-access"
                        :expires-at 1000}
-                _ (db/update-global-cache! {:auth {"anthropic" stale}} nil)
+                _ (db.global-cache/update-global-cache! {:auth {"anthropic" stale}} nil)
                 db* (atom {:auth {"anthropic" stale}})
                 step-calls (atom 0)
                 on-error-msgs (atom [])]
@@ -290,7 +290,7 @@
             ;; And the rotated tokens should have been written to disk so the next
             ;; process in the race sees them.
             (let [reloaded (atom {:auth {"anthropic" {}}})]
-              (db/sync-auth-from-cache! reloaded "anthropic" nil)
+              (db.global-cache/sync-auth-from-cache! reloaded "anthropic" nil)
               (is (= "rotated" (get-in @reloaded [:auth "anthropic" :refresh-token])))))
           (finally (fs/delete-tree tmpdir)))))))
 
@@ -300,7 +300,7 @@
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
           (let [stale {:type :auth/oauth :refresh-token "stale" :expires-at 1000}
-                _ (db/update-global-cache! {:auth {"anthropic" stale}} nil)
+                _ (db.global-cache/update-global-cache! {:auth {"anthropic" stale}} nil)
                 db* (atom {:auth {"anthropic" stale}})
                 on-error-msgs (atom [])]
             (with-redefs [login/login-step
@@ -322,7 +322,7 @@
                        :expires-at 1000}
                 fresh {:type :auth/oauth :step :login/done
                        :api-key "fresh-session" :expires-at 9999999999}
-                _ (db/update-global-cache! {:auth {"github-copilot" stale}} nil)
+                _ (db.global-cache/update-global-cache! {:auth {"github-copilot" stale}} nil)
                 db* (atom {:auth {"github-copilot" stale
                                   "anthropic" fresh
                                   "openai" {}}})

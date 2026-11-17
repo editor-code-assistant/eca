@@ -4,7 +4,7 @@
    [clojure.edn :as edn]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat.debug :as sut]))
+   [eca.features.chat.debug :as f.chat.debug]))
 
 (def ^:private sample-chat
   {:id "chat-1"
@@ -46,24 +46,24 @@
 
 (deftest obfuscate-str-test
   (testing "same input reuses a label, different inputs differ"
-    (let [obf (sut/make-obfuscator)
-          a1 (sut/obfuscate-str obf "hello")
-          b (sut/obfuscate-str obf "world")
-          a2 (sut/obfuscate-str obf "hello")]
+    (let [obf (f.chat.debug/make-obfuscator)
+          a1 (f.chat.debug/obfuscate-str obf "hello")
+          b (f.chat.debug/obfuscate-str obf "world")
+          a2 (f.chat.debug/obfuscate-str obf "hello")]
       (is (= a1 a2))
       (is (not= a1 b))
       (is (string/starts-with? a1 "A"))
       (is (string/starts-with? b "B"))))
   (testing "longer strings produce longer (bucketed) tokens"
-    (let [obf (sut/make-obfuscator)
-          short-s (sut/obfuscate-str obf "ab")
-          long-s (sut/obfuscate-str obf (apply str (repeat 5000 "x")))]
+    (let [obf (f.chat.debug/make-obfuscator)
+          short-s (f.chat.debug/obfuscate-str obf "ab")
+          long-s (f.chat.debug/obfuscate-str obf (apply str (repeat 5000 "x")))]
       (is (< (count short-s) (count long-s)))))
   (testing "blank strings pass through untouched"
-    (is (= "" (sut/obfuscate-str (sut/make-obfuscator) "")))))
+    (is (= "" (f.chat.debug/obfuscate-str (f.chat.debug/make-obfuscator) "")))))
 
 (deftest build-dump-test
-  (let [dump (sut/build-dump sample-db "chat-1" all-tools)
+  (let [dump (f.chat.debug/build-dump sample-db "chat-1" all-tools)
         chat (:chat dump)
         msgs (:messages chat)]
     (testing "send-affecting metadata preserved verbatim"
@@ -95,7 +95,7 @@
     (testing "duplicate user text shares the same label"
       (is (= (:content (first msgs)) (:content (last msgs)))))
     (testing "no original secret text leaks into the EDN"
-      (is (not (string/includes? (sut/dump->edn dump) "secret"))))
+      (is (not (string/includes? (f.chat.debug/dump->edn dump) "secret"))))
     (testing "title is obfuscated in the content"
       (is (not= "Fix the Login Bug!" (:title chat))))
     (testing "live tool-call promises/futures/arguments stripped"
@@ -118,27 +118,27 @@
     (testing "model capabilities preserved verbatim"
       (is (= true (get-in dump [:model-capabilities :reason?]))))
     (testing "the dump round-trips as EDN"
-      (is (map? (edn/read-string (sut/dump->edn dump)))))))
+      (is (map? (edn/read-string (f.chat.debug/dump->edn dump)))))))
 
 (deftest default-filepath-test
   (testing "slugifies the title"
-    (is (string/includes? (sut/default-filepath {:title "Fix the Login Bug!" :id "abc"})
+    (is (string/includes? (f.chat.debug/default-filepath {:title "Fix the Login Bug!" :id "abc"})
                           "eca-chat-debug-fix-the-login-bug")))
   (testing "falls back to chat id when there is no title"
-    (is (string/includes? (sut/default-filepath {:id "abc-123"})
+    (is (string/includes? (f.chat.debug/default-filepath {:id "abc-123"})
                           "eca-chat-debug-abc-123")))
   (testing "uses the .edn extension"
-    (is (string/ends-with? (sut/default-filepath {:id "x"}) ".edn"))))
+    (is (string/ends-with? (f.chat.debug/default-filepath {:id "x"}) ".edn"))))
 
 (deftest dump-chat!-test
   (testing "writes an EDN file and reports the message count"
     (let [tmp (str (fs/path (fs/temp-dir) (str "eca-debug-test-" (random-uuid) ".edn")))
-          {:keys [path message-count error]} (sut/dump-chat! {:db sample-db :chat-id "chat-1"
-                                                              :all-tools all-tools :filepath tmp})]
+          {:keys [path message-count error]} (f.chat.debug/dump-chat! {:db sample-db :chat-id "chat-1"
+                                                                       :all-tools all-tools :filepath tmp})]
       (is (nil? error))
       (is (= 6 message-count))
       (is (fs/exists? path))
       (is (map? (edn/read-string (slurp path))))
       (fs/delete-if-exists path)))
   (testing "missing chat returns an error"
-    (is (:error (sut/dump-chat! {:db sample-db :chat-id "nope" :all-tools []})))))
+    (is (:error (f.chat.debug/dump-chat! {:db sample-db :chat-id "nope" :all-tools []})))))

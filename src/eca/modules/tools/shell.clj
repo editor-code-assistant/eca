@@ -6,11 +6,12 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
-   [eca.features.background-tasks :as bg]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
+   [eca.metrics :as metrics]
    [eca.modules.tools.shell.background :as m.shell.background]
+   [eca.modules.tools.shell.jobs :as m.shell.jobs]
    [eca.modules.tools.shell.parser :as m.shell.parser]
    [eca.shell :as shell]
    [eca.shared :as shared]))
@@ -40,14 +41,24 @@
                                     commands)))
           (assoc :type :shellCommand)))))
 
-(defmethod tools.util/tool-call-details-before-invocation :shell_command
-  [_name arguments _server {:keys [db chat-id]}]
+(defn ^:private shell-command-details-before
+  "`shell_command`'s details: its commands, and whether it runs in the background."
+  [{:keys [db chat-id]} arguments]
   (let [background? (boolean (get arguments "background"))]
     (if-let [details (shell-command-details "eca__shell_command" (get arguments "command") db chat-id)]
       (cond-> details
         background? (assoc :background true))
       (when background?
         {:background true}))))
+
+(defn ^:private destroy-resource!
+  "`shell_command`'s cleanup: kills the process a call left."
+  [resource-kwd resource]
+  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
+  (case resource-kwd
+    :process (p/destroy-tree resource)
+    (logger/warn logger-tag "Unknown resource keyword" {:tool-name "eca__shell_command"
+                                                        :resource-kwd resource-kwd})))
 
 (def ^:private initial-output-wait-ms 2000)
 (def ^:private initial-output-poll-ms 200)
@@ -66,7 +77,7 @@
   [job-id call-state-fn]
   (loop [waited (long 0)]
     (when (and (< waited ^long initial-output-wait-ms)
-               (= :running (:status (bg/get-job job-id)))
+               (= :running (:status (m.shell.jobs/get-job job-id)))
                (not= :stopping (:status (call-state-fn))))
       (Thread/sleep ^long initial-output-poll-ms)
       (recur (+ waited ^long initial-output-poll-ms)))))
@@ -80,12 +91,12 @@
         summary (when (string? bg-value) bg-value)
         user-work-dir (get arguments "working_directory")
         work-dir (resolve-work-dir db user-work-dir)
-        max-jobs-msg (str "Maximum number of background jobs reached (" bg/max-jobs "). Kill an existing job first.")]
+        max-jobs-msg (str "Maximum number of background jobs reached (" m.shell.jobs/max-jobs "). Kill an existing job first.")]
     (cond
       (= :stopping (:status (call-state-fn)))
       (tools.util/single-text-content "Tool call is stopping, background job not started." true)
 
-      (>= (bg/running-count) bg/max-jobs)
+      (>= (m.shell.jobs/running-count) m.shell.jobs/max-jobs)
       (tools.util/single-text-content max-jobs-msg true)
 
       :else
@@ -99,31 +110,31 @@
               on-exit (fn [completed-job]
                         (try
                           (let [output-lines (:lines @(:output* completed-job))
-                                tail (mapv bg/format-output-line (take-last 20 output-lines))]
-                            (bg/enqueue-job-notification!
+                                tail (mapv m.shell.jobs/format-output-line (take-last 20 output-lines))]
+                            (m.shell.jobs/enqueue-job-notification!
                              db* chat-id
                              {:job-id (:id completed-job)
                               :status (:status completed-job)
                               :exit-code (:exit-code completed-job)
                               :label (:label completed-job)
                               :output-tail tail})
-                            (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)}))
+                            (messenger/notify! messenger "jobs/updated" {:jobs (m.shell.jobs/jobs-summary db*)}))
                           (catch Exception e
                             (logger/warn logger-tag "on-exit notification error" {:message (.getMessage e)}))))]
-          (if-let [job (bg/register-shell-job! {:label command
-                                                :summary summary
-                                                :process proc
-                                                :working-directory work-dir
-                                                :chat-id chat-id
-                                                :tool-call-id tool-call-id
-                                                :on-exit on-exit})]
+          (if-let [job (m.shell.jobs/register-shell-job! {:label command
+                                                          :summary summary
+                                                          :process proc
+                                                          :working-directory work-dir
+                                                          :chat-id chat-id
+                                                          :tool-call-id tool-call-id
+                                                          :on-exit on-exit})]
             (do
-              (bg/start-output-capture! job (:out proc) (:err proc))
-              (bg/monitor-process-exit! (:id job) proc)
-              (messenger/jobs-updated messenger {:jobs (bg/jobs-summary db*)})
+              (m.shell.jobs/start-output-capture! job (:out proc) (:err proc))
+              (m.shell.jobs/monitor-process-exit! (:id job) proc)
+              (messenger/notify! messenger "jobs/updated" {:jobs (m.shell.jobs/jobs-summary db*)})
               (wait-for-initial-output (:id job) call-state-fn)
-              (let [{:keys [lines status exit-code]} (bg/read-output! (:id job))
-                    initial-output (string/join "\n" (map bg/format-output-line lines))]
+              (let [{:keys [lines status exit-code]} (m.shell.jobs/read-output! (:id job))
+                    initial-output (string/join "\n" (map m.shell.jobs/format-output-line lines))]
                 (if (and (not= :running status) exit-code (not (zero? exit-code)))
                   {:error true
                    :contents [{:type :text
@@ -175,7 +186,7 @@
                           (catch InterruptedException e
                             (let [msg (or (.getMessage e) "Shell tool call was interrupted")]
                               (logger/debug logger-tag "Shell tool call was interrupted" {:tool-call-id tool-call-id :message msg})
-                              (tools.util/tool-call-destroy-resource! "eca__shell_command" :process proc)
+                              (destroy-resource! :process proc)
                               (state-transition-fn :resources-destroyed {:resources [:process]})
                               {:exit 1 :err msg}))))
                    {:exit 1 :err "Tool call is :stopping, so shell process not spawned"})
@@ -187,7 +198,7 @@
                    (let [state (call-state-fn)]
                      (when-let [resources (:resources state)]
                        (doseq [[res-kwd res] resources]
-                         (tools.util/tool-call-destroy-resource! "eca__shell_command" res-kwd res))
+                         (destroy-resource! res-kwd res))
                        (when (#{:executing :stopping} (:status state))
                          (state-transition-fn :resources-destroyed {:resources (keys resources)}))))))
         err (some-> (:err result) string/trim)
@@ -257,17 +268,50 @@
     :handler #'shell-command
     :require-approval-fn (tools.util/require-approval-when-outside-workspace ["working_directory"])
     :approval-keys-fn (fn [arguments] (m.shell.parser/approval-keys (get arguments "command")))
-    :summary-fn #'shell-command-summary}})
+    :summary-fn #'shell-command-summary
+    :details-before-fn #'shell-command-details-before
+    :cleanup-fn #'destroy-resource!}})
 
-(defmethod tools.util/tool-call-destroy-resource! :eca__shell_command [name resource-kwd resource]
-  (logger/debug logger-tag "About to destroy resource" {:resource-kwd resource-kwd})
-  (case resource-kwd
-    :process (p/destroy-tree resource)
-    (logger/warn logger-tag "Unknown resource keyword" {:tool-name name
-                                                        :resource-kwd resource-kwd})))
+(defn ^:private jobs-list [{:keys [db* metrics]} _params]
+  (metrics/task metrics :eca/jobs-list
+    {:jobs (m.shell.jobs/jobs-summary db*)}))
+
+(defn ^:private jobs-kill [{:keys [db* messenger metrics]} params]
+  (metrics/task metrics :eca/jobs-kill
+    (let [job-id (:job-id params)
+          killed? (m.shell.jobs/kill-job! job-id)]
+      (when killed?
+        (messenger/notify! messenger "jobs/updated" {:jobs (m.shell.jobs/jobs-summary db*)}))
+      {:killed killed?})))
+
+(defn ^:private jobs-read-output [{:keys [metrics]} params]
+  (metrics/task metrics :eca/jobs-read-output
+    (if-let [result (m.shell.jobs/peek-output (:job-id params))]
+      {:lines (mapv (fn [{:keys [text stream]}]
+                      {:text text :stream (name stream)})
+                    (:lines result))
+       :status (:status result)
+       :exit-code (:exit-code result)}
+      {:lines []
+       :status nil
+       :exit-code nil})))
+
+(defn ^:private finished-job-notes
+  "`:chat/next-round`: what the model learns about the chat's background
+   jobs that finished, once each."
+  [{:keys [db*]} {:keys [chat-id notes]}]
+  (when-let [job-notes (seq (m.shell.jobs/take-job-notes! db* chat-id))]
+    {:notes (into (vec notes) job-notes)}))
 
 (def module
   {:id :eca/shell
    :description "Run shell commands and background jobs."
    :config-spec {:toolCall {:shellCommand {:summaryMaxLength {:type :number :default 35}}}}
-   :tools (fn [_ctx] (tools.util/->module-tools (merge definitions m.shell.background/definitions)))})
+   :tools (fn [_ctx] (tools.util/->module-tools (merge definitions m.shell.background/definitions)))
+   ;; it runs, so that stopping it (at shutdown, or disabled) kills the running jobs
+   :start (fn [_ctx] nil)
+   :stop (fn [_ctx] (m.shell.jobs/cleanup-all!))
+   :event-handlers {:chat/next-round #'finished-job-notes}
+   :rpc {"jobs/list" {:kind :request :handler #'jobs-list}
+         "jobs/kill" {:kind :request :handler #'jobs-kill}
+         "jobs/readOutput" {:kind :request :handler #'jobs-read-output}}})

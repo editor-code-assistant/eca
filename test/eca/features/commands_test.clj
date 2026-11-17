@@ -4,8 +4,13 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.workspaces :as db.workspaces]
    [eca.features.chat.export :as f.chat.export]
+   [eca.features.chat.ops :as f.chat.ops]
    [eca.features.commands :as f.commands]
+   [eca.modules.chat-management :as m.chat-management]
+   [eca.modules.core :as m.core]
    [eca.modules.rules :as m.rules]
    [eca.modules.skills :as m.skills]
    [eca.shared :as shared]
@@ -53,7 +58,7 @@
 
 (deftest prompt-show-text-test
   (testing "uses compact section headings and omits the /prompt-show command itself"
-    (let [result (#'f.commands/prompt-show-text
+    (let [result (#'m.core/prompt-show-text
                   {:static "system prompt"}
                   [{:role "user"
                     :content [{:type :text :text "/prompt-show"}
@@ -63,35 +68,6 @@
       (is (string/includes? result "────────────────────────────────────────\n# Chat (User prompt)\n────────────────────────────────────────\n<editor-state/>"))
       (is (string/includes? result "_Tool schemas are sent separately and are not included in this text dump._"))
       (is (not (string/includes? result "/prompt-show"))))))
-
-(deftest get-custom-command-tests
-  (testing "returns nil when command not found"
-    (is (nil? (#'f.commands/get-custom-command "nope" [] []))))
-
-  (testing "$ARGS is replaced with the joined args"
-    (let [custom [{:name "greet" :content "Hello $ARGS!"}]]
-      (is (= "Hello Alice Bob!"
-             (#'f.commands/get-custom-command "greet" ["Alice" "Bob"] custom)))))
-
-  (testing "numbered $ARGn placeholders are replaced and $ARGS contains all args"
-    (let [custom [{:name "pair" :content "First:$ARG1 Second:$ARG2 All:$ARGS"}]]
-      (is (= "First:one Second:two All:one two"
-             (#'f.commands/get-custom-command "pair" ["one" "two"] custom)))))
-
-  (testing "unmatched placeholders remain when args are missing"
-    (let [custom [{:name "partial" :content "A:$ARG1 B:$ARG2 C:$ARG3"}]]
-      (is (= "A:only B: C:$ARG3"
-             (#'f.commands/get-custom-command "partial" ["only" ""] custom)))))
-
-  (testing "multiple occurrences of the same placeholder are all replaced"
-    (let [custom [{:name "dup" :content "$ARG1-$ARG1 $ARGS"}]]
-      (is (= "x-x x y"
-             (#'f.commands/get-custom-command "dup" ["x" "y"] custom)))))
-
-  (testing "$ARGUMENTS is supported as alias for $ARGS"
-    (let [custom [{:name "test" :content "Process $ARGUMENTS here"}]]
-      (is (= "Process one two here"
-             (#'f.commands/get-custom-command "test" ["one" "two"] custom))))))
 
 (deftest custom-command-file-context-test
   (let [tmp-dir (fs/create-temp-dir)]
@@ -219,10 +195,10 @@
 
 (deftest btw-title-test
   (testing "prefixes and keeps short questions"
-    (is (= "btw: how does X work?" (f.commands/btw-title "how does X work?"))))
+    (is (= "btw: how does X work?" (m.chat-management/btw-title "how does X work?"))))
   (testing "truncates long questions"
     (is (= (str "btw: " (apply str (repeat 40 "a")) "...")
-           (f.commands/btw-title (apply str (repeat 41 "a")))))))
+           (m.chat-management/btw-title (apply str (repeat 41 "a")))))))
 
 (deftest drop-dangling-tool-calls-test
   (let [user-msg {:role "user" :content [{:type :text :text "hey"}]}
@@ -234,11 +210,11 @@
         dangling-server-use {:role "server_tool_use" :content {:id "s2"}}]
     (testing "keeps paired tool calls and other messages"
       (is (= [user-msg tool-call tool-output server-use server-result]
-             (f.commands/drop-dangling-tool-calls
+             (f.chat.ops/drop-dangling-tool-calls
               [user-msg tool-call tool-output server-use server-result]))))
     (testing "drops unpaired tool calls"
       (is (= [user-msg tool-call tool-output]
-             (f.commands/drop-dangling-tool-calls
+             (f.chat.ops/drop-dangling-tool-calls
               [user-msg tool-call tool-output dangling-tool-call dangling-server-use]))))))
 
 (deftest handle-btw-command-test
@@ -266,7 +242,7 @@
             :messages [{:role "user" :content [{:type :text :text "hello"}]}
                        {:role "assistant" :content [{:type :text :text "hi!"}]}
                        {:role "tool_call" :content {:id "dangling"}}]})
-    (with-redefs [db/save-chat! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])]
       (let [result (f.commands/handle-command! "btw" ["who" "is" "foo?"]
                                                (assoc (command-context "chat-1")
                                                       :message "/btw who is foo?"))
@@ -303,7 +279,7 @@
                           {:history-page-size 50}))
                  (swap! (h/db*) assoc-in [:chats "chat-1"]
                         {:id "chat-1" :title "My chat" :messages messages}))]
-    (with-redefs [db/save-chat! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])]
       (testing "/fork sends only the newest page to incremental clients"
         (setup! true)
         (let [result (f.commands/handle-command! "fork" [] (command-context "chat-1"))
@@ -581,8 +557,8 @@
                               :model "openai/gpt-5.2"
                               :messages []}})
     (let [session-defaults (:last-config-notified (h/db))]
-      (with-redefs [db/save-chat! (fn [& _])
-                    db/delete-chat-from-cache! (fn [& _])]
+      (with-redefs [db.chats/save-chat! (fn [& _])
+                    db.chats/delete-chat-from-cache! (fn [& _])]
         (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-b"
                :chat {:select-model "anthropic/claude-sonnet-4-5"
@@ -604,8 +580,8 @@
     (swap! (h/db*) assoc
            :chats {"chat-a" {:id "chat-a" :created-at 1 :agent "plan" :messages []}
                    "chat-b" {:id "chat-b" :created-at 2 :agent "code" :messages []}})
-    (with-redefs [db/save-chat! (fn [& _])
-                  db/delete-chat-from-cache! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])
+                  db.chats/delete-chat-from-cache! (fn [& _])]
       (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
     (is (= "plan" (get-in (h/db) [:chats "chat-b" :agent])))
     (is (= [{:chat-id "chat-b" :chat {:select-agent "plan"}}]
@@ -617,8 +593,8 @@
     (swap! (h/db*) assoc
            :chats {"chat-a" {:id "chat-a" :created-at 1 :agent "removed-agent" :messages []}
                    "chat-b" {:id "chat-b" :created-at 2 :messages []}})
-    (with-redefs [db/save-chat! (fn [& _])
-                  db/delete-chat-from-cache! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])
+                  db.chats/delete-chat-from-cache! (fn [& _])]
       (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
     (is (= [{:chat-id "chat-b" :chat {:select-agent "code"}}]
            (filterv #(contains? (:chat %) :select-agent) (:config-updated (h/messages))))))
@@ -641,7 +617,7 @@
                          :variant "low"
                          :trust true
                          :messages []}]
-      (with-redefs [db/save-chat! (fn [& _])
+      (with-redefs [db.chats/save-chat! (fn [& _])
                     f.chat.export/import-chat! (fn [_] {:chat imported-chat})]
         (f.commands/handle-command! "import" ["/tmp/chat.edn"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-a"
@@ -868,7 +844,7 @@
       (is (= {:name "arg10" :required true} (last result))))))
 
 (deftest context-usage-text-test
-  (let [text (#'f.commands/context-usage-text
+  (let [text (#'m.core/context-usage-text
               "anthropic/claude-sonnet-4-6"
               {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}
                             {:name "Conversation" :tokens 1600 :emoji "🟩"}]
@@ -898,7 +874,7 @@
       (is (> (count (re-seq #"⬜" text)) 1)))))
 
 (deftest context-usage-text-compaction-marker-test
-  (let [text (#'f.commands/context-usage-text
+  (let [text (#'m.core/context-usage-text
               "anthropic/claude-sonnet-4-6"
               {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}
                             {:name "Conversation" :tokens 1600 :emoji "🟩"}]
@@ -915,7 +891,7 @@
       (is (= 2 (count (re-seq #"🔲" text)))))))
 
 (deftest context-usage-text-fractional-compaction-threshold-test
-  (let [text (#'f.commands/context-usage-text
+  (let [text (#'m.core/context-usage-text
               "anthropic/claude-sonnet-4-6"
               {:categories [{:name "System prompt" :tokens 5300 :emoji "🟦"}]
                :used-tokens 5300
@@ -943,7 +919,7 @@
         run-cmd (fn [args]
                   (h/reset-components!)
                   (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
-                  (with-redefs [db/list-all-workspaces-chats (fn [_ _] groups)]
+                  (with-redefs [db.workspaces/list-all-workspaces-chats (fn [_ _] groups)]
                     (f.commands/handle-command! "chats" args (command-context "chat-b"))))
         text-of (fn [result] (get-in result [:chats "chat-b" :messages 0 :content 0 :text]))]
     (testing "lists all chats grouped by workspace"
@@ -968,6 +944,6 @@
     (testing "no chats at all"
       (h/reset-components!)
       (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
-      (with-redefs [db/list-all-workspaces-chats (fn [_ _] [])]
+      (with-redefs [db.workspaces/list-all-workspaces-chats (fn [_ _] [])]
         (is (string/includes? (text-of (f.commands/handle-command! "chats" [] (command-context "chat-b")))
                               "No chats found in any workspace."))))))

@@ -10,7 +10,6 @@
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
-   [eca.modules.mcp :as m.mcp]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
    [java.util Map]
@@ -129,7 +128,7 @@
   ([all-tools tool args db config agent-name opts]
    (:decision (approval-decision all-tools tool args db config agent-name opts))))
 
-(defn ^:private get-tool-patterns
+(defn get-tool-patterns
   "Returns a set of tool patterns at `config-path`, merging global and agent-specific."
   [config agent-name config-path]
   (set (concat (get-in config config-path [])
@@ -178,7 +177,7 @@
            (re-matches pattern full-name)
            (= entry full-name))))))
 
-(defn ^:private tool-matches-any? [tool entries]
+(defn tool-matches-any? [tool entries]
   (boolean (some #(tool-entry-matches? % tool) entries)))
 
 (defn ^:private tool-disabled? [tool disabled-tools]
@@ -269,6 +268,10 @@
                               (modules/fn-like? (:description tool))
                               (update :description #(wrap "tool description" % (with-module ctx)))
 
+                              ;; details and cleanup functions are for built-in tools, for now
+                              (not (:built-in? entry))
+                              (dissoc :details-before-fn :details-after-fn :cleanup-fn)
+
                               ;; `(fn [args])`, without ctx
                               (and (:approval-keys-fn tool) (not (:built-in? entry)))
                               (update :approval-keys-fn
@@ -281,8 +284,9 @@
                (:replaces tool) (assoc-in acc [:replacing k] definition)
 
                (contains? (:tools acc) k)
-               (do (logger/warn logger-tag (format "Module %s has a tool %s__%s, like another module; ignoring it"
-                                                   (:id entry) server-name tool-name))
+               (do (logger/warn-once [::duplicate-tool (:id entry) k] logger-tag
+                                     (format "Module %s has a tool %s__%s, like another module; ignoring it"
+                                             (:id entry) server-name tool-name))
                    acc)
 
                :else (assoc-in acc [:tools k] definition))))
@@ -336,68 +340,6 @@
   [tools]
   (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
 
-(defn ^:private get-defer-all-percent
-  "Percentage of the model context window the MCP tool definitions may take
-   before all of them are deferred without any pattern. The agent value overrides
-   the global one; nil (the default) leaves them unlimited."
-  [config agent-name]
-  (let [agent-config (get-in config [:agent agent-name :mcpToolSearch])]
-    (if (contains? agent-config :deferAllWhenTotalTokensExceedPercentOfContext)
-      (:deferAllWhenTotalTokensExceedPercentOfContext agent-config)
-      (get-in config [:mcpToolSearch :deferAllWhenTotalTokensExceedPercentOfContext]))))
-
-(defn ^:private tools-tokens
-  "Rough token cost of the tool definitions sent on every request, measured over
-   the same wire fields `shared/context-breakdown` reports as Tool definitions."
-  [tools]
-  (shared/estimate-tokens
-   (pr-str (mapv #(select-keys % [:name :description :parameters]) tools))))
-
-(defn ^:private defer-all-by-total-tokens?
-  "True when the MCP tool definitions as a whole outgrow
-   `deferAllWhenTotalTokensExceedPercentOfContext` of the model context window.
-   False without a percent or a known context window, so an unknown model never
-   silently hides its tools."
-  [mcp-tools config agent-name db full-model]
-  (let [percent (get-defer-all-percent config agent-name)
-        context-limit (get-in db [:models full-model :limit :context])]
-    (boolean (and (number? percent)
-                  (not (neg? percent))
-                  (number? context-limit)
-                  (pos? context-limit)
-                  (seq mcp-tools)
-                  (> (tools-tokens mcp-tools)
-                     (* context-limit (/ (double percent) 100.0)))))))
-
-(defn ^:private mark-deferred-tools
-  "Marks MCP tools kept out of the LLM context with `:deferrable`, and with
-   `:deferred` while the chat has not loaded them yet via `eca__search_tools`.
-   A tool is deferred when the MCP tool definitions as a whole outgrow
-   `mcpToolSearch.deferAllWhenTotalTokensExceedPercentOfContext` of the context
-   window, or when it matches `includePattern`, and in both cases only if it does
-   not match `excludePattern`.
-   Deferred tools stay resolvable and callable; they are simply kept out of the
-   tool schemas sent to the LLM.
-   Native ECA tools are never deferred: they are the agent's baseline capabilities,
-   and a catch-all pattern taking them away would break the agent. They are also
-   left out of the token count, so the limit tracks what MCP actually adds."
-  [tools {:keys [config agent-name activated db full-model]}]
-  (let [include-patterns (get-tool-patterns config agent-name [:mcpToolSearch :includePattern])
-        exclude-patterns (get-tool-patterns config agent-name [:mcpToolSearch :excludePattern])
-        mcp-tools (filterv #(not= :native (:origin %)) tools)
-        defer-all? (defer-all-by-total-tokens? mcp-tools config agent-name db full-model)]
-    (if-not (or defer-all? (seq include-patterns))
-      tools
-      (mapv (fn [tool]
-              (if (and (not= :native (:origin tool))
-                       (or defer-all? (tool-matches-any? tool include-patterns))
-                       (not (tool-matches-any? tool exclude-patterns)))
-                (assoc tool
-                       :deferrable true
-                       :deferred (not (contains? activated (:full-name tool))))
-                tool))
-            tools))))
-
 (defn tools-for-llm
   "Tools whose schemas should be sent to the LLM on this turn."
   [all-tools]
@@ -427,11 +369,93 @@
                                override))
     tool))
 
+(defn ^:private checked-tool-servers
+  "The tool servers an external module listed, without what isn't well
+   formed, warned about once: a server needs a name, a tool too; a status
+   that isn't a string or a keyword counts as none."
+  [entry servers]
+  (let [warn! (fn [what]
+                (logger/warn-once [::malformed-tool-servers (:id entry) what] logger-tag
+                                  (format "Module %s listed %s; ignoring it" (:id entry) what)))
+        named? #(and (map? %) (string? (:name %)) (not (string/blank? (:name %))))]
+    (if-not (sequential? servers)
+      (do (when (some? servers) (warn! "tool servers that aren't a list"))
+          [])
+      (keep (fn [server]
+              (if-not (named? server)
+                (warn! "a tool server without a name")
+                (let [tools (if (sequential? (:tools server)) (:tools server) [])]
+                  (when-not (every? named? tools)
+                    (warn! (format "tools without a name in tool server %s" (:name server))))
+                  (cond-> (assoc server :tools (filterv named? tools))
+                    (not (or (string? (:status server)) (keyword? (:status server))))
+                    (dissoc :status)))))
+            servers))))
+
+(defn ^:private listed-tool-servers
+  "`[entry server]` for each of the active modules' tool servers
+   (`:tool-servers` `:list`). When two modules list a server of the same
+   name, the first one keeps it. ctx: `:config`, `:db`, and `:chat-id` and
+   `:agent` for a chat's tools."
+  [{:keys [config] :as ctx}]
+  (:servers
+   (reduce (fn [acc [entry {server-name :name} :as listed]]
+             (if-let [owner (get-in acc [:owners server-name])]
+               (do (when (not= owner (:id entry))
+                     (logger/warn-once [::duplicate-tool-server (:id entry) server-name] logger-tag
+                                       (format "Module %s has a tool server %s, like module %s; ignoring it"
+                                               (:id entry) server-name owner)))
+                   acc)
+               (-> acc
+                   (assoc-in [:owners server-name] (:id entry))
+                   (update :servers conj listed))))
+           {:owners {} :servers []}
+           (for [[entry {list-servers :list}] (modules/contributions config :tool-servers)
+                 :let [module-ctx (modules/module-ctx ctx entry)]
+                 server (if (:built-in? entry)
+                          (list-servers module-ctx)
+                          (checked-tool-servers
+                           entry
+                           (modules/invoke-safe module-ctx entry "tool servers"
+                                                {:timeout-ms (modules/timeout-for
+                                                              entry nil modules/default-handler-timeout-ms)}
+                                                list-servers module-ctx)))]
+             [entry server]))))
+
+(defn ^:private server-tools
+  "The tools of the active modules' tool servers, with their `:server` and
+   the module serving them."
+  [ctx]
+  (for [[entry {server-name :name :keys [version tools]}] (listed-tool-servers ctx)
+        tool tools]
+    (cond-> (assoc tool :server {:name server-name :version version} ::module-id (:id entry))
+      ;; details and cleanup functions are for built-in modules' tools, for now
+      (not (:built-in? entry)) (dissoc :details-before-fn :details-after-fn :cleanup-fn))))
+
+(defn await-tool-servers-refresh!
+  "Waits until the tool servers' pending tool list refreshes finish
+   (`:tool-servers` `:await-refresh`), `timeout-ms` at most for all of
+   them, so the next request sees the tools a server just announced."
+  [db config timeout-ms]
+  (let [deadline (+ (System/currentTimeMillis) (long timeout-ms))]
+    (doseq [[entry {:keys [await-refresh]}] (modules/contributions config :tool-servers)
+            :when await-refresh
+            :let [remaining (- deadline (System/currentTimeMillis))]
+            :when (pos? remaining)]
+      (let [module-ctx (modules/module-ctx {:db db :config config} entry)]
+        (if (:built-in? entry)
+          (await-refresh module-ctx remaining)
+          (modules/invoke-safe module-ctx entry "tool servers refresh" {:timeout-ms remaining}
+                               await-refresh module-ctx remaining))))))
+
 (defn all-tools
   "Returns all available tools, including both native ECA tools
-   (like filesystem and shell tools) and tools provided by MCP servers.
+   (like filesystem and shell tools) and the tools of the modules' tool
+   servers, like MCP servers.
    Removes denied tools.
    When chat is a subagent (has :subagent), filters tools based on agent definition.
+   Then each built-in module's `:transform-tools` changes the list, in module
+   order (`:eca/tool-search` defers MCP tools).
    `full-model` is the model the prompt runs with; it defaults to the chat's stored
    model, which is not set yet when the first prompt of a chat computes its tools,
    so prompt code passes the resolved model to keep the tool set stable across turns."
@@ -446,11 +470,10 @@
          native-names (set (map full-name-of native))
          all-tools (->> (concat
                          native
-                         ;; a module tool may replace an MCP tool, taking its full name
+                         ;; a module tool may replace a tool server's tool, taking its full name
                          (into [] (comp (remove #(contains? native-names (full-name-of %)))
                                         (map #(assoc % :origin :mcp)))
-                               (when (modules/active? config :eca/mcp)
-                                 (m.mcp/all-tools db))))
+                               (server-tools {:config config :db db :chat-id chat-id :agent agent-name})))
                         (mapv #(update % :parameters tools.util/reorder-schema-required-first))
                         (mapv #(assoc % :full-name (str (-> % :server :name) "__" (:name %))))
                         (mapv #(override-description % config agent-name))
@@ -470,21 +493,11 @@
          all-tools (remove (fn [tool]
                              (= :deny (approval all-tools tool {} db config agent-name)))
                            all-tools)
-         ;; deferred tools can only be loaded through search_tools, so only
-         ;; :eca/tool-search defers them
-         all-tools (if (modules/active? config :eca/tool-search)
-                     (mark-deferred-tools all-tools
-                                          {:config config
-                                           :agent-name agent-name
-                                           :activated (tools.util/activated-deferred-tools db chat-id)
-                                           :db db
-                                           :full-model full-model})
-                     all-tools)]
-     ;; search_tools, :eca/tool-search's tool, only earns its context slot when
-     ;; something is actually deferred.
-     (if (some :deferrable all-tools)
-       all-tools
-       (remove #(= "eca__search_tools" (:full-name %)) all-tools)))))
+         ctx {:config config :db db :chat-id chat-id :agent agent-name :full-model full-model}]
+     (reduce (fn [tools [entry transform]]
+               (transform (modules/module-ctx ctx entry) tools))
+             all-tools
+             (modules/contributions config :transform-tools)))))
 
 (def ^:private progress-report-interval-ms 1000)
 
@@ -529,6 +542,25 @@
               (locking lock
                 (vreset! stopped?* true)
                 (vreset! pending* ::none)))}))
+
+(defn ^:private call-server-tool!
+  "Calls a tool server's tool through the `:call` of the module serving it.
+   ctx has the call's `:chat-id` and `:on-progress`."
+  [tool-meta arguments {:keys [config] :as ctx}]
+  (let [server-name (get-in tool-meta [:server :name])
+        tool-name (:name tool-meta)
+        [entry {call :call}] (some (fn [[entry :as contribution]]
+                                     (when (= (::module-id tool-meta) (:id entry)) contribution))
+                                   (modules/contributions config :tool-servers))]
+    (if-not entry
+      (tools.util/single-text-content (format "Tool '%s' not found in server '%s'" tool-name server-name) :error)
+      (let [module-ctx (modules/module-ctx ctx entry)
+            opts (select-keys ctx [:chat-id :on-progress])]
+        (if (:built-in? entry)
+          (call module-ctx server-name tool-name arguments opts)
+          (module-tool-result
+           (modules/invoke module-ctx entry "tool server call" {}
+                           call module-ctx server-name tool-name arguments opts)))))))
 
 (defn call-tool! [^String full-name ^Map arguments chat-id tool-call-id agent-name db* config messenger metrics
                   call-state-fn         ; thunk
@@ -579,12 +611,13 @@
                                ;; Stopping before returning keeps a late progress report
                                ;; from reaching the client after the call's result.
                                (try
-                                 (m.mcp/call-tool! server-name tool-name arguments {:db db
-                                                                                    :db* db*
-                                                                                    :config config
-                                                                                    :metrics metrics
-                                                                                    :chat-id chat-id
-                                                                                    :on-progress call!})
+                                 (call-server-tool! tool-meta arguments {:db db
+                                                                         :db* db*
+                                                                         :config config
+                                                                         :messenger messenger
+                                                                         :metrics metrics
+                                                                         :chat-id chat-id
+                                                                         :on-progress call!})
                                  (finally
                                    (when stop! (stop!)))))))
                        (tools.util/maybe-truncate-output config tool-call-id))]
@@ -603,48 +636,41 @@
            :contents [{:type :text
                        :text (str "Error calling tool: " error-msg)}]})))))
 
-(defn ^:private notify-server-updated [metrics messenger tool-status-fn server]
-  (metrics/count-up! "mcp-server-status" {:name (:name server)
-                                          :status (:status server)} metrics)
-  (messenger/tool-server-updated messenger (-> server
-                                               (assoc :type :mcp)
-                                               (update :tools
-                                                       #(mapv (comp tool-status-fn
-                                                                    (fn [t] (assoc t :server {:name (:name server)})))
-                                                              %)))))
-
-(defn ^:private notify-server-removed [metrics messenger params]
-  (metrics/count-up! "mcp-server-status" {:name (:name params)
-                                          :status "removed"} metrics)
-  (messenger/tool-server-removed messenger params))
-
 (defn ^:private module-servers
-  "The tool servers of the external modules' tools: one per prefix, with the
-   id of the first module using it. Tools that replace another server's tool
-   stay on that server."
-  [tools config]
+  "The tool servers clients get for the external modules: one per prefix for
+   their tools, with the id of the first module using it (tools that replace
+   another server's tool stay on that server), then their `:tool-servers`."
+  [tools listed config]
   (let [module-by-prefix (reduce (fn [acc entry]
                                    (if (or (:built-in? entry) (contains? acc (modules/prefix entry)))
                                      acc
                                      (assoc acc (modules/prefix entry) (:id entry))))
                                  {}
                                  (modules/active config))]
-    (->> tools
-         (filter #(contains? module-by-prefix (get-in % [:server :name])))
-         (group-by #(get-in % [:server :name]))
-         (sort-by key)
-         (map (fn [[server-name server-tools]]
-                {:type :module
-                 :name server-name
-                 :module (str (symbol (get module-by-prefix server-name)))
-                 :status "running"
-                 :tools server-tools})))))
+    (concat
+     (->> tools
+          (filter #(contains? module-by-prefix (get-in % [:server :name])))
+          (group-by #(get-in % [:server :name]))
+          (sort-by key)
+          (map (fn [[server-name server-tools]]
+                 {:type :module
+                  :name server-name
+                  :module (str (symbol (get module-by-prefix server-name)))
+                  :status "running"
+                  :tools server-tools})))
+     (for [[entry {server-name :name :keys [status tools]}] listed
+           :when (not (:built-in? entry))]
+       {:type :module
+        :name server-name
+        :module (str (symbol (:id entry)))
+        :status (if status (name status) "running")
+        :tools (mapv #(assoc % :server {:name server-name}) tools)}))))
 
 (defn ^:private notify-module-servers!
   "Sends the external modules' tool servers, and removes the ones gone since
    the last time."
   [db* messenger config tool-status-fn]
-  (let [servers (module-servers (native-tools @db* config) config)
+  (let [servers (module-servers (native-tools @db* config) (listed-tool-servers {:db @db* :config config}) config)
         server-names (set (map :name servers))]
     (doseq [server servers]
       (messenger/tool-server-updated messenger
@@ -656,126 +682,6 @@
       (messenger/tool-server-removed messenger {:name gone}))
     (swap! db* assoc :module-tool-servers server-names)))
 
-(defn init-servers! [db* messenger config metrics]
-  (let [default-agent (get config :defaultAgent)
-        tool-status-fn (make-tool-status-fn config default-agent)]
-    (messenger/tool-server-updated messenger {:type :native
-                                              :name "ECA"
-                                              :status "running"
-                                              :tools (->> (native-tools @db* config)
-                                                          (filter eca-server-tool?)
-                                                          (remove #(= "compact_chat" (:name %)))
-                                                          (mapv tool-status-fn)
-                                                          (mapv #(select-keys % [:name :description :parameters :disabled])))})
-    (notify-module-servers! db* messenger config tool-status-fn)
-    (when (modules/active? config :eca/mcp)
-      (m.mcp/initialize-servers-async!
-       {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)}
-       db*
-       config
-       metrics))))
-
-(defn ^:private mcp-view
-  "The config as MCP sees it: no servers while `:eca/mcp` is inactive, so
-   disabling it stops them and enabling it starts them again."
-  [config]
-  (if (and (map? config) (not (modules/active? config :eca/mcp)))
-    (assoc config :mcpServers {})
-    config))
-
-(defn reconcile-servers!
-  "Diff MCP servers between prev-config and new-config and apply add/remove/restart
-   accordingly, pushing `tool/serverUpdated` and `tool/serverRemoved` notifications.
-   Called by the config-polling loop when the resolved config changes."
-  [prev-config new-config db* messenger metrics]
-  (let [default-agent (get new-config :defaultAgent)
-        tool-status-fn (make-tool-status-fn new-config default-agent)]
-    (m.mcp/reconcile-servers!
-     (mcp-view prev-config) (mcp-view new-config) db* metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
-      :on-server-removed (partial notify-server-removed metrics messenger)})))
-
-(defn stop-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/stop-server!
-     name
-     db*
-     config
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn start-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/start-server!
-     name
-     db*
-     config
-     metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn connect-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/connect-server!
-     name
-     db*
-     config
-     metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn logout-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/logout-server!
-     name
-     db*
-     config
-     metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn update-server! [name server-fields db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/update-server!
-     name
-     server-fields
-     db*
-     config
-     metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn disable-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/disable-server!
-     name
-     db*
-     config
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn enable-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/enable-server!
-     name
-     db*
-     metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn add-server! [name server-config opts db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/add-server!
-     name
-     server-config
-     opts
-     db*
-     config
-     metrics
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)})))
-
-(defn remove-server! [name db* messenger config metrics]
-  (let [tool-status-fn (make-tool-status-fn config nil)]
-    (m.mcp/remove-server!
-     name
-     db*
-     config
-     {:on-server-updated (partial notify-server-updated metrics messenger tool-status-fn)
-      :on-server-removed (partial notify-server-removed metrics messenger)})))
-
 (defn tool-call-summary [all-tools full-name args config db]
   (when-let [summary-fn (:summary-fn (resolve-tool full-name all-tools))]
     (try
@@ -786,32 +692,51 @@
         (logger/error (format "Error in tool call summary fn %s: %s" name (.getMessage e)))
         nil))))
 
+(defn ^:private tool-fn
+  "Tool `tool`'s `k` function: its own, else, for a tool of another server,
+   the one of ECA's tool with its bare name, as when these went by the bare
+   tool name."
+  [k tool db config]
+  (or (get tool k)
+      (when (and (:name tool) (not (eca-server-tool? tool)))
+        (get-in (module-definitions {:db db :config config}) [(:name tool) k]))))
+
 (defn tool-call-details-before-invocation
-  "Return the tool call details before invoking the tool."
-  [name arguments server db config chat-id ask-approval? tool-call-id]
+  "Return the tool call details before invoking the tool (its
+   `:details-before-fn`)."
+  [tool arguments db config chat-id ask-approval? tool-call-id]
   (try
-    (tools.util/tool-call-details-before-invocation name arguments server {:db db
-                                                                           :config config
-                                                                           :chat-id chat-id
-                                                                           :ask-approval? ask-approval?
-                                                                           :tool-call-id tool-call-id})
+    (when-let [details-fn (tool-fn :details-before-fn tool db config)]
+      (details-fn {:db db
+                   :config config
+                   :chat-id chat-id
+                   :ask-approval? ask-approval?
+                   :tool-call-id tool-call-id
+                   :server (:server tool)}
+                  arguments))
     (catch Exception e
       ;; Avoid failling tool call because of error on getting details.
-      (logger/error logger-tag (format "Error getting details for %s with args %s: %s" name arguments e))
+      (logger/error logger-tag (format "Error getting details for %s with args %s: %s" (:name tool) arguments e))
       nil)))
 
 (defn tool-call-details-after-invocation
-  "Return the tool call details after invoking the tool."
-  [name arguments details result ctx]
-  (tools.util/tool-call-details-after-invocation name arguments details result ctx))
+  "Return the tool call details after invoking the tool (its
+   `:details-after-fn`)."
+  [tool arguments details result ctx]
+  (if-let [details-fn (tool-fn :details-after-fn tool (:db ctx) (:config ctx))]
+    (details-fn (assoc ctx :server (:server tool)) arguments details result)
+    (tools.util/details-after-default details result)))
 
 (defn tool-call-destroy-resource!
-  "Destroy the resource in the tool call named `name`."
-  [full-name resource-kwd resource]
-  (tools.util/tool-call-destroy-resource! full-name resource-kwd resource))
+  "Destroys a resource a call of the tool `full-name` left (its `:cleanup-fn`)."
+  [full-name resource-kwd resource db config]
+  (let [[server-name tool-name] (split-full-name full-name)]
+    (when-let [cleanup (get-in (module-definitions {:db db :config config})
+                               [(definition-key server-name tool-name) :cleanup-fn])]
+      (cleanup resource-kwd resource))))
 
 (defn refresh-tool-servers!
-  "Updates all tool servers (native, modules' and MCP) with new agent status."
+  "Updates all tool servers (native, modules' and their tool servers) with new agent status."
   [tool-status-fn db* messenger config]
   (messenger/tool-server-updated messenger {:type :native
                                             :name "ECA"
@@ -821,23 +746,20 @@
                                                         (mapv tool-status-fn)
                                                         (mapv #(select-keys % [:name :description :parameters :disabled])))})
   (notify-module-servers! db* messenger config tool-status-fn)
-  (doseq [[server-name {:keys [tools status]}] (:mcp-clients @db*)]
-    (messenger/tool-server-updated messenger {:type :mcp
+  ;; the built-in modules announce their tool servers themselves (MCP's are of
+  ;; type mcp); here they get them again, with the tools' new status
+  (doseq [[entry {server-name :name :keys [type status tools]}] (listed-tool-servers {:db @db* :config config})
+          :when (:built-in? entry)]
+    (messenger/tool-server-updated messenger {:type type
                                               :name server-name
                                               :status (name (or status :unknown))
-                                              :tools (mapv tool-status-fn (or tools []))}))
-  (doseq [[server-name server-config] (:mcpServers config)]
-    (when (and (get server-config :disabled false)
-               (not (contains? (:mcp-clients @db*) server-name)))
-      (messenger/tool-server-updated messenger {:type :mcp
-                                                :name server-name
-                                                :status "disabled"
-                                                :tools []}))))
+                                              :tools (mapv #(select-keys (tool-status-fn %) [:name :description :parameters :disabled])
+                                                           (or tools []))})))
 
 (defn refresh-module-tool-servers!
-  "After modules change (loaded, reloaded, enabled, disabled, or a module
-   registered or removed a tool): sends ECA's tool server and the external
-   modules' ones again, as at startup."
+  "Sends ECA's tool server and the external modules' ones: at startup, and
+   again after modules change (loaded, reloaded, enabled, disabled, or a
+   module registered or removed a tool)."
   [db* messenger config]
   (let [tool-status-fn (make-tool-status-fn config (get config :defaultAgent))]
     (messenger/tool-server-updated messenger {:type :native

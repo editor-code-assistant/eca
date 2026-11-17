@@ -103,10 +103,30 @@
                 (modules/problems {:id :acme/x :commands {"c" {}}} {})))
     (is (match? {:errors [#":event-handlers :tool/before-call: must be a function"]}
                 (modules/problems {:id :acme/x :event-handlers {:tool/before-call "nope"}} {})))
-    (is (match? {:errors [#":rpc is only for built-in modules"]}
-                (modules/problems {:id :acme/x :rpc {}} {})))
+    (is (match? {:errors [#":rpc \"x/y\": must be a map with :kind :request or :notification and a :handler function"]}
+                (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request}}} {})))
+    (is (= {:errors [] :warnings []}
+           (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request :handler (fn [_ _])}}} {})))
+    (is (match? {:errors [#":tool-servers must be a map with :list and :call functions"]}
+                (modules/problems {:id :acme/x :tool-servers {:list (fn [_])}} {})))
+    (is (= {:errors [] :warnings []}
+           (modules/problems {:id :acme/x :tool-servers {:list (fn [_]) :call (fn [_ _ _ _ _])}} {})))
     (is (match? {:errors [#":skills is only for built-in modules"]}
                 (modules/problems {:id :acme/x :skills []} {})))
+    (is (match? {:errors [#":providers \"p\": :quota, :errors, .* are only for built-in modules"]}
+                (modules/problems {:id :acme/x :providers {"p" {:quota {:fetch (fn [_])}}}} {})))
+    (is (match? {:errors [#":providers \"p\": .*method's :start are only for built-in modules"]}
+                (modules/problems {:id :acme/x :providers {"p" {:login {:methods [{:key "k" :start (fn [& _])}]}}}} {})))
+    (is (= [] (:errors (modules/problems {:id :eca/x :providers {"p" {:login {:steps {}} :errors {}}}}
+                                         {:built-in? true}))))
+    (is (match? {:errors [#":transform-tools is only for built-in modules"]}
+                (modules/problems {:id :acme/x :transform-tools (fn [_ tools] tools)} {})))
+    (is (match? {:errors [#":transform-tools must be a function"]}
+                (modules/problems {:id :eca/x :transform-tools {}} {:built-in? true})))
+    (is (match? {:errors [#":system-prompts :acme/s: :signature, :resync\? are only for built-in modules"]}
+                (modules/problems {:id :acme/x :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]} {})))
+    (is (= [] (:errors (modules/problems {:id :eca/x :system-prompts [{:id :eca/s :content "c" :signature (fn [_])}]}
+                                         {:built-in? true}))))
     (is (match? {:errors [#":skills \"s\": :body must be a string or a function"]}
                 (modules/problems {:id :eca/x :skills [{:name "s" :description "d"}]} {:built-in? true})))
     (is (match? {:errors [#":config-spec x: :type must be one of"]}

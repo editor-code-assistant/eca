@@ -5,9 +5,8 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.chat :as f.chat]
-   [eca.features.chat.lifecycle :as lifecycle]
-   [eca.features.chat.tool-calls :as tc]
+   [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.tools :as f.tools]
    [eca.modules :as modules]
    [eca.modules.hooks :as m.hooks]
@@ -72,8 +71,8 @@
                                f.tools/tool-call-details-before-invocation (constantly nil)
                                f.tools/tool-call-details-after-invocation (constantly nil)
                                f.tools/tool-call-summary (constantly "Tool")
-                               lifecycle/maybe-renew-auth-token (fn [_] nil)]
-                   ((tc/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls))
+                               f.chat.lifecycle/maybe-renew-auth-token (fn [_] nil)]
+                   ((f.chat.tool-batch/on-tools-called! chat-ctx (atom "") add-to-history! []) tool-calls))
         messages (get-in @db* [:chats chat-id :messages])]
     {:continue continue
      :outputs (into {} (keep (fn [{:keys [role content]}]
@@ -265,7 +264,7 @@
       (testing "preRequest hooks too"
         (reset! opts* [])
         (reset! events* [])
-        (#'f.chat/run-pre-request-hooks! {:db* (h/db*) :config (h/config) :chat-id "chat-1"
-                                          :messenger (h/messenger) :message "hi"})
+        (#'m.hooks/run-pre-request-hooks! {:db* (h/db*) :config (h/config) :chat-id "chat-1"
+                                           :messenger (h/messenger) :message "hi"})
         (is (match? [{:script "sandbox check-prompt"}] @opts*))
         (is (match? [{:source :hook :hook "check" :hook-type :preRequest :timeout-ms 30000}] @events*))))))

@@ -26,7 +26,7 @@
                  :chat/compact {:kind :handle}
                  :session/started {:kind :notify}}
                 (events/definitions {})))
-    (is (= 21 (count events/core-events)))))
+    (is (= 25 (count events/core-events)))))
 
 (deftest transform-test
   (let [calls* (atom [])
@@ -59,6 +59,18 @@
                                                       (fn [_ _] (swap! calls* conj :b2) nil)]}}]
         (events/emit! {} :test/changed {})
         (is (= [:b1 :a :b2] @calls*)))))
+  (testing "external handlers run before the last built-in ones, in their own order among themselves"
+    (let [calls* (atom [])
+          handler (fn [id] (fn [_ _] (swap! calls* conj id) nil))]
+      (with-modules [{:id :eca/last :priority -1000 :event-handlers {:test/changed (handler :built-in-last)}}]
+        (modules/add-external! "/tmp/acme-low.clj" {:id :acme/low :priority -1000
+                                                    :event-handlers {:test/changed (handler :low)}})
+        (modules/add-external! "/tmp/acme-lower.clj" {:id :acme/lower
+                                                      :event-handlers {:test/changed {:priority -2000 :handler (handler :lower)}}})
+        (modules/add-external! "/tmp/acme-mid.clj" {:id :acme/mid :priority -950
+                                                    :event-handlers {:test/changed (handler :mid)}})
+        (events/emit! {} :test/changed {})
+        (is (= [:mid :low :lower :built-in-last] @calls*)))))
   (testing "handlers get the caller's ctx plus their module id"
     (let [ctx* (atom nil)]
       (with-modules [{:id :acme/ctx :event-handlers {:test/changed (fn [ctx _] (reset! ctx* ctx) nil)}}]

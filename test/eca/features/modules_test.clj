@@ -151,3 +151,17 @@
   (with-redefs [modules/built-in-modules (constantly test-modules)]
     (is (= [] (f.modules/config-problems {:sampleUrl "http://x"})))
     (is (= ["`sampleUrl` should be a string, got a number"] (f.modules/config-problems {:sampleUrl 1})))))
+
+(deftest command-sources-text-test
+  (reset! config/initialization-config* {:pureConfig true})
+  (config/clear-cache!)
+  (testing "for a built-in's :commands function, /modules lists its own commands, not the ones it gives for a source"
+    (with-redefs [modules/built-in-modules
+                  (constantly [m.core/module
+                               {:id :eca/sources
+                                :commands (fn [_ctx]
+                                            [["listing" {:description "List." :handler (fn [_ _] "ok")}]
+                                             ["a-skill" {:client-type :skill :handler (fn [_ _] {:prompt "x"})}]])}])]
+      (let [text (f.modules/handle! [] (chat-ctx))]
+        (is (string/includes? text "commands `/listing`"))
+        (is (not (string/includes? text "a-skill")))))))

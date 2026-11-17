@@ -1,11 +1,10 @@
-(ns eca.features.rewrite-test
+(ns eca.modules.rewrite-test
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.login :as f.login]
-   [eca.features.prompt :as f.prompt]
-   [eca.features.rewrite :as f.rewrite]
    [eca.llm-api :as llm-api]
+   [eca.modules.rewrite :as m.rewrite]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -25,12 +24,12 @@
                                (on-message-received {:type :text :text "Hello"})
                                (on-message-received {:type :text :text ", world!"})
                                (on-message-received {:type :finish}))
-                             f.prompt/build-rewrite-instructions (constantly "INSTR")
+                             m.rewrite/build-rewrite-instructions (constantly "INSTR")
                              f.login/maybe-renew-auth-token! (fn [& _] nil)
                              llm-api/refine-file-context (constantly "FULL-CONTENT")
                              llm-api/default-model (constantly "openai/gpt-4.1")]
                  (h/config! {:env "test"})
-                 (f.rewrite/prompt {:id "rw-1"
+                 (m.rewrite/prompt {:id "rw-1"
                                     :prompt "Please improve the following"
                                     :text "Original text"
                                     :range {:start {:line 1 :character 0}
@@ -38,7 +37,7 @@
                                    (h/db*) (h/config) (h/messenger) (h/metrics)))]
       (is (= {:status "prompting" :model "openai/gpt-4.1"} resp))
       ;; Messenger events captured by TestMessenger
-      (let [msgs (get (h/messages) :rewrite-content-received)]
+      (let [msgs (get-in (h/messages) [:notifications "rewrite/contentReceived"])]
         ;; Ensure order and content types
         (is (= 5 (count msgs)))
         (is (match? [{:rewrite-id "rw-1" :content {:type :started}}
@@ -61,14 +60,14 @@
                           (reset! api-opts* opts)
                           ((:on-first-response-received opts) {:type :text})
                           ((:on-message-received opts) {:type :finish}))
-                        f.prompt/build-rewrite-instructions
+                        m.rewrite/build-rewrite-instructions
                         (fn [text path full-text range _all-tools cfg _db]
                           (reset! captured-instr-args* {:text text :path path :full-text full-text :range range :config cfg})
                           "MY-INSTR")
                         f.login/maybe-renew-auth-token! (fn [& _] nil)
                         llm-api/refine-file-context (fn [path _] (str "CTX:" path))]
             (h/config! {:env "test" :rewrite {:model "openai/gpt-test"}})
-            (f.rewrite/prompt {:id "rw-2"
+            (m.rewrite/prompt {:id "rw-2"
                                :prompt "Do it"
                                :text "T"
                                :path (h/file-path "/tmp/file.txt")
@@ -102,17 +101,17 @@
                     (on-message-received {:type :text :text "(+ 1 2)"})
                     (on-message-received {:type :text :text "\n```"})
                     (on-message-received {:type :finish}))
-                  f.prompt/build-rewrite-instructions (constantly "INSTR")
+                  m.rewrite/build-rewrite-instructions (constantly "INSTR")
                   f.login/maybe-renew-auth-token! (fn [& _] nil)
                   llm-api/default-model (constantly "openai/gpt-4.1")]
       (h/config! {:env "test"})
-      (f.rewrite/prompt {:id "rw-fence"
+      (m.rewrite/prompt {:id "rw-fence"
                          :prompt "Rewrite this"
                          :text "(+ 1 1)"
                          :range {:start {:line 1 :character 0}
                                  :end {:line 1 :character 7}}}
                         (h/db*) (h/config) (h/messenger) (h/metrics))
-      (let [msgs (get (h/messages) :rewrite-content-received)]
+      (let [msgs (get-in (h/messages) [:notifications "rewrite/contentReceived"])]
         (is (= 6 (count msgs)))
         (is (match? [{:content {:type :started}}
                      {:content {:type :text :text "```clojure\n"}}
@@ -130,17 +129,17 @@
                     (on-first-response-received {:type :text})
                     (on-message-received {:type :text :text "(+ 1 2)"})
                     (on-message-received {:type :finish}))
-                  f.prompt/build-rewrite-instructions (constantly "INSTR")
+                  m.rewrite/build-rewrite-instructions (constantly "INSTR")
                   f.login/maybe-renew-auth-token! (fn [& _] nil)
                   llm-api/default-model (constantly "openai/gpt-4.1")]
       (h/config! {:env "test"})
-      (f.rewrite/prompt {:id "rw-no-fence"
+      (m.rewrite/prompt {:id "rw-no-fence"
                          :prompt "Rewrite this"
                          :text "(+ 1 1)"
                          :range {:start {:line 1 :character 0}
                                  :end {:line 1 :character 7}}}
                         (h/db*) (h/config) (h/messenger) (h/metrics))
-      (let [msgs (get (h/messages) :rewrite-content-received)]
+      (let [msgs (get-in (h/messages) [:notifications "rewrite/contentReceived"])]
         (is (= 3 (count msgs)))
         (is (match? [{:content {:type :started}}
                      {:content {:type :text :text "(+ 1 2)"}}
@@ -158,7 +157,7 @@
                     (fn [opts]
                       ((:on-first-response-received opts) {:type :text})
                       ((:on-message-received opts) {:type :finish}))
-                    f.prompt/build-rewrite-instructions
+                    m.rewrite/build-rewrite-instructions
                     (fn [_text _path full-text _range _all-tools _cfg _db]
                       (reset! captured-args* {:full-text full-text})
                       "INSTR")
@@ -166,7 +165,7 @@
                     llm-api/refine-file-context (fn [_ _] file-content)
                     llm-api/default-model (constantly "openai/gpt-4.1")]
         (h/config! {:env "test" :rewrite {:fullFileMaxLines max-lines}})
-        (f.rewrite/prompt {:id "rw-window"
+        (m.rewrite/prompt {:id "rw-window"
                            :prompt "Improve"
                            :text "t"
                            :path "/tmp/big.clj"
@@ -194,7 +193,7 @@
                     (fn [opts]
                       ((:on-first-response-received opts) {:type :text})
                       ((:on-message-received opts) {:type :finish}))
-                    f.prompt/build-rewrite-instructions
+                    m.rewrite/build-rewrite-instructions
                     (fn [_text _path full-text _range _all-tools _cfg _db]
                       (reset! captured-args* {:full-text full-text})
                       "INSTR")
@@ -202,7 +201,7 @@
                     llm-api/refine-file-context (fn [_ _] file-content)
                     llm-api/default-model (constantly "openai/gpt-4.1")]
         (h/config! {:env "test" :rewrite {:fullFileMaxLines max-lines}})
-        (f.rewrite/prompt {:id "rw-small"
+        (m.rewrite/prompt {:id "rw-small"
                            :prompt "Improve"
                            :text "t"
                            :path "/tmp/small.clj"
@@ -227,13 +226,13 @@
                           (reset! api-opts* opts)
                           ((:on-first-response-received opts) {:type :text})
                           ((:on-message-received opts) {:type :finish}))
-                        f.prompt/build-rewrite-instructions (constantly "INSTR")
+                        m.rewrite/build-rewrite-instructions (constantly "INSTR")
                         f.login/maybe-renew-auth-token!
                         (fn [{:keys [provider]} _ctx]
                           (reset! renew-called* provider))
                         llm-api/default-model (constantly "google/gemini-dev")]
             (h/config! {:env "test"})
-            (f.rewrite/prompt {:id "rw-3"
+            (m.rewrite/prompt {:id "rw-3"
                                :prompt "X"
                                :text "Y"}
                               (h/db*) (h/config) (h/messenger) (h/metrics)))]

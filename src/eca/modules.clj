@@ -52,11 +52,11 @@
 (def ^:private v1-keys
   #{:id :description :version :api :requires :priority :default-enabled?
     :config-spec :start :stop :tools :prefix :commands :system-prompts
-    :providers :apis :config-defaults :event-handlers :defines})
+    :providers :apis :config-defaults :event-handlers :defines :rpc :tool-servers})
 
-(def ^:private built-in-only-keys #{:rpc :agents :skills})
+(def ^:private built-in-only-keys #{:agents :skills :contexts :transform-tools})
 
-(def ^:private later-keys #{:activation :strategies :rules :contexts :capabilities :ui})
+(def ^:private later-keys #{:activation :strategies :rules :capabilities :ui})
 
 ;; --- Registry
 
@@ -142,6 +142,27 @@
 
 (defn ^:private qualified-kw? [x] (qualified-keyword? x))
 
+(defn ^:private provider-problems
+  "Problems of a provider declaration. The functions core calls (login
+   steps and methods' `:start`, the OAuth code exchange, quota, errors,
+   the models override) are for built-in modules, for now."
+  [built-in? declaration]
+  (let [login (:login declaration)]
+    (cond
+      (not (map? declaration))
+      ["must be a map"]
+
+      (and (not built-in?)
+           (or (some #(contains? declaration %) [:quota :errors :models-override-fn])
+               (and (map? login)
+                    (or (contains? login :steps)
+                        (contains? login :complete-oauth-code)
+                        (and (sequential? (:methods login)) (some #(and (map? %) (:start %)) (:methods login)))))))
+      [(str ":quota, :errors, :models-override-fn, :login :steps, :login :complete-oauth-code and a login"
+            " method's :start are only for built-in modules")]
+
+      :else [])))
+
 (defn ^:private map-of-problems
   "Problems of a map of name → entry, with `entry-problems` for each entry."
   [k m key-pred key-desc entry-problems]
@@ -203,17 +224,25 @@
               :else ["must be a function, a map with :handler, or a vector of those"]))]
     (if (sequential? spec) (vec (mapcat one spec)) (one spec))))
 
-(defn ^:private section-problems [sections]
+(def ^:private built-in-only-section-keys
+  "Section keys only built-in modules' sections may have."
+  [:signature :resync?])
+
+(defn ^:private section-problems [built-in? sections]
   (cond
     (nil? sections) []
     (not (sequential? sections)) [":system-prompts must be a vector of sections"]
     :else (vec (mapcat (fn [section]
                          (if-not (map? section)
                            [":system-prompts: each section must be a map"]
-                           (cond-> []
-                             (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
-                             (not (or (string? (:content section)) (fn-like? (:content section))))
-                             (conj (format ":system-prompts %s: :content must be a string or a function" (:id section))))))
+                           (let [built-in-only (filter #(contains? section %) built-in-only-section-keys)]
+                             (cond-> []
+                               (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
+                               (not (or (string? (:content section)) (fn-like? (:content section))))
+                               (conj (format ":system-prompts %s: :content must be a string or a function" (:id section)))
+                               (and (not built-in?) (seq built-in-only))
+                               (conj (format ":system-prompts %s: %s are only for built-in modules"
+                                             (:id section) (string/join ", " built-in-only)))))))
                        sections))))
 
 (defn ^:private defines-problems [defines]
@@ -267,15 +296,31 @@
                   (if (and built-in? (fn-like? tools))
                     []
                     (map-of-problems ":tools" tools string? "a string" tool-problems))
-                  (map-of-problems ":commands" commands string? "a string" command-problems)
-                  (section-problems (:system-prompts module))
-                  (map-of-problems ":providers" providers string? "a string" #(if (map? %) [] ["must be a map"]))
+                  (if (and built-in? (fn-like? commands))
+                    []
+                    (map-of-problems ":commands" commands string? "a string" command-problems))
+                  (section-problems built-in? (:system-prompts module))
+                  (map-of-problems ":providers" providers string? "a string" (partial provider-problems built-in?))
                   (map-of-problems ":apis" apis string? "a string"
                                    #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))
+                  (map-of-problems ":rpc" (:rpc module) string? "a string"
+                                   #(if (and (map? %) (#{:request :notification} (:kind %)) (fn-like? (:handler %)))
+                                      []
+                                      ["must be a map with :kind :request or :notification and a :handler function"]))
+                  (let [tool-servers (:tool-servers module)]
+                    (when (and (some? tool-servers)
+                               (not (and (map? tool-servers)
+                                         (fn-like? (:list tool-servers))
+                                         (fn-like? (:call tool-servers))
+                                         (or (nil? (:await-refresh tool-servers))
+                                             (fn-like? (:await-refresh tool-servers))))))
+                      [":tool-servers must be a map with :list and :call functions, and maybe an :await-refresh function"]))
                   (when (and (some? config-defaults) (not (or (map? config-defaults) (fn-like? config-defaults))))
                     [":config-defaults must be a map or a function"])
                   (when (and (some? (:agents module)) (not (fn-like? (:agents module))))
                     [":agents must be a function"])
+                  (when (and (some? (:transform-tools module)) (not (fn-like? (:transform-tools module))))
+                    [":transform-tools must be a function"])
                   (skills-problems (:skills module))
                   (map-of-problems ":event-handlers" event-handlers qualified-kw? "a qualified keyword" handler-spec-problems)
                   (defines-problems (:defines module))
@@ -750,6 +795,18 @@
   []
   (boolean (:session-started? @registry*)))
 
+(defn session-ready!
+  "Records that the session finished starting; core emits `:session/ready`
+   right after. Modules that start later can tell with `session-ready?`."
+  []
+  (swap! registry* assoc :session-ready? true))
+
+(defn session-ready?
+  "Whether the session finished starting (`:session/ready`), and `stop-all!`
+   didn't run since."
+  []
+  (boolean (:session-ready? @registry*)))
+
 (defn components
   "The session's components `start!` got: `{:db* :messenger :metrics}`, or nil
    before it ran."
@@ -768,7 +825,7 @@
   ([components] (stop-all! components #{}))
   ([components keep-running]
    (locking lifecycle-lock
-     (swap! registry* assoc :session-started? false)
+     (swap! registry* assoc :session-started? false :session-ready? false)
      (doseq [r (reverse (running))
              :when (not (contains? keep-running (:id (:entry r))))]
        (stop-module! components r))

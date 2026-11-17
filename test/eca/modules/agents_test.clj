@@ -579,3 +579,93 @@
           (is (= "fallback" agent-name))))
       (finally
         (fs/delete-tree tmp-dir)))))
+
+(deftest resolve-agent-inheritance-test
+  (testing "basic inheritance copies parent fields to child"
+    (let [agents {"plan" {:mode "primary"
+                          :disabledTools ["edit_file" "write_file"]
+                          :toolCall {:approval {:byDefault "ask"}}}
+                  "my-plan" {:inherit "plan"
+                             :description "custom plan"}}]
+      (is (match?
+           {"plan" {:mode "primary"
+                    :disabledTools ["edit_file" "write_file"]}
+            "my-plan" {:mode "primary"
+                       :disabledTools ["edit_file" "write_file"]
+                       :toolCall {:approval {:byDefault "ask"}}
+                       :description "custom plan"}}
+           (#'m.agents/resolve-agent-inheritance agents)))))
+
+  (testing "spawnableBy follows normal inheritance and child override behavior"
+    (let [agents {"worker" {:mode "subagent"
+                            :spawnableBy ["duel"]}
+                  "inherited-worker" {:inherit "worker"
+                                      :description "inherits restriction"}
+                  "overridden-worker" {:inherit "worker"
+                                       :spawnableBy ["other"]}}
+          resolved (#'m.agents/resolve-agent-inheritance agents)]
+      (is (= ["duel"] (get-in resolved ["inherited-worker" :spawnableBy])))
+      (is (= ["other"] (get-in resolved ["overridden-worker" :spawnableBy])))))
+
+  (testing "variant follows normal inheritance and child override behavior"
+    (let [agents {"worker" {:mode "subagent"
+                            :variant "medium"}
+                  "inherited-worker" {:inherit "worker"}
+                  "overridden-worker" {:inherit "worker"
+                                       :variant "high"}}
+          resolved (#'m.agents/resolve-agent-inheritance agents)]
+      (is (= "medium" (get-in resolved ["inherited-worker" :variant])))
+      (is (= "high" (get-in resolved ["overridden-worker" :variant])))))
+
+  (testing "child values override parent values"
+    (let [agents {"code" {:mode "primary"
+                          :disabledTools ["preview_file_change"]
+                          :defaultModel "anthropic/claude-sonnet-4-6"}
+                  "my-code" {:inherit "code"
+                             :defaultModel "openai/gpt-5"}}]
+      (is (match?
+           {"my-code" {:mode "primary"
+                       :disabledTools ["preview_file_change"]
+                       :defaultModel "openai/gpt-5"}}
+           (#'m.agents/resolve-agent-inheritance agents)))))
+
+  (testing "missing parent is skipped with warning"
+    (let [agents {"child" {:inherit "nonexistent"
+                           :mode "primary"}}]
+      (is (match?
+           {"child" {:mode "primary"}}
+           (#'m.agents/resolve-agent-inheritance agents)))
+      (is (not (contains? (get (#'m.agents/resolve-agent-inheritance agents) "child") :inherit)))))
+
+  (testing "self-inheritance is skipped"
+    (let [agents {"self" {:inherit "self"
+                          :mode "primary"}}]
+      (is (match?
+           {"self" {:mode "primary"}}
+           (#'m.agents/resolve-agent-inheritance agents)))
+      (is (not (contains? (get (#'m.agents/resolve-agent-inheritance agents) "self") :inherit)))))
+
+  (testing "agent without inherit is unchanged"
+    (let [agents {"code" {:mode "primary"
+                          :disabledTools ["preview_file_change"]}}]
+      (is (match?
+           {"code" {:mode "primary"
+                    :disabledTools ["preview_file_change"]}}
+           (#'m.agents/resolve-agent-inheritance agents)))))
+
+  (testing "inherit key is stripped from resolved config"
+    (let [agents {"plan" {:mode "primary"}
+                  "child" {:inherit "plan"
+                           :description "my child"}}
+          resolved (#'m.agents/resolve-agent-inheritance agents)]
+      (is (not (contains? (get resolved "child") :inherit))))))
+
+(deftest migrate-legacy-config-test
+  (testing "behavior is the old name of agent, and agent and build the old names of code"
+    (is (= {:agent {"code" {:a 1} "plan" {:b 2}}
+            :defaultAgent "code"
+            :chat {:defaultAgent "code"}}
+           (#'m.agents/migrate-legacy-config {:behavior {"agent" {:a 1}}
+                                              :agent {"plan" {:b 2}}
+                                              :defaultBehavior "build"
+                                              :chat {:defaultBehavior "agent"}})))))

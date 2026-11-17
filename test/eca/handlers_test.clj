@@ -2,7 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.migration :as db.migration]
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
    [eca.models :as models]
@@ -16,7 +16,7 @@
   (testing "initializationOptions config is merged properly with default init config"
     (let [db* (atom {})]
       (with-redefs [models/sync-models! (constantly nil)
-                    db/load-db-from-cache! (constantly nil)]
+                    db.migration/load-db-from-cache! (constantly nil)]
         (is (match?
              {}
              (handlers/initialize (h/components)
@@ -33,7 +33,7 @@
   (testing "snapshots initial-workspace-folders for stable cache key"
     (h/reset-components!)
     (let [workspace-folders [{:uri "file:///project/main" :name "main"}]]
-      (with-redefs [db/load-db-from-cache! (constantly nil)]
+      (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
         (handlers/initialize (h/components)
                              {:workspace-folders workspace-folders
                               :initialization-options {:pureConfig true}})
@@ -43,7 +43,7 @@
 
   (testing "a modules key in initializationOptions, keyed by module ids, works"
     (h/reset-components!)
-    (with-redefs [db/load-db-from-cache! (constantly nil)]
+    (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
       (is (match? {:global-config-path string?}
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true
@@ -54,7 +54,7 @@
 
   (testing "returns the global config path the server reads"
     (h/reset-components!)
-    (with-redefs [db/load-db-from-cache! (constantly nil)]
+    (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
       (is (match? {:global-config-path (str (config/global-config-file))}
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true}}))))))
@@ -750,65 +750,3 @@
       (is (match? {:chat-clear [{:chat-id "c1" :messages true}]
                    :chat-opened [{:chat-id "c1" :title "Hello world"}]}
                   (h/messages))))))
-
-(deftest mcp-add-server-test
-  (testing "duplicate name returns :error"
-    (h/reset-components!)
-    (h/config! {:mcpServers {"existing" {:url "https://x"}}})
-    (let [result (handlers/mcp-add-server (h/components)
-                                          {:name "existing"
-                                           :command "bin"})]
-      (is (match? {:error {:code "invalid_request"
-                           :message #"already exists"}}
-                  result))))
-
-  (testing "missing transport returns :error"
-    (h/reset-components!)
-    (h/config! {:mcpServers {}})
-    (let [result (handlers/mcp-add-server (h/components)
-                                          {:name "s"})]
-      (is (match? {:error {:code "invalid_request"
-                           :message #"must specify :command.*or :url"}}
-                  result))))
-
-  (testing "conflicting :command and :url returns :error"
-    (h/reset-components!)
-    (h/config! {:mcpServers {}})
-    (let [result (handlers/mcp-add-server (h/components)
-                                          {:name "s"
-                                           :command "bin"
-                                           :url "https://x"})]
-      (is (match? {:error {:code "invalid_request"
-                           :message #"must not specify both"}}
-                  result)))))
-
-(deftest mcp-remove-server-test
-  (testing "unknown server returns :error"
-    (h/reset-components!)
-    (h/config! {:mcpServers {}})
-    (let [result (handlers/mcp-remove-server (h/components)
-                                             {:name "ghost"})]
-      (is (match? {:error {:code "invalid_request"
-                           :message #"does not exist"}}
-                  result)))))
-
-(deftest mcp-update-server-extended-params-test
-  (testing "accepts :env and :headers params (forwarded to f.tools/update-server!)"
-    (h/reset-components!)
-    (h/config! {:mcpServers {"s" {:command "bin"}}})
-    (let [captured* (atom nil)]
-      (with-redefs [f.tools/update-server!
-                    (fn [server-name server-fields _db* _messenger _config _metrics]
-                      (reset! captured* {:name server-name :fields server-fields}))]
-        (handlers/mcp-update-server (h/components)
-                                    {:name "s"
-                                     :command "bin"
-                                     :args ["-x"]
-                                     :env {:FOO "bar"}
-                                     :headers {:Authorization "Bearer x"}})
-        (is (match? {:name "s"
-                     :fields {:command "bin"
-                              :args ["-x"]
-                              :env {:FOO "bar"}
-                              :headers {:Authorization "Bearer x"}}}
-                    @captured*))))))

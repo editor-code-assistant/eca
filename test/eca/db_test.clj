@@ -6,6 +6,11 @@
    [cognitect.transit :as transit]
    [eca.cache :as cache]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.global-cache :as db.global-cache]
+   [eca.db.io :as db.io]
+   [eca.db.migration :as db.migration]
+   [eca.db.workspaces :as db.workspaces]
    [eca.shared :as shared]
    [eca.test-helper :as h])
   (:import
@@ -24,7 +29,7 @@
 
 (defn ^:private chat-cache-file ^File [workspaces chat-id]
   (io/file (cache/workspace-cache-dir workspaces shared/uri->filename)
-           "chats" (db/chat-file-name chat-id)))
+           "chats" (db.io/chat-file-name chat-id)))
 
 (defn ^:private chats-index-file ^File [workspaces]
   (io/file (cache/workspace-cache-dir workspaces shared/uri->filename)
@@ -39,36 +44,36 @@
 (deftest chat-file-name-test
   (testing "uuid-like ids are used as-is"
     (is (= "aaaaaaaa-1111-2222-3333-444444444444.transit.json"
-           (db/chat-file-name "aaaaaaaa-1111-2222-3333-444444444444"))))
+           (db.io/chat-file-name "aaaaaaaa-1111-2222-3333-444444444444"))))
   (testing "path-hostile, short, uppercase, or index-colliding ids fall back to a digest"
-    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db/chat-file-name "../../evil")))
-    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db/chat-file-name "short")))
-    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db/chat-file-name "MyChat-12345"))
+    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db.io/chat-file-name "../../evil")))
+    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db.io/chat-file-name "short")))
+    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db.io/chat-file-name "MyChat-12345"))
         "uppercase would collide on case-insensitive filesystems")
-    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db/chat-file-name "index-collision")))
-    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db/chat-file-name nil))
+    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db.io/chat-file-name "index-collision")))
+    (is (re-matches #"[0-9a-f]{64}\.transit\.json" (db.io/chat-file-name nil))
         "non-string ids never throw"))
   (testing "the same id always yields the same file name"
-    (is (= (db/chat-file-name "../../evil") (db/chat-file-name "../../evil")))))
+    (is (= (db.io/chat-file-name "../../evil") (db.io/chat-file-name "../../evil")))))
 
 (deftest chat-list-meta-test
   (testing "hydrated chats compute message-derived fields"
     (is (= {:id "a" :title "A" :message-count 3 :user-message-count 1 :flags ["pin"]}
-           (db/chat-list-meta {:id "a" :title "A"
-                               :tool-calls {"t" {:status :completed}}
-                               :messages [{:role "user" :content "hi"}
-                                          {:role "assistant" :content "yo"}
-                                          {:role "flag" :content {:text "pin"}}]}))))
+           (db.chats/chat-list-meta {:id "a" :title "A"
+                                     :tool-calls {"t" {:status :completed}}
+                                     :messages [{:role "user" :content "hi"}
+                                                {:role "assistant" :content "yo"}
+                                                {:role "flag" :content {:text "pin"}}]}))))
   (testing "index-only entries pass stored fields through (marker itself is not projected)"
     (is (= {:id "a" :message-count 7 :user-message-count 2 :flags []}
-           (db/chat-list-meta {:id "a" :index-only? true
-                               :message-count 7 :user-message-count 2 :flags []}))))
+           (db.chats/chat-list-meta {:id "a" :index-only? true
+                                     :message-count 7 :user-message-count 2 :flags []}))))
   (testing "runtime-only keys are never included"
-    (is (not (contains? (db/chat-list-meta {:id "a" :messages [] :prompt-cache {:x 1}})
+    (is (not (contains? (db.chats/chat-list-meta {:id "a" :messages [] :prompt-cache {:x 1}})
                         :prompt-cache)))))
 
 (deftest normalize-chat-for-write-test
-  (let [normalize @#'db/normalize-chat-for-write]
+  (let [normalize @#'db.chats/normalize-chat-for-write]
     (testing ":tool-calls and :last-status-payload runtime state is stripped and :id stamped"
       (is (= {:id "a" :title "A" :messages []}
              (normalize "a" {:title "A" :messages []
@@ -95,7 +100,7 @@
                   :chats {"a" {:id "a" :title "A" :updated-at 100
                                :messages [{:role "user" :content "hi"}]
                                :tool-calls {"t1" {:status :completed}}}}}]
-          (db/save-chat! db "a" nil)
+          (db.chats/save-chat! db "a" nil)
           (let [chat (read-chat-cache workspaces "a")]
             (is (= "A" (:title chat)))
             (is (= 1 (count (:messages chat))))
@@ -114,22 +119,22 @@
                 db {:workspace-folders workspaces
                     :chats {"a" {:id "a" :title "mem" :updated-at 100
                                  :messages [{:role "user" :content "hi"}]}}}]
-            (db/save-chat! db "a" nil)
+            (db.chats/save-chat! db "a" nil)
             ;; peer process advances the chat on disk
             (write-transit! (chat-cache-file workspaces "a")
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chat {:id "a" :title "peer" :updated-at 200
                                     :messages [{:role "user" :content "hi"}
                                                {:role "assistant" :content "newer"}]}})
-            (db/save-chat! db "a" nil)
+            (db.chats/save-chat! db "a" nil)
             (let [chat (read-chat-cache workspaces "a")]
               (is (= "peer" (:title chat)) "strictly newer peer copy is kept")
               (is (= 2 (count (:messages chat)))))
             ;; on equal recency this process's copy wins (mid-prompt mutations)
             (write-transit! (chat-cache-file workspaces "a")
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chat {:id "a" :title "peer-tie" :updated-at 100 :messages []}})
-            (db/save-chat! db "a" nil)
+            (db.chats/save-chat! db "a" nil)
             (is (= "mem" (:title (read-chat-cache workspaces "a")))))
           (finally (fs/delete-tree tmpdir)))))))
 
@@ -142,10 +147,10 @@
                 f (chat-cache-file workspaces "a")]
             (io/make-parents f)
             (spit f "garbage from a corrupted write")
-            (db/save-chat! {:workspace-folders workspaces
-                            :chats {"a" {:id "a" :title "Renamed" :updated-at 100
-                                         :index-only? true :message-count 3}}}
-                           "a" nil)
+            (db.chats/save-chat! {:workspace-folders workspaces
+                                  :chats {"a" {:id "a" :title "Renamed" :updated-at 100
+                                               :index-only? true :message-count 3}}}
+                                 "a" nil)
             (is (= "garbage from a corrupted write" (slurp f))
                 "original bytes stay recoverable"))
           (finally (fs/delete-tree tmpdir)))))))
@@ -156,16 +161,16 @@
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
           (let [workspaces [{:uri "file:///home/user/hydration-safe"}]]
-            (db/save-chat! {:workspace-folders workspaces
-                            :chats {"a" {:id "a" :title "A" :updated-at 100
-                                         :messages [{:role "user" :content "hi"}]}}}
-                           "a" nil)
+            (db.chats/save-chat! {:workspace-folders workspaces
+                                  :chats {"a" {:id "a" :title "A" :updated-at 100
+                                               :messages [{:role "user" :content "hi"}]}}}
+                                 "a" nil)
             ;; a later session renames the chat without ever loading its messages
-            (db/save-chat! {:workspace-folders workspaces
-                            :chats {"a" {:id "a" :title "Renamed" :updated-at 200
-                                         :index-only? true
-                                         :message-count 1 :user-message-count 1 :flags []}}}
-                           "a" nil)
+            (db.chats/save-chat! {:workspace-folders workspaces
+                                  :chats {"a" {:id "a" :title "Renamed" :updated-at 200
+                                               :index-only? true
+                                               :message-count 1 :user-message-count 1 :flags []}}}
+                                 "a" nil)
             (let [chat (read-chat-cache workspaces "a")]
               (is (= "Renamed" (:title chat)))
               (is (= 1 (count (:messages chat))) "messages survive a meta-only save")
@@ -180,11 +185,11 @@
               chat {:id "a" :title "A" :updated-at 100
                     :messages [{:role "user" :content "hi"}
                                {:role "assistant" :content "yo"}]}]
-          (db/save-chat! {:workspace-folders workspaces :chats {"a" chat}} "a" nil)
+          (db.chats/save-chat! {:workspace-folders workspaces :chats {"a" chat}} "a" nil)
           (testing "loads messages for an index-only entry, dropping computed keys and the marker"
             (let [db* (atom {:workspace-folders workspaces
-                             :chats {"a" (assoc (db/chat-list-meta chat) :index-only? true)}})]
-              (db/hydrate-chat! db* "a" nil)
+                             :chats {"a" (assoc (db.chats/chat-list-meta chat) :index-only? true)}})]
+              (db.chats/hydrate-chat! db* "a" nil)
               (let [hydrated (get-in @db* [:chats "a"])]
                 (is (= 2 (count (:messages hydrated))))
                 (is (not (contains? hydrated :message-count)))
@@ -192,31 +197,31 @@
                 (is (= "A" (:title hydrated))))))
           (testing "in-memory meta wins on equal recency (e.g. renamed before hydration)"
             (let [db* (atom {:workspace-folders workspaces
-                             :chats {"a" (assoc (db/chat-list-meta chat)
+                             :chats {"a" (assoc (db.chats/chat-list-meta chat)
                                                 :index-only? true :title "Renamed")}})]
-              (db/hydrate-chat! db* "a" nil)
+              (db.chats/hydrate-chat! db* "a" nil)
               (is (= "Renamed" (get-in @db* [:chats "a" :title])))
               (is (= 2 (count (get-in @db* [:chats "a" :messages]))))))
           (testing "a strictly newer disk copy wins entirely"
             (let [db* (atom {:workspace-folders workspaces
                              :chats {"a" {:id "a" :title "Stale-mem" :updated-at 50
                                           :index-only? true}}})]
-              (db/hydrate-chat! db* "a" nil)
+              (db.chats/hydrate-chat! db* "a" nil)
               (is (= "A" (get-in @db* [:chats "a" :title])))))
           (testing "live chats are authoritative: never overwritten from disk even without :messages"
             (let [db* (atom {:workspace-folders workspaces
                              :chats {"a" {:id "a" :title "Live" :updated-at 1}}})]
-              (db/hydrate-chat! db* "a" nil)
+              (db.chats/hydrate-chat! db* "a" nil)
               (is (= "Live" (get-in @db* [:chats "a" :title])))
               (is (not (contains? (get-in @db* [:chats "a"]) :messages)))))
           (testing "an index-only entry whose file vanished becomes authoritative memory"
             (let [db* (atom {:workspace-folders workspaces
                              :chats {"gone" {:id "gone" :title "G" :index-only? true}}})]
-              (db/hydrate-chat! db* "gone" nil)
+              (db.chats/hydrate-chat! db* "gone" nil)
               (is (= {:id "gone" :title "G"} (get-in @db* [:chats "gone"])))))
           (testing "no-op for unknown ids"
             (let [db* (atom {:workspace-folders workspaces :chats {}})]
-              (db/hydrate-chat! db* "missing" nil)
+              (db.chats/hydrate-chat! db* "missing" nil)
               (is (= {} (:chats @db*))))))
         (finally (fs/delete-tree tmpdir))))))
 
@@ -231,7 +236,7 @@
                             "h2" {:id "h2" :updated-at 2 :messages []}
                             "cold" {:id "cold" :title "Cold" :updated-at 3
                                     :index-only? true :message-count 9}}}]
-            (db/save-all-chats! db nil)
+            (db.chats/save-all-chats! db nil)
             (is (fs/exists? (chat-cache-file workspaces "h1")))
             (is (fs/exists? (chat-cache-file workspaces "h2")))
             (is (not (fs/exists? (chat-cache-file workspaces "cold")))
@@ -250,12 +255,12 @@
               db {:workspace-folders workspaces
                   :chats {"a" {:id "a" :updated-at 1 :messages []}
                           "b" {:id "b" :updated-at 2 :messages []}}}]
-          (db/save-chat! db "a" nil)
-          (db/save-chat! db "b" nil)
+          (db.chats/save-chat! db "a" nil)
+          (db.chats/save-chat! db "b" nil)
           (let [db (-> db
                        (update :chats dissoc "b")
                        (assoc :deleted-chat-ids #{"b"}))]
-            (db/delete-chat-from-cache! db "b" nil))
+            (db.chats/delete-chat-from-cache! db "b" nil))
           (is (not (fs/exists? (chat-cache-file workspaces "b"))))
           (is (fs/exists? (chat-cache-file workspaces "a")))
           (is (= #{"a"} (set (keys (read-index workspaces))))))
@@ -271,12 +276,12 @@
                       :chats {"a" {:id "a" :updated-at 100 :title "mem-a"
                                    :messages [{:role "user" :content "hi"}]}}}]
             ;; this process saves, then a peer process writes a newer "a" and a new "b"
-            (db/save-chat! db-a "a" nil)
+            (db.chats/save-chat! db-a "a" nil)
             (write-transit! (chats-index-file workspaces)
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chats {"a" {:id "a" :updated-at 200 :title "peer-a"}
                                      "b" {:id "b" :updated-at 150 :title "peer-b"}}})
-            (db/update-chats-index! (assoc-in db-a [:chats "a" :title] "mem-a2") nil)
+            (db.chats/update-chats-index! (assoc-in db-a [:chats "a" :title] "mem-a2") nil)
             (let [idx (read-index workspaces)]
               (is (= #{"a" "b"} (set (keys idx))) "peer's chat is not clobbered")
               (is (= "peer-a" (get-in idx ["a" :title])) "peer's strictly newer copy wins")))
@@ -290,11 +295,11 @@
           (let [workspaces [{:uri "file:///home/user/merge-tie"}]
                 db-a {:workspace-folders workspaces
                       :chats {"a" {:id "a" :updated-at 100 :title "mem-a" :messages []}}}]
-            (db/save-chat! db-a "a" nil)
+            (db.chats/save-chat! db-a "a" nil)
             (write-transit! (chats-index-file workspaces)
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chats {"a" {:id "a" :updated-at 100 :title "stale-peer-a"}}})
-            (db/update-chats-index! (assoc-in db-a [:chats "a" :title] "mem-a2") nil)
+            (db.chats/update-chats-index! (assoc-in db-a [:chats "a" :title] "mem-a2") nil)
             (is (= "mem-a2" (get-in (read-index workspaces) ["a" :title]))))
           (finally (fs/delete-tree tmpdir)))))))
 
@@ -305,11 +310,11 @@
         (try
           (let [workspaces [{:uri "file:///home/user/merge-first-save"}]]
             (write-transit! (chats-index-file workspaces)
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chats {"b" {:id "b" :updated-at 50 :title "peer-b"}}})
-            (db/update-chats-index! {:workspace-folders workspaces
-                                     :chats {"a" {:id "a" :updated-at 100 :title "mem-a" :messages []}}}
-                                    nil)
+            (db.chats/update-chats-index! {:workspace-folders workspaces
+                                           :chats {"a" {:id "a" :updated-at 100 :title "mem-a" :messages []}}}
+                                          nil)
             (is (= #{"a" "b"} (set (keys (read-index workspaces))))))
           (finally (fs/delete-tree tmpdir)))))))
 
@@ -320,13 +325,13 @@
         (try
           (let [workspaces [{:uri "file:///home/user/merge-tombstone"}]]
             (write-transit! (chats-index-file workspaces)
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chats {"a" {:id "a" :updated-at 100 :title "deleted-elsewhere"}
                                      "b" {:id "b" :updated-at 50 :title "b"}}})
-            (db/update-chats-index! {:workspace-folders workspaces
-                                     :chats {"b" {:id "b" :updated-at 50 :title "b" :messages []}}
-                                     :deleted-chat-ids #{"a"}}
-                                    nil)
+            (db.chats/update-chats-index! {:workspace-folders workspaces
+                                           :chats {"b" {:id "b" :updated-at 50 :title "b" :messages []}}
+                                           :deleted-chat-ids #{"a"}}
+                                          nil)
             (is (= #{"b"} (set (keys (read-index workspaces))))
                 "the deleted chat is not resurrected from disk"))
           (finally (fs/delete-tree tmpdir)))))))
@@ -343,14 +348,14 @@
                 hash-only-file (io/file hash-only-dir "db.transit.json")]
             ;; canonical holds an older copy of chat "a"
             (write-transit! canonical
-                            {:version db/version
+                            {:version db.io/version
                              :chats {"a" {:id "a" :updated-at 100 :title "old-a" :messages []}}})
             ;; a legacy hash-only dir holds a newer "a" plus an extra chat "b"
             (write-transit! hash-only-file
-                            {:version db/version
+                            {:version db.io/version
                              :chats {"a" {:id "a" :updated-at 200 :title "new-a" :messages []}
                                      "b" {:id "b" :updated-at 50 :title "b" :messages []}}})
-            (db/migrate-legacy-workspace-caches! workspaces nil)
+            (db.migration/migrate-legacy-workspace-caches! workspaces nil)
             (is (= "new-a" (:title (read-chat-cache workspaces "a"))) "newest :updated-at wins on conflict")
             (is (= "b" (:title (read-chat-cache workspaces "b"))))
             (is (= #{"a" "b"} (set (keys (read-index workspaces)))))
@@ -365,12 +370,12 @@
           (let [workspaces [{:uri "file:///home/user/projNil"}]
                 canonical (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)]
             (write-transit! canonical
-                            {:version db/version
+                            {:version db.io/version
                              :chats {nil {:title "nil-keyed garbage" :updated-at 10 :messages []}
                                      "aaaaaaaa-1111-2222-3333-444444444444"
                                      {:id "aaaaaaaa-1111-2222-3333-444444444444"
                                       :title "good" :updated-at 100 :messages []}}})
-            (db/migrate-legacy-workspace-caches! workspaces nil)
+            (db.migration/migrate-legacy-workspace-caches! workspaces nil)
             (is (= "good" (:title (read-chat-cache workspaces "aaaaaaaa-1111-2222-3333-444444444444")))
                 "valid chats still migrate")
             (is (= #{"aaaaaaaa-1111-2222-3333-444444444444"} (set (keys (read-index workspaces)))))
@@ -383,13 +388,13 @@
         (try
           (let [workspaces [{:uri "file:///home/user/projY"}]
                 canonical (cache/workspace-cache-file workspaces "db.transit.json" shared/uri->filename)]
-            (db/save-chat! {:workspace-folders workspaces
-                            :chats {"a" {:id "a" :updated-at 300 :title "newer-per-chat" :messages []}}}
-                           "a" nil)
+            (db.chats/save-chat! {:workspace-folders workspaces
+                                  :chats {"a" {:id "a" :updated-at 300 :title "newer-per-chat" :messages []}}}
+                                 "a" nil)
             (write-transit! canonical
-                            {:version db/version
+                            {:version db.io/version
                              :chats {"a" {:id "a" :updated-at 100 :title "stale-blob" :messages []}}})
-            (db/migrate-legacy-workspace-caches! workspaces nil)
+            (db.migration/migrate-legacy-workspace-caches! workspaces nil)
             (is (= "newer-per-chat" (:title (read-chat-cache workspaces "a"))))
             (is (= "newer-per-chat" (get-in (read-index workspaces) ["a" :title]))))
           (finally (fs/delete-tree tmpdir)))))))
@@ -399,13 +404,13 @@
     (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
       (try
         (let [workspaces [{:uri "file:///home/user/load"}]]
-          (db/save-chat! {:workspace-folders workspaces
-                          :chats {"a" {:id "a" :title "A" :updated-at 100
-                                       :messages [{:role "user" :content "hi"}
-                                                  {:role "flag" :content {:text "pin"}}]}}}
-                         "a" nil)
+          (db.chats/save-chat! {:workspace-folders workspaces
+                                :chats {"a" {:id "a" :title "A" :updated-at 100
+                                             :messages [{:role "user" :content "hi"}
+                                                        {:role "flag" :content {:text "pin"}}]}}}
+                               "a" nil)
           (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
-            (db/load-db-from-cache! db* {} nil)
+            (db.migration/load-db-from-cache! db* {} nil)
             (let [a (get-in @db* [:chats "a"])]
               (is (some? a))
               (is (not (contains? a :messages)) "history is not loaded eagerly")
@@ -421,13 +426,13 @@
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
           (let [workspaces [{:uri "file:///home/user/heal"}]]
-            (db/save-chat! {:workspace-folders workspaces
-                            :chats {"a" {:id "a" :title "A" :updated-at 100
-                                         :messages [{:role "user" :content "hi"}]}}}
-                           "a" nil)
+            (db.chats/save-chat! {:workspace-folders workspaces
+                                  :chats {"a" {:id "a" :title "A" :updated-at 100
+                                               :messages [{:role "user" :content "hi"}]}}}
+                                 "a" nil)
             (fs/delete (chats-index-file workspaces))
             (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
-              (db/load-db-from-cache! db* {} nil)
+              (db.migration/load-db-from-cache! db* {} nil)
               (is (= "A" (get-in @db* [:chats "a" :title])) "entry rebuilt from the chat file")
               (is (fs/exists? (chats-index-file workspaces)) "index rewritten after reconciliation")))
           (finally (fs/delete-tree tmpdir))))))
@@ -439,11 +444,11 @@
                 db {:workspace-folders workspaces
                     :chats {"a" {:id "a" :updated-at 1 :messages []}
                             "b" {:id "b" :updated-at 2 :messages []}}}]
-            (db/save-chat! db "a" nil)
-            (db/save-chat! db "b" nil)
+            (db.chats/save-chat! db "a" nil)
+            (db.chats/save-chat! db "b" nil)
             (fs/delete (chat-cache-file workspaces "b"))
             (let [db* (atom (assoc db/initial-db :workspace-folders workspaces))]
-              (db/load-db-from-cache! db* {} nil)
+              (db.migration/load-db-from-cache! db* {} nil)
               (is (some? (get-in @db* [:chats "a"])))
               (is (nil? (get-in @db* [:chats "b"])))
               (is (contains? (:deleted-chat-ids @db*) "b")
@@ -478,9 +483,9 @@
                                  "no-timestamp" {:id "no-timestamp"
                                                  :messages [{:role "user" :content "hey"}]}}})]
           (doseq [id ["old-chat" "recent-chat" "old-but-active" "stale-updated" "no-timestamp"]]
-            (db/save-chat! @db* id nil))
+            (db.chats/save-chat! @db* id nil))
           (testing "deletes stale chats (memory + file), keeps recently updated and chats without timestamps"
-            (db/cleanup-old-chats! db* nil 14)
+            (db.chats/cleanup-old-chats! db* nil 14)
             (is (nil? (get-in @db* [:chats "old-chat"]))
                 "Chat older than 14 days should be removed")
             (is (some? (get-in @db* [:chats "recent-chat"]))
@@ -510,8 +515,8 @@
                    :workspace-folders []})
         cache-updated? (atom false)]
     (testing "does not flush the index when nothing to clean"
-      (with-redefs [db/update-chats-index! (fn [_ _] (reset! cache-updated? true))]
-        (db/cleanup-old-chats! db* nil 14))
+      (with-redefs [db.chats/update-chats-index! (fn [_ _] (reset! cache-updated? true))]
+        (db.chats/cleanup-old-chats! db* nil 14))
       (is (some? (get-in @db* [:chats "recent"])))
       (is (false? @cache-updated?)
           "Should not flush the index when no chats were removed"))))
@@ -525,8 +530,8 @@
                    :workspace-folders []})
         cache-updated? (atom false)]
     (testing "does not clean up when retention-days is 0"
-      (with-redefs [db/update-chats-index! (fn [_ _] (reset! cache-updated? true))]
-        (db/cleanup-old-chats! db* nil 0))
+      (with-redefs [db.chats/update-chats-index! (fn [_ _] (reset! cache-updated? true))]
+        (db.chats/cleanup-old-chats! db* nil 0))
       (is (some? (get-in @db* [:chats "old-chat"]))
           "Old chat should be kept when cleanup is disabled")
       (is (false? @cache-updated?)))))
@@ -602,12 +607,12 @@
     (let [tmpdir (str (fs/create-temp-dir))
           cache-file (File. ^String tmpdir "db.transit.json")
           tmp-file (File. (str (.getPath cache-file) ".tmp"))
-          upsert! @#'db/upsert-cache!]
+          upsert! @#'db.io/upsert-cache!]
       (try
-        (upsert! {:version db/version :chats {"c1" {:id "c1"}}} cache-file nil)
+        (upsert! {:version db.io/version :chats {"c1" {:id "c1"}}} cache-file nil)
         (is (.exists cache-file) "destination should exist after a successful write")
         (is (not (.exists tmp-file)) "tmp file should be cleaned up after the rename")
-        (is (= db/version (:version (read-transit-file cache-file)))
+        (is (= db.io/version (:version (read-transit-file cache-file)))
             "written payload should round-trip")
         (finally (fs/delete-tree tmpdir))))))
 
@@ -616,24 +621,24 @@
     (let [tmpdir (str (fs/create-temp-dir))
           cache-file (File. ^String tmpdir "db.transit.json")
           tmp-file (File. (str (.getPath cache-file) ".tmp"))
-          upsert! @#'db/upsert-cache!]
+          upsert! @#'db.io/upsert-cache!]
       (try
         (io/make-parents tmp-file)
         (spit tmp-file "garbage from a previous crash")
-        (upsert! {:version db/version :chats {"c1" {:id "c1"}}} cache-file nil)
+        (upsert! {:version db.io/version :chats {"c1" {:id "c1"}}} cache-file nil)
         (is (.exists cache-file))
         (is (not (.exists tmp-file))
             "stale .tmp from a previous run should not survive the next save")
-        (is (= db/version (:version (read-transit-file cache-file))))
+        (is (= db.io/version (:version (read-transit-file cache-file))))
         (finally (fs/delete-tree tmpdir))))))
 
 (deftest upsert-cache!-handles-concurrent-writers-test
   (testing "many threads writing to the same cache-file do not error and leave a valid snapshot"
     (let [tmpdir (str (fs/create-temp-dir))
           cache-file (File. ^String tmpdir "db.transit.json")
-          upsert! @#'db/upsert-cache!
+          upsert! @#'db.io/upsert-cache!
           n 32
-          payloads (mapv (fn [i] {:version db/version
+          payloads (mapv (fn [i] {:version db.io/version
                                   :chats {"c" {:id (str "c" i)}}})
                          (range n))]
       (try
@@ -648,7 +653,7 @@
         (is (.exists cache-file)
             "destination should exist after concurrent writes")
         (let [final (read-transit-file cache-file)]
-          (is (= db/version (:version final))
+          (is (= db.io/version (:version final))
               "destination should round-trip as a valid Transit payload")
           (is (some #(= % final) payloads)
               "final destination should equal one of the written snapshots (last-writer-wins)"))
@@ -671,14 +676,14 @@
                             :api-key "fresh-access"
                             :expires-at 9999999999}
                 disk-db (atom {:auth {"anthropic" fresh-auth}})
-                _ (db/update-global-cache! @disk-db nil)
+                _ (db.global-cache/update-global-cache! @disk-db nil)
                 stale-mem (atom {:auth {"anthropic" {:type :auth/oauth
                                                      :mode :max
                                                      :step :login/done
                                                      :refresh-token "stale-refresh"
                                                      :api-key "stale-access"
                                                      :expires-at 1000}}})
-                updated? (db/sync-auth-from-cache! stale-mem "anthropic" nil)]
+                updated? (db.global-cache/sync-auth-from-cache! stale-mem "anthropic" nil)]
             (is updated?)
             (is (= "fresh-refresh" (get-in @stale-mem [:auth "anthropic" :refresh-token])))
             (is (= "fresh-access" (get-in @stale-mem [:auth "anthropic" :api-key])))
@@ -695,9 +700,9 @@
                       :api-key "same"
                       :expires-at 7777}
                 disk-db (atom {:auth {"anthropic" auth}})
-                _ (db/update-global-cache! @disk-db nil)
+                _ (db.global-cache/update-global-cache! @disk-db nil)
                 mem (atom {:auth {"anthropic" auth}})
-                updated? (db/sync-auth-from-cache! mem "anthropic" nil)]
+                updated? (db.global-cache/sync-auth-from-cache! mem "anthropic" nil)]
             (is (not updated?))
             (is (= auth (get-in @mem [:auth "anthropic"]))))
           (finally (fs/delete-tree tmpdir)))))))
@@ -708,7 +713,7 @@
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
           (let [mem (atom {:auth {"anthropic" {:refresh-token "x" :expires-at 1}}})
-                updated? (db/sync-auth-from-cache! mem "anthropic" nil)]
+                updated? (db.global-cache/sync-auth-from-cache! mem "anthropic" nil)]
             (is (not updated?))
             (is (= "x" (get-in @mem [:auth "anthropic" :refresh-token]))))
           (finally (fs/delete-tree tmpdir)))))))
@@ -719,8 +724,8 @@
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
           (let [ran (atom 0)]
-            (db/with-global-cache-lock (swap! ran inc))
-            (db/with-global-cache-lock (swap! ran inc))
+            (db.global-cache/with-global-cache-lock (swap! ran inc))
+            (db.global-cache/with-global-cache-lock (swap! ran inc))
             (is (= 2 @ran)))
           (finally (fs/delete-tree tmpdir)))))))
 
@@ -729,9 +734,9 @@
     (let [tmpdir (str (fs/create-temp-dir))]
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
-          (is (= :inner (db/with-global-cache-lock
-                          (db/with-global-cache-lock :inner))))
-          (is (= :again (db/with-global-cache-lock :again)))
+          (is (= :inner (db.global-cache/with-global-cache-lock
+                          (db.global-cache/with-global-cache-lock :inner))))
+          (is (= :again (db.global-cache/with-global-cache-lock :again)))
           (finally (fs/delete-tree tmpdir)))))))
 
 (deftest update-global-auth-cache!-test
@@ -740,18 +745,18 @@
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
           (let [peer-fresh {:refresh-token "peer-fresh" :expires-at 9999999999}]
-            (db/update-global-cache! {:auth {"anthropic" peer-fresh
-                                             "anthropic-work" {:refresh-token "old"}}
-                                      :mcp-auth {"server" {:access-token "mcp"}}}
-                                     nil)
-            (db/update-global-auth-cache! {:auth {"anthropic" {:refresh-token "mine-stale" :expires-at 1000}
-                                                  "anthropic-work" {:refresh-token "rotated"}}}
-                                          "anthropic-work"
-                                          nil)
+            (db.global-cache/update-global-cache! {:auth {"anthropic" peer-fresh
+                                                          "anthropic-work" {:refresh-token "old"}}
+                                                   :mcp-auth {"server" {:access-token "mcp"}}}
+                                                  nil)
+            (db.global-cache/update-global-auth-cache! {:auth {"anthropic" {:refresh-token "mine-stale" :expires-at 1000}
+                                                               "anthropic-work" {:refresh-token "rotated"}}}
+                                                       "anthropic-work"
+                                                       nil)
             (let [disk (atom {:auth {"anthropic" {} "anthropic-work" {}}})]
-              (db/sync-auth-from-cache! disk "anthropic" nil)
+              (db.global-cache/sync-auth-from-cache! disk "anthropic" nil)
               (is (= peer-fresh (get-in @disk [:auth "anthropic"]))))
-            (let [disk (db/read-transit-file (io/file tmpdir "db.transit.json"))]
+            (let [disk (db.io/read-transit-file (io/file tmpdir "db.transit.json"))]
               (is (= "rotated" (get-in disk [:auth "anthropic-work" :refresh-token])))
               (is (= {:access-token "mcp"} (get-in disk [:mcp-auth "server"])))))
           (finally (fs/delete-tree tmpdir))))))
@@ -760,19 +765,19 @@
     (let [tmpdir (str (fs/create-temp-dir))]
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
-          (db/update-global-cache! {:auth {"anthropic" {:api-key "a"} "openai" {:api-key "o"}}} nil)
-          (db/update-global-auth-cache! {:auth {}} "openai" nil)
+          (db.global-cache/update-global-cache! {:auth {"anthropic" {:api-key "a"} "openai" {:api-key "o"}}} nil)
+          (db.global-cache/update-global-auth-cache! {:auth {}} "openai" nil)
           (is (= {"anthropic" {:api-key "a"}}
-                 (:auth (db/read-transit-file (io/file tmpdir "db.transit.json")))))
+                 (:auth (db.io/read-transit-file (io/file tmpdir "db.transit.json")))))
           (finally (fs/delete-tree tmpdir))))))
 
   (testing "falls back to a whole write when there is no disk cache yet"
     (let [tmpdir (str (fs/create-temp-dir))]
       (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
         (try
-          (db/update-global-auth-cache! {:auth {"anthropic" {:api-key "a"}}} "anthropic" nil)
+          (db.global-cache/update-global-auth-cache! {:auth {"anthropic" {:api-key "a"}}} "anthropic" nil)
           (is (= {"anthropic" {:api-key "a"}}
-                 (:auth (db/read-transit-file (io/file tmpdir "db.transit.json")))))
+                 (:auth (db.io/read-transit-file (io/file tmpdir "db.transit.json")))))
           (finally (fs/delete-tree tmpdir)))))))
 
 (deftest with-global-cache-lock-serializes-concurrent-threads-test
@@ -785,7 +790,7 @@
                 iterations 50
                 worker (fn []
                          (dotimes [_ iterations]
-                           (db/with-global-cache-lock
+                           (db.global-cache/with-global-cache-lock
                              (let [v (swap! inside inc)]
                                (swap! max-inside max v)
                                ;; small spin so a non-locking impl would observe overlap
@@ -802,13 +807,13 @@
   (testing "every chat value gets its map key as :id"
     (is (= {"a" {:id "a" :title "A"}
             "b" {:id "b"}}
-           (db/stamp-chat-ids {"a" {:title "A"}
-                               "b" {}}))))
+           (db.chats/stamp-chat-ids {"a" {:title "A"}
+                                     "b" {}}))))
   (testing "a stale/mismatched :id is corrected to the map key"
     (is (= {"a" {:id "a"}}
-           (db/stamp-chat-ids {"a" {:id "wrong"}}))))
+           (db.chats/stamp-chat-ids {"a" {:id "wrong"}}))))
   (testing "nil chats normalize to an empty map"
-    (is (= {} (db/stamp-chat-ids nil)))))
+    (is (= {} (db.chats/stamp-chat-ids nil)))))
 
 (deftest chats-index-persists-workspaces-test
   (testing "the chats index records the workspace root paths so offline readers can tell which workspace the chats belong to"
@@ -818,7 +823,7 @@
           (let [workspaces [{:uri (h/file-uri "file:///home/user/my-proj")}]
                 db {:workspace-folders workspaces
                     :chats {"a" {:id "a" :title "A" :updated-at 100 :messages []}}}]
-            (db/save-chat! db "a" nil)
+            (db.chats/save-chat! db "a" nil)
             (is (= [(h/file-path "/home/user/my-proj")]
                    (:workspaces (read-transit-file (chats-index-file workspaces))))))
           (finally (fs/delete-tree tmpdir)))))))
@@ -834,25 +839,25 @@
                           "sub-1" {:id "sub-1" :subagent true :updated-at 400 :messages []}}}]
           ;; another workspace on the current per-chat layout, with persisted paths
           (write-transit! (io/file tmpdir "projb_hash1111" "chats" "index.transit.json")
-                          {:version db/chats-version
+                          {:version db.io/chats-version
                            :workspaces ["/home/user/proj-b"]
                            :chats {"b-1" {:id "b-1" :title "B newest" :updated-at 200
                                           :message-count 3 :user-message-count 2 :flags []}
                                    "b-sub" {:id "b-sub" :subagent true :updated-at 500}}})
           ;; stale duplicate of b-1 in another dir (legacy duplicate dirs, #558)
           (write-transit! (io/file tmpdir "projbold_hash4444" "chats" "index.transit.json")
-                          {:version db/chats-version
+                          {:version db.io/chats-version
                            :chats {"b-1" {:id "b-1" :title "B stale" :updated-at 100}}})
           ;; workspace never reopened since v7: legacy whole-workspace blob only
           (write-transit! (io/file tmpdir "legacy_hash2222" "db.transit.json")
-                          {:version db/version
+                          {:version db.io/version
                            :chats {"l-1" {:title "Legacy chat" :updated-at 150
                                           :messages [{:role "user" :content "hi"}]}}})
           ;; unreadable index is skipped without aborting the scan
           (let [corrupt (io/file tmpdir "corrupt_hash3333" "chats" "index.transit.json")]
             (io/make-parents corrupt)
             (spit corrupt "not-transit{{{"))
-          (let [groups (db/list-all-workspaces-chats db nil)]
+          (let [groups (db.workspaces/list-all-workspaces-chats db nil)]
             (testing "groups sorted by recency, current workspace flagged, approximate names from dir prefix"
               (is (= [["proj-a" true] ["projb" false] ["legacy" false]]
                      (map (juxt :name :current?) groups))))
@@ -870,7 +875,7 @@
         (finally (fs/delete-tree tmpdir))))))
 
 (deftest workspace-dir-name-parts-test
-  (let [parts @#'db/workspace-dir-name-parts]
+  (let [parts @#'db.workspaces/workspace-dir-name-parts]
     (testing "name and hash split positionally, so a '_' inside the base64url hash is not a separator"
       (is (= ["eca" "ab_c1234"] (parts "eca_ab_c1234")))
       (is (= ["my_proj" "abcd1234"] (parts "my_proj_abcd1234"))))
@@ -895,9 +900,9 @@
             ;; proj-b's index was written by an older ECA: no :workspaces recorded
             (write-transit! (io/file (cache/workspace-cache-dir proj-b-workspaces shared/uri->filename)
                                      "chats" "index.transit.json")
-                            {:version db/chats-version
+                            {:version db.io/chats-version
                              :chats {"b-1" {:id "b-1" :title "B" :updated-at 200}}})
-            (let [groups (db/list-all-workspaces-chats db nil)
+            (let [groups (db.workspaces/list-all-workspaces-chats db nil)
                   b-group (first (filter #(= ["b-1"] (mapv :id (:chats %))) groups))]
               (is (= [(str (fs/absolutize proj-b))] (:workspaces b-group))
                   "exact path recovered by matching the dir hash, not guessed")))

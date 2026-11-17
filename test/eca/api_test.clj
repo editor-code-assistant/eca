@@ -2,8 +2,11 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.io :as db.io]
    [eca.features.chat :as f.chat]
+   [eca.features.chat.ops :as f.chat.ops]
+   [eca.features.chat.turn :as f.chat.turn]
    [eca.logger :as logger]
    [eca.modules :as modules]
    [eca.shared :as shared]
@@ -101,14 +104,14 @@
     (is (nil? (get-in (h/db) [:chats "gone"]))))
   (testing "it's saved with the chat"
     (swap! (h/db*) update-in [:chats "chat-1"] assoc :messages [{:role "user" :content "hi"}])
-    (db/save-chat! (h/db) "chat-1" (h/metrics))
-    (let [saved (#'db/read-chat-file (#'db/db-workspaces (h/db)) "chat-1" (h/metrics))]
+    (db.chats/save-chat! (h/db) "chat-1" (h/metrics))
+    (let [saved (#'db.chats/read-chat-file (#'db.io/db-workspaces (h/db)) "chat-1" (h/metrics))]
       (is (= {:acme/x {:n 1 :on? true}} (:modules saved))))))
 
 (deftest chat-state-forked-test
   (add-chat! {:messages [{:role "user" :content [{:type :text :text "hi"}] :content-id "c1"}]
               :modules {:acme/x {:on? true}}})
-  (let [{:keys [chat-id]} (f.chat/fork-chat {:chat-id "chat-1" :content-id "c1"} (h/db*) (h/messenger) (h/metrics))]
+  (let [{:keys [chat-id]} (f.chat.ops/fork-chat {:chat-id "chat-1" :content-id "c1"} (h/db*) (h/messenger) (h/metrics))]
     (is (= {:acme/x {:on? true}} (get-in (h/db) [:chats chat-id :modules])))))
 
 (deftest send-prompt-test
@@ -134,8 +137,8 @@
   (testing "its data must be plain data"
     (is (thrown? Exception (eca/add-context! (chat-ctx) "Third." {:data {:f (fn [])}}))))
   (testing "they are taken once, by the next request"
-    (is (= 2 (count (#'f.chat/take-module-contexts! (h/db*) "chat-1"))))
-    (is (nil? (#'f.chat/take-module-contexts! (h/db*) "chat-1")))))
+    (is (= 2 (count (#'f.chat.turn/take-module-contexts! (h/db*) "chat-1"))))
+    (is (nil? (#'f.chat.turn/take-module-contexts! (h/db*) "chat-1")))))
 
 (deftest added-contexts-test
   (let [context (fn [module text & [data]]

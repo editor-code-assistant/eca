@@ -649,6 +649,7 @@
       (when-let [models (or (llm-util/provider-models-override
                              {:provider provider
                               :provider-base provider-base
+                              :config config
                               :auth-type auth-type
                               :api-key api-key
                               :account-id (:account-id provider-auth)

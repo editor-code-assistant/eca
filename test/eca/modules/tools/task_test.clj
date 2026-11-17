@@ -482,7 +482,7 @@
                             :summary {:done 0 :in-progress 0 :pending 0 :total 0}}
                   :contents [{:type :text :text "Task list created"}]}
           details (f.tools/tool-call-details-after-invocation
-                   :task
+                   (assoc (get m.task/definitions "task") :name "task")
                    {"op" "plan"}
                    nil
                    result

@@ -283,9 +283,11 @@
          (logger/warn logger-tag (format "Failed to fetch Codex /models endpoint: %s" e))
          fallback-models)))))
 
-(defmethod llm-util/provider-models-override ["openai" :auth/oauth]
-  [{:keys [api-key account-id static-models]}]
-  (fetch-oauth-models api-key account-id static-models))
+(defn ^:private models-override
+  "`:models-override-fn`: with a ChatGPT login (OAuth), the Codex models."
+  [{:keys [auth-type api-key account-id static-models]}]
+  (when (= :auth/oauth auth-type)
+    (fetch-oauth-models api-key account-id static-models)))
 
 (defn ^:private jwt-payload->account-id
   "Extract account ID from JWT payload, checking multiple locations like opencode does."
@@ -309,7 +311,9 @@
 
 (def ^:private codex-usage-url "https://chatgpt.com/backend-api/wham/usage")
 
-(defmethod f.quota/fetch-quota "openai" [{:keys [provider-auth]}]
+(defn ^:private fetch-quota
+  "`:quota :fetch`: the ChatGPT subscription's usage."
+  [{:keys [provider-auth]}]
   (let [api-key (:api-key provider-auth)
         {:keys [status body]} (http/get codex-usage-url
                                         {:headers (merge
@@ -943,7 +947,9 @@
 
 ;; --- Settings-based login (providers/login flow) ---
 
-(defmethod f.providers/start-login! ["openai" "pro"] [provider _ db* _config messenger metrics]
+(defn ^:private start-pro-login!
+  "The `pro` login method's `:start`: OAuth, for a ChatGPT subscription."
+  [provider db* _config messenger metrics]
   (let [local-server-port 1455
         server-url (str "http://localhost:" local-server-port "/auth/callback")
         {:keys [verifier url]} (oauth-url server-url)]
@@ -977,7 +983,7 @@
 
 ;; --- Chat-based login (legacy /login command) ---
 
-(defmethod f.login/login-step ["openai" :login/start] [{:keys [db* chat-id provider send-msg! ask!]}]
+(defn ^:private start-step [{:keys [db* chat-id provider send-msg! ask!]}]
   (swap! db* assoc-in [:chats chat-id :login-provider] provider)
   (swap! db* assoc-in [:auth provider] {:step :login/waiting-login-method})
   (if ask!
@@ -989,7 +995,7 @@
                           "- pro: GPT Plus/Pro (subscription)"
                           "- manual: Manually enter API Key"))))
 
-(defmethod f.login/login-step ["openai" :login/waiting-login-method] [{:keys [db* input provider send-msg!] :as ctx}]
+(defn ^:private waiting-login-method-step [{:keys [db* input provider send-msg!] :as ctx}]
   (case input
     "pro"
     (let [local-server-port 1455 ;; openai requires this port
@@ -1021,7 +1027,7 @@
       (send-msg! "Paste your API Key"))
     (send-msg! (format "Unknown login method '%s'. Inform one of the options: pro, manual" input))))
 
-(defmethod f.login/login-step ["openai" :login/waiting-api-key] [{:keys [input db* provider send-msg!] :as ctx}]
+(defn ^:private waiting-api-key-step [{:keys [input db* provider send-msg!] :as ctx}]
   (if (string/starts-with? input "sk-")
     (do (config/update-global-config! {:providers {provider {:key input}}})
         (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
@@ -1029,7 +1035,7 @@
         (f.login/login-done! ctx))
     (send-msg! "Invalid API key, it should start with 'sk-'")))
 
-(defmethod f.login/login-step ["openai" :login/renew-token] [{:keys [db* provider] :as ctx}]
+(defn ^:private renew-token-step [{:keys [db* provider] :as ctx}]
   (let [current-auth (get-in @db* [:auth provider])
         existing-account-id (:account-id current-auth)
         {:keys [refresh-token access-token expires-at]} (oauth-refresh (:refresh-token current-auth))
@@ -1054,9 +1060,15 @@
    :description "GPT models from OpenAI: a ChatGPT subscription or a pasted key."
    :requires #{:eca/api-openai-responses}
    :providers {"openai" {:label "OpenAI"
-                         ;; the flows are the login-step and start-login! methods above
-                         :login {:methods [{:key "pro" :label "Pro (subscription via OAuth)"}
-                                           {:key "manual" :label "Manual (paste API key)"}]}}}
+                         :login {:methods [{:key "pro" :label "Pro (subscription via OAuth)" :start #'start-pro-login!}
+                                           {:key "manual" :label "Manual (paste API key)"}]
+                                 ;; the chat's /login
+                                 :steps {:login/start #'start-step
+                                         :login/waiting-login-method #'waiting-login-method-step
+                                         :login/waiting-api-key #'waiting-api-key-step
+                                         :login/renew-token #'renew-token-step}}
+                         :quota {:fetch #'fetch-quota}
+                         :models-override-fn #'models-override}}
    :config-defaults {:providers {"openai" {:api "openai-responses"
                                            :url "${env:OPENAI_API_URL:https://api.openai.com}"
                                            :key "${env:OPENAI_API_KEY}"

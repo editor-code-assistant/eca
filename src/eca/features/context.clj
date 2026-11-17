@@ -3,11 +3,12 @@
    [babashka.fs :as fs]
    [clojure.core.memoize :as memoize]
    [clojure.string :as string]
+   [eca.config :as config]
    [eca.digest :as digest]
    [eca.features.index :as f.index]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
-   [eca.modules.mcp :as m.mcp]
+   [eca.modules :as modules]
    [eca.shared :as shared :refer [assoc-some]])
   (:import
    [java.util Base64]))
@@ -16,98 +17,39 @@
 
 (def ^:private logger-tag "[CONTEXT]")
 
-(defn ^:private extract-at-mentions
-  "Extract all @path mentions from content. Supports relative and absolute paths with any extension."
-  [content]
-  (let [pattern #"@([^\s\)]+\.\w+)"
-        matches (re-seq pattern content)]
-    (map second matches)))
-
-(defn ^:private parse-agents-file
-  ([path] (parse-agents-file path #{}))
-  ([path visited]
-   (if (contains? visited path)
-     []
-     (if-let [root-content (llm-api/refine-file-context path nil)]
-       (let [visited' (conj visited path)
-             at-mentions (extract-at-mentions root-content)
-             parent-dir (str (fs/parent path))
-             resolved-paths (map (fn [mention]
-                                   (cond
-                                     ;; Absolute path
-                                     (string/starts-with? mention "/")
-                                     (str (fs/canonicalize (fs/file mention)))
-
-                                     ;; Relative path (./... or ../...)
-                                     (or (string/starts-with? mention "./")
-                                         (string/starts-with? mention "../"))
-                                     (str (fs/canonicalize (fs/file parent-dir mention)))
-
-                                     ;; Simple filename, relative to current file's directory
-                                     :else
-                                     (str (fs/canonicalize (fs/file parent-dir mention)))))
-                                 at-mentions)
-             ;; Deduplicate resolved paths
-             unique-paths (distinct resolved-paths)
-             ;; Recursively parse all mentioned files
-             nested-results (mapcat #(parse-agents-file % visited') unique-paths)]
-         (concat [{:type :agents-file
-                   :path path
-                   :content root-content}]
-                 nested-results))
-       []))))
-
-(defn ^:private ancestor-paths
-  "Return all ancestor directories of `path` in outermost-first order.
-   Excludes `path` itself."
-  [path]
-  (loop [p (fs/parent path)
-         acc '()]
-    (if (nil? p)
-      (vec acc)
-      (recur (fs/parent p) (conj acc p)))))
-
-(defn ^:private safe-canonicalize
+(defn safe-canonicalize
   "Canonicalize `path`, falling back to a non-resolved `fs/path` if the
    path does not exist (e.g. a stale workspace folder or test fixture)."
   [path]
   (try (fs/canonicalize path)
        (catch Exception _ (fs/path path))))
 
-(defn agents-file-contexts
-  "Search for AGENTS.md file both in workspaceRoot and global config dir.
-   When `:includeParentAgentsFiles` is true in `config`, also include
-   AGENTS.md files from each workspace's parent directories, ordered
-   outermost parent first, then the workspace's own AGENTS.md.
-   Process any found @paths mentions recursively, supporting both relative and absolute paths.
-   Deduplicates files to avoid reading the same file multiple times."
+(defn always-contexts
+  "The contexts the active modules give every chat, first (`:contexts`'
+   `:always`, built-in only), e.g. eca/agents-md's AGENTS.md files."
   [db config]
-  ;; TODO make it customizable by agent
-  (let [agent-file-name "AGENTS.md"
-        include-parents? (boolean (:includeParentAgentsFiles config))
-        readable-agent-file-in (fn [dir]
-                                 (let [p (fs/path dir agent-file-name)]
-                                   (when (fs/readable? p)
-                                     (str (fs/canonicalize p)))))
-        {:keys [paths seen]}
-        (reduce
-         (fn [{:keys [paths seen]} {:keys [uri]}]
-           (let [ws-path (safe-canonicalize (shared/uri->filename uri))
-                 candidate-dirs (cond-> []
-                                  include-parents? (into (ancestor-paths ws-path))
-                                  true (conj ws-path))
-                 new-paths (->> candidate-dirs
-                                (keep readable-agent-file-in)
-                                (remove seen))]
-             {:paths (into paths new-paths)
-              :seen (into seen new-paths)}))
-         {:paths [] :seen #{}}
-         (:workspace-folders db))
-        global-agent-file (readable-agent-file-in (shared/global-config-dir))
-        all-paths (cond-> paths
-                    (and global-agent-file (not (contains? seen global-agent-file)))
-                    (conj global-agent-file))]
-    (mapcat parse-agents-file all-paths)))
+  (mapcat (fn [[entry {:keys [always]}]]
+            (when always
+              (always (modules/module-ctx {:db db :config config} entry))))
+          (modules/contributions config :contexts)))
+
+(defn ^:private module-context-type
+  "The active module that gives context type `type-name` (`:contexts`'
+   `:types`, built-in only): `[entry definition]`, or nil."
+  [config type-name]
+  (some (fn [[entry {:keys [types]}]]
+          (when-let [definition (get types type-name)]
+            [entry definition]))
+        (modules/contributions config :contexts)))
+
+(defn ^:private module-context-items
+  "The `@` completion items of the context types modules give."
+  [db config]
+  (for [[entry {:keys [types]}] (modules/contributions config :contexts)
+        [_type-name {list-items :list}] types
+        :when list-items
+        item (list-items (modules/module-ctx {:db db :config config} entry))]
+    item))
 
 (defn ^:private file->refined-context [path lines-range]
   (if (fs/readable? path)
@@ -126,7 +68,7 @@
     (logger/warn logger-tag "File not found or unreadable at" path)))
 
 (defn raw-contexts->refined [contexts db]
-  (mapcat (fn [{:keys [type path lines-range position uri media-type mediaType base64 label content]}]
+  (mapcat (fn [{:keys [type path lines-range position media-type mediaType base64 label content] :as raw-context}]
             (case (name type)
               "file" (if-let [ctx (file->refined-context path lines-range)]
                        [ctx]
@@ -149,21 +91,16 @@
                          :content content}]
                        (do (logger/warn logger-tag "Text context missing label or content; ignoring")
                            []))
-              "repoMap" [{:type :repoMap}]
               "cursor" [{:type :cursor
                          :path path
                          :position position}]
-              "mcpResource" (try
-                              (mapv
-                               (fn [{:keys [text]}]
-                                 {:type :mcpResource
-                                  :uri uri
-                                  :content text})
-                               (:contents (m.mcp/get-resource! uri db)))
-                              (catch Exception e
-                                (logger/warn logger-tag (format "Error getting MCP resource %s: %s" uri (.getMessage e)))
-                                []))
-              nil))
+              ;; a type a module gives (:contexts), e.g. MCP resources
+              (let [config (config/all db)]
+                (if-let [[entry {:keys [refine]}] (module-context-type config (name type))]
+                  (when refine
+                    (refine (modules/module-ctx {:db db :config config} entry) raw-context))
+                  ;; e.g. an old client's repoMap
+                  (logger/debug logger-tag "Ignoring a context of unknown type" (name type))))))
           contexts))
 
 (defn parse-context-reference
@@ -194,10 +131,10 @@
 (def ^:private attached-context-types
   "Context-area types delivered in the user message and tracked per chat:
    sent in full once, then only announced when they change. #683"
-  #{:file :repoMap})
+  #{:file})
 
 (defn attached-context?
-  "True when ctx is a context-area item tracked per chat (file or repoMap)."
+  "True when ctx is a context-area item tracked per chat (a file)."
   [ctx]
   (boolean (attached-context-types (:type ctx))))
 
@@ -206,7 +143,6 @@
    range for files, so the same file given as `~/x`, `./x` or `/abs/x` matches."
   [{:keys [type path lines-range]}]
   (case type
-    :repoMap "repoMap"
     :file (cond-> (str (safe-canonicalize path))
             lines-range (str ":L" (:start lines-range) "-L" (:end lines-range)))
     nil))
@@ -218,14 +154,13 @@
    updated `:sent` map. Removed contexts are dropped from `:sent`, so attaching
    one again sends it in full. Contexts whose key is in the `skip-keys` set
    (already expanded from the prompt text) are recorded as sent but not returned."
-  [contexts sent skip-keys repo-map*]
+  [contexts sent skip-keys]
   (reduce
    (fn [acc ctx]
      (let [k (attached-context-key ctx)]
        (if (contains? (:sent acc) k)
          acc
-         (let [content (if (= :repoMap (:type ctx)) @repo-map* (:content ctx))
-               content-digest (digest/sha-256-hex (str content))
+         (let [content-digest (digest/sha-256-hex (str (:content ctx)))
                previous-digest (get sent k)
                acc (assoc-in acc [:sent k] content-digest)]
            (cond
@@ -359,10 +294,9 @@
       (concat relative-files
               workspace-listed-files
               workspace-files)
-      (concat [{:type "repoMap"}
-               {:type "cursor"}]
+      (concat [{:type "cursor"}]
               (mapv (fn [root] {:type "directory" :path root}) roots)
               relative-files
               workspace-listed-files
               workspace-files
-              (mapv #(assoc % :type "mcpResource") (m.mcp/all-resources @db*))))))
+              (module-context-items @db* config)))))

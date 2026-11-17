@@ -5,6 +5,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.secrets :as secrets]
    [eca.shared :as shared])
   (:import
@@ -196,20 +197,24 @@
           shared/normalize-api-url
           not-empty))
 
-(defmulti provider-models-override
-  "Provider+auth specific override for native /models fetching.
+(defn provider-declaration
+  "The declaration (`:providers`) of the provider `provider-id`, from the
+   first active module that has one."
+  [config provider-id]
+  (second (modules/find-contribution config :providers provider-id)))
 
-   Dispatches on `[provider auth-type]`, using `:provider-base` (see
+(defn provider-models-override
+  "Provider+auth specific override for native /models fetching: the
+   provider's `:models-override-fn`, of `:provider-base` (see
    `config/provider-base`) when present so inheriting providers get their
-   parent's override. Implementations live in the provider
-   namespace (e.g. `eca.modules.providers.openai`) and return a map of
-   model-id -> model-config in the same shape users put under
-   `:providers <p> :models` (e.g. `{\"gpt-5.5\" {:limit {:context 272000}}}`),
+   parent's override. It gets this ctx (`:auth-type`, `:api-key`...) and
+   returns a map of model-id -> model-config in the same shape users put
+   under `:providers <p> :models` (e.g. `{\"gpt-5.5\" {:limit {:context 272000}}}`),
    letting the generic catalog code apply them through the existing override
-   path. Return nil to fall back to the generic native /models fetch."
-  (fn [{:keys [provider provider-base auth-type]}] [(or provider-base provider) auth-type]))
-
-(defmethod provider-models-override :default [_] nil)
+   path, or nil to fall back to the generic native /models fetch."
+  [{:keys [provider provider-base config] :as ctx}]
+  (when-let [override (:models-override-fn (provider-declaration config (or provider-base provider)))]
+    (override ctx)))
 
 (defn copilot-ide-headers
   "GitHub Copilot's API authenticates IDE requests by a recognized editor
