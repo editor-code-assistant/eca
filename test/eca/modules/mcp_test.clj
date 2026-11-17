@@ -6,7 +6,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.modules.mcp :as m.mcp]
    [eca.network :as network]
    [eca.oauth :as oauth]
@@ -530,7 +530,7 @@
                                            {:access-token "new-access"
                                             :refresh-token "refresh-2"
                                             :expires-at 9999})
-                    db/update-global-cache! (fn [_db _metrics] nil)]
+                    db.global-cache/update-global-cache! (fn [_db _metrics] nil)]
         (is (true? (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
         (is (= {:url "https://example.com/mcp"
                 :client-id "client-abc"
@@ -560,7 +560,7 @@
                                         :client-id cid :client-secret csecret :resource url})
                     oauth/refresh-token! (fn [_te _cid _rt & _opts]
                                            {:access-token "a" :refresh-token "r" :expires-at 2})
-                    db/update-global-cache! (fn [_db _metrics] nil)]
+                    db.global-cache/update-global-cache! (fn [_db _metrics] nil)]
         (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil
                                     {:clientId "cfg-id" :clientSecret "cfg-secret"})
         (is (= {:client-id "cfg-id" :client-secret "cfg-secret"} @oauth-info-args*)))))

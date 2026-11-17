@@ -4,7 +4,8 @@
   (:require
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.workspaces :as db.workspaces]
    [eca.features.chat.debug :as f.chat.debug]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.history :as f.chat.history]
@@ -45,7 +46,7 @@
         messages (:messages new-chat)
         page (f.chat.history/server-created-page @db* messages)]
     (swap! db* assoc-in [:chats new-id] new-chat)
-    (db/save-chat! @db* new-id metrics)
+    (db.chats/save-chat! @db* new-id metrics)
     (messenger/chat-opened messenger
                            (shared/assoc-some {:chat-id new-id :title new-title}
                                               :history (when page
@@ -114,7 +115,7 @@
                         (reduce
                          (fn [s chat-id]
                            (let [chat (get chats chat-id)
-                                 {:keys [user-message-count flags]} (db/chat-list-meta chat)
+                                 {:keys [user-message-count flags]} (db.chats/chat-list-meta chat)
                                  msgs-count (or user-message-count 0)]
                                           ;; List every persisted chat, even ones with zero user
                                           ;; messages (e.g. a chat that hit a provider error very
@@ -135,7 +136,7 @@
       (chat-message-fn "Chat ID not found.")
 
       :else
-      (let [_ (db/hydrate-chat! db* selected-chat-id metrics)
+      (let [_ (db.chats/hydrate-chat! db* selected-chat-id metrics)
             chat (get-in @db* [:chats selected-chat-id])]
         (swap! db* assoc-in [:chats chat-id] (assoc chat :id chat-id))
         (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :auto-compacting? :continuing? :compacting?)
@@ -147,8 +148,8 @@
                      (-> db
                          (update :chats dissoc selected-chat-id)
                          (update :deleted-chat-ids (fnil conj #{}) selected-chat-id))))
-        (db/save-chat! @db* chat-id metrics)
-        (db/delete-chat-from-cache! @db* selected-chat-id metrics)
+        (db.chats/save-chat! @db* chat-id metrics)
+        (db.chats/delete-chat-from-cache! @db* selected-chat-id metrics)
                      ;; Align the client's selected model with the resumed chat
                      ;; so the LLM call keeps using the chat's original model. #417
         (config/notify-selected-model-changed! (:model chat) db* messenger config (:variant chat) chat-id)
@@ -174,7 +175,7 @@
         matches? (fn [{:keys [title]}]
                    (or (string/blank? title-filter)
                        (string/includes? (string/lower-case (or title "")) title-filter)))
-        groups (->> (db/list-all-workspaces-chats db metrics)
+        groups (->> (db.workspaces/list-all-workspaces-chats db metrics)
                     (keep (fn [group]
                             (let [chats (->> (:chats group)
                                              (remove #(= chat-id (:id %)))
@@ -238,13 +239,13 @@
         describe-fn (fn [chat]
                       (or (:title chat)
                           (format "No chat title (%s user messages)"
-                                  (or (:user-message-count (db/chat-list-meta chat)) 0))))]
+                                  (or (:user-message-count (db.chats/chat-list-meta chat)) 0))))]
     (cond
       (nil? target-id)
       (chat-message-fn "Chat ID not found. Run `/resume` to list chats.")
 
       (and (not current?)
-           (db/hydrated? target-chat)
+           (db.chats/hydrated? target-chat)
            (contains? #{:running :stopping} (:status target-chat)))
       (chat-message-fn (format "Chat '%s' has a running prompt, stop it before deleting." (describe-fn target-chat)))
 
@@ -300,7 +301,7 @@
                      ;; Persist under the original id so the chat stays /resume-able
                      ;; and reuses provider/cache keyed by chat-id (#28).
         (swap! db* assoc-in [:chats imported-id] imported-chat)
-        (db/save-chat! @db* imported-id metrics)
+        (db.chats/save-chat! @db* imported-id metrics)
         (messenger/chat-opened messenger {:chat-id imported-id :title (:title imported-chat)})
                      ;; Align the client's model/trust with the imported chat (like /resume).
         (config/notify-selected-model-changed! (:model imported-chat) db* messenger config (:variant imported-chat) imported-id)

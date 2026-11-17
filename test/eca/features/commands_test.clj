@@ -4,6 +4,8 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.workspaces :as db.workspaces]
    [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.commands :as f.commands]
@@ -240,7 +242,7 @@
             :messages [{:role "user" :content [{:type :text :text "hello"}]}
                        {:role "assistant" :content [{:type :text :text "hi!"}]}
                        {:role "tool_call" :content {:id "dangling"}}]})
-    (with-redefs [db/save-chat! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])]
       (let [result (f.commands/handle-command! "btw" ["who" "is" "foo?"]
                                                (assoc (command-context "chat-1")
                                                       :message "/btw who is foo?"))
@@ -277,7 +279,7 @@
                           {:history-page-size 50}))
                  (swap! (h/db*) assoc-in [:chats "chat-1"]
                         {:id "chat-1" :title "My chat" :messages messages}))]
-    (with-redefs [db/save-chat! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])]
       (testing "/fork sends only the newest page to incremental clients"
         (setup! true)
         (let [result (f.commands/handle-command! "fork" [] (command-context "chat-1"))
@@ -555,8 +557,8 @@
                               :model "openai/gpt-5.2"
                               :messages []}})
     (let [session-defaults (:last-config-notified (h/db))]
-      (with-redefs [db/save-chat! (fn [& _])
-                    db/delete-chat-from-cache! (fn [& _])]
+      (with-redefs [db.chats/save-chat! (fn [& _])
+                    db.chats/delete-chat-from-cache! (fn [& _])]
         (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-b"
                :chat {:select-model "anthropic/claude-sonnet-4-5"
@@ -578,8 +580,8 @@
     (swap! (h/db*) assoc
            :chats {"chat-a" {:id "chat-a" :created-at 1 :agent "plan" :messages []}
                    "chat-b" {:id "chat-b" :created-at 2 :agent "code" :messages []}})
-    (with-redefs [db/save-chat! (fn [& _])
-                  db/delete-chat-from-cache! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])
+                  db.chats/delete-chat-from-cache! (fn [& _])]
       (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
     (is (= "plan" (get-in (h/db) [:chats "chat-b" :agent])))
     (is (= [{:chat-id "chat-b" :chat {:select-agent "plan"}}]
@@ -591,8 +593,8 @@
     (swap! (h/db*) assoc
            :chats {"chat-a" {:id "chat-a" :created-at 1 :agent "removed-agent" :messages []}
                    "chat-b" {:id "chat-b" :created-at 2 :messages []}})
-    (with-redefs [db/save-chat! (fn [& _])
-                  db/delete-chat-from-cache! (fn [& _])]
+    (with-redefs [db.chats/save-chat! (fn [& _])
+                  db.chats/delete-chat-from-cache! (fn [& _])]
       (f.commands/handle-command! "resume" ["1"] (command-context "chat-b")))
     (is (= [{:chat-id "chat-b" :chat {:select-agent "code"}}]
            (filterv #(contains? (:chat %) :select-agent) (:config-updated (h/messages))))))
@@ -615,7 +617,7 @@
                          :variant "low"
                          :trust true
                          :messages []}]
-      (with-redefs [db/save-chat! (fn [& _])
+      (with-redefs [db.chats/save-chat! (fn [& _])
                     f.chat.export/import-chat! (fn [_] {:chat imported-chat})]
         (f.commands/handle-command! "import" ["/tmp/chat.edn"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-a"
@@ -917,7 +919,7 @@
         run-cmd (fn [args]
                   (h/reset-components!)
                   (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
-                  (with-redefs [db/list-all-workspaces-chats (fn [_ _] groups)]
+                  (with-redefs [db.workspaces/list-all-workspaces-chats (fn [_ _] groups)]
                     (f.commands/handle-command! "chats" args (command-context "chat-b"))))
         text-of (fn [result] (get-in result [:chats "chat-b" :messages 0 :content 0 :text]))]
     (testing "lists all chats grouped by workspace"
@@ -942,6 +944,6 @@
     (testing "no chats at all"
       (h/reset-components!)
       (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
-      (with-redefs [db/list-all-workspaces-chats (fn [_ _] [])]
+      (with-redefs [db.workspaces/list-all-workspaces-chats (fn [_ _] [])]
         (is (string/includes? (text-of (f.commands/handle-command! "chats" [] (command-context "chat-b")))
                               "No chats found in any workspace."))))))

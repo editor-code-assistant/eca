@@ -6,7 +6,7 @@
   (:require
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.tool-calls :as f.chat.tool-calls]
@@ -257,7 +257,7 @@
         (swap! db* assoc-in [:chats chat-id :prompt-error]
                (prompt-error-data error-data error-type))
         (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text text})
-        (db/save-chat! @db* chat-id metrics)
+        (db.chats/save-chat! @db* chat-id metrics)
         (f.chat.lifecycle/finish-chat-prompt! :idle (f.chat.lifecycle/strip-hook-callbacks chat-ctx))))))
 
 (defn ^:private error-text
@@ -350,7 +350,7 @@
         ;; :prompt-finished? was already set or the prompt-id rotated,
         ;; which would leave a chat that hit an error without a save.
         ;; Persist explicitly so users can always /resume an errored chat.
-        (db/save-chat! @db* chat-id metrics)
+        (db.chats/save-chat! @db* chat-id metrics)
         (f.chat.lifecycle/finish-chat-prompt! :idle (f.chat.lifecycle/strip-hook-callbacks chat-ctx))))))
 
 (defn on-error
@@ -448,5 +448,5 @@
       (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text (str "\n\n" "Error: " (or (ex-message e) (.getName (class e))))})
       ;; Belt-and-suspenders: persist before finish-chat-prompt!,
       ;; which may short-circuit. See note in `auto-continue-or-fail!`.
-      (db/save-chat! @db* chat-id metrics)
+      (db.chats/save-chat! @db* chat-id metrics)
       (f.chat.lifecycle/finish-chat-prompt! :idle (f.chat.lifecycle/strip-hook-callbacks chat-ctx)))))

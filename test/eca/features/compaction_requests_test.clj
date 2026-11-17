@@ -5,7 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat :as f.chat]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.tools :as f.tools]
@@ -256,6 +256,6 @@
 (deftest compaction-requests-are-not-saved-test
   (testing "a pending request is for the running session only"
     (is (= {:id chat-id :messages []}
-           (#'db/normalize-chat-for-write chat-id {:messages []
-                                                   :compaction-request {:module :acme/compact :trigger :auto}
-                                                   :compaction-blocked-prompt-id (random-uuid)})))))
+           (#'db.chats/normalize-chat-for-write chat-id {:messages []
+                                                         :compaction-request {:module :acme/compact :trigger :auto}
+                                                         :compaction-blocked-prompt-id (random-uuid)})))))

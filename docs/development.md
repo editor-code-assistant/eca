@@ -24,7 +24,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`: the protocol methods core serves, then the modules' (`:rpc`).
    `src/eca/handlers.clj`      | Entrypoint for all features; every JSON-RPC request/notification lands here.
    `src/eca/messenger.clj`     | Protocol to send requests/notifications back to the client (stdio or remote).
-   `src/eca/db.clj`            | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here.
+   `src/eca/db.clj` + `db/`    | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here. `db/` saves and loads it: the cache files (`io`), chat files (`chats`), the global cache (`global_cache`), loading and migrating (`migration`), other workspaces' chats (`workspaces`).
    `src/eca/config.clj`        | Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).
    `src/eca/logger.clj`        | Logger interface, logs to stderr (stdout is reserved for JSON-RPC).
    `src/eca/shared.clj`        | Shared utility fns for the whole project.

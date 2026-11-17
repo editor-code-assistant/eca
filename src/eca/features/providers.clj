@@ -2,7 +2,7 @@
   (:require
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
@@ -249,7 +249,7 @@
   "Common post-login/logout action: persist auth cache, re-sync models,
    and send both config/updated and providers/updated notifications."
   [provider-name db* messenger metrics]
-  (db/update-global-auth-cache! @db* provider-name metrics)
+  (db.global-cache/update-global-auth-cache! @db* provider-name metrics)
   (let [config (config/all @db*)]
     (reset-quota! provider-name db* config messenger)
     (models/sync-models! db* config

@@ -2,7 +2,8 @@
   (:require
    [eca.cache :as cache]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.migration :as db.migration]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.login :as f.login]
@@ -104,7 +105,7 @@
              :client-capabilities (:capabilities params))
       (metrics/set-extra-metrics! db*)
       (when-not (:pureConfig config)
-        (db/load-db-from-cache! db* config metrics))
+        (db.migration/load-db-from-cache! db* config metrics))
 
       {:chat-welcome-message (welcome-message config)
        :global-config-path (str (config/global-config-file))})))
@@ -286,7 +287,7 @@
       (send-progress! db* messenger {:type "start" :taskId "cleanup" :title "Cleaning up"})
       (let [retention-days (:chatRetentionDays config)]
         (cache/cleanup-tool-call-outputs! retention-days)
-        (db/cleanup-old-chats! db* metrics retention-days))
+        (db.chats/cleanup-old-chats! db* metrics retention-days))
       (send-progress! db* messenger {:type "finish" :taskId "cleanup" :title "Cleaning up"}))))
 
 (defn workspace-did-change-folders [{:keys [db*]} params]
@@ -302,7 +303,7 @@
 (defn shutdown [{:keys [db* config metrics]}]
   (metrics/task metrics :eca/shutdown
     ;; 1. Save cache BEFORE hook so db-cache-path contains current state
-    (db/save-all-chats! @db* metrics)
+    (db.chats/save-all-chats! @db* metrics)
 
     ;; 2. Tell modules, the sessionEnd hooks last
     (events/emit! {:db* db* :metrics metrics :config config} :session/ended {})

@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.chat.recovery :as f.chat.recovery]
@@ -374,7 +375,7 @@
             chat-just-created? (not (contains? (:chats old-db) chat-id))
             ;; A chat from a previous session may be index-only in memory;
             ;; load its message history before prompting on it.
-            _ (db/hydrate-chat! db* chat-id metrics)
+            _ (db.chats/hydrate-chat! db* chat-id metrics)
             ;; Notify observers (other clients, remote SSE viewers) about a
             ;; new client-initiated chat. Skipped on the legacy null-id path
             ;; because the prompting client learns its id from the response.
@@ -492,10 +493,10 @@
            :model "error"
            :status :error})
       (let [chat-inline-config (:chatInline config)
-            _ (db/hydrate-chat! db* chat-id metrics)
+            _ (db.chats/hydrate-chat! db* chat-id metrics)
             new-chat (when-not (get-in @db* [:chats chat-id])
                        (let [source-chat (when source-chat-id
-                                           (db/hydrate-chat! db* source-chat-id metrics)
+                                           (db.chats/hydrate-chat! db* source-chat-id metrics)
                                            (get-in @db* [:chats source-chat-id]))
                              _ (when (and source-chat-id (not source-chat))
                                  (logger/warn logger-tag "chat/inlinePrompt source chat not found, starting empty"
@@ -533,7 +534,7 @@
                          (swap-vals! db* update-in [:chats chat-id] #(or % new-chat)))
             created? (and new-chat (nil? (get-in old-db [:chats chat-id])))
             _ (when created?
-                (db/save-chat! @db* chat-id metrics)
+                (db.chats/save-chat! @db* chat-id metrics)
                 (messenger/chat-opened messenger {:chat-id chat-id :title (:title new-chat)})
                 (when (:trust new-chat)
                   (config/notify-fields-changed-only! {:chat {:select-trust true}} messenger db* chat-id)))

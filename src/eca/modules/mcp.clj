@@ -9,7 +9,7 @@
    [clojure.string :as string]
    [eca.cache :as cache]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.diff :as diff]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
@@ -436,7 +436,7 @@
           (logger/info logger-tag (format "Successfully refreshed token for MCP server '%s'" name))
           (swap! db* assoc-in [:mcp-auth auth-key]
                  (merge mcp-auth new-tokens))
-          (db/update-global-cache! @db* metrics)
+          (db.global-cache/update-global-cache! @db* metrics)
           true)))))
 
 (def ^:private max-init-retries 3)
@@ -681,7 +681,7 @@
                                                                      (:client-secret oauth-info)
                                                                      (assoc :client-secret (:client-secret oauth-info)))))
                         (oauth/stop-oauth-server! callback-port)
-                        (db/update-global-cache! @db* metrics)
+                        (db.global-cache/update-global-cache! @db* metrics)
                         (initialize-server! name db* config metrics on-server-updated))
           :on-error (fn [error]
                       (oauth/stop-oauth-server! callback-port)
@@ -762,7 +762,7 @@
   [name db* config metrics {:keys [on-server-updated]}]
   (when-let [server-config (get-in config [:mcpServers name])]
     (swap! db* update :mcp-auth dissoc (mcp-auth-key name server-config @db*))
-    (db/update-global-cache! @db* metrics)
+    (db.global-cache/update-global-cache! @db* metrics)
     (restart-server! name db* config metrics on-server-updated)))
 
 (defn ^:private parse-json-with-comments [^String s]

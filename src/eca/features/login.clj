@@ -2,7 +2,7 @@
   (:require
    [clojure.string :as string]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.features.providers :as f.providers]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -234,8 +234,8 @@
     ;; both POSTing with the same token would have one win and the other
     ;; receive `invalid_grant`. Holding the cache lock + re-reading disk
     ;; lets the loser adopt the winner's rotated tokens instead. #462
-    (db/with-global-cache-lock
-      (db/sync-auth-from-cache! db* provider metrics)
+    (db.global-cache/with-global-cache-lock
+      (db.global-cache/sync-auth-from-cache! db* provider metrics)
       (let [expires-at (get-in @db* [:auth provider :expires-at])
             now-plus-60 (+ 60 (quot (System/currentTimeMillis) 1000))]
         (if (and expires-at (> (long expires-at) now-plus-60))
@@ -249,7 +249,7 @@
               :config config
               :step :login/renew-token
               :db* db*})
-            (db/update-global-auth-cache! @db* provider metrics)))))
+            (db.global-cache/update-global-auth-cache! @db* provider metrics)))))
     (catch Exception e
       (on-error (.getMessage e)))))
 
@@ -283,7 +283,7 @@
                       :or {silent? false
                            skip-models-sync? false}}]
   (when (get-in @db* [:auth provider])
-    (db/update-global-auth-cache! @db* provider metrics))
+    (db.global-cache/update-global-auth-cache! @db* provider metrics))
   ;; Silent logins are token renewals, keeping the same account and quota.
   (when-not silent?
     (f.providers/reset-quota! provider db* (config/all @db*) messenger))

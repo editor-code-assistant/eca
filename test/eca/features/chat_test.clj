@@ -6,6 +6,7 @@
    [eca.api :as eca]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat :as f.chat]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.history :as f.chat.history]
@@ -3099,7 +3100,7 @@
               (on-message-received {:type :finish}))})
           first-content-id (get-in (h/db) [:chats chat-id :messages 0 :content-id])
           save-calls* (atom 0)]
-      (with-redefs [db/save-chat! (fn [& _] (swap! save-calls* inc))]
+      (with-redefs [db.chats/save-chat! (fn [& _] (swap! save-calls* inc))]
         (f.chat.ops/rollback-chat {:chat-id chat-id
                                :include ["messages" "tools"]
                                :content-id first-content-id}
@@ -3265,7 +3266,7 @@
           (setup!)
           (let [messages-before (get-in (h/db) [:chats "c1" :messages])
                 save-calls* (atom 0)]
-            (with-redefs [db/save-chat! (fn [& _] (swap! save-calls* inc))]
+            (with-redefs [db.chats/save-chat! (fn [& _] (swap! save-calls* inc))]
               (is (match? {:error {:code code :message string?}}
                           (rollback! params))))
             (is (= messages-before (get-in (h/db) [:chats "c1" :messages])))

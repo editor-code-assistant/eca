@@ -12,7 +12,8 @@
   [[:libs '#{eca.logger eca.cache eca.digest eca.diff eca.secrets eca.interpolation eca.oauth eca.messenger
              eca.message-sanitize eca.shared}]
    [:runtime '#{eca.modules eca.modules.events eca.modules.config-spec eca.modules.data eca.shell}]
-   [:state '#{eca.config eca.db eca.metrics eca.network eca.client-http eca.llm-util eca.models}]
+   [:state #(or (contains? '#{eca.config eca.db eca.metrics eca.network eca.client-http eca.llm-util eca.models} %)
+                (string/starts-with? (str %) "eca.db."))]
    [:loader+api #(or (= 'eca.modules.loader %) (= 'eca.api %) (string/starts-with? (str %) "eca.api."))]
    [:engines #(or (string/starts-with? (str %) "eca.features.") (contains? '#{eca.llm-api eca.llm-api.errors} %))]
    [:wiring '#{eca.server eca.handlers eca.main eca.nrepl eca.read-chat eca.modules.built-in}]])

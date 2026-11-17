@@ -10,7 +10,7 @@ ECA (Editor Code Assistant) is a Clojure server that editors talk to over stdin/
   - Core vs modules (`docs/development.md`, "Core and modules"): core is layered and requires no built-in module; modules extend it through module keys and events, never through core calling them, checking their ids or multimethods. `test/eca/architecture_test.clj` checks it; its allowlists only shrink: move code into the module instead of adding to them.
   - `src/eca/api.clj` + `src/eca/api/`: the module API, all that external modules see.
   - `src/eca/llm_api.clj`: façade used by features to call an LLM, through the provider modules' APIs.
-  - `src/eca/db.clj`: in-memory state (sessions, chats, MCP); `src/eca/config.clj`: config resolution from multiple sources.
+  - `src/eca/db.clj`: in-memory state (sessions, chats, MCP), saved and loaded by `src/eca/db/` (cache files, chat files, global cache, migration, other workspaces); `src/eca/config.clj`: config resolution from multiple sources.
   - `src/eca/messenger.clj`: sends requests/notifications back to the client.
   - `src/eca/nrepl.clj`: starts an nREPL when nrepl/cider-nrepl are on the classpath (i.e. the `bb debug-cli` build; no flag needed) — port is logged to stderr, and you can eval against the live process.
 

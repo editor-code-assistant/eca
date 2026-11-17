@@ -2,7 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.migration :as db.migration]
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
    [eca.models :as models]
@@ -16,7 +16,7 @@
   (testing "initializationOptions config is merged properly with default init config"
     (let [db* (atom {})]
       (with-redefs [models/sync-models! (constantly nil)
-                    db/load-db-from-cache! (constantly nil)]
+                    db.migration/load-db-from-cache! (constantly nil)]
         (is (match?
              {}
              (handlers/initialize (h/components)
@@ -33,7 +33,7 @@
   (testing "snapshots initial-workspace-folders for stable cache key"
     (h/reset-components!)
     (let [workspace-folders [{:uri "file:///project/main" :name "main"}]]
-      (with-redefs [db/load-db-from-cache! (constantly nil)]
+      (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
         (handlers/initialize (h/components)
                              {:workspace-folders workspace-folders
                               :initialization-options {:pureConfig true}})
@@ -43,7 +43,7 @@
 
   (testing "a modules key in initializationOptions, keyed by module ids, works"
     (h/reset-components!)
-    (with-redefs [db/load-db-from-cache! (constantly nil)]
+    (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
       (is (match? {:global-config-path string?}
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true
@@ -54,7 +54,7 @@
 
   (testing "returns the global config path the server reads"
     (h/reset-components!)
-    (with-redefs [db/load-db-from-cache! (constantly nil)]
+    (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
       (is (match? {:global-config-path (str (config/global-config-file))}
                   (handlers/initialize (h/components)
                                        {:initialization-options {:pureConfig true}}))))))

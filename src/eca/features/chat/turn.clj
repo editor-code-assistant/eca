@@ -17,7 +17,7 @@
      runs (compaction, commands, `continue-turn!`); `:skip-post-request-hooks?`."
   (:require
    [eca.config :as config]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat.callbacks :as f.chat.callbacks]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
@@ -235,7 +235,7 @@
     ;; *_result entry appended right after, which
     ;; triggers the save in their place.
     (when-not (#{"tool_call" "server_tool_use"} role)
-      (db/save-chat! @db* chat-id metrics))))
+      (db.chats/save-chat! @db* chat-id metrics))))
 
 (defn ^:private turn-state
   "What a request shares with its callbacks: `:chat-ctx`, `:user-messages`,
@@ -302,7 +302,7 @@
               (swap! db* assoc-in [:chats chat-id :title] title)
               (f.chat.lifecycle/send-content! chat-ctx :system (assoc-some {:type :metadata} :title title))
               (when (= :idle (get-in @db* [:chats chat-id :status]))
-                (db/save-chat! @db* chat-id metrics)))))))))
+                (db.chats/save-chat! @db* chat-id metrics)))))))))
 
 (defn ^:private request
   "What `llm-api/sync-or-async-prompt!` gets for the request of `turn`."
@@ -353,7 +353,7 @@
           (swap! db* assoc-in [:managed-chats chat-id :interrupted?] true))
         (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})
         (f.chat.lifecycle/trigger-chat-status-hook! chat-ctx))
-      (db/save-chat! @db* chat-id metrics))))
+      (db.chats/save-chat! @db* chat-id metrics))))
 
 (defn ^:private send-request! [turn]
   (try

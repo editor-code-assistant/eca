@@ -3,13 +3,14 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [are deftest is testing]]
+   [eca.db.chats :as db.chats]
+   [eca.db.io :as db.io]
 
    [babashka.fs :as fs]
    [cheshire.core :as cheshire]
    [cognitect.transit :as transit]
 
    [eca.cache :as cache]
-   [eca.db :as db]
    [eca.main :as main]
    [eca.read-chat :as read-chat]
    [eca.shared :as shared]))
@@ -25,7 +26,7 @@
 (def feb-2-ms (instant->ms "2024-02-02T00:00:00Z"))
 
 (def sample-db
-  {:version db/version
+  {:version db.io/version
    :chats {"chat-1" {:id "chat-1"
                      :title "Test Chat 1"
                      :status :idle
@@ -473,13 +474,13 @@
   (let [dir (fs/create-temp-dir {:prefix "eca-cache-dir"})]
     (try
       (doseq [[id chat] (:chats db)]
-        (write-transit-file (str (doto (io/file (str dir) "chats" (db/chat-file-name id))
+        (write-transit-file (str (doto (io/file (str dir) "chats" (db.io/chat-file-name id))
                                    io/make-parents))
-                            {:version db/chats-version :chat chat}))
+                            {:version db.io/chats-version :chat chat}))
       (write-transit-file (str (doto (io/file (str dir) "chats" "index.transit.json")
                                  io/make-parents))
-                          {:version db/chats-version
-                           :chats (update-vals (:chats db) db/chat-list-meta)})
+                          {:version db.io/chats-version
+                           :chats (update-vals (:chats db) db.chats/chat-list-meta)})
       (f (str dir))
       (finally (fs/delete-tree dir)))))
 
@@ -519,8 +520,8 @@
                      shared/uri->filename)]
             (write-transit-file (str (doto (io/file dir "chats" "index.transit.json")
                                        io/make-parents))
-                                {:version db/chats-version
-                                 :chats (update-vals (:chats sample-db) db/chat-list-meta)})
+                                {:version db.io/chats-version
+                                 :chats (update-vals (:chats sample-db) db.chats/chat-list-meta)})
             (let [records (parse-jsonl (with-out-str (read-chat/run {:workspace workspaces})))]
               (is (= 3 (count records))))))
         (finally

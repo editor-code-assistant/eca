@@ -1,12 +1,12 @@
 (ns eca.read-chat
   (:require
    [clojure.java.io :as io]
+   [eca.db.io :as db.io]
 
    [babashka.cli :as cli]
    [cheshire.core :as cheshire]
 
    [eca.cache :as cache]
-   [eca.db :as db]
    [eca.shared :as shared])
   (:import
    [java.time Instant LocalDate ZoneOffset]))
@@ -58,7 +58,7 @@
 (defn read-db
   [path]
   (or (try
-        (db/read-transit-file (io/file path))
+        (db.io/read-transit-file (io/file path))
         (catch Exception e
           (throw (ex-info (str "Could not read or parse transit data in " path ": " (.getMessage e)
                                ". The ECA server may be writing to this file.")
@@ -205,7 +205,7 @@
 (defn ^:private run-per-chat!
   [dir {:keys [chat-id] :as opts} workspace-inputs]
   (if chat-id
-    (let [chat-f (io/file dir "chats" (db/chat-file-name chat-id))
+    (let [chat-f (io/file dir "chats" (db.io/chat-file-name chat-id))
           payload (try
                     (read-db chat-f)
                     (catch clojure.lang.ExceptionInfo e
@@ -214,21 +214,21 @@
                                         {:chat-id chat-id :type ::chat-not-found}
                                         e))
                         (throw e))))
-          _ (check-version! (:version payload) db/chats-version)
+          _ (check-version! (:version payload) db.io/chats-version)
           {:keys [messages warnings]} (chat-messages {:chats {chat-id (:chat payload)}} chat-id opts)]
       (doseq [w warnings] (warn! w))
       (emit-jsonl! messages))
     (let [index-f (io/file dir "chats" "index.transit.json")
           payload (read-db-or-throw index-f workspace-inputs
                                     (str "Chats index not found: " index-f))]
-      (check-version! (:version payload) db/chats-version)
+      (check-version! (:version payload) db.io/chats-version)
       (emit-jsonl! (list-chats {:chats (:chats payload)} opts)))))
 
 (defn ^:private run-legacy!
   [file {:keys [chat-id] :as opts} workspace-inputs]
   (let [db (read-db-or-throw file workspace-inputs
                              (str "DB cache file not found: " file))]
-    (check-version! (:version db) db/version)
+    (check-version! (:version db) db.io/version)
     (if chat-id
       (let [{:keys [messages warnings]} (chat-messages db chat-id opts)]
         (doseq [w warnings] (warn! w))

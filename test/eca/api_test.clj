@@ -2,7 +2,8 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
+   [eca.db.io :as db.io]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.chat.turn :as f.chat.turn]
@@ -103,8 +104,8 @@
     (is (nil? (get-in (h/db) [:chats "gone"]))))
   (testing "it's saved with the chat"
     (swap! (h/db*) update-in [:chats "chat-1"] assoc :messages [{:role "user" :content "hi"}])
-    (db/save-chat! (h/db) "chat-1" (h/metrics))
-    (let [saved (#'db/read-chat-file (#'db/db-workspaces (h/db)) "chat-1" (h/metrics))]
+    (db.chats/save-chat! (h/db) "chat-1" (h/metrics))
+    (let [saved (#'db.chats/read-chat-file (#'db.io/db-workspaces (h/db)) "chat-1" (h/metrics))]
       (is (= {:acme/x {:n 1 :on? true}} (:modules saved))))))
 
 (deftest chat-state-forked-test

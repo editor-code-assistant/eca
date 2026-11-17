@@ -4,7 +4,7 @@
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
-   [eca.db :as db]
+   [eca.db.global-cache :as db.global-cache]
    [eca.features.login :as f.login]
    [eca.llm-api :as llm-api]
    [eca.modules.completion :as m.completion]
@@ -32,7 +32,7 @@
         (with-redefs [cache/global-dir (constantly (io/file tmpdir))]
           (let [login-ctx* (atom nil)
                 api-opts* (atom nil)
-                result (with-redefs [db/update-global-cache! (fn [& _] nil)
+                result (with-redefs [db.global-cache/update-global-cache! (fn [& _] nil)
                                      f.login/login-step
                                      (fn [{:keys [db*] :as ctx}]
                                        (reset! login-ctx* ctx)

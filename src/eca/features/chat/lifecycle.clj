@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as string]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.login :as f.login]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
@@ -442,7 +443,7 @@
         (dispatch-finish-callbacks! chat-ctx {:follow-up-text follow-up-text
                                               :stop-turn? stop-turn?
                                               :stopping? stopping?})
-        (db/save-chat! @db* chat-id metrics)))))
+        (db.chats/save-chat! @db* chat-id metrics)))))
 
 (defn finish-chat-prompt-stopped!
   "Finish a turn that was halted by a hook (continue:false) or otherwise aborted.

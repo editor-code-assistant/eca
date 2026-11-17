@@ -9,7 +9,7 @@
    [eca.api.fs :as api.fs]
    [eca.api.http :as api.http]
    [eca.api.json :as api.json]
-   [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.modules :as f.modules]
    [eca.llm-api :as llm-api]
@@ -81,7 +81,7 @@
     (testing "also when old chats are cleaned up"
       (swap! (h/db*) assoc-in [:chats "old"] {:id "old" :updated-at 1})
       (let [old-dir (eca/data-dir (assoc (ctx) :chat-id "old") {:chat? true})]
-        (db/cleanup-old-chats! (h/db*) (h/metrics) 1)
+        (db.chats/cleanup-old-chats! (h/db*) (h/metrics) 1)
         (is (not (fs/exists? old-dir)))))
     (testing "ids that aren't file names are made safe"
       (is (string/ends-with? (str (modules.data/chat-dir (h/db) :acme/x "../../etc")) "_.._etc")))))

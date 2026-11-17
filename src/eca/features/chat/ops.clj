@@ -6,6 +6,7 @@
    [clojure.string :as string]
    [eca.config :as config]
    [eca.db :as db]
+   [eca.db.chats :as db.chats]
    [eca.features.chat.history :as f.chat.history]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.features.chat.replay :as f.chat.replay]
@@ -99,7 +100,7 @@
                        (update :deleted-chat-ids (fnil conj #{}) chat-id))))
       (messenger/chat-deleted messenger {:chat-id chat-id})
       ;; Delete the chat's cache file and drop it from the chats index
-      (db/delete-chat-from-cache! @db* chat-id metrics)
+      (db.chats/delete-chat-from-cache! @db* chat-id metrics)
       ;; and the modules' files for it (eca.api/data-dir)
       (try
         (modules.data/delete-chat-dirs! @db* chat-id)
@@ -113,7 +114,7 @@
     ;; Hydrate first so the dissocs below apply to the full chat and the
     ;; save writes memory wholesale instead of merging over the disk copy
     ;; (which would resurrect :task/:usage/:prompt-cache on reload).
-    (db/hydrate-chat! db* chat-id metrics)
+    (db.chats/hydrate-chat! db* chat-id metrics)
     (swap! db* update-in [:chats chat-id]
            (fn [chat]
              (cond-> chat
@@ -130,7 +131,7 @@
                                     :remembered-approvals
                                     :modules :module-contexts :compaction-request)))))
     (messenger/chat-cleared messenger {:chat-id chat-id :messages messages})
-    (db/save-chat! @db* chat-id metrics)))
+    (db.chats/save-chat! @db* chat-id metrics)))
 
 (defn update-chat
   "Update chat metadata like title and trust.
@@ -149,7 +150,7 @@
                                          {:chat-id chat-id
                                           :role    "system"
                                           :content {:type :metadata :title title}})
-        (db/save-chat! @db* chat-id metrics))))
+        (db.chats/save-chat! @db* chat-id metrics))))
   {})
 
 (defn ^:private rollback-target-idx
@@ -173,7 +174,7 @@
    no id, so a nil id would match the first of those instead (#669)."
   [{:keys [chat-id content-id include]} db* messenger metrics]
   (logger/with-chat-context chat-id (db/parent-chat-id @db* chat-id)
-    (db/hydrate-chat! db* chat-id metrics)
+    (db.chats/hydrate-chat! db* chat-id metrics)
     (let [chat (get-in @db* [:chats chat-id])
           all-messages (vec (:messages chat))
           target-idx (some->> (shared/not-blank content-id)
@@ -218,7 +219,7 @@
             ;; Rollback is the user's recovery tool for a chat that got into a bad
             ;; state. Persist immediately so the cleaned-up history survives a
             ;; restart instead of relying on the next unrelated save.
-            (db/save-chat! @db* chat-id metrics)
+            (db.chats/save-chat! @db* chat-id metrics)
             (if (f.chat.history/incremental-updates? @db*)
               (messenger/chat-truncated messenger {:chat-id chat-id
                                                    :content-id content-id})
@@ -262,7 +263,7 @@
    `afterContentId` telling where to render it; others get a clear and
    full replay so the flag renders at the correct position."
   [{:keys [chat-id content-id text]} db* messenger metrics]
-  (db/hydrate-chat! db* chat-id metrics)
+  (db.chats/hydrate-chat! db* chat-id metrics)
   (let [messages (vec (get-in @db* [:chats chat-id :messages]))
         insert-idx (find-last-message-idx messages content-id)]
     (when insert-idx
@@ -272,7 +273,7 @@
             new-messages (into (subvec messages 0 insert-after)
                                (cons flag-msg (subvec messages insert-after)))]
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-        (db/save-chat! @db* chat-id metrics)
+        (db.chats/save-chat! @db* chat-id metrics)
         (if (f.chat.history/incremental-updates? @db*)
           (messenger/chat-content-received messenger
                                            {:chat-id chat-id
@@ -289,14 +290,14 @@
 (defn remove-flag
   "Remove a flag message identified by content-id from the chat."
   [{:keys [chat-id content-id]} db* metrics]
-  (db/hydrate-chat! db* chat-id metrics)
+  (db.chats/hydrate-chat! db* chat-id metrics)
   (when-let [messages (get-in @db* [:chats chat-id :messages])]
     (let [new-messages (vec (remove #(and (= "flag" (:role %))
                                           (= content-id (:content-id %)))
                                     messages))]
       (when (not= (count new-messages) (count messages))
         (swap! db* assoc-in [:chats chat-id :messages] new-messages)
-        (db/save-chat! @db* chat-id metrics))))
+        (db.chats/save-chat! @db* chat-id metrics))))
   {})
 
 (defn fork-chat
@@ -306,7 +307,7 @@
    messages; the paging meta is returned as `:meta` and in `chat/opened` so
    the client can page older via `chat/history`."
   [{:keys [chat-id content-id]} db* messenger metrics]
-  (db/hydrate-chat! db* chat-id metrics)
+  (db.chats/hydrate-chat! db* chat-id metrics)
   (let [chat (get-in @db* [:chats chat-id])
         messages (vec (:messages chat))
         target-idx (find-last-message-idx messages content-id)]
@@ -331,7 +332,7 @@
             meta (when page (f.chat.history/page-meta page kept-messages))]
         (swap! db* assoc-in [:chats new-id] new-chat)
         (mark-editor-open! db* new-id)
-        (db/save-chat! @db* new-id metrics)
+        (db.chats/save-chat! @db* new-id metrics)
         (messenger/chat-opened messenger (assoc-some {:chat-id new-id :title new-title}
                                                      :history meta))
         (f.chat.replay/send-chat-contents! (if page (:messages page) kept-messages)
@@ -361,7 +362,7 @@
                    (sort-by (fn [[_ v]] (or (get v primary) (get v secondary) 0)) >)
                    (mapv (fn [[k chat]]
                            (let [{:keys [title status created-at updated-at model message-count kind]}
-                                 (db/chat-list-meta chat)]
+                                 (db.chats/chat-list-meta chat)]
                              (assoc-some
                               {:id k
                                :title title
@@ -392,7 +393,7 @@
   ([params db* messenger config]
    (open-chat! params db* messenger config nil))
   ([{:keys [chat-id limit before after] :as params} db* messenger config metrics]
-   (db/hydrate-chat! db* chat-id metrics)
+   (db.chats/hydrate-chat! db* chat-id metrics)
    (let [chat (get-in @db* [:chats chat-id])
          windowed? (some #(contains? params %) [:limit :before :after])
          page (when windowed?
@@ -446,7 +447,7 @@
   ([params db*]
    (fetch-history params db* nil))
   ([{:keys [chat-id limit before after]} db* metrics]
-   (db/hydrate-chat! db* chat-id metrics)
+   (db.chats/hydrate-chat! db* chat-id metrics)
    (let [db @db*
          chat (get-in db [:chats chat-id])]
      (if (or (nil? chat) (:subagent chat))
