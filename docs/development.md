@@ -37,6 +37,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `login.clj`              | Provider auth flows.
    ├─ `providers.clj`          | Model/provider resolution.
+   ├─ `quota.clj`              | Subscription quotas: from response headers and the providers' usage endpoints.
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
    ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
@@ -49,7 +50,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `hooks.clj`              | User-configured hooks triggered on server events.
    ├─ `skills.clj`, `rules.clj`| Skills and rules: discovery, loading, their tools and prompt sections.
    ├─ `remote.clj` + `remote/` | Optional remote HTTP/SSE server exposing chats to non-stdio clients.
-   └─ ...                      | `completion.clj` and `rewrite.clj` (inline completion and rewrite), `plugins.clj`, `approval.clj`, `manage.clj`, `otel.clj`, `repl.clj`, ...
+   └─ ...                      | `agents_md.clj` (AGENTS.md files), `chat_title.clj`, `compact_as_summary.clj`, `completion.clj` and `rewrite.clj` (inline completion and rewrite), `plugins.clj`, `approval.clj`, `manage.clj`, `otel.clj`, `repl.clj`, ...
    `src/eca/api.clj` + `api/`  | The module API: all that external modules see.
    `src/eca/nrepl.clj`         | Starts an nREPL when built with `bb debug-cli`.
 
@@ -77,7 +78,7 @@ ECA is a core plus modules. Core is layered, lowest first, and a namespace requi
 Every other feature is a module under `src/eca/modules/`, built in or external, with these rules:
 
 - Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.
-- Modules extend core through module keys (what they contribute: config, tools, commands, prompt sections, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id or offer a multimethod for modules to extend.
+- Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote and otel aside) or offer a multimethod for modules to extend.
 - New module keys start built-in only; open one to external modules when one needs it.
 
 `test/eca/architecture_test.clj` checks the layers and the rules. Its allowlists hold the couplings left from before the rules, and only shrink.
