@@ -6,6 +6,7 @@
    [eca.config :as config]
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
+   [eca.modules :as modules]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.rules :as m.rules]
    [eca.modules.tools.filesystem :as m.filesystem]
@@ -393,6 +394,29 @@
       (is (= #{"bigMCP__one" "bigMCP__two"}
              (deferred-names (defer-all-db big)
                              {:agent {"code" {:mcpToolSearch {:deferAllWhenTotalTokensExceedPercentOfContext 10}}}}))))))
+
+(deftest transform-tools-test
+  (let [calls* (atom [])
+        dropping (fn [id tool-name]
+                   {:id id
+                    :transform-tools (fn [ctx tools]
+                                       (swap! calls* conj (assoc (select-keys ctx [:module-id :chat-id :agent :full-model])
+                                                                 :names (set (map :full-name tools))))
+                                       (remove #(= tool-name (:full-name %)) tools))})]
+    (with-redefs [modules/built-in-modules (constantly (conj (h/built-in-modules-with :eca/filesystem)
+                                                             (dropping :eca/test-a "eca__read_file")
+                                                             (dropping :eca/test-b "eca__write_file")))]
+      (let [names (set (map :full-name (f.tools/all-tools "123" "code" {} {} {:full-model "prov/model"})))]
+        (testing "each built-in's transform gets the tools the one before returned, in module order"
+          (is (match? [{:module-id :eca/test-a :chat-id "123" :agent "code" :full-model "prov/model"
+                        :names #(contains? % "eca__read_file")}
+                       {:module-id :eca/test-b :chat-id "123" :agent "code" :full-model "prov/model"
+                        :names #(and (not (contains? % "eca__read_file")) (contains? % "eca__write_file"))}]
+                      @calls*)))
+        (testing "the last transform's tools are the result"
+          (is (not (contains? names "eca__read_file")))
+          (is (not (contains? names "eca__write_file")))
+          (is (contains? names "eca__directory_tree")))))))
 
 (defn ^:private db-remembering
   "A db whose chat \"c1\" remembered `approvals` via approve & remember."

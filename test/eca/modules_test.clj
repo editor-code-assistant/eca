@@ -109,6 +109,10 @@
            (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request :handler (fn [_ _])}}} {})))
     (is (match? {:errors [#":skills is only for built-in modules"]}
                 (modules/problems {:id :acme/x :skills []} {})))
+    (is (match? {:errors [#":transform-tools is only for built-in modules"]}
+                (modules/problems {:id :acme/x :transform-tools (fn [_ tools] tools)} {})))
+    (is (match? {:errors [#":transform-tools must be a function"]}
+                (modules/problems {:id :eca/x :transform-tools {}} {:built-in? true})))
     (is (match? {:errors [#":skills \"s\": :body must be a string or a function"]}
                 (modules/problems {:id :eca/x :skills [{:name "s" :description "d"}]} {:built-in? true})))
     (is (match? {:errors [#":config-spec x: :type must be one of"]}

@@ -33,7 +33,6 @@
 (def ^:private allowed-id-checks
   "`(modules/active? config :eca/x)` calls in core, by namespace and id, with their count. Only shrinks."
   '{[eca.features.tools :eca/mcp] 3
-    [eca.features.tools :eca/tool-search] 1
     [eca.handlers :eca/remote] 1
     [eca.server :eca/otel] 1})
 

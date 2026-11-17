@@ -54,7 +54,7 @@
     :config-spec :start :stop :tools :prefix :commands :system-prompts
     :providers :apis :config-defaults :event-handlers :defines :rpc})
 
-(def ^:private built-in-only-keys #{:agents :skills :contexts})
+(def ^:private built-in-only-keys #{:agents :skills :contexts :transform-tools})
 
 (def ^:private later-keys #{:activation :strategies :rules :capabilities :ui})
 
@@ -282,6 +282,8 @@
                     [":config-defaults must be a map or a function"])
                   (when (and (some? (:agents module)) (not (fn-like? (:agents module))))
                     [":agents must be a function"])
+                  (when (and (some? (:transform-tools module)) (not (fn-like? (:transform-tools module))))
+                    [":transform-tools must be a function"])
                   (skills-problems (:skills module))
                   (map-of-problems ":event-handlers" event-handlers qualified-kw? "a qualified keyword" handler-spec-problems)
                   (defines-problems (:defines module))

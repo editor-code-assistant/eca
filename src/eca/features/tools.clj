@@ -129,7 +129,7 @@
   ([all-tools tool args db config agent-name opts]
    (:decision (approval-decision all-tools tool args db config agent-name opts))))
 
-(defn ^:private get-tool-patterns
+(defn get-tool-patterns
   "Returns a set of tool patterns at `config-path`, merging global and agent-specific."
   [config agent-name config-path]
   (set (concat (get-in config config-path [])
@@ -178,7 +178,7 @@
            (re-matches pattern full-name)
            (= entry full-name))))))
 
-(defn ^:private tool-matches-any? [tool entries]
+(defn tool-matches-any? [tool entries]
   (boolean (some #(tool-entry-matches? % tool) entries)))
 
 (defn ^:private tool-disabled? [tool disabled-tools]
@@ -336,68 +336,6 @@
   [tools]
   (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
 
-(defn ^:private get-defer-all-percent
-  "Percentage of the model context window the MCP tool definitions may take
-   before all of them are deferred without any pattern. The agent value overrides
-   the global one; nil (the default) leaves them unlimited."
-  [config agent-name]
-  (let [agent-config (get-in config [:agent agent-name :mcpToolSearch])]
-    (if (contains? agent-config :deferAllWhenTotalTokensExceedPercentOfContext)
-      (:deferAllWhenTotalTokensExceedPercentOfContext agent-config)
-      (get-in config [:mcpToolSearch :deferAllWhenTotalTokensExceedPercentOfContext]))))
-
-(defn ^:private tools-tokens
-  "Rough token cost of the tool definitions sent on every request, measured over
-   the same wire fields `shared/context-breakdown` reports as Tool definitions."
-  [tools]
-  (shared/estimate-tokens
-   (pr-str (mapv #(select-keys % [:name :description :parameters]) tools))))
-
-(defn ^:private defer-all-by-total-tokens?
-  "True when the MCP tool definitions as a whole outgrow
-   `deferAllWhenTotalTokensExceedPercentOfContext` of the model context window.
-   False without a percent or a known context window, so an unknown model never
-   silently hides its tools."
-  [mcp-tools config agent-name db full-model]
-  (let [percent (get-defer-all-percent config agent-name)
-        context-limit (get-in db [:models full-model :limit :context])]
-    (boolean (and (number? percent)
-                  (not (neg? percent))
-                  (number? context-limit)
-                  (pos? context-limit)
-                  (seq mcp-tools)
-                  (> (tools-tokens mcp-tools)
-                     (* context-limit (/ (double percent) 100.0)))))))
-
-(defn ^:private mark-deferred-tools
-  "Marks MCP tools kept out of the LLM context with `:deferrable`, and with
-   `:deferred` while the chat has not loaded them yet via `eca__search_tools`.
-   A tool is deferred when the MCP tool definitions as a whole outgrow
-   `mcpToolSearch.deferAllWhenTotalTokensExceedPercentOfContext` of the context
-   window, or when it matches `includePattern`, and in both cases only if it does
-   not match `excludePattern`.
-   Deferred tools stay resolvable and callable; they are simply kept out of the
-   tool schemas sent to the LLM.
-   Native ECA tools are never deferred: they are the agent's baseline capabilities,
-   and a catch-all pattern taking them away would break the agent. They are also
-   left out of the token count, so the limit tracks what MCP actually adds."
-  [tools {:keys [config agent-name activated db full-model]}]
-  (let [include-patterns (get-tool-patterns config agent-name [:mcpToolSearch :includePattern])
-        exclude-patterns (get-tool-patterns config agent-name [:mcpToolSearch :excludePattern])
-        mcp-tools (filterv #(not= :native (:origin %)) tools)
-        defer-all? (defer-all-by-total-tokens? mcp-tools config agent-name db full-model)]
-    (if-not (or defer-all? (seq include-patterns))
-      tools
-      (mapv (fn [tool]
-              (if (and (not= :native (:origin tool))
-                       (or defer-all? (tool-matches-any? tool include-patterns))
-                       (not (tool-matches-any? tool exclude-patterns)))
-                (assoc tool
-                       :deferrable true
-                       :deferred (not (contains? activated (:full-name tool))))
-                tool))
-            tools))))
-
 (defn tools-for-llm
   "Tools whose schemas should be sent to the LLM on this turn."
   [all-tools]
@@ -432,6 +370,8 @@
    (like filesystem and shell tools) and tools provided by MCP servers.
    Removes denied tools.
    When chat is a subagent (has :subagent), filters tools based on agent definition.
+   Then each built-in module's `:transform-tools` changes the list, in module
+   order (`:eca/tool-search` defers MCP tools).
    `full-model` is the model the prompt runs with; it defaults to the chat's stored
    model, which is not set yet when the first prompt of a chat computes its tools,
    so prompt code passes the resolved model to keep the tool set stable across turns."
@@ -470,21 +410,11 @@
          all-tools (remove (fn [tool]
                              (= :deny (approval all-tools tool {} db config agent-name)))
                            all-tools)
-         ;; deferred tools can only be loaded through search_tools, so only
-         ;; :eca/tool-search defers them
-         all-tools (if (modules/active? config :eca/tool-search)
-                     (mark-deferred-tools all-tools
-                                          {:config config
-                                           :agent-name agent-name
-                                           :activated (tools.util/activated-deferred-tools db chat-id)
-                                           :db db
-                                           :full-model full-model})
-                     all-tools)]
-     ;; search_tools, :eca/tool-search's tool, only earns its context slot when
-     ;; something is actually deferred.
-     (if (some :deferrable all-tools)
-       all-tools
-       (remove #(= "eca__search_tools" (:full-name %)) all-tools)))))
+         ctx {:config config :db db :chat-id chat-id :agent agent-name :full-model full-model}]
+     (reduce (fn [tools [entry transform]]
+               (transform (modules/module-ctx ctx entry) tools))
+             all-tools
+             (modules/contributions config :transform-tools)))))
 
 (def ^:private progress-report-interval-ms 1000)
 
