@@ -340,10 +340,10 @@
       :else nil)))
 
 (defn ^:private pick-next
-  "Kahn's step: the first entry, by `compare-fn`, whose requirements are all in
-   `placed-ids`."
-  [pending placed-ids compare-fn]
-  (first (sort compare-fn (filter #(set/subset? (requirements %) placed-ids) pending))))
+  "Kahn's step: the first entry of `pending`, which the caller keeps sorted,
+   whose requirements are all in `placed-ids`."
+  [pending placed-ids]
+  (first (filter #(set/subset? (requirements %) placed-ids) pending)))
 
 (defn ^:private by-priority-then-id
   "Higher priority first, then id."
@@ -379,10 +379,10 @@
    among ready ones, higher priority first, then id. A module whose config
    spec conflicts with an already placed one is refused."
   [enabled]
-  (loop [pending (vec enabled)
+  (loop [pending (vec (sort by-priority-then-id enabled))
          placed-ids #{}
          acc {:active [] :declared {} :conflicting {}}]
-    (if-let [next-entry (pick-next pending placed-ids by-priority-then-id)]
+    (if-let [next-entry (pick-next pending placed-ids)]
       (let [pending (filterv #(not= (:id %) (:id next-entry)) pending)
             spec (:config-spec (:module next-entry))
             conflicts (config-spec/conflicts (:declared acc) spec)]
@@ -400,6 +400,22 @@
                                                      (config-spec/leaves spec))
                                                %))))))
       acc)))
+
+(defn ^:private merge-order
+  "Active modules in the order their `:config-defaults` merge, later wins: a
+   module after the modules it requires, directly or not; otherwise lower
+   priority first, then id. So among equal priorities the higher id wins, and
+   entries of shared maps keep id order, e.g. agents code, plan, explorer."
+  [active]
+  (let [compare-fn (fn [a b]
+                     (let [c (compare (:priority a) (:priority b))]
+                       (if (zero? c) (compare (:id a) (:id b)) c)))]
+    (loop [pending (vec (sort compare-fn active)) placed-ids #{} ordered []]
+      (if-let [next-entry (pick-next pending placed-ids)]
+        (recur (filterv #(not= (:id %) (:id next-entry)) pending)
+               (conj placed-ids (:id next-entry))
+               (conj ordered next-entry))
+        ordered))))
 
 (defn ^:private resolve*
   [modules-config registry built-ins]
@@ -443,25 +459,40 @@
      :active-ids active-ids
      :declared declared
      :statuses (vec (sort-by (juxt (comp str :id) (comp str :source))
-                             (concat active disabled (vals conflicting) unplaced refused load-failed)))}))
+                             (concat active disabled (vals conflicting) unplaced refused load-failed)))
+     ;; what `default-config` follows, once per resolution: every config read needs them
+     :merge-order (delay (merge-order active))
+     :spec-defaults (delay (reduce (fn [acc entry]
+                                     (shared/deep-merge acc (config-spec/defaults (:config-spec (:module entry)))))
+                                   {}
+                                   active))}))
 
-(def ^:private resolution-cache* (atom nil))
+;; [modules config, registry version] → {:built-ins :value}, for a few keys: a
+;; config with a modules key reads the modules' defaults with and without it
+;; (eca.config/merged-layers)
+(def ^:private resolution-cache* (atom {}))
+
+(def ^:private resolution-cache-size 8)
 
 (defn resolution
   "Which modules are active under `config` (only its `modules` key matters):
    `{:active [entries in start order] :active-ids #{..} :declared {path {:spec :module}}
-     :statuses [every module with :status and :reason]}`. An entry is
+     :statuses [every module with :status and :reason]
+     :merge-order (delay [the active entries in config merge order])
+     :spec-defaults (delay {their :config-spec defaults})}`. An entry is
    `{:id :module :source :built-in? :priority :status}`."
   [config]
   (let [mc (modules-config config)
         registry @registry*
         built-ins (built-in-modules)
         k [mc (:version registry)]
-        cached @resolution-cache*]
-    (if (and cached (= k (:key cached)) (identical? built-ins (:built-ins cached)))
+        cached (get @resolution-cache* k)]
+    (if (and cached (identical? built-ins (:built-ins cached)))
       (:value cached)
       (let [value (resolve* mc registry built-ins)]
-        (reset! resolution-cache* {:key k :built-ins built-ins :value value})
+        (swap! resolution-cache* (fn [cache]
+                                   (assoc (if (< (count cache) resolution-cache-size) cache {})
+                                          k {:built-ins built-ins :value value})))
         value))))
 
 (defn active
@@ -862,33 +893,13 @@
 
 ;; --- Config
 
-(defn ^:private merge-order
-  "Active modules in the order their `:config-defaults` merge, later wins: a
-   module after the modules it requires, directly or not; otherwise lower
-   priority first, then id. So among equal priorities the higher id wins, and
-   entries of shared maps keep id order, e.g. agents code, plan, explorer."
-  [active]
-  (let [compare-fn (fn [a b]
-                     (let [c (compare (:priority a) (:priority b))]
-                       (if (zero? c) (compare (:id a) (:id b)) c)))]
-    (loop [pending (vec active) placed-ids #{} ordered []]
-      (if-let [next-entry (pick-next pending placed-ids compare-fn)]
-        (recur (filterv #(not= (:id %) (:id next-entry)) pending)
-               (conj placed-ids (:id next-entry))
-               (conj ordered next-entry))
-        ordered))))
-
 (defn default-config
   "The config defaults the active modules under `config` declare, lowest
    first: their `:config-spec` defaults, then their `:config-defaults` merged
    in `merge-order`. `db` is what a `:config-defaults` function can read
    (e.g. the workspaces)."
   [config db]
-  (let [{:keys [active]} (resolution config)
-        spec-defaults (reduce (fn [acc entry]
-                                (shared/deep-merge acc (config-spec/defaults (:config-spec (:module entry)))))
-                              {}
-                              active)]
+  (let [{order :merge-order spec-defaults :spec-defaults} (resolution config)]
     (reduce (fn [acc entry]
               (let [d (:config-defaults (:module entry))
                     d (if (fn-like? d)
@@ -901,14 +912,14 @@
                 (if (map? d)
                   (shared/add-up-config-lists (shared/deep-merge acc d) acc d)
                   acc)))
-            spec-defaults
-            (merge-order active))))
+            @spec-defaults
+            @order)))
 
 (defn defaults-signature
   "What decides `default-config` under `config`: the active modules in merge
    order, with their priorities."
   [config]
-  (mapv (juxt :id :priority) (merge-order (active config))))
+  (mapv (juxt :id :priority) @(:merge-order (resolution config))))
 
 (defn declared-keys
   "path → {:spec :module} for every config key an active module owns."

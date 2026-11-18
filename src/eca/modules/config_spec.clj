@@ -110,10 +110,13 @@
    The same key is fine when both specs agree; a path can't be a key in one
    module and a level in another."
   [declared tree]
-  (let [declared-levels (into #{} (mapcat (fn [path] (map #(subvec path 0 %) (range 1 (count path)))))
-                              (keys declared))]
+  (let [tree-leaves (leaves tree)
+        ;; most modules declare no key: no need for the others' levels then
+        declared-levels (when (seq tree-leaves)
+                          (into #{} (mapcat (fn [path] (map #(subvec path 0 %) (range 1 (count path)))))
+                                (keys declared)))]
     (vec
-     (for [[path spec] (leaves tree)
+     (for [[path spec] tree-leaves
            :let [where (path-str path)
                  same (get declared path)
                  key-above (some (fn [n] (when-let [owner (get declared (subvec path 0 n))]
