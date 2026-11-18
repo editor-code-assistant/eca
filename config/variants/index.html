@@ -1445,7 +1445,7 @@
 <p class="admonition-title">Note</p>
 <p>Built-in variants match on the model id, so the Anthropic variants below also apply to the same Claude models served through <strong>Bedrock</strong> (e.g. <code>us.anthropic.claude-opus-4-7</code>). For Bedrock, ECA translates the Anthropic-shaped <code>thinking</code>/<code>output_config</code> payload into Converse's <code>reasoning_config</code>/<code>output_config</code>.</p>
 </div>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:8"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="anthropic-opus-47-opussonnetfablemythos-5" name="__tabbed_1" type="radio" /><input id="anthropic-openai-chat-gateways-eg-openrouter" name="__tabbed_1" type="radio" /><input id="openai" name="__tabbed_1" type="radio" /><input id="openai-gpt-56" name="__tabbed_1" type="radio" /><input id="openai-gpt-6" name="__tabbed_1" type="radio" /><input id="openai-openai-chat-gateways-eg-litellm" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="anthropic-opus-47-opussonnetfablemythos-5">Anthropic (opus 4.7+, opus/sonnet/fable/mythos 5)</label><label for="anthropic-openai-chat-gateways-eg-openrouter">Anthropic (openai-chat gateways, e.g. OpenRouter)</label><label for="openai">OpenAI</label><label for="openai-gpt-56">OpenAI (gpt-5.6)</label><label for="openai-gpt-6">OpenAI (gpt-6)</label><label for="openai-openai-chat-gateways-eg-litellm">OpenAI (openai-chat gateways, e.g. LiteLLM)</label><label for="deepseek">DeepSeek</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:8"><input checked="checked" id="anthropic" name="__tabbed_1" type="radio" /><input id="anthropic-opus-47-opussonnetfablemythos-5" name="__tabbed_1" type="radio" /><input id="anthropic-openai-chat-gateways-eg-openrouter" name="__tabbed_1" type="radio" /><input id="openai" name="__tabbed_1" type="radio" /><input id="openai-gpt-56" name="__tabbed_1" type="radio" /><input id="openai-gpt-6-gpt-62" name="__tabbed_1" type="radio" /><input id="openai-openai-chat-gateways-eg-litellm" name="__tabbed_1" type="radio" /><input id="deepseek" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="anthropic">Anthropic</label><label for="anthropic-opus-47-opussonnetfablemythos-5">Anthropic (opus 4.7+, opus/sonnet/fable/mythos 5)</label><label for="anthropic-openai-chat-gateways-eg-openrouter">Anthropic (openai-chat gateways, e.g. OpenRouter)</label><label for="openai">OpenAI</label><label for="openai-gpt-56">OpenAI (gpt-5.6)</label><label for="openai-gpt-6-gpt-62">OpenAI (gpt-6, gpt-6.2)</label><label for="openai-openai-chat-gateways-eg-litellm">OpenAI (openai-chat gateways, e.g. LiteLLM)</label><label for="deepseek">DeepSeek</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
 <p>Applies to models matching <code>sonnet-4-6</code>, <code>opus-4-5</code>, <code>opus-4-6</code> (any separator: <code>-</code>, <code>.</code>, <code>_</code>).</p>
@@ -1645,7 +1645,7 @@
 </table>
 </div>
 <div class="tabbed-block">
-<p>Applies to models matching <code>gpt-6</code> (e.g. <code>gpt-6-astra</code>; any separator: <code>-</code>, <code>.</code>, <code>_</code>), but not <code>gpt-6.x</code> point releases. Excluded for <code>github-copilot</code> provider. There is no <code>none</code> variant: GPT-6 Astra rejects that effort level. For Fast mode, add a custom variant with <code>"service_tier": "fast"</code> alongside the effort.</p>
+<p>Applies to models matching <code>gpt-6</code> (e.g. <code>gpt-6-astra</code>) and <code>gpt-6.2</code> (e.g. <code>gpt-6.2-astra</code>, <code>gpt-6.2-sol</code>; any separator: <code>-</code>, <code>.</code>, <code>_</code>), but not other <code>gpt-6.x</code> point releases. Excluded for <code>github-copilot</code> provider. There is no <code>none</code> variant: GPT-6 Astra and the GPT-6.2 models reject that effort level. For Fast mode, add a custom variant with <code>"service_tier": "fast"</code> alongside the effort.</p>
 <table>
 <thead>
 <tr>
@@ -1689,7 +1689,7 @@
 <tbody>
 <tr>
 <td><code>none</code></td>
-<td><code>{"reasoning_effort": "none"}</code> (not for <code>gpt-6</code>)</td>
+<td><code>{"reasoning_effort": "none"}</code> (not for <code>gpt-6</code> and <code>gpt-6.2</code>)</td>
 </tr>
 <tr>
 <td><code>low</code></td>
@@ -1709,13 +1709,13 @@
 </tr>
 <tr>
 <td><code>max</code></td>
-<td><code>{"reasoning_effort": "max"}</code> (<code>gpt-5.6</code> and <code>gpt-6</code> only)</td>
+<td><code>{"reasoning_effort": "max"}</code> (<code>gpt-5.6</code>, <code>gpt-6</code> and <code>gpt-6.2</code> only)</td>
 </tr>
 </tbody>
 </table>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
-<p>OpenAI does not support function tools together with reasoning on <code>/chat/completions</code> for <code>gpt-5.6</code> and <code>gpt-6</code> models (<code>Function tools with reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to 'none'</code>), and <code>gpt-6-astra</code> rejects <code>none</code>. Since ECA sends its tools on every request, use <code>"api": "openai-responses"</code> for these models when your gateway supports <code>/responses</code> (LiteLLM does).</p>
+<p>OpenAI does not support function tools together with reasoning on <code>/chat/completions</code> for <code>gpt-5.6</code>, <code>gpt-6</code> and <code>gpt-6.2</code> models (<code>Function tools with reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to 'none'</code>), and <code>gpt-6-astra</code> and the <code>gpt-6.2</code> models reject <code>none</code>. Since ECA sends its tools on every request, use <code>"api": "openai-responses"</code> for these models when your gateway supports <code>/responses</code> (LiteLLM does).</p>
 </div>
 </div>
 <div class="tabbed-block">
@@ -1851,7 +1851,7 @@ Review the changes for correctness and regressions.
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 09:54:47 UTC">November 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 15:57:45 UTC">November 18, 2026</span>
   </span>
 
     
