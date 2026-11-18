@@ -1587,7 +1587,7 @@
 <li>Libs: <code>eca.logger</code>, <code>eca.shared</code>, <code>eca.messenger</code>, <code>eca.cache</code>, ...</li>
 <li>The module runtime: <code>eca.modules</code>, <code>eca.modules.events</code>, <code>eca.modules.config-spec</code>, <code>eca.modules.data</code>; <code>eca.shell</code>.</li>
 <li>State and config: <code>eca.config</code>, <code>eca.db</code>, <code>eca.models</code>, <code>eca.llm-util</code>, ...</li>
-<li>The module loader and the module API (<code>eca.api*</code>).</li>
+<li>The module loader and the module API (<code>eca.api</code>, <code>eca.api.test</code>).</li>
 <li>Engines: <code>eca.features.*</code> (chat, tools, commands, prompt, ...), <code>eca.llm-api</code> and <code>eca.llm-api.*</code>.</li>
 <li>Wiring: <code>eca.server</code>, <code>eca.handlers</code>, <code>eca.main</code>, the built-in modules list.</li>
 </ol>
@@ -1595,7 +1595,7 @@
 <ul>
 <li>Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.</li>
 <li>Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote, otel and repl aside) or offer a multimethod for modules to extend.</li>
-<li>New module keys start built-in only; open one to external modules when one needs it.</li>
+<li>Every module key works for every module, built in or external; only the calls differ: a built-in's run inline, as the code it replaced, and an external module's are guarded (timeouts, failures counted).</li>
 </ul>
 <p><code>test/eca/architecture_test.clj</code> checks the layers and the rules, also in <code>requiring-resolve</code>s and fully qualified calls. Its allowlists hold the couplings left from before the rules (and the module API resolving the engines at runtime), and only shrink.</p>
 <h3 id="unit-tests">Unit Tests<a class="headerlink" href="#unit-tests" title="Permanent link">#</a></h3>
@@ -1693,7 +1693,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 17:30:21 UTC">November 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 00:44:45 UTC">November 18, 2026</span>
   </span>
 
     

@@ -760,6 +760,24 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#providers-and-llm-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      Providers and LLM APIs
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keys-only-one-eca-feature-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keys only one ECA feature uses
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1541,6 +1559,24 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#providers-and-llm-apis" class="md-nav__link">
+    <span class="md-ellipsis">
+      Providers and LLM APIs
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keys-only-one-eca-feature-uses" class="md-nav__link">
+    <span class="md-ellipsis">
+      Keys only one ECA feature uses
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1913,13 +1949,13 @@
 <h3 id="config">Config<a class="headerlink" href="#config" title="Permanent link">#</a></h3>
 <p>A module declares the config keys it uses in <code>:config-spec</code>. Users set them at the root of the config, like ECA's own keys:</p>
 <div class="highlight"><span class="filename">~/.config/eca/modules/jira.clj</span><pre><span></span><code><span class="p">(</span><span class="kd">ns </span><span class="nv">acme.jira</span>
-<span class="w">  </span><span class="p">(</span><span class="ss">:require</span><span class="w"> </span><span class="p">[</span><span class="nv">eca.api</span><span class="w"> </span><span class="ss">:as</span><span class="w"> </span><span class="nv">eca</span><span class="p">]</span>
-<span class="w">            </span><span class="p">[</span><span class="nv">eca.api.http</span><span class="w"> </span><span class="ss">:as</span><span class="w"> </span><span class="nv">http</span><span class="p">]))</span>
+<span class="w">  </span><span class="p">(</span><span class="ss">:require</span><span class="w"> </span><span class="p">[</span><span class="nv">eca.api</span><span class="w"> </span><span class="ss">:as</span><span class="w"> </span><span class="nv">eca</span><span class="p">]))</span>
 
 <span class="p">(</span><span class="kd">defn- </span><span class="nv">fetch-issue</span><span class="w"> </span><span class="p">[</span><span class="nv">ctx</span><span class="w"> </span><span class="nv">key</span><span class="p">]</span>
 <span class="w">  </span><span class="p">(</span><span class="k">let </span><span class="p">[{</span><span class="ss">:keys</span><span class="w"> </span><span class="p">[</span><span class="nv">jiraUrl</span><span class="w"> </span><span class="nv">jiraToken</span><span class="p">]}</span><span class="w"> </span><span class="p">(</span><span class="nf">eca/config</span><span class="w"> </span><span class="nv">ctx</span><span class="p">)]</span>
-<span class="w">    </span><span class="p">(</span><span class="ss">:body</span><span class="w"> </span><span class="p">(</span><span class="nf">http/get</span><span class="w"> </span><span class="p">(</span><span class="nb">str </span><span class="nv">jiraUrl</span><span class="w"> </span><span class="s">&quot;/rest/api/3/issue/&quot;</span><span class="w"> </span><span class="nv">key</span><span class="p">)</span>
-<span class="w">                     </span><span class="p">{</span><span class="ss">:oauth-token</span><span class="w"> </span><span class="nv">jiraToken</span><span class="w"> </span><span class="ss">:as</span><span class="w"> </span><span class="ss">:json</span><span class="p">}))))</span>
+<span class="w">    </span><span class="p">(</span><span class="ss">:body</span><span class="w"> </span><span class="p">(</span><span class="nf">eca/http</span><span class="w"> </span><span class="p">{</span><span class="ss">:url</span><span class="w"> </span><span class="p">(</span><span class="nb">str </span><span class="nv">jiraUrl</span><span class="w"> </span><span class="s">&quot;/rest/api/3/issue/&quot;</span><span class="w"> </span><span class="nv">key</span><span class="p">)</span>
+<span class="w">                      </span><span class="ss">:oauth-token</span><span class="w"> </span><span class="nv">jiraToken</span>
+<span class="w">                      </span><span class="ss">:as</span><span class="w"> </span><span class="ss">:json</span><span class="p">}))))</span>
 
 <span class="p">(</span><span class="k">def </span><span class="nv">module</span>
 <span class="w">  </span><span class="p">{</span><span class="ss">:id</span><span class="w"> </span><span class="ss">:acme/jira</span>
@@ -1946,7 +1982,7 @@
 </ul>
 <p>ECA warns about config keys that neither it nor a loaded module knows, at startup and in <code>/doctor</code>.</p>
 <h3 id="tools">Tools<a class="headerlink" href="#tools" title="Permanent link">#</a></h3>
-<p><code>:tools</code> maps each tool's name to its definition:</p>
+<p><code>:tools</code> maps each tool's name to its definition, or is a function <code>(fn [ctx])</code> that gives that map, for tools that depend on the chat: its ctx has <code>:config</code>, <code>:db</code>, <code>:chat-id</code> and <code>:agent</code>.</p>
 <table>
 <thead>
 <tr>
@@ -1957,7 +1993,7 @@
 <tbody>
 <tr>
 <td><code>:description</code></td>
-<td>Tells the model what the tool does.</td>
+<td>Tells the model what the tool does: a string, or <code>(fn [ctx])</code>.</td>
 </tr>
 <tr>
 <td><code>:parameters</code></td>
@@ -1965,7 +2001,7 @@
 </tr>
 <tr>
 <td><code>:handler</code></td>
-<td><code>(fn [ctx args])</code>, with string keys in <code>args</code>. Returns a string, <code>(eca/text s)</code> or <code>(eca/error s)</code>.</td>
+<td><code>(fn [ctx args])</code>, with string keys in <code>args</code>. Returns a string, or <code>(eca/error s)</code> for an error.</td>
 </tr>
 <tr>
 <td><code>:enabled-fn</code></td>
@@ -1981,7 +2017,19 @@
 </tr>
 <tr>
 <td><code>:approval-keys-fn</code></td>
-<td>Optional <code>(fn [args])</code>. What "approve and remember" remembers, like each command of a shell call.</td>
+<td>Optional <code>(fn [args])</code>. What "approve and remember" remembers, like each command of a shell call: <code>{:keys #{..} :complete? true}</code>.</td>
+</tr>
+<tr>
+<td><code>:normalize-arguments-fn</code></td>
+<td>Optional <code>(fn [args])</code>. The arguments as approval, hooks and the handler get them.</td>
+</tr>
+<tr>
+<td><code>:details-before-fn</code></td>
+<td>Optional <code>(fn [ctx args])</code>. Details editors show for the call before it runs, as the protocol's tool call details, like a file change's diff.</td>
+</tr>
+<tr>
+<td><code>:details-after-fn</code></td>
+<td>Optional <code>(fn [ctx args details result])</code>. The details once it ran; by default the details from before, else its JSON outputs.</td>
 </tr>
 <tr>
 <td><code>:replaces</code></td>
@@ -1989,7 +2037,7 @@
 </tr>
 </tbody>
 </table>
-<p>A tool's full name is <code>&lt;prefix&gt;__&lt;name&gt;</code>: <code>jira__issue</code> above. The prefix is the name in the module's <code>:id</code>, unless the module sets <code>:prefix</code>. Use the full name in approval rules and <code>disabledTools</code>, or just <code>jira</code> for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.</p>
+<p>A tool's full name is <code>&lt;prefix&gt;__&lt;name&gt;</code>: <code>jira__issue</code> above. The prefix is the name in the module's <code>:id</code>, unless the module sets <code>:prefix</code>; pick a distinctive one, since when two modules have a tool with the same full name, the first one keeps it. Use the full name in approval rules and <code>disabledTools</code>, or just <code>jira</code> for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.</p>
 <h3 id="tool-servers">Tool servers<a class="headerlink" href="#tool-servers" title="Permanent link">#</a></h3>
 <p>A module whose tools come and go, as ECA's MCP support's do, serves them from tool servers instead of <code>:tools</code>:</p>
 <div class="highlight"><pre><span></span><code><span class="ss">:tool-servers</span><span class="w"> </span><span class="p">{</span><span class="ss">:list</span><span class="w"> </span><span class="p">(</span><span class="k">fn </span><span class="p">[</span><span class="nv">_ctx</span><span class="p">]</span>
@@ -2023,7 +2071,7 @@
 </table>
 <p>A server's tools are named <code>&lt;server&gt;__&lt;tool&gt;</code>, like MCP tools, and work like them in approval rules, <code>disabledTools</code> and tool search. When two modules have a server with the same name, the first one to start keeps it. Clients get each server as one of the module's tool servers, with its status: at startup, when modules change, and when the tools' approval changes (another agent, a config change).</p>
 <h3 id="commands">Commands<a class="headerlink" href="#commands" title="Permanent link">#</a></h3>
-<p><code>:commands</code> maps each command's name to its definition:</p>
+<p><code>:commands</code> maps each command's name to its definition, or is a function <code>(fn [ctx])</code> that gives <code>[name command]</code> pairs, in the order clients list them; its ctx has <code>:config</code> and <code>:db</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2034,7 +2082,7 @@
 <tbody>
 <tr>
 <td><code>:handler</code></td>
-<td><code>(fn [ctx args])</code>. <code>args</code> has each declared argument as a keyword, plus <code>:raw</code>, the text after the command.</td>
+<td><code>(fn [ctx args])</code>. <code>args</code> has each declared argument as a keyword, plus <code>:raw</code>, the text after the command, and <code>:argv</code>, the typed arguments.</td>
 </tr>
 <tr>
 <td><code>:description</code></td>
@@ -2044,9 +2092,13 @@
 <td><code>:arguments</code></td>
 <td>Optional. <code>[{:name "key" :required true}]</code>.</td>
 </tr>
+<tr>
+<td><code>:client-type</code></td>
+<td>Optional. <code>:skill</code>, <code>:custom-prompt</code> or <code>:mcpPrompt</code>: clients list the command as one of those, as <code>eca/skills</code>, <code>eca/custom-commands</code> and <code>eca/mcp</code> do for theirs.</td>
+</tr>
 </tbody>
 </table>
-<p>The handler returns a string to show in the chat, <code>{:prompt "..."}</code> to send a message to the model as if you typed it, or <code>nil</code>.</p>
+<p>The handler returns a string to show in the chat, <code>{:prompt "..."}</code> to send a message to the model as if you typed it, or <code>nil</code>. ECA's own commands also return typed results, maps with a <code>:type</code> (see <a href="#keys-only-one-eca-feature-uses">the keys only one ECA feature uses</a>).</p>
 <p>You type <code>/name</code>, or <code>/&lt;prefix&gt;:&lt;name&gt;</code> when two modules have a command with the same name.</p>
 <h3 id="protocol-methods">Protocol methods<a class="headerlink" href="#protocol-methods" title="Permanent link">#</a></h3>
 <p><code>:rpc</code> adds methods to <a href="../../protocol/">ECA's protocol</a>, for editors and other clients:</p>
@@ -2088,7 +2140,7 @@
 <li><strong>transform</strong>: the handler can change the event, or stop it with <code>{:block "reason"}</code> or <code>{:stop "reason"}</code>.</li>
 <li><strong>handle</strong>: the first handler that answers wins.</li>
 </ul>
-<p>A handler is a function <code>(fn [ctx event])</code>, a vector of them, or a map with <code>:handler</code> and optional <code>:match</code>, <code>:priority</code> and <code>:timeout-ms</code>. <code>:match</code> filters events by key, with a value, a set or a regex. Your <a href="../hooks/">shell hooks</a> are <code>eca/hooks</code>' handlers, at priority <code>-1000</code>, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run. An external module's handlers run before the hooks and before <code>eca/approval</code> makes sure a deny from your config stays (<code>-900</code>): a lower priority runs right before those, in its order among the external handlers.</p>
+<p>A handler is a function <code>(fn [ctx event])</code>, a vector of them, or a map with <code>:handler</code> and optional <code>:match</code>, <code>:priority</code> and <code>:timeout-ms</code>. <code>:match</code> filters events by key, with a value, a set or a regex. A changed event may name who acted for the module with <code>:by</code>, e.g. <code>"hook 'lint'"</code>, shown when it blocks or stops something. Your <a href="../hooks/">shell hooks</a> are <code>eca/hooks</code>' handlers, at priority <code>-1000</code>, so they run after the other modules' handlers; when a module blocks or stops something, the hooks don't run. An external module's handlers run before the hooks and before <code>eca/approval</code> makes sure a deny from your config stays (<code>-900</code>): a lower priority runs right before those, in its order among the external handlers.</p>
 <p>Every chat event also has <code>:chat-id</code>, <code>:agent</code>, <code>:model</code>, <code>:variant</code>, and <code>:parent-chat-id</code> in a subagent's chat.</p>
 <table>
 <thead>
@@ -2133,7 +2185,7 @@
 <tr>
 <td><code>:chat/before-request</code></td>
 <td>transform</td>
-<td><code>:prompt</code>, what was typed for a command or an MCP prompt. Runs once per user message, not for <code>/compact</code>.</td>
+<td><code>:prompt</code>, what was typed for a command or an MCP prompt. Runs once per user message; for a compaction's request only in handlers with <code>:compaction? true</code>, the event having <code>:compaction? true</code>.</td>
 <td><code>:prompt</code> (not for commands and MCP prompts), <code>:additional-context</code>, <code>:block</code>, <code>:stop</code></td>
 </tr>
 <tr>
@@ -2224,7 +2276,7 @@
 <td><code>:chat/compact</code></td>
 <td>handle</td>
 <td><code>:trigger</code>, <code>:instructions</code>. <code>eca/compact-as-summary</code> answers last, with its summary.</td>
-<td><code>{:status :done :resume? true :message ".."}</code>, or <code>:status :failed</code>. Write the result with <code>checkpoint!</code>. An interrupted turn goes on unless <code>:resume? false</code>.</td>
+<td><code>{:status :done :resume? true :message ".."}</code>, or <code>:status :failed</code>. Write the result with <code>checkpoint!</code>. An interrupted turn goes on unless <code>:resume? false</code>. Or <code>{:request ..}</code>: the chat's model compacts it, see <a href="#keys-only-one-eca-feature-uses">the keys only one ECA feature uses</a>.</td>
 </tr>
 <tr>
 <td><code>:chat/after-compact</code></td>
@@ -2265,7 +2317,7 @@
 </tbody>
 </table>
 <p><code>:additional-context</code> is a string, <code>{:text "..." :data {...}}</code> to keep plain data with it, or a list of them, one context each. A module's context goes to the model marked with the module's id, so <code>(eca/added-contexts ctx)</code> finds it again in the chat. It's for the model only: ECA keeps it out of the chat's title, of exports and of what the user sees, and the request a compaction resumes goes without it, so add what the new context window needs in <code>:chat/after-compact</code>.</p>
-<p>A module can also define its own events in <code>:defines</code> and send them with <code>(eca/emit! ctx event-id event)</code>.</p>
+<p><code>{:text "..." :label? false}</code> gives a context without the module's mark, which ECA keeps like the user's text, as the shell hooks' contexts.</p>
 <h3 id="module-keys">Module keys<a class="headerlink" href="#module-keys" title="Permanent link">#</a></h3>
 <table>
 <thead>
@@ -2284,16 +2336,8 @@
 <td>Shown in <code>/modules</code>.</td>
 </tr>
 <tr>
-<td><code>:api</code></td>
-<td>The module API version it's written for: <code>1</code>.</td>
-</tr>
-<tr>
 <td><code>:requires</code></td>
 <td>Ids of modules it needs. It starts after them, and stays off without them.</td>
-</tr>
-<tr>
-<td><code>:priority</code></td>
-<td>Order of its event handlers, higher first. <code>0</code> by default.</td>
 </tr>
 <tr>
 <td><code>:default-enabled?</code></td>
@@ -2305,7 +2349,7 @@
 </tr>
 <tr>
 <td><code>:config-defaults</code></td>
-<td>Defaults for keys other modules own, like an approval rule for its tool: <code>{:toolCall {:approval {:allow {"jira__issue" {}}}}}</code>.</td>
+<td>Defaults for keys other modules own, like an approval rule for its tool: <code>{:toolCall {:approval {:allow {"jira__issue" {}}}}}</code>. A map, or <code>(fn [ctx])</code> giving one; its ctx has <code>:db</code>, with the workspaces.</td>
 </tr>
 <tr>
 <td><code>:start</code>, <code>:stop</code></td>
@@ -2336,17 +2380,119 @@
 <td><code>{event-id handler}</code>. See <a href="#events">Events</a>.</td>
 </tr>
 <tr>
-<td><code>:defines</code></td>
-<td>Events it offers other modules: <code>{:events {:acme/approved {:kind :notify :doc ".."}}}</code>.</td>
+<td><code>:skills</code></td>
+<td>Skills it ships: <code>[{:name "review" :description ".." :body ".."}]</code>. <code>:body</code> is Markdown, or <code>(fn [ctx])</code> that gives it when the model loads the skill. Skills on disk win a name.</td>
+</tr>
+<tr>
+<td><code>:contexts</code></td>
+<td><code>{:always (fn [ctx]) :types {"type" {:list (fn [ctx]) :refine (fn [ctx context])}}}</code>. <code>:always</code> gives contexts every chat gets first, like <code>eca/agents-md</code>'s AGENTS.md files. <code>:types</code> are <code>@</code> contexts: <code>:list</code> gives the items clients complete, <code>:refine</code> what the model gets for one, as <code>eca/mcp</code> does for MCP resources.</td>
+</tr>
+<tr>
+<td><code>:transform-tools</code></td>
+<td><code>(fn [ctx tools])</code>. Changes the tools the model gets, after the config's filters, in module order, like <code>eca/tool-search</code> deferring MCP tools.</td>
+</tr>
+<tr>
+<td><code>:chat-statuses</code></td>
+<td><code>{status (fn [ctx params])}</code>. While a chat is in that status, like <code>/login</code>'s <code>:login</code>, its prompts go to the function instead of the model.</td>
 </tr>
 <tr>
 <td><code>:providers</code>, <code>:apis</code></td>
-<td>Model providers and LLM APIs.</td>
+<td>Model providers and LLM APIs. See <a href="#providers-and-llm-apis">Providers and LLM APIs</a>.</td>
+</tr>
+</tbody>
+</table>
+<p>An unknown key is ignored, with a warning in <code>/modules</code>.</p>
+<h3 id="providers-and-llm-apis">Providers and LLM APIs<a class="headerlink" href="#providers-and-llm-apis" title="Permanent link">#</a></h3>
+<p><code>:providers</code> maps a provider id to its declaration. Keys other than these are the provider's config, which <code>/login</code> saves when the user logs in by typing an API key, e.g. <code>{:api "openai-chat" :url "https://api.acme.ai/v1"}</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:label</code></td>
+<td>Its name for users, e.g. in the providers panel.</td>
+</tr>
+<tr>
+<td><code>:login</code></td>
+<td>How users log in: <code>{:ask [:api-key :url :models]}</code> asks for those fields; <code>{:methods [{:key :label :start}] :complete-oauth-code .. :steps {..}}</code> runs its own flows, as <code>eca/anthropic</code>, <code>eca/openai</code> and <code>eca/copilot</code> do.</td>
+</tr>
+<tr>
+<td><code>:models-fn</code></td>
+<td><code>(fn [{:keys [api-url]}])</code>. The models it lists itself, <code>[{:model :tools :reason?}]</code>, like a running Ollama's.</td>
+</tr>
+<tr>
+<td><code>:models-override-fn</code></td>
+<td><code>(fn [ctx])</code>. Its models from its own catalog instead of the generic <code>/models</code> fetch.</td>
+</tr>
+<tr>
+<td><code>:default-model</code></td>
+<td><code>{:rank n :fn (fn [{:keys [db config]}])}</code>, or a vector of them: the default model it suggests when its login or key is there, lower ranks first.</td>
+</tr>
+<tr>
+<td><code>:api-fn</code></td>
+<td><code>(fn [{:keys [provider model config]}])</code>. The API of a request, e.g. by model; else the <code>:api</code> of the provider's config.</td>
+</tr>
+<tr>
+<td><code>:request-opts</code></td>
+<td><code>(fn [opts request])</code>. Its own options of a request to its API.</td>
+</tr>
+<tr>
+<td><code>:capabilities</code></td>
+<td>What models.dev doesn't tell: capability → model ids, e.g. <code>{:web-search #{"gpt-5"}}</code>.</td>
+</tr>
+<tr>
+<td><code>:quota</code></td>
+<td><code>{:fetch (fn [ctx]) :headers (fn [headers])}</code>: a subscription login's quota.</td>
+</tr>
+<tr>
+<td><code>:errors</code></td>
+<td><code>{:enrich :recoverable? :recover! :retry-after-ms}</code>, each <code>(fn [ctx])</code>: its error messages, recoveries and retry times.</td>
+</tr>
+</tbody>
+</table>
+<p><code>:apis</code> maps an API name, like <code>"openai-chat"</code>, to <code>{:handler (fn [ctx request callbacks])}</code>. A provider's config names it with <code>:api</code>, any module's API: <code>"openai-chat"</code>, <code>"openai-responses"</code> (also <code>"openai"</code>), <code>"anthropic"</code>, <code>"ollama"</code> and <code>"bedrock"</code> are ECA's. The request and callbacks follow ECA's own code: see <a href="https://github.com/editor-code-assistant/eca/tree/master/src/eca/modules/providers">ECA's APIs</a>, e.g. <code>openai_chat.clj</code>.</p>
+<h3 id="keys-only-one-eca-feature-uses">Keys only one ECA feature uses<a class="headerlink" href="#keys-only-one-eca-feature-uses" title="Permanent link">#</a></h3>
+<p>These work for any module, as ECA's own code uses them; most modules won't need them.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:signature</code>, <code>:resync?</code> of a section</td>
+<td>What the rules and skills sections' prompt cache follows; other sections' are ignored.</td>
+</tr>
+<tr>
+<td><code>:compaction? true</code> of a handler</td>
+<td>A <code>:chat/before-request</code> handler gets a compaction's request too.</td>
+</tr>
+<tr>
+<td><code>:cleanup-fn</code> of a tool</td>
+<td><code>(fn [resource-key resource])</code>: frees what a call left, like <code>eca/shell</code>'s background processes.</td>
+</tr>
+<tr>
+<td><code>:description-suffix</code> of a tool</td>
+<td>Text kept after a <code>prompts.tools</code> override of its description, like <code>spawn_agent</code>'s agents.</td>
+</tr>
+<tr>
+<td><code>{:request {:prompt :done? :apply!}}</code>, a <code>:chat/compact</code> answer</td>
+<td>The chat's model compacts it: <code>(prompt instructions tools)</code> is sent, <code>(done? ctx)</code> says when it's finished, then <code>(apply! ctx trigger)</code> writes the result, as <code>eca/compact-as-summary</code> does.</td>
+</tr>
+<tr>
+<td>Typed command results</td>
+<td>A command's map with a <code>:type</code>, as ECA's commands return: <code>:chat-messages</code>, <code>:send-prompt</code>, <code>:send-messages</code>, <code>:system-text</code>, <code>:new-chat-status</code>, <code>:delete-chat</code>, <code>:side-prompt</code>. A type ECA doesn't know ends the turn.</td>
 </tr>
 </tbody>
 </table>
 <h2 id="ecaapi"><code>eca.api</code><a class="headerlink" href="#ecaapi" title="Permanent link">#</a></h2>
-<p>Every function takes the module's <code>ctx</code> as its first argument.</p>
+<p>Every function that needs it takes the module's <code>ctx</code> as its first argument.</p>
 <table>
 <thead>
 <tr>
@@ -2365,15 +2511,11 @@
 </tr>
 <tr>
 <td>User</td>
-<td><code>notify!</code>, <code>progress!</code> (in a tool), <code>ui?</code>, <code>confirm</code>, <code>select</code>, <code>input</code></td>
+<td><code>notify!</code>, <code>progress!</code> (in a tool), <code>confirm</code> (a question, or <code>{:title ..}</code>), <code>select</code>, <code>input</code>. Outside a chat, or with a client without dialogs, they don't ask: <code>false</code> or nil.</td>
 </tr>
 <tr>
-<td>Events</td>
-<td><code>emit!</code></td>
-</tr>
-<tr>
-<td>Tools and commands</td>
-<td><code>tools</code>, <code>call-tool!</code>, <code>register-tool!</code>, <code>unregister-tool!</code>, <code>register-command!</code>, <code>unregister-command!</code></td>
+<td>Tools</td>
+<td><code>tools</code>, <code>call-tool!</code></td>
 </tr>
 <tr>
 <td>LLM</td>
@@ -2381,28 +2523,28 @@
 </tr>
 <tr>
 <td>Runtime</td>
-<td><code>background!</code>, <code>data-dir</code>, <code>shell!</code></td>
+<td><code>background!</code>, <code>data-dir</code>, <code>shell!</code>, <code>http</code> (<code>{:url :method :headers :query-params :body :json :as}</code>, through ECA's HTTP client, with its proxy and TLS settings)</td>
 </tr>
 <tr>
 <td>Results</td>
-<td><code>text</code>, <code>error</code></td>
+<td><code>error</code>: a tool's error; a tool returns a string otherwise.</td>
 </tr>
 </tbody>
 </table>
-<p>Other namespaces:</p>
-<ul>
-<li><code>eca.api.json</code>: <code>parse</code>, <code>generate</code>.</li>
-<li><code>eca.api.http</code>: <code>request</code>, <code>get</code>, <code>post</code>, <code>put</code>, <code>delete</code>, through ECA's HTTP client, with its proxy and TLS settings.</li>
-<li><code>eca.api.fs</code>: <code>read-file</code>, <code>write-file!</code>, <code>exists?</code>, <code>directory?</code>, <code>list-dir</code>, <code>glob</code>, <code>create-dirs!</code>, <code>delete!</code>, <code>path</code>, <code>parent</code>, <code>file-name</code>, <code>last-modified-ms</code>.</li>
-<li><code>eca.api.test</code>: <code>mock-ctx</code>, <code>run-tool</code>, <code>run-command</code>, <code>run-event</code>, <code>recorded</code>, to test a module outside ECA's session.</li>
-<li><code>eca.api.dev</code>: <code>ctx</code>, <code>modules</code>, <code>install!</code>, <code>uninstall!</code>, <code>reload!</code>, for the <a href="#a-repl-on-eca">REPL</a>.</li>
-<li><code>eca.api.debug</code>: <code>db</code>, <code>chat-raw</code>, <code>config-raw</code>, <code>trace!</code>, <code>untrace!</code>. Read-only, and only while the REPL runs.</li>
-</ul>
-<p>Inside SCI, modules can also use <code>clojure.string</code>, <code>clojure.set</code>, <code>clojure.walk</code> and <code>clojure.edn</code>, and Java interop on basic classes like <code>String</code>, <code>Integer</code>, <code>Double</code> and <code>Exception</code>. There's no <code>slurp</code> or <code>spit</code>: use <code>eca.api.fs</code> and <code>eca/shell!</code>.</p>
+<p><code>eca.api.test</code> has <code>mock-ctx</code>, <code>run-tool</code>, <code>run-command</code>, <code>run-event</code> and <code>recorded</code>, to test a module outside ECA's session.</p>
+<p>For files and JSON, modules use <code>babashka.fs</code>, <code>cheshire.core</code>, <code>slurp</code> and <code>spit</code>, as in Clojure. Inside SCI, they can also use <code>clojure.string</code>, <code>clojure.set</code>, <code>clojure.walk</code> and <code>clojure.edn</code>, and Java interop on basic classes like <code>String</code>, <code>Integer</code>, <code>Double</code> and <code>Exception</code>. ECA's other namespaces aren't there.</p>
 <h2 id="a-repl-on-eca">A REPL on ECA<a class="headerlink" href="#a-repl-on-eca" title="Permanent link">#</a></h2>
 <p>The <code>eca/repl</code> module runs an nREPL inside ECA. Turn it on with <code>/modules enable eca/repl</code>, or with <code>"modules": {"eca/repl": {"enabled": true}}</code> in your config.</p>
 <p>Each ECA picks a free port and tells the model, so you can ask ECA to use its own REPL, e.g. "check in your REPL why my module failed". It needs an nREPL client it can run, like <a href="https://github.com/licht1stein/brepl">brepl</a>.</p>
 <p>To connect your editor, <code>/repl</code> shows the port; <code>repl.port</code> sets a fixed one. It only accepts local connections.</p>
+<p>Code evaluated there runs in the modules' SCI context, with <code>eca.api</code> and <code>eca.repl</code>, which only works there:</p>
+<div class="highlight"><pre><span></span><code><span class="p">(</span><span class="nf">require</span><span class="w"> </span><span class="o">&#39;</span><span class="p">[</span><span class="nv">eca.api</span><span class="w"> </span><span class="ss">:as</span><span class="w"> </span><span class="nv">eca</span><span class="p">]</span><span class="w"> </span><span class="o">&#39;</span><span class="p">[</span><span class="nv">eca.repl</span><span class="w"> </span><span class="ss">:as</span><span class="w"> </span><span class="nv">repl</span><span class="p">])</span>
+<span class="p">(</span><span class="nf">eca/notify!</span><span class="w"> </span><span class="p">(</span><span class="nf">repl/ctx</span><span class="p">)</span><span class="w"> </span><span class="s">&quot;Hello from the REPL&quot;</span><span class="p">)</span><span class="w">   </span><span class="c1">; a ctx on the running ECA, maybe {:module id :chat-id ..}</span>
+<span class="p">(</span><span class="nf">repl/modules</span><span class="p">)</span><span class="w">                                  </span><span class="c1">; every module and its status</span>
+<span class="p">(</span><span class="nf">repl/install!</span><span class="w"> </span><span class="p">{</span><span class="ss">:id</span><span class="w"> </span><span class="ss">:me/try</span><span class="w"> </span><span class="ss">:description</span><span class="w"> </span><span class="s">&quot;Hi&quot;</span><span class="p">})</span><span class="w">  </span><span class="c1">; a module from its map; uninstall! and reload! too</span>
+<span class="p">(</span><span class="nf">repl/trace!</span><span class="w"> </span><span class="s">&quot;&lt;chat-id&gt;&quot;</span><span class="p">)</span><span class="w">                       </span><span class="c1">; prints a chat&#39;s module events here; untrace! stops it</span>
+<span class="p">(</span><span class="nf">repl/chat-raw</span><span class="w"> </span><span class="s">&quot;&lt;chat-id&gt;&quot;</span><span class="p">)</span><span class="w">                     </span><span class="c1">; ECA&#39;s state, read-only: also db and config-raw</span>
+</code></pre></div>
 <h2 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">#</a></h2>
 <ul>
 <li>Event handlers of external modules time out after 10 seconds, unless they set <code>:timeout-ms</code>. <code>:start</code> gets 30 seconds.</li>
@@ -2429,7 +2571,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 17, 2026 17:30:21 UTC">November 17, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 00:44:45 UTC">November 18, 2026</span>
   </span>
 
     
