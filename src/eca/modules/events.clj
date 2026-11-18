@@ -176,6 +176,13 @@
                                               "and :hook-type, or the calling :module.")}
                        :accepts {:command "Replaces the command line." :cwd "Replaces the folder."
                                  :env "Replaces the extra environment variables."}}
+   :file/before-access {:kind :transform
+                        :doc (str "Before a file tool reads or modifies a file, after it checked its arguments: "
+                                  "read_file and view_image read, write_file and edit_file modify. "
+                                  ":eca/rules blocks until the chat fetched the file's path-scoped rules.")
+                        :payload {:tool "The tool's full name." :path "The file's path, as the tool got it."
+                                  :access ":read or :modify."}
+                        :accepts {:block "Refuses it: the tool fails with this text for the model."}}
    :config/resolve {:kind :transform
                     :doc (str "After all config layers merge, each time the config is read again (it's cached). "
                               "Read the config from the event, not through eca.api.")

@@ -10,7 +10,7 @@
 (def module
   {:id :eca/subagent-explorer
    :description "The explorer subagent: finds and reads code without changing it."
-   :requires #{:eca/subagents}
+   :requires #{:eca/subagents :eca/agents}
    :config-defaults {:agent {"explorer" {:mode "subagent"
                                          :description "${classpath:prompts/explorer_agent_description.md}"
                                          :systemPrompt "${classpath:prompts/explorer_agent.md}"

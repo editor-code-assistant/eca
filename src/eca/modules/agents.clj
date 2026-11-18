@@ -208,7 +208,7 @@
       first
       string/lower-case))
 
-(defn agent-md-file->agent
+(defn ^:private agent-md-file->agent
   [md-file]
   (try
     (let [content (slurp (str md-file))
@@ -376,7 +376,9 @@
                       (catch Exception e
                         (logger/warn logger-tag "Could not read the Markdown agents:" (ex-message e))
                         nil)))
-        plugin-agents (when-not pure-config? (:agents @config/plugin-components*))
+        ;; the plugins' agents/*.md files, in plugin order: a later one wins a name
+        plugin-agents (when-not pure-config?
+                        (into {} (keep (comp agent-md-file->agent :path)) (:agents @config/plugin-components*)))
         config (migrate-legacy-config config)]
     {:config (-> (if (or (seq md-agents) (seq plugin-agents))
                    (update config :agent (fn [existing]

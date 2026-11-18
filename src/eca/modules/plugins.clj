@@ -20,7 +20,6 @@
    [eca.config :as config]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
-   [eca.modules.agents :as m.agents]
    [eca.modules.plugins.git :as m.plugins.git]
    [eca.shared :as shared :refer [multi-str]]))
 
@@ -192,8 +191,8 @@
           nil)))))
 
 (defn ^:private read-agents
-  "Reads agents/*.md from a plugin directory and returns a map of {agent-name agent-config}.
-   Skips non-agent files like README.md."
+  "The agents/*.md files of a plugin directory, as {:path ...} entries:
+   eca/agents reads them. Skips non-agent files like README.md."
   [^java.io.File plugin-dir]
   (let [agents-dir (io/file plugin-dir "agents")]
     (when (fs/exists? agents-dir)
@@ -201,8 +200,7 @@
            (remove (fn [f]
                      (let [fname (string/lower-case (str (fs/file-name f)))]
                        (= fname "readme.md"))))
-           (keep m.agents/agent-md-file->agent)
-           (into {})))))
+           (mapv (fn [f] {:path (str f)}))))))
 
 (defn ^:private read-commands
   "Reads commands/*.md from a plugin directory and returns a vector of
@@ -265,7 +263,7 @@
    components that support user-invocation namespacing (commands, skill dirs).
    Returns a config-ready map:
    {:config-fragment {...}  — deep-mergeable into ECA config (mcpServers, hooks, pluginSkillDirs, eca.json overrides)
-    :agents {...}           — agent-name -> agent-config map (merged alongside markdown agents)
+    :agents [{:path ...}]   — agent Markdown files, read by eca/agents alongside its own
     :commands [{:path ... :plugin ...}] — appended to :commands config vector
     :rules [{:path ...}]    — appended to :rules config vector
     :modules [{:path ... :plugin ...}]} — loaded by the module loader"
@@ -299,12 +297,12 @@
            (cond->
             (seq new-skill-dirs)
              (update-in [:config-fragment :pluginSkillDirs] (fnil into []) new-skill-dirs))
-           (update :agents merge (:agents components))
+           (update :agents into (:agents components))
            (update :commands into (:commands components))
            (update :rules into (:rules components))
            (update :modules into (:modules components)))))
    {:config-fragment {}
-    :agents {}
+    :agents []
     :commands []
     :rules []
     :modules []}
@@ -323,7 +321,7 @@
                  [(name source-name) source-url])))))
 
 (def ^:private empty-result
-  {:config-fragment {} :agents {} :commands [] :rules [] :modules []})
+  {:config-fragment {} :agents [] :commands [] :rules [] :modules []})
 
 (defn ^:private plugin-dependencies
   "Returns the plugin refs a plugin depends on: the union of the marketplace

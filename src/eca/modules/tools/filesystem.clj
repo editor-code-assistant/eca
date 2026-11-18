@@ -9,7 +9,7 @@
    [eca.features.index :as f.index]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
-   [eca.modules.rules :as m.rules]
+   [eca.modules.events :as events]
    [eca.modules.tools.filesystem.smart-edit :as m.filesystem.smart-edit]
    [eca.modules.tools.filesystem.text-match :as m.filesystem.text-match]
    [eca.shared :as shared])
@@ -26,6 +26,18 @@
   (concat (path-validations)
           [["path" fs/readable? "File $path is not readable"]
            ["path" (complement fs/directory?) "$path is a directory, not a file"]]))
+
+(defn ^:private refused-access
+  "The tool's error when a module refuses its `access` (`:read` or
+   `:modify`) to `path` on `:file/before-access`, as eca/rules does until
+   the chat fetched the file's path-scoped rules; else nil."
+  [ctx tool path access]
+  (let [event (events/emit! ctx :file/before-access {:tool tool :path path :access access})]
+    (when (:block event)
+      (tools.util/single-text-content
+       (or (shared/not-blank (:block event))
+           (str "Blocked by module '" (some-> (::events/ended-by event) symbol) "'"))
+       :error))))
 
 (def ^:private directory-tree-max-depth 10)
 
@@ -178,7 +190,7 @@
 
 (defn ^:private read-file [{:strs [path] :as arguments} {:keys [db chat-id config] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
-      (m.rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (refused-access ctx "eca__read_file" path :read)
       (when-let [media-type (shared/image-media-type path)]
         (tools.util/single-text-content
          (str path " is an image (" media-type "), not a text file. "
@@ -222,7 +234,7 @@
 
 (defn ^:private view-image [{:strs [path] :as arguments} {:keys [db chat-id] :as ctx}]
   (or (tools.util/invalid-arguments arguments (file-validations))
-      (m.rules/require-fetched-path-scoped-rules-for-read path ctx)
+      (refused-access ctx "eca__view_image" path :read)
       (let [media-type (shared/image-media-type path)
             file (fs/file (fs/canonicalize path))
             size (when media-type (fs/size file))]
@@ -273,7 +285,7 @@
 (defn ^:private write-file [arguments ctx]
   (let [path (get arguments "path")
         content (get arguments "content")]
-    (or (m.rules/require-fetched-path-scoped-rules path ctx)
+    (or (refused-access ctx "eca__write_file" path :modify)
         (with-file-path-lock path
           (fn []
             (let [old-content (try (slurp path) (catch Exception _ nil))]
@@ -494,7 +506,7 @@
 (defn ^:private edit-file [{:strs [path] :as arguments} ctx]
   (or (tools.util/invalid-arguments arguments (concat (path-validations)
                                                       [["path" fs/readable? "File $path is not readable"]]))
-      (m.rules/require-fetched-path-scoped-rules path ctx)
+      (refused-access ctx "eca__edit_file" path :modify)
       (with-file-path-lock
         path
         (fn []

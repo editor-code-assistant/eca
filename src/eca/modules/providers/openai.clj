@@ -12,9 +12,6 @@
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
    [eca.models :as models]
-   [eca.modules.llm-providers.login :as m.llm-providers.login]
-   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
-   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.modules.providers.variants :as m.variants]
    [eca.oauth :as oauth]
    [eca.shared :refer [assoc-some join-api-url multi-str]]
@@ -333,47 +330,46 @@
   [headers]
   (keep (fn [[k v]]
           (when-let [[_ family slot] (re-matches #"x-([a-z0-9-]+)-(primary|secondary)-used-percent" k)]
-            (when-let [used-percent (m.llm-providers.quota/parse-number v)]
+            (when-let [used-percent (llm-util/parse-number v)]
               (let [prefix (str "x-" family "-" slot "-")
-                    minutes (some-> (get headers (str prefix "window-minutes")) m.llm-providers.quota/parse-number long)
-                    resets-at (or (some-> (get headers (str prefix "reset-at")) m.llm-providers.quota/parse-number long)
+                    minutes (some-> (get headers (str prefix "window-minutes")) llm-util/parse-number long)
+                    resets-at (or (some-> (get headers (str prefix "reset-at")) llm-util/parse-number long)
                                   (some->> (get headers (str prefix "reset-after-seconds"))
-                                           m.llm-providers.quota/parse-number
+                                           llm-util/parse-number
                                            long
-                                           (+ (m.llm-providers.quota/now-seconds))))
+                                           (+ (llm-util/now-seconds))))
                     default-family? (= "codex" family)
-                    label (or (m.llm-providers.quota/minutes->label minutes) slot)]
+                    label (or (llm-util/minutes->label minutes) slot)]
                 (when-not (empty-codex-slot? used-percent minutes)
                   (assoc-some
                    {:id (if default-family? slot (str family "-" slot))
                     :label (if default-family? label (str family " " label))
-                    :used-percent (m.llm-providers.quota/round1 used-percent)}
+                    :used-percent (llm-util/round1 used-percent)}
                    :resets-at resets-at
                    :window-minutes minutes))))))
         headers))
 
-(defn ^:private usage->snapshot
-  "Snapshot from ChatGPT's `backend-api/wham/usage` response, keeping the
-   `primary`/`secondary` window ids used by the Codex response headers."
+(defn ^:private usage->windows
+  "Quota windows from ChatGPT's `backend-api/wham/usage` response, keeping
+   the `primary`/`secondary` window ids used by the Codex response headers."
   [body]
-  (let [windows (keep (fn [[slot k]]
-                        (when-let [{:keys [used_percent limit_window_seconds reset_at reset_after_seconds]}
-                                   (get-in body [:rate_limit k])]
-                          (when-let [used-percent (m.llm-providers.quota/parse-number used_percent)]
-                            (let [minutes (some-> limit_window_seconds m.llm-providers.quota/parse-number long (quot 60))]
-                              (when-not (empty-codex-slot? used-percent minutes)
-                                (assoc-some
-                                 {:id slot
-                                  :label (or (m.llm-providers.quota/minutes->label minutes) slot)
-                                  :used-percent (m.llm-providers.quota/round1 used-percent)}
-                                 :resets-at (or (m.llm-providers.quota/->epoch-seconds reset_at)
-                                                (some->> reset_after_seconds m.llm-providers.quota/parse-number long (+ (m.llm-providers.quota/now-seconds))))
-                                 :window-minutes minutes))))))
-                      [["primary" :primary_window] ["secondary" :secondary_window]])]
-    (m.llm-providers.quota/snapshot windows)))
+  (keep (fn [[slot k]]
+          (when-let [{:keys [used_percent limit_window_seconds reset_at reset_after_seconds]}
+                     (get-in body [:rate_limit k])]
+            (when-let [used-percent (llm-util/parse-number used_percent)]
+              (let [minutes (some-> limit_window_seconds llm-util/parse-number long (quot 60))]
+                (when-not (empty-codex-slot? used-percent minutes)
+                  (assoc-some
+                   {:id slot
+                    :label (or (llm-util/minutes->label minutes) slot)
+                    :used-percent (llm-util/round1 used-percent)}
+                   :resets-at (or (llm-util/->epoch-seconds reset_at)
+                                  (some->> reset_after_seconds llm-util/parse-number long (+ (llm-util/now-seconds))))
+                   :window-minutes minutes))))))
+        [["primary" :primary_window] ["secondary" :secondary_window]]))
 
 (defn ^:private fetch-quota
-  "`:quota :fetch`: the ChatGPT subscription's usage."
+  "`:quota :fetch`: the ChatGPT subscription's usage windows."
   [{:keys [provider-auth]}]
   (let [api-key (:api-key provider-auth)
         {:keys [status body]} (http/get codex-usage-url
@@ -387,7 +383,7 @@
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout codex-models-timeout-ms})]
     (if (= 200 status)
-      (usage->snapshot body)
+      (usage->windows body)
       (throw (ex-info (format "ChatGPT usage endpoint returned status %s" status) {:status status})))))
 
 (defn ^:private response-body->result [body]
@@ -1034,7 +1030,7 @@
 
 (defn ^:private start-pro-login!
   "The `pro` login method's `:start`: OAuth, for a ChatGPT subscription."
-  [provider db* _config messenger metrics]
+  [provider db* _config done!]
   (let [local-server-port 1455
         server-url (str "http://localhost:" local-server-port "/auth/callback")
         {:keys [verifier url]} (oauth-url server-url)]
@@ -1052,7 +1048,7 @@
                                 :api-key access-token
                                 :account-id account-id
                                 :expires-at expires-at})
-                        (m.llm-providers.providers/sync-and-notify! provider db* messenger metrics))
+                        (done!))
                       (catch Exception e
                         (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
                       (finally
@@ -1080,7 +1076,7 @@
                           "- pro: GPT Plus/Pro (subscription)"
                           "- manual: Manually enter API Key"))))
 
-(defn ^:private waiting-login-method-step [{:keys [db* input provider send-msg!] :as ctx}]
+(defn ^:private waiting-login-method-step [{:keys [db* input provider send-msg! login-done!]}]
   (case input
     "pro"
     (let [local-server-port 1455 ;; openai requires this port
@@ -1097,7 +1093,7 @@
                                                                      :account-id account-id
                                                                      :expires-at expires-at})
                         (send-msg! "")
-                        (m.llm-providers.login/login-done! ctx))
+                        (login-done!))
                       (future
                         (Thread/sleep 2000) ;; wait to render success page
                         (oauth/stop-oauth-server! local-server-port)))
@@ -1112,12 +1108,12 @@
       (send-msg! "Paste your API Key"))
     (send-msg! (format "Unknown login method '%s'. Inform one of the options: pro, manual" input))))
 
-(defn ^:private waiting-api-key-step [{:keys [input db* provider send-msg!] :as ctx}]
+(defn ^:private waiting-api-key-step [{:keys [input db* provider send-msg! login-done!]}]
   (if (string/starts-with? input "sk-")
     (do (config/update-global-config! {:providers {provider {:key input}}})
         (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
         (send-msg! (str "API key saved in " (.getCanonicalPath (config/global-config-file))))
-        (m.llm-providers.login/login-done! ctx))
+        (login-done!))
     (send-msg! "Invalid API key, it should start with 'sk-'")))
 
 (defn ^:private renew-token-step [{:keys [db* provider]}]

@@ -98,19 +98,18 @@
         (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
           (is (= 1 (count (get-in result [:config-fragment :pluginSkillDirs]))))))
 
-      (testing "discovers agents as parsed config"
+      (testing "discovers agents as path entries, for eca/agents to read"
         (fs/create-dirs (fs/file plugin-dir "agents"))
         (spit (fs/file plugin-dir "agents" "test-agent.md")
               "---\nname: test-agent\ndescription: A helper agent\n---\nAgent prompt body")
         (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
-          (is (match? {"test-agent" {:description "A helper agent"
-                                     :systemPrompt "Agent prompt body"}}
-                      (:agents result)))))
+          (is (= [{:path (str (fs/file plugin-dir "agents" "test-agent.md"))}]
+                 (:agents result)))))
 
       (testing "skips README.md in agents dir"
         (spit (fs/file plugin-dir "agents" "README.md") "# Docs")
         (let [result (#'m.plugins/discover-components (fs/file plugin-dir))]
-          (is (not (contains? (:agents result) "readme")))))
+          (is (= ["test-agent.md"] (map (comp str fs/file-name :path) (:agents result))))))
 
       (testing "discovers commands as path entries"
         (fs/create-dirs (fs/file plugin-dir "commands"))
@@ -225,7 +224,7 @@
                         (get-in result [:config-fragment :pluginSkillDirs])))
             (is (match? {:test-mcp {:url "https://example.com/mcp"}}
                         (get-in result [:config-fragment :mcpServers])))
-            (is (match? {"helper" {:description "Helps"}} (:agents result)))
+            (is (= ["helper.md"] (map (comp str fs/file-name :path) (:agents result))))
             (is (= 1 (count (:commands result))))
             (is (match? (m/embeds [{:plugin "my-plugin" :path string?}])
                         (:commands result))))))
@@ -319,8 +318,7 @@
                        "install" ["manifest-meta"]})]
           (is (match? (m/embeds [{:plugin "dep-entry" :path string?}])
                       (:commands result)))
-          (is (match? {"remote-helper" {:description "Remote helper"}}
-                      (:agents result)))))
+          (is (= ["remote-helper.md"] (map (comp str fs/file-name :path) (:agents result))))))
 
       (testing "dependency cycles terminate, loading each plugin once"
         (let [result (m.plugins/resolve-all!
@@ -410,13 +408,13 @@
                                 :hooks {"hook-a" {:type "postToolCall"}}
                                 :pluginSkillDirs ["/a/skills"]
                                 :mcpTimeoutSeconds 30}
-              :agents {"agent-a" {:description "A"}}
+              :agents [{:path "/a/agents/agent-a.md"}]
               :commands [{:path "/a/commands/cmd.md"}]
               :rules []}
           c2 {:config-fragment {:mcpServers {:server-b {:url "http://b"}}
                                 :pluginSkillDirs ["/b/skills"]
                                 :mcpTimeoutSeconds 60}
-              :agents {"agent-b" {:description "B"}}
+              :agents [{:path "/b/agents/agent-b.md"}]
               :commands []
               :rules [{:path "/b/rules/rule.mdc"}]}
           result (#'m.plugins/merge-components [c1 c2])]
@@ -426,9 +424,8 @@
                    :server-b {:url "http://b"}}
                   (get-in result [:config-fragment :mcpServers])))
       (is (= 60 (get-in result [:config-fragment :mcpTimeoutSeconds])))
-      (is (match? {"agent-a" {:description "A"}
-                   "agent-b" {:description "B"}}
-                  (:agents result)))
+      (is (= [{:path "/a/agents/agent-a.md"} {:path "/b/agents/agent-b.md"}]
+             (:agents result)))
       (is (= [{:path "/a/commands/cmd.md"}] (:commands result)))
       (is (= [{:path "/b/rules/rule.mdc"}] (:rules result))))))
 
@@ -460,8 +457,8 @@
       (let [resolved (m.plugins/resolve-all!
                       {"local" {:source (str source-dir)}
                        "install" ["design-review"]})]
-        (testing "plugin discovery loads the Claude-style agent without dropping it"
-          (is (contains? (:agents resolved) "glp-reviewer")))
+        (testing "plugin discovery finds the Claude-style agent's file"
+          (is (= ["glp-engineer.agent.md"] (map (comp str fs/file-name :path) (:agents resolved)))))
 
         (reset! config/plugin-components* resolved)
         (reset! config/initialization-config* {:pureConfig false})
@@ -505,11 +502,8 @@
       (let [resolved (m.plugins/resolve-all!
                       {"local" {:source (str source-dir)}
                        "install" ["doc-authoring"]})]
-        (testing "discovery picks up the plugin agent under the YAML `name:` id"
-          (is (contains? (:agents resolved) "architect"))
-          (is (= "Designs system architecture"
-                 (get-in resolved [:agents "architect" :description])))
-          (is (nil? (get-in resolved [:agents "architect" :mode]))))
+        (testing "discovery finds the plugin agent's file"
+          (is (= ["architect.agent.md"] (map (comp str fs/file-name :path) (:agents resolved)))))
 
         (reset! config/plugin-components* resolved)
         (reset! config/initialization-config* {:pureConfig false})

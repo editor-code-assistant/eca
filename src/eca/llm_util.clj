@@ -12,6 +12,7 @@
    [java.io BufferedReader Closeable EOFException]
    [java.net ConnectException SocketTimeoutException UnknownHostException]
    [java.net.http HttpConnectTimeoutException]
+   [java.time Instant LocalDate OffsetDateTime ZoneOffset]
    [javax.net.ssl SSLException]))
 
 (set! *warn-on-reflection* true)
@@ -205,6 +206,46 @@
   (boolean
    (when provider
      (= :auth/oauth (first (provider-api-key provider (get-in db [:auth provider]) config))))))
+
+;; --- A subscription's quota windows, as providers read them from their
+;; response headers and usage endpoints (`:quota`)
+
+(defn now-seconds ^long []
+  (quot (System/currentTimeMillis) 1000))
+
+(defn parse-number [v]
+  (cond
+    (number? v) (double v)
+    (string? v) (parse-double (string/trim v))))
+
+(defn round1 [x]
+  (/ (Math/round (* 10.0 (double x))) 10.0))
+
+(defn ^:private iso->epoch-seconds [s]
+  (when-let [^String s (shared/not-blank s)]
+    (or (try (.getEpochSecond (Instant/parse s)) (catch Exception _ nil))
+        (try (.toEpochSecond (OffsetDateTime/parse s)) (catch Exception _ nil))
+        (try (.toEpochSecond (.atStartOfDay (LocalDate/parse s) ZoneOffset/UTC)) (catch Exception _ nil)))))
+
+(defn ->epoch-seconds
+  "Epoch seconds from an ISO-8601 string or an epoch number (seconds or
+   milliseconds)."
+  [v]
+  (cond
+    (number? v) (let [n (long v)] (if (> n 100000000000) (quot n 1000) n))
+    (string? v) (or (some-> (parse-long (string/trim v)) ->epoch-seconds)
+                    (iso->epoch-seconds v))))
+
+(defn minutes->label [minutes]
+  (when (and minutes (pos? minutes))
+    (cond
+      (zero? (mod minutes 1440)) (str (quot minutes 1440) "d")
+      (zero? (mod minutes 60)) (str (quot minutes 60) "h")
+      :else (str minutes "m"))))
+
+(defn duration-id->minutes [id]
+  (when-let [[_ n unit] (re-matches #"(\d+)([mhdw])" id)]
+    (* (parse-long n) (case unit "m" 1 "h" 60 "d" 1440 "w" 10080))))
 
 (defn ^:private guarded-declaration
   "Module `entry`'s declaration of `provider-id`, with its functions guarded

@@ -290,30 +290,30 @@
   [config db chat-id agent all-tools target-path]
   (missing-path-scoped-rules config db chat-id agent all-tools target-path enforce-on-read?))
 
-(defn missing-path-scoped-rules-error
+(defn ^:private missing-path-scoped-rules-text
+  "What the model gets when a file tool must fetch `missing-rules` first."
   [target-path missing-rules action]
-  (tools.util/single-text-content
-   (str "Path-scoped rules must be fetched before " action " '" target-path "'.\n"
-        "Fetch the missing rule(s) first:\n"
-        (->> missing-rules
-             (map (fn [{{:keys [id name]} :rule {:keys [matched-pattern]} :match}]
-                    (str "- " name "\n"
-                         "  id: " id "\n"
-                         "  path: " target-path "\n"
-                         "  matched-pattern: " matched-pattern "\n"
-                         "  next: call `fetch_rule` with this exact `id` and `path`.")))
-             (string/join "\n")))
-   :error))
+  (str "Path-scoped rules must be fetched before " action " '" target-path "'.\n"
+       "Fetch the missing rule(s) first:\n"
+       (->> missing-rules
+            (map (fn [{{:keys [id name]} :rule {:keys [matched-pattern]} :match}]
+                   (str "- " name "\n"
+                        "  id: " id "\n"
+                        "  path: " target-path "\n"
+                        "  matched-pattern: " matched-pattern "\n"
+                        "  next: call `fetch_rule` with this exact `id` and `path`.")))
+            (string/join "\n"))))
 
-(defn require-fetched-path-scoped-rules
-  [target-path {:keys [config db chat-id agent all-tools]}]
-  (when-let [missing-rules (missing-path-scoped-rules-for-modify config db chat-id agent all-tools target-path)]
-    (missing-path-scoped-rules-error (shared/normalize-path target-path) missing-rules "modifying")))
-
-(defn require-fetched-path-scoped-rules-for-read
-  [target-path {:keys [config db chat-id agent all-tools]}]
-  (when-let [missing-rules (missing-path-scoped-rules-for-read config db chat-id agent all-tools target-path)]
-    (missing-path-scoped-rules-error (shared/normalize-path target-path) missing-rules "reading")))
+(defn ^:private check-file-access
+  "`:file/before-access` handler: a file tool reads or modifies a file only
+   after the chat fetched the path-scoped rules that enforce it."
+  [{:keys [config db chat-id agent all-tools]} {:keys [path access]}]
+  (when-let [[missing-fn action] (case access
+                                   :read [missing-path-scoped-rules-for-read "reading"]
+                                   :modify [missing-path-scoped-rules-for-modify "modifying"]
+                                   nil)]
+    (when-let [missing-rules (missing-fn config db chat-id agent all-tools path)]
+      {:block (missing-path-scoped-rules-text (shared/normalize-path path) missing-rules action)})))
 
 ;; --- The fetch_rule tool and the module
 
@@ -573,6 +573,8 @@
    :config-spec {:rules {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__fetch_rule" {}}}}}
    :system-prompts [{:id :eca/rules :order 200 :content #'rules-section :signature #'rules-signature}]
+   ;; the file tools read or modify a file only after its path-scoped rules were fetched
+   :event-handlers {:file/before-access #'check-file-access}
    ;; fetch_rule exists only when the chat has path-scoped rules
    :tools (fn [{:keys [config db chat-id agent]}]
             (tools.util/->module-tools (definitions config db chat-id agent)))

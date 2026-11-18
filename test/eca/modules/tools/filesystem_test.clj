@@ -6,7 +6,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.index :as f.index]
    [eca.features.tools.util :as tools.util]
-   [eca.modules.rules :as m.rules]
+   [eca.modules :as modules]
    [eca.modules.tools.filesystem :as m.filesystem]
    [eca.shared :as shared :refer [multi-str]]
    [eca.test-helper :as h]
@@ -424,16 +424,20 @@
              "new_content" "new"}
             {:db {:workspace-folders [{:uri (h/file-uri "file:///foo/bar") :name "foo"}]}})))))
 
-  (testing "Blocks edits until matching path-scoped rules were fetched"
-    (let [path (h/file-path "/project/foo/src/my_file.clj")]
+  (testing "Refuses the edit when a module blocks it on :file/before-access, as eca/rules does"
+    (let [path (h/file-path "/project/foo/src/my_file.clj")
+          accesses* (atom [])
+          guard {:id :acme/guard
+                 :event-handlers {:file/before-access (fn [_ctx event]
+                                                        (swap! accesses* conj (select-keys event [:tool :path :access]))
+                                                        {:block "fetch rules first"})}}]
       (is (match?
            {:error true
             :contents [{:type :text
                         :text "fetch rules first"}]}
            (with-redefs [fs/exists? (constantly true)
                          fs/readable? (constantly true)
-                         m.rules/require-fetched-path-scoped-rules (fn [_ _]
-                                                                                  (tools.util/single-text-content "fetch rules first" :error))]
+                         modules/built-in-modules (constantly (conj (h/built-in-modules-with) guard))]
              ((get-in m.filesystem/definitions ["edit_file" :handler])
               {"path" path
                "original_content" "old"
@@ -442,7 +446,8 @@
                :config {}
                :chat-id "chat-1"
                :agent "code"
-               :all-tools [{:full-name "eca__fetch_rule"}]}))))))
+               :all-tools [{:full-name "eca__fetch_rule"}]}))))
+      (is (= [{:tool "eca__edit_file" :path path :access :modify}] @accesses*))))
 
   (testing "Replace first occurrence only"
     (let [file-content* (atom {})]

@@ -309,6 +309,7 @@ Every chat event also has `:chat-id`, `:agent`, `:model`, `:variant`, and `:pare
 | `:chat/compact` | handle | `:trigger`, `:instructions`. `eca/compact-as-summary` answers last, with its summary. | `{:status :done :resume? true :message ".."}`, or `:status :failed`. Write the result with `checkpoint!`. An interrupted turn goes on unless `:resume? false`. Or `{:request ..}`: the chat's model compacts it, see [the keys only one ECA feature uses](#keys-only-one-eca-feature-uses). |
 | `:chat/after-compact` | notify | `:trigger`, `:checkpoint` (`:marker`, `:messages`), `:summary` (its text). Runs after a checkpoint is written. | `:additional-context` (added to the summary), `:stop` |
 | `:shell/before-exec` | transform | `:command`, `:cwd`, `:env`, `:timeout-ms`, `:background?`, `:source` (`:tool`, `:hook` or `:module`, named by `:tool`, `:hook` and `:hook-type`, or `:module`). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and `eca/shell!`. | `:command`, `:cwd`, `:env` |
+| `:file/before-access` | transform | `:tool` (full name), `:path` (as the tool got it), `:access` (`:read` or `:modify`). Before a file tool reads or modifies a file, after it checked its arguments: `read_file` and `view_image` read, `write_file` and `edit_file` modify. `eca/rules` blocks until the chat fetched the file's path-scoped rules. | `:block`: the tool fails with this text for the model |
 | `:config/resolve` | transform | `:config`. Runs after all config layers merge; read the config from the event, not through `eca.api`. `eca/agents` merges the agents first, at priority `1000`. The ctx's `:db` has only `:workspace-folders`. | `:config`, except its `modules` key |
 | `:config/changed` | notify | `:prev-config`, `:config`. When ECA sees the config change; `:prev-config` is nil the first time, a few seconds after startup. | — |
 | `:models/resolve` | transform | `:models`: full model name → capabilities | `:models` |
@@ -350,14 +351,14 @@ An unknown key is ignored, with a warning in `/modules`.
 | Key | |
 |-----|--|
 | `:label` | Its name for users, e.g. in the providers panel. |
-| `:login` | How users log in: `{:ask [:api-key :url :models]}` asks for those fields; `{:methods [{:key :label :start}] :complete-oauth-code .. :steps {..}}` runs its own flows, as `eca/anthropic`, `eca/openai` and `eca/copilot` do. |
+| `:login` | How users log in: `{:ask [:api-key :url :models]}` asks for those fields; `{:methods [{:key :label :start}] :complete-oauth-code .. :steps {..}}` runs its own flows, as `eca/anthropic`, `eca/openai` and `eca/copilot` do: `:start` is `(fn [provider db* config done!])`, `:complete-oauth-code` `(fn [provider data db* config done!])` and `/login`'s `:steps` `{step (fn [ctx])}`. Each calls its `done!`, or the ctx's `:login-done!`, with no arguments, once the login's auth is saved. |
 | `:models-fn` | `(fn [{:keys [api-url]}])`. The models it lists itself, `[{:model :tools :reason?}]`, like a running Ollama's. |
 | `:models-override-fn` | `(fn [ctx])`. Its models from its own catalog instead of its API's `/models` (`:list-models`). |
 | `:default-model` | `{:rank n :fn (fn [{:keys [db config]}])}`, or a vector of them: the default model it suggests when its login or key is there, lower ranks first. |
 | `:api-fn` | `(fn [{:keys [provider model config]}])`. The API of a request, e.g. by model; else the `:api` of the provider's config. |
 | `:request-opts` | `(fn [opts request])`. Its own options of a request to its API. |
 | `:capabilities` | What models.dev doesn't tell: capability → model ids, e.g. `{:web-search #{"gpt-5"}}`. |
-| `:quota` | `{:fetch (fn [ctx]) :headers (fn [headers])}`: a subscription login's quota. |
+| `:quota` | `{:fetch (fn [ctx]) :headers (fn [headers])}`: a subscription login's quota windows, `[{:id :label :used-percent :resets-at :window-minutes}]`, from its usage endpoint and from a response's headers. |
 | `:errors` | `{:enrich :recoverable? :recover! :retry-after-ms}`, each `(fn [ctx])`: its error messages, recoveries and retry times. |
 
 `:apis` maps an API name, like `"openai-chat"`, to its entry. A provider's config names it with `:api`, any module's API: `"openai-chat"`, `"openai-responses"` (also `"openai"`), `"anthropic"`, `"ollama"` and `"bedrock"` are ECA's. The request and callbacks follow ECA's own code: see [ECA's APIs](https://github.com/editor-code-assistant/eca/tree/master/src/eca/modules/providers), e.g. `openai_chat.clj`.

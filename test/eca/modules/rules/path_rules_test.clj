@@ -148,18 +148,14 @@
           (is (nil? (m.rules/missing-path-scoped-rules-for-read
                      {} (base-db) chat-id "code" [fetch-rule-tool] target-path))))))))
 
-(deftest missing-path-scoped-rules-error-test
-  (testing "builds an error content listing each missing rule"
+(deftest missing-path-scoped-rules-text-test
+  (testing "lists each missing rule"
     (let [target-path (h/file-path "/foo/bar/src/a.clj")
           missing-rules [{:rule {:id "rule-1" :name "Clojure style"}
                           :match {:matched-pattern "src/**/*.clj"}}
                          {:rule {:id "rule-2" :name "Docs rule"}
                           :match {:matched-pattern "src/**"}}]
-          result (m.rules/missing-path-scoped-rules-error target-path missing-rules "modifying")
-          text (-> result :contents first :text)]
-      (is (match? {:error true
-                   :contents [{:type :text}]}
-                  result))
+          text (#'m.rules/missing-path-scoped-rules-text target-path missing-rules "modifying")]
       (is (string/includes? text (str "Path-scoped rules must be fetched before modifying '" target-path "'.")))
       (is (string/includes? text "- Clojure style\n  id: rule-1"))
       (is (string/includes? text "matched-pattern: src/**/*.clj"))
@@ -167,48 +163,37 @@
       (is (string/includes? text "matched-pattern: src/**"))
       (is (string/includes? text "call `fetch_rule` with this exact `id` and `path`"))))
   (testing "action is interpolated"
-    (let [result (m.rules/missing-path-scoped-rules-error
-                  (h/file-path "/foo/a.md") [(rule-match "rule-1")] "reading")]
-      (is (string/includes? (-> result :contents first :text) "before reading")))))
+    (is (string/includes? (#'m.rules/missing-path-scoped-rules-text
+                           (h/file-path "/foo/a.md") [(rule-match "rule-1")] "reading")
+                          "before reading"))))
 
-(deftest require-fetched-path-scoped-rules-test
+(deftest check-file-access-test
   (let [target-path (h/file-path "/foo/bar/src/a.clj")
         ctx {:config {}
              :db (base-db)
              :chat-id chat-id
              :agent "code"
-             :all-tools [fetch-rule-tool]}]
+             :all-tools [fetch-rule-tool]}
+        check (fn [ctx access]
+                (#'m.rules/check-file-access ctx {:tool "eca__edit_file" :path target-path :access access}))]
     (with-redefs [shared/normalize-path (fn [p] p)]
-      (testing "error when a modify-enforced rule was not fetched"
+      (testing "modifying: blocked while a modify-enforced rule wasn't fetched"
         (with-redefs [m.rules/matching-path-scoped-rules (constantly [(rule-match "rule-1")])]
-          (let [result (m.rules/require-fetched-path-scoped-rules target-path ctx)]
-            (is (match? {:error true} result))
-            (is (string/includes? (-> result :contents first :text) "before modifying"))
-            (is (string/includes? (-> result :contents first :text) "id: rule-1")))))
-      (testing "nil when no rules are missing"
+          (let [{:keys [block]} (check ctx :modify)]
+            (is (string/includes? block "before modifying"))
+            (is (string/includes? block "id: rule-1")))))
+      (testing "modifying: nothing when no rules are missing"
         (with-redefs [m.rules/matching-path-scoped-rules (constantly [])]
-          (is (nil? (m.rules/require-fetched-path-scoped-rules target-path ctx)))))
-      (testing "nil when matching rule is read-only"
+          (is (nil? (check ctx :modify)))))
+      (testing "modifying: nothing when the matching rule is read-only"
         (with-redefs [m.rules/matching-path-scoped-rules (constantly [(rule-match "rule-1" {:enforce ["read"]})])]
-          (is (nil? (m.rules/require-fetched-path-scoped-rules target-path ctx))))))))
-
-(deftest require-fetched-path-scoped-rules-for-read-test
-  (let [target-path (h/file-path "/foo/bar/src/a.clj")
-        ctx {:config {}
-             :db (base-db)
-             :chat-id chat-id
-             :agent "code"
-             :all-tools [fetch-rule-tool]}]
-    (with-redefs [shared/normalize-path (fn [p] p)]
-      (testing "error when a read-enforced rule was not fetched"
+          (is (nil? (check ctx :modify)))))
+      (testing "reading: blocked while a read-enforced rule wasn't fetched"
         (with-redefs [m.rules/matching-path-scoped-rules (constantly [(rule-match "rule-1" {:enforce ["read"]})])]
-          (let [result (m.rules/require-fetched-path-scoped-rules-for-read target-path ctx)]
-            (is (match? {:error true} result))
-            (is (string/includes? (-> result :contents first :text) "before reading")))))
-      (testing "nil when matching rule is modify-only (default)"
+          (is (string/includes? (:block (check ctx :read)) "before reading"))))
+      (testing "reading: nothing when the matching rule is modify-only (default)"
         (with-redefs [m.rules/matching-path-scoped-rules (constantly [(rule-match "rule-1")])]
-          (is (nil? (m.rules/require-fetched-path-scoped-rules-for-read target-path ctx)))))
-      (testing "nil when fetch_rule tool unavailable"
+          (is (nil? (check ctx :read)))))
+      (testing "nothing when the fetch_rule tool is unavailable"
         (with-redefs [m.rules/matching-path-scoped-rules (constantly [(rule-match "rule-1" {:enforce ["read"]})])]
-          (is (nil? (m.rules/require-fetched-path-scoped-rules-for-read
-                     target-path (assoc ctx :all-tools [])))))))))
+          (is (nil? (check (assoc ctx :all-tools []) :read))))))))

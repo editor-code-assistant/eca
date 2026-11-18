@@ -10,9 +10,6 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.models :as models]
-   [eca.modules.llm-providers.login :as m.llm-providers.login]
-   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
-   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.modules.providers.anthropic :as m.anthropic]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http])
@@ -311,8 +308,8 @@
     (assoc-some
      {:id quota-id
       :label (copilot-label quota-id)
-      :used-percent (m.llm-providers.quota/round1 (max 0.0 (- 100.0 remaining-percent)))}
-     :resets-at (m.llm-providers.quota/->epoch-seconds reset))))
+      :used-percent (llm-util/round1 (max 0.0 (- 100.0 remaining-percent)))}
+     :resets-at (llm-util/->epoch-seconds reset))))
 
 (defn ^:private prefer-premium-models
   "Newer Copilot backends report `premium_models` alongside the legacy
@@ -332,26 +329,25 @@
    (keep (fn [[k v]]
            (when-let [[_ quota-id] (re-matches #"x-quota-snapshot-(.+)" k)]
              (let [{:strs [ent rem rst]} (parse-form v)]
-               (copilot-window quota-id {:entitlement (m.llm-providers.quota/parse-number ent)
-                                         :remaining-percent (m.llm-providers.quota/parse-number rem)
+               (copilot-window quota-id {:entitlement (llm-util/parse-number ent)
+                                         :remaining-percent (llm-util/parse-number rem)
                                          :reset rst}))))
          headers)))
 
-(defn ^:private usage->snapshot
-  "Snapshot from GitHub's `copilot_internal/user` response `quota_snapshots`."
+(defn ^:private usage->windows
+  "Quota windows from GitHub's `copilot_internal/user` response `quota_snapshots`."
   [{:keys [quota_snapshots quota_reset_date_utc quota_reset_date]}]
-  (let [windows (prefer-premium-models
-                 (keep (fn [[quota-id {:keys [entitlement percent_remaining unlimited quota_reset_at]}]]
-                         (copilot-window (name quota-id)
-                                         {:entitlement (m.llm-providers.quota/parse-number entitlement)
-                                          :remaining-percent (m.llm-providers.quota/parse-number percent_remaining)
-                                          :unlimited? (true? unlimited)
-                                          :reset (or quota_reset_at quota_reset_date_utc quota_reset_date)}))
-                       quota_snapshots))]
-    (m.llm-providers.quota/snapshot windows)))
+  (prefer-premium-models
+   (keep (fn [[quota-id {:keys [entitlement percent_remaining unlimited quota_reset_at]}]]
+           (copilot-window (name quota-id)
+                           {:entitlement (llm-util/parse-number entitlement)
+                            :remaining-percent (llm-util/parse-number percent_remaining)
+                            :unlimited? (true? unlimited)
+                            :reset (or quota_reset_at quota_reset_date_utc quota_reset_date)}))
+         quota_snapshots)))
 
 (defn ^:private fetch-quota
-  "`:quota :fetch`: the account's Copilot usage."
+  "`:quota :fetch`: the account's Copilot usage windows."
   [{:keys [provider provider-auth config]}]
   (let [url (str (github-api-base-url (get-in config [:providers provider])) "/copilot_internal/user")
         {:keys [status body]} (http/get url
@@ -362,7 +358,7 @@
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout 10000})]
     (if (= 200 status)
-      (usage->snapshot body)
+      (usage->windows body)
       (throw (ex-info (format "Copilot user endpoint returned status %s" status) {:status status})))))
 
 ;; --- Settings-based login (providers/login flow) ---
@@ -400,7 +396,7 @@
 
 (defn ^:private start-device-login!
   "The `device` login method's `:start`: GitHub's device flow."
-  [provider db* config messenger metrics]
+  [provider db* config done!]
   (let [provider-settings (get-in config [:providers provider])
         {:keys [user-code device-code url]} (oauth-url provider-settings)]
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-user-confirmation
@@ -413,7 +409,7 @@
       :on-token (fn [token-data]
                   (swap! db* update-in [:auth provider] merge
                          (assoc token-data :step :login/done))
-                  (m.llm-providers.providers/sync-and-notify! provider db* messenger metrics))
+                  (done!))
       :on-timeout (fn [])})
     {:action "device-code"
      :url url
@@ -426,10 +422,10 @@
 (defn ^:private complete-chat-device-login!
   "Finishes the chat-based device login once, guarding against the polling
    future and a typed chat message completing it twice."
-  [{:keys [db* provider config send-msg!] :as ctx} token-data]
+  [{:keys [db* provider config send-msg! login-done!]} token-data]
   (when (= :login/waiting-user-confirmation (get-in @db* [:auth provider :step]))
     (swap! db* update-in [:auth provider] merge (assoc token-data :step :login/done))
-    (m.llm-providers.login/login-done! ctx)
+    (login-done!)
     (let [github-url (github-base-url (get-in config [:providers provider]))]
       (send-msg! (format "\nMake sure to enable the models you want to use at: [%s/settings/copilot/features](%s/settings/copilot/features)"
                          github-url

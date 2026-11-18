@@ -17,9 +17,7 @@
    [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.shared :as shared])
-  (:import
-   [java.time Instant LocalDate OffsetDateTime ZoneOffset]))
+   [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
 
@@ -28,43 +26,6 @@
 (def ^:private refresh-ttl-seconds
   "Minimum interval between usage endpoint fetches of a provider."
   60)
-
-(defn now-seconds ^long []
-  (quot (System/currentTimeMillis) 1000))
-
-(defn parse-number [v]
-  (cond
-    (number? v) (double v)
-    (string? v) (parse-double (string/trim v))))
-
-(defn round1 [x]
-  (/ (Math/round (* 10.0 (double x))) 10.0))
-
-(defn ^:private iso->epoch-seconds [s]
-  (when-let [^String s (shared/not-blank s)]
-    (or (try (.getEpochSecond (Instant/parse s)) (catch Exception _ nil))
-        (try (.toEpochSecond (OffsetDateTime/parse s)) (catch Exception _ nil))
-        (try (.toEpochSecond (.atStartOfDay (LocalDate/parse s) ZoneOffset/UTC)) (catch Exception _ nil)))))
-
-(defn ->epoch-seconds
-  "Epoch seconds from an ISO-8601 string or an epoch number (seconds or
-   milliseconds)."
-  [v]
-  (cond
-    (number? v) (let [n (long v)] (if (> n 100000000000) (quot n 1000) n))
-    (string? v) (or (some-> (parse-long (string/trim v)) ->epoch-seconds)
-                    (iso->epoch-seconds v))))
-
-(defn minutes->label [minutes]
-  (when (and minutes (pos? minutes))
-    (cond
-      (zero? (mod minutes 1440)) (str (quot minutes 1440) "d")
-      (zero? (mod minutes 60)) (str (quot minutes 60) "h")
-      :else (str minutes "m"))))
-
-(defn duration-id->minutes [id]
-  (when-let [[_ n unit] (re-matches #"(\d+)([mhdw])" id)]
-    (* (parse-long n) (case unit "m" 1 "h" 60 "d" 1440 "w" 10080))))
 
 (defn ^:private normalize-headers
   "Lower-cased header name -> first string value."
@@ -79,11 +40,11 @@
 (defn ^:private sort-windows [windows]
   (vec (sort-by (juxt #(or (:window-minutes %) Long/MAX_VALUE) :id) windows)))
 
-(defn snapshot
+(defn ^:private snapshot
   "A quota snapshot of `windows`, or nil when there are none."
   [windows]
   (when (seq windows)
-    {:updated-at (now-seconds)
+    {:updated-at (llm-util/now-seconds)
      :windows (sort-windows windows)}))
 
 (defn headers->snapshot
@@ -134,12 +95,12 @@
 
 (defn fetch-quota
   "Fetches the subscription quota of `provider` from its usage endpoint,
-   returning a snapshot or nil: the `:quota :fetch` of the provider's base
-   (see `config/provider-base`)."
+   returning a snapshot or nil: the windows the `:quota :fetch` of the
+   provider's base (see `config/provider-base`) returns."
   [{:keys [provider config] :as ctx}]
   (when-let [fetch (get-in (llm-util/provider-declaration config (config/provider-base provider config))
                            [:quota :fetch])]
-    (fetch ctx)))
+    (snapshot (fetch ctx))))
 
 (defn refresh!
   "Fetches the quota of `provider` when it uses a subscription login and
@@ -148,7 +109,7 @@
   [provider {:keys [db* config force?]}]
   (let [db @db*
         last-fetch (get-in db [:provider-quota-fetched-at provider])
-        now (now-seconds)]
+        now (llm-util/now-seconds)]
     (boolean
      (when (and (llm-util/subscription? provider db config)
                 (or force?
@@ -184,7 +145,7 @@
 (defn quota-text
   "Human readable quota of the subscription `providers`, for the /quota command."
   [db providers]
-  (let [now (now-seconds)]
+  (let [now (llm-util/now-seconds)]
     (if (empty? providers)
       "No subscription login found. Quota is available when logged in with a subscription (Claude Pro/Max, ChatGPT or GitHub Copilot)."
       (shared/multi-str

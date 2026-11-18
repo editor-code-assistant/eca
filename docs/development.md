@@ -77,6 +77,7 @@ Every other feature is a module under `src/eca/modules/`, built in or external, 
 - Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.
 - Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote, otel and repl aside) or offer a multimethod for modules to extend.
 - Every module key works for every module, built in or external; only the calls differ: a built-in's run inline, as the code it replaced, and an external module's are guarded (timeouts, failures counted).
+- A built-in module uses another module's namespaces only when it requires that module (`:requires`), so turning a module off never leaves its code running for another. Code two modules share goes in a core lib, or reaches the other module through an event, a module key or a function it hands over (like `eca/llm-providers`' `done!` to a provider's login).
 
 `test/eca/architecture_test.clj` checks the layers and the rules, also in `requiring-resolve`s and fully qualified calls. Its allowlists hold the couplings left from before the rules (and the module API resolving the engines at runtime), and only shrink.
 

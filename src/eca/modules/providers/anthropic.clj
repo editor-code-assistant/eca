@@ -13,9 +13,6 @@
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
    [eca.models :as models]
-   [eca.modules.llm-providers.login :as m.llm-providers.login]
-   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
-   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.modules.providers.variants :as m.variants]
    [eca.oauth :as oauth]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
@@ -768,13 +765,13 @@
   [headers]
   (keep (fn [[k v]]
           (when-let [[_ id] (re-matches #"anthropic-ratelimit-unified-(\d+[a-z]+)-utilization" k)]
-            (when-let [utilization (m.llm-providers.quota/parse-number v)]
+            (when-let [utilization (llm-util/parse-number v)]
               (assoc-some
                {:id id
                 :label id
-                :used-percent (m.llm-providers.quota/round1 (* 100 utilization))}
-               :resets-at (some-> (get headers (str "anthropic-ratelimit-unified-" id "-reset")) m.llm-providers.quota/parse-number long)
-               :window-minutes (m.llm-providers.quota/duration-id->minutes id)))))
+                :used-percent (llm-util/round1 (* 100 utilization))}
+               :resets-at (some-> (get headers (str "anthropic-ratelimit-unified-" id "-reset")) llm-util/parse-number long)
+               :window-minutes (llm-util/duration-id->minutes id)))))
         headers))
 
 (def ^:private number-words
@@ -785,31 +782,30 @@
   {"minute" 1 "minutes" 1 "hour" 60 "hours" 60
    "day" 1440 "days" 1440 "week" 10080 "weeks" 10080})
 
-(defn ^:private usage->snapshot
-  "Snapshot from Claude's `api/oauth/usage` response, whose windows are keyed
-   by their duration (e.g. `five_hour`, `seven_day`, `seven_day_opus`), with
+(defn ^:private usage->windows
+  "Quota windows from Claude's `api/oauth/usage` response, keyed by their
+   duration (e.g. `five_hour`, `seven_day`, `seven_day_opus`), with
    utilization as a 0-100 percentage and ISO-8601 resets."
   [body]
-  (let [windows (keep (fn [[k v]]
-                        (let [[amount unit & scope] (string/split (name k) #"_")
-                              n (or (get number-words amount) (some-> amount parse-long))
-                              unit-mins (get unit-minutes unit)
-                              utilization (when (map? v) (m.llm-providers.quota/parse-number (:utilization v)))]
-                          (when (and n unit-mins utilization)
-                            (let [minutes (* n unit-mins)
-                                  duration (m.llm-providers.quota/minutes->label minutes)
-                                  scope (when (seq scope) (string/join " " scope))]
-                              (assoc-some
-                               {:id (cond-> duration scope (str "-" (string/replace scope " " "-")))
-                                :label (cond-> duration scope (str " " (string/capitalize scope)))
-                                :used-percent (m.llm-providers.quota/round1 utilization)
-                                :window-minutes minutes}
-                               :resets-at (m.llm-providers.quota/->epoch-seconds (:resets_at v)))))))
-                      body)]
-    (m.llm-providers.quota/snapshot windows)))
+  (keep (fn [[k v]]
+          (let [[amount unit & scope] (string/split (name k) #"_")
+                n (or (get number-words amount) (some-> amount parse-long))
+                unit-mins (get unit-minutes unit)
+                utilization (when (map? v) (llm-util/parse-number (:utilization v)))]
+            (when (and n unit-mins utilization)
+              (let [minutes (* n unit-mins)
+                    duration (llm-util/minutes->label minutes)
+                    scope (when (seq scope) (string/join " " scope))]
+                (assoc-some
+                 {:id (cond-> duration scope (str "-" (string/replace scope " " "-")))
+                  :label (cond-> duration scope (str " " (string/capitalize scope)))
+                  :used-percent (llm-util/round1 utilization)
+                  :window-minutes minutes}
+                 :resets-at (llm-util/->epoch-seconds (:resets_at v)))))))
+        body))
 
 (defn ^:private fetch-quota
-  "`:quota :fetch`: the subscription's usage."
+  "`:quota :fetch`: the subscription's usage windows."
   [{:keys [provider-auth]}]
   (let [{:keys [status body]} (http/get oauth-usage-url
                                         {:headers {"Authorization" (str "Bearer " (:api-key provider-auth))
@@ -819,7 +815,7 @@
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout 10000})]
     (if (= 200 status)
-      (usage->snapshot body)
+      (usage->windows body)
       (throw (ex-info (format "Anthropic usage endpoint returned status %s" status) {:status status})))))
 
 (def ^:private client-id "9d1c250a-e61b-44d9-88ed-5944d1962f5e")
@@ -907,7 +903,7 @@
 
 (defn ^:private start-max-login!
   "The `max` login method's `:start`: OAuth, for a Claude subscription."
-  [provider db* _config _messenger _metrics]
+  [provider db* _config _done!]
   (let [{:keys [verifier url]} (oauth-url :max)]
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                           :mode :max
@@ -919,7 +915,7 @@
 
 (defn ^:private start-console-login!
   "The `console` login method's `:start`: OAuth, creating an API key."
-  [provider db* _config _messenger _metrics]
+  [provider db* _config _done!]
   (let [{:keys [verifier url]} (oauth-url :console)]
     (swap! db* assoc-in [:auth provider] {:step :login/waiting-provider-code
                                           :mode :console
@@ -931,7 +927,7 @@
 
 (defn ^:private complete-oauth-code!
   "`:login :complete-oauth-code`: the code pasted after the browser login."
-  [provider data db* _config messenger metrics]
+  [provider data db* _config done!]
   (let [code (:code data)
         {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
@@ -948,7 +944,7 @@
                                                      :refresh-token refresh-token
                                                      :api-key access-token
                                                      :expires-at expires-at})))
-    (m.llm-providers.providers/sync-and-notify! provider db* messenger metrics)
+    (done!)
     {:action "done"}))
 
 ;; --- Chat-based login (legacy /login command) ---
@@ -990,7 +986,7 @@
       (send-msg! "Paste your Anthropic API Key"))
     (send-msg! (format "Unknown login method '%s'. Inform one of the options: max, console, manual" input))))
 
-(defn ^:private waiting-provider-code-step [{:keys [db* input provider] :as ctx}]
+(defn ^:private waiting-provider-code-step [{:keys [db* input provider login-done!]}]
   (let [provider-code input
         {:keys [mode verifier]} (get-in @db* [:auth provider])]
     (case mode
@@ -1000,7 +996,7 @@
         (swap! db* update-in [:auth provider] merge {:step :login/done
                                                      :type :auth/token
                                                      :api-key api-key})
-        (m.llm-providers.login/login-done! ctx))
+        (login-done!))
       :max
       (let [{:keys [access-token refresh-token expires-at]} (oauth-authorize provider-code verifier)]
         (swap! db* update-in [:auth provider] merge {:step :login/done
@@ -1008,15 +1004,15 @@
                                                      :refresh-token refresh-token
                                                      :api-key access-token
                                                      :expires-at expires-at})
-        (m.llm-providers.login/login-done! ctx)))))
+        (login-done!)))))
 
-(defn ^:private waiting-api-key-step [{:keys [db* input provider send-msg!] :as ctx}]
+(defn ^:private waiting-api-key-step [{:keys [db* input provider send-msg! login-done!]}]
   (if (string/starts-with? input "sk-")
     (do
       (config/update-global-config! {:providers {provider {:key input}}})
       (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
       (send-msg! (format "API key and models saved to %s" (.getCanonicalPath (config/global-config-file))))
-      (m.llm-providers.login/login-done! ctx))
+      (login-done!))
     (send-msg! "Invalid API key, it should start with 'sk-'")))
 
 (defn ^:private renew-token-step [{:keys [db* provider]}]

@@ -207,3 +207,47 @@
       (is (= #{} (set/difference actual allowed-extended-multimethods))))
     (testing "a core multimethod is no longer extended: remove it from allowed-extended-multimethods"
       (is (= #{} (set/difference allowed-extended-multimethods actual))))))
+
+(def ^:private allowed-undeclared-module-uses
+  "Built-in module namespaces that use another built-in module's namespace without requiring that module
+  (`:requires`). Only shrinks."
+  '#{;; eca/remote calls eca/mcp's server methods for web clients
+     [eca.modules.remote.handlers eca.modules.mcp]})
+
+(defn ^:private defined-modules
+  "The built-in modules a source defines, as its `module` and `api-module` vars: id → the ids it `:requires`."
+  [{:keys [code]}]
+  (into {}
+        (for [[_ id form] (re-seq #"(?s)\(def\s+(?:module|api-module)\s+\{:id\s+:(eca/[\w\-]+)(.*?)(?=\n\(|\z)" code)]
+          [(keyword id)
+           (set (map (comp keyword second)
+                     (some->> (re-find #":requires\s+#\{([^}]*)\}" form) second (re-seq #":(eca/[\w\-]+)"))))])))
+
+(deftest module-requires-test
+  (let [module-sources (filter (comp module-ns? :ns) @sources)
+        modules-of (into {} (keep (fn [source]
+                                    (when-let [modules (not-empty (defined-modules source))]
+                                      [(:ns source) modules])))
+                         module-sources)
+        ;; a module's namespace, or the closest one a namespace is under (a module's helpers); none for
+        ;; namespaces of no module, like the providers' shared variants
+        unit-of (fn [ns-sym]
+                  (->> (keys modules-of)
+                       (filter #(or (= % ns-sym) (string/starts-with? (str ns-sym) (str % "."))))
+                       (sort-by (comp - count str))
+                       first))
+        actual (set (for [{:keys [ns requires code]} module-sources
+                          :let [from (unit-of ns)]
+                          :when from
+                          to-ns (set/union requires (quoted-namespaces code) (qualified-namespaces code))
+                          :let [to (unit-of to-ns)]
+                          :when (and to (not= from to)
+                                     (empty? (set/intersection (reduce into #{} (vals (modules-of from)))
+                                                               (set (keys (modules-of to))))))]
+                      [ns to-ns]))]
+    (testing "the built-in modules are found"
+      (is (< 40 (reduce + (map count (vals modules-of))))))
+    (testing "a built-in module uses another module's namespaces only when it requires that module (:requires)"
+      (is (= #{} (set/difference actual allowed-undeclared-module-uses))))
+    (testing "an undeclared use is gone: remove it from allowed-undeclared-module-uses"
+      (is (= #{} (set/difference allowed-undeclared-module-uses actual))))))

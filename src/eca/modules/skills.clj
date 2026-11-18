@@ -35,7 +35,7 @@
       (logger/warn logger-tag (format "Error parsing skill file '%s': %s" (str skill-file) (.getMessage e)))
       nil)))
 
-(defn global-skills-dir []
+(defn ^:private global-skills-dir []
   (let [xdg-config-home (or (config/get-env "XDG_CONFIG_HOME")
                             (io/file (config/user-home) ".config"))]
     (io/file xdg-config-home "eca" "skills")))

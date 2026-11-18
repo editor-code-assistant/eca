@@ -19,6 +19,12 @@
   [provider headers]
   (m.llm-providers.quota/headers->snapshot provider headers {}))
 
+(defn ^:private endpoint-snapshot
+  "The snapshot of the windows a provider's `:quota :fetch` reads from its
+   usage endpoint's response `body`, with its `usage->windows`."
+  [usage->windows body]
+  (#'m.llm-providers.quota/snapshot (usage->windows body)))
+
 (deftest headers->snapshot-test
   (testing "Claude unified headers: 0-1 utilization fraction and epoch seconds resets"
     (is (match? {:updated-at number?
@@ -83,7 +89,8 @@
                            {:id "7d" :label "7d" :used-percent 47.0 :window-minutes 10080}
                            {:id "7d-opus" :label "7d Opus" :used-percent 10.0 :window-minutes 10080
                             :resets-at m/absent}]}
-                (#'m.anthropic/usage->snapshot
+                (endpoint-snapshot
+                 #'m.anthropic/usage->windows
                  {:five_hour {:utilization 42.0 :resets_at "2099-01-01T00:00:00+00:00"}
                   :seven_day {:utilization 47.0 :resets_at "2099-01-02T00:00:00+00:00"}
                   :seven_day_opus {:utilization 10.0 :resets_at nil}
@@ -92,7 +99,8 @@
   (testing "ChatGPT wham/usage keeps the header window ids"
     (is (match? {:windows [{:id "primary" :label "5h" :used-percent 30.0 :resets-at 1792007200 :window-minutes 300}
                            {:id "secondary" :label "7d" :used-percent 8.0 :resets-at 1792400000 :window-minutes 10080}]}
-                (#'m.openai/usage->snapshot
+                (endpoint-snapshot
+                 #'m.openai/usage->windows
                  {:plan_type "pro"
                   :rate_limit {:allowed true
                                :primary_window {:used_percent 30 :limit_window_seconds 18000
@@ -101,7 +109,8 @@
                                                   :reset_at 1792400000}}}))))
   (testing "ChatGPT wham/usage skips windows without usage nor duration"
     (is (match? {:windows [{:id "primary" :label "7d" :used-percent 37.0 :window-minutes 10080}]}
-                (#'m.openai/usage->snapshot
+                (endpoint-snapshot
+                 #'m.openai/usage->windows
                  {:rate_limit {:allowed true
                                :primary_window {:used_percent 37 :limit_window_seconds 604800
                                                 :reset_at 1792400000}
@@ -110,7 +119,8 @@
   (testing "Copilot copilot_internal/user quota snapshots"
     (is (match? {:windows [{:id "premium_interactions" :label "Premium" :used-percent 40.0
                             :resets-at (epoch "2026-08-01T00:00:00Z")}]}
-                (#'m.copilot/usage->snapshot
+                (endpoint-snapshot
+                 #'m.copilot/usage->windows
                  {:copilot_plan "individual"
                   :quota_reset_date_utc "2026-08-01T00:00:00.000Z"
                   :quota_snapshots {:chat {:entitlement 0 :percent_remaining 100.0 :unlimited true}
@@ -118,9 +128,9 @@
                                     :premium_interactions {:entitlement 300 :remaining 180
                                                            :percent_remaining 60.0 :unlimited false}}}))))
   (testing "payloads without quota have no snapshot"
-    (is (nil? (#'m.anthropic/usage->snapshot {:five_hour nil :seven_day nil})))
-    (is (nil? (#'m.openai/usage->snapshot {:plan_type "free"})))
-    (is (nil? (#'m.copilot/usage->snapshot {:quota_snapshots {:chat {:unlimited true :percent_remaining 100}}})))))
+    (is (nil? (endpoint-snapshot #'m.anthropic/usage->windows {:five_hour nil :seven_day nil})))
+    (is (nil? (endpoint-snapshot #'m.openai/usage->windows {:plan_type "free"})))
+    (is (nil? (endpoint-snapshot #'m.copilot/usage->windows {:quota_snapshots {:chat {:unlimited true :percent_remaining 100}}})))))
 
 (deftest update!-test
   (let [db* (atom {})

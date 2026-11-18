@@ -18,20 +18,21 @@
 
 (def ^:private logger-tag "[LOGIN]")
 
-(declare ^:private pick-provider!)
+(declare ^:private pick-provider! login-done!)
 
 (defn login-step
   "Login state machine: runs `step` of the provider's base (see
    `config/provider-base`), its `:login :steps`, so a provider inheriting
    e.g. `anthropic` runs Anthropic's login steps while `:provider` keeps its
    own name, storing its auth separately. Without a provider, the first step
-   asks which one."
+   asks which one. A step calls the ctx's `:login-done!`, with no arguments,
+   once the provider's auth is saved."
   [{:keys [provider step config send-msg!] :as ctx}]
   (if-let [step-fn (if provider
                      (get-in (llm-util/provider-declaration config (config/provider-base provider config))
                              [:login :steps step])
                      (when (= :login/start step) pick-provider!))]
-    (step-fn ctx)
+    (step-fn (assoc ctx :login-done! #(login-done! ctx)))
     (send-msg! "Error: Unknown login step")))
 
 (def ^:private ask-timeout-ms (* 5 60 1000))
@@ -53,7 +54,7 @@
     (send-msg! "Login cancelled")
     (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle})))
 
-(declare ^:private with-ask-support ^:private run-login-step! login-done!)
+(declare ^:private with-ask-support ^:private run-login-step!)
 
 (defn ^:private ask-and-continue!
   "Asks a question via the client's `chat/askQuestion` UI in background and

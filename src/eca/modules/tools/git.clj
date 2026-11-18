@@ -155,4 +155,6 @@
 (def module
   {:id :eca/git
    :description "Run git commands."
+   ;; its calls' approval keys and details come from eca/shell's command parser
+   :requires #{:eca/shell}
    :tools (fn [_ctx] (tools.util/->module-tools definitions))})

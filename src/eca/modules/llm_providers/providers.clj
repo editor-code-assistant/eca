@@ -243,12 +243,13 @@
 (defn start-login!
   "Starts a provider-specific async login flow (OAuth, device flow, etc.):
    the `:start` of the login method `method` of the provider's base (see
-   `config/provider-base`), storing auth under `provider-name`. Returns an
-   action descriptor for the client."
+   `config/provider-base`), storing auth under `provider-name`, with a
+   `done!` fn to call once the auth is saved. Returns an action descriptor
+   for the client."
   [provider-name method db* config messenger metrics]
   (if-let [start (some #(when (= method (:key %)) (:start %))
                        (:methods (base-login provider-name config)))]
-    (start provider-name db* config messenger metrics)
+    (start provider-name db* config #(sync-and-notify! provider-name db* messenger metrics))
     (throw (ex-info "Unsupported login method"
                     {:error-response {:message (str "Unsupported login method '" method "' for provider '" provider-name "'")}}))))
 
@@ -256,10 +257,10 @@
   "Exchanges an OAuth authorization code for tokens, when the client submits
    a code after browser-based auth: the `:login :complete-oauth-code` of the
    provider's base (see `config/provider-base`), storing auth under
-   `provider-name`."
+   `provider-name`, with a `done!` fn to call once the auth is saved."
   [provider-name data db* config messenger metrics]
   (if-let [complete (:complete-oauth-code (base-login provider-name config))]
-    (complete provider-name data db* config messenger metrics)
+    (complete provider-name data db* config #(sync-and-notify! provider-name db* messenger metrics))
     (throw (ex-info "Provider does not support OAuth code exchange"
                     {:error-response {:message (str "Provider '" provider-name "' does not support code-based login")}}))))
 

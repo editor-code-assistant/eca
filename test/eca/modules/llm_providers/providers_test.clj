@@ -5,6 +5,7 @@
    [eca.models :as models]
    [eca.modules :as modules]
    [eca.modules.llm-providers.providers :as m.llm-providers.providers]
+   [eca.modules.providers.anthropic :as m.anthropic]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -89,6 +90,21 @@
         (is (= [] @saved*))
         (is (= {:step :login/done :type :auth/token :api-key "sk-ant" :mode :manual}
                (get-in (h/db) [:auth "anthropic"])))))))
+
+(deftest login-method-done-test
+  (testing "a login method's flow calls the done! it gets once the auth is saved, which syncs the provider"
+    (let [synced* (atom [])]
+      (with-redefs [m.llm-providers.providers/sync-and-notify! (fn [provider-name & _] (swap! synced* conj provider-name))]
+        (with-redefs-fn {#'m.anthropic/oauth-authorize (fn [_code _verifier]
+                                                         {:access-token "access" :refresh-token "refresh" :expires-at 1})}
+          #(do (is (match? {:action "authorize"}
+                           (m.llm-providers.providers/start-login! "anthropic" "max" (h/db*) {} (h/messenger) (h/metrics))))
+               (is (= [] @synced*))
+               (is (= {:action "done"}
+                      (m.llm-providers.providers/complete-oauth-code! "anthropic" {:code "code"} (h/db*) {}
+                                                                      (h/messenger) (h/metrics)))))))
+      (is (= ["anthropic"] @synced*))
+      (is (match? {:step :login/done :type :auth/oauth :api-key "access"} (get-in (h/db) [:auth "anthropic"]))))))
 
 (deftest login-config-test
   (is (= {:api "bedrock" :key "t" :url "https://x" :models {"a" {} "b" {}}}

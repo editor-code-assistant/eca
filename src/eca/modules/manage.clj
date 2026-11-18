@@ -12,7 +12,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.llm-util :as llm-util]
    [eca.modules :as modules]
-   [eca.modules.skills :as m.skills]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -258,7 +257,7 @@
    (f.prompt/get-config-prompt :skillCreate agent-name config)
    (merge
     (f.prompt/->base-selmer-ctx all-tools db)
-    {:skillFilePath (str (fs/file (m.skills/global-skills-dir) skill-name "SKILL.md"))
+    {:skillFilePath (str (fs/file (shared/global-config-dir) "skills" skill-name "SKILL.md"))
      :skillName skill-name
      :userPrompt user-prompt})
    "skill-create-prompt"))
