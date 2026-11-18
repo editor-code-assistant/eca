@@ -1,8 +1,8 @@
 (ns eca.modules.core
   "The `:eca/core` module: what stays in core (protocol, persistence, config,
    the chat loop and the module runtime), as a module so its config keys,
-   events and commands are listed like any other module's. It can't be
-   disabled."
+   prompt sections and commands are listed like any other module's. It can't
+   be disabled."
   (:require
    [clojure.pprint :as pprint]
    [clojure.string :as string]
@@ -13,7 +13,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
-   [eca.modules.events :as events]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -473,7 +472,6 @@
                            :doc "Per module id: enabled, source and priority."}
                  :disabledTools {:type :array :default []}
                  :toolCall {:outputTruncation {:type :map :default {:lines 2000 :sizeKb 50}}}}
-   :defines {:events events/core-events}
    :system-prompts [{:id :eca/additional-info :content #'f.prompt/additional-info-section}
                     {:id :eca/workspace-roots :content #'f.prompt/workspace-roots-prompt-section}
                     {:id :eca/path-resolution :content #'f.prompt/path-resolution-prompt-section}

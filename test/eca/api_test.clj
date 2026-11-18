@@ -2,6 +2,7 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
+   [eca.api.test :as api.test]
    [eca.db.chats :as db.chats]
    [eca.db.io :as db.io]
    [eca.features.chat :as f.chat]
@@ -59,7 +60,6 @@
       (is (= ["[MODULE acme/x]" "careful" 42] @logged)))))
 
 (deftest results-test
-  (is (= {:error false :contents [{:type :text :text "done"}]} (eca/text "done")))
   (is (= {:error true :contents [{:type :text :text "boom"}]} (eca/error "boom"))))
 
 (deftest client-test
@@ -176,18 +176,20 @@
 (deftest dialogs-test
   (add-chat! {})
   (testing "without a client that asks, dialogs don't ask"
-    (is (false? (eca/ui? (chat-ctx))))
     (is (false? (eca/confirm (chat-ctx) "Sure?")))
     (is (nil? (eca/select (chat-ctx) {:title "Pick" :options ["a" "b"]})))
     (is (nil? (eca/input (chat-ctx) {:title "Name"}))))
   (testing "confirm"
     (ask-ui! {:answer "Yes" :cancelled false})
-    (is (true? (eca/ui? (chat-ctx))))
     (is (true? (eca/confirm (chat-ctx) "Sure?")))
     (ask-ui! {:answer "No" :cancelled false})
     (is (false? (eca/confirm (chat-ctx) "Sure?")))
     (ask-ui! {:answer nil :cancelled true})
-    (is (false? (eca/confirm (chat-ctx) "Sure?"))))
+    (is (false? (eca/confirm (chat-ctx) "Sure?")))
+    (testing "its question may be a {:title ..}, as other dialogs'"
+      (let [ctx (api.test/mock-ctx {:module-id :acme/x :answers [true]})]
+        (is (true? (eca/confirm ctx {:title "Sure?"})))
+        (is (= ["Sure?"] (:questions (api.test/recorded ctx)))))))
   (testing "select returns the option picked"
     (ask-ui! {:answer "b" :cancelled false})
     (is (= "b" (eca/select (chat-ctx) {:title "Pick" :options ["a" "b"]})))
@@ -202,28 +204,15 @@
     (is (= "Ana" (eca/input (chat-ctx) {:title "Name"})))
     (ask-ui! {:answer nil :cancelled true})
     (is (nil? (eca/input (chat-ctx) {:title "Name"}))))
-  (testing "outside of a chat there's no ui"
-    (is (false? (eca/ui? (dissoc (chat-ctx) :chat-id))))))
-
-(deftest emit-test
-  (let [module {:id :acme/events
-                :defines {:events {:acme/ping {:kind :notify}
-                                   :acme/shape {:kind :transform}
-                                   :acme/ask {:kind :handle}}}
-                :event-handlers {:acme/ping (fn [_ _] {:ignored true})
-                                 :acme/shape (fn [_ {:keys [n]}] {:n (inc n)})
-                                 :acme/ask (fn [_ _] {:answer 42})}}]
-    (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with))]
-      (modules/add-external! "/tmp/events.clj" module)
-      (is (nil? (eca/emit! {:config {}} :acme/ping {})))
-      (is (match? {:n 2} (eca/emit! {:config {}} :acme/shape {:n 1})))
-      (is (= {:answer 42} (eca/emit! {:config {}} :acme/ask {}))))))
+  (testing "outside of a chat they don't ask"
+    (ask-ui! {:answer "Yes" :cancelled false})
+    (is (false? (eca/confirm (dissoc (chat-ctx) :chat-id) "Sure?")))))
 
 (deftest tools-test
   (let [module {:id :acme/jira
                 :tools {"issue" {:description "Fetch an issue."
                                  :parameters {:type "object" :properties {"key" {:type "string"}}}
-                                 :handler (fn [_ {:strs [key]}] (eca/text (str "Issue " key)))}}}]
+                                 :handler (fn [_ {:strs [key]}] (str "Issue " key))}}}]
     (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/approval))]
       (modules/add-external! "/tmp/jira.clj" module)
       (add-chat! {:agent "code"})

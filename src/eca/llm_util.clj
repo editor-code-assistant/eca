@@ -206,11 +206,33 @@
    (when provider
      (= :auth/oauth (first (provider-api-key provider (get-in db [:auth provider]) config))))))
 
+(defn ^:private guarded-declaration
+  "Module `entry`'s declaration of `provider-id`, with its functions guarded
+   when it's an external module (`modules/guard-fns`)."
+  [config entry provider-id declaration]
+  (modules/guard-fns (modules/module-ctx {:config config} entry) entry (str "provider " provider-id) declaration))
+
 (defn provider-declaration
   "The declaration (`:providers`) of the provider `provider-id`, from the
-   first active module that has one."
+   first active module that has one; an external module's functions in it
+   are guarded."
   [config provider-id]
-  (second (modules/find-contribution config :providers provider-id)))
+  (when-let [[entry declaration] (modules/find-contribution config :providers provider-id)]
+    (guarded-declaration config entry provider-id declaration)))
+
+(defn provider-declarations
+  "Provider id → declaration (see `provider-declaration`), from the active
+   modules' `:providers`: the first module that declares a provider wins it."
+  [config]
+  (reduce (fn [acc [entry providers]]
+            (reduce-kv (fn [acc provider-id declaration]
+                         (if (contains? acc provider-id)
+                           acc
+                           (assoc acc provider-id (guarded-declaration config entry provider-id declaration))))
+                       acc
+                       providers))
+          {}
+          (modules/contributions config :providers)))
 
 (def no-native-models
   "What a provider's `:models-override-fn` returns when it has no models and
@@ -231,7 +253,12 @@
    /models fetch, or `no-native-models`."
   [{:keys [provider provider-base config] :as ctx}]
   (when-let [override (:models-override-fn (provider-declaration config (or provider-base provider)))]
-    (override ctx)))
+    ;; one that fails, e.g. an external module's, leaves the generic fetch
+    (try
+      (override ctx)
+      (catch Exception e
+        (logger/warn "[LLM-UTIL]" (format "Provider '%s': could not get its models: %s" provider (ex-message e)))
+        nil))))
 
 (defn ^:private cause-chain
   "Returns a seq of `e` followed by every nested cause."

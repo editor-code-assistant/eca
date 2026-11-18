@@ -36,9 +36,8 @@
     [eca.handlers :eca/otel] 1
     [eca.handlers :eca/remote] 2
     [eca.server :eca/otel] 1
-    ;; --repl, and the debug API working only while eca/repl runs
-    [eca.main :eca/repl] 1
-    [eca.api.debug :eca/repl] 1})
+    ;; --repl
+    [eca.main :eca/repl] 1})
 
 (def ^:private allowed-upward-resolves
   "Core namespaces that resolve a var of a higher layer at runtime (`requiring-resolve`). Only shrinks."
@@ -47,8 +46,7 @@
      [eca.api eca.features.chat.compaction]
      [eca.api eca.features.tools]
      [eca.api eca.llm-api]
-     [eca.api eca.llm-api.auth]
-     [eca.api.dev eca.features.tools]})
+     [eca.api eca.llm-api.auth]})
 
 (def ^:private allowed-extended-multimethods
   "Core multimethods the built-in modules extend with `defmethod`. Only shrinks."

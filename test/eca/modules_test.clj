@@ -96,7 +96,6 @@
     (is (match? {:errors [#":id must be a qualified keyword"]} (modules/problems {:id :x} {})))
     (is (match? {:errors [#"reserved for built-in"]} (modules/problems {:id :eca/x} {})))
     (is (= [] (:errors (modules/problems {:id :eca/x} {:built-in? true}))))
-    (is (match? {:errors [#":api 2 is not supported"]} (modules/problems {:id :acme/x :api 2} {})))
     (is (match? {:errors [#":tools \"t\": :handler must be a function"]}
                 (modules/problems {:id :acme/x :tools {"t" {:description "d" :parameters {}}}} {})))
     (is (match? {:errors [#":commands \"c\": :handler must be a function"]}
@@ -111,37 +110,49 @@
                 (modules/problems {:id :acme/x :tool-servers {:list (fn [_])}} {})))
     (is (= {:errors [] :warnings []}
            (modules/problems {:id :acme/x :tool-servers {:list (fn [_]) :call (fn [_ _ _ _ _])}} {})))
-    (is (match? {:errors [#":skills is only for built-in modules"]}
-                (modules/problems {:id :acme/x :skills []} {})))
-    (is (match? {:errors [#":providers \"p\": :quota, :errors, .* are only for built-in modules"]}
-                (modules/problems {:id :acme/x :providers {"p" {:quota {:fetch (fn [_])}}}} {})))
-    (is (match? {:errors [#":providers \"p\": .*method's :start are only for built-in modules"]}
-                (modules/problems {:id :acme/x :providers {"p" {:login {:methods [{:key "k" :start (fn [& _])}]}}}} {})))
-    (is (= [] (:errors (modules/problems {:id :eca/x :providers {"p" {:login {:steps {}} :errors {}}}}
-                                         {:built-in? true}))))
-    (is (match? {:errors [#":transform-tools is only for built-in modules"]}
-                (modules/problems {:id :acme/x :transform-tools (fn [_ tools] tools)} {})))
     (is (match? {:errors [#":transform-tools must be a function"]}
-                (modules/problems {:id :eca/x :transform-tools {}} {:built-in? true})))
-    (is (match? {:errors [#":chat-statuses is only for built-in modules"]}
-                (modules/problems {:id :acme/x :chat-statuses {:login (fn [_ _])}} {})))
+                (modules/problems {:id :acme/x :transform-tools {}} {})))
     (is (match? {:errors [#":chat-statuses :login: must be a function"]}
-                (modules/problems {:id :eca/x :chat-statuses {:login "nope"}} {:built-in? true})))
+                (modules/problems {:id :acme/x :chat-statuses {:login "nope"}} {})))
     (is (match? {:errors [#":chat-statuses: \"login\" must be a keyword"]}
-                (modules/problems {:id :eca/x :chat-statuses {"login" (fn [_ _])}} {:built-in? true})))
-    (is (= [] (:errors (modules/problems {:id :eca/x :chat-statuses {:login (fn [_ _])}} {:built-in? true}))))
-    (is (match? {:errors [#":system-prompts :acme/s: :signature, :resync\? are only for built-in modules"]}
-                (modules/problems {:id :acme/x :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]} {})))
-    (is (= [] (:errors (modules/problems {:id :eca/x :system-prompts [{:id :eca/s :content "c" :signature (fn [_])}]}
-                                         {:built-in? true}))))
+                (modules/problems {:id :acme/x :chat-statuses {"login" (fn [_ _])}} {})))
+    (is (match? {:errors [#":contexts must be a map"]}
+                (modules/problems {:id :acme/x :contexts [(fn [_])]} {})))
+    (is (match? {:errors [#":providers \"p\": must be a map"]}
+                (modules/problems {:id :acme/x :providers {"p" "nope"}} {})))
     (is (match? {:errors [#":skills \"s\": :body must be a string or a function"]}
-                (modules/problems {:id :eca/x :skills [{:name "s" :description "d"}]} {:built-in? true})))
+                (modules/problems {:id :acme/x :skills [{:name "s" :description "d"}]} {})))
     (is (match? {:errors [#":config-spec x: :type must be one of"]}
                 (modules/problems {:id :acme/x :config-spec {:x {:type :int}}} {}))))
+  (testing "every key is for every module, built-in or not"
+    (is (= {:errors [] :warnings []}
+           (modules/problems {:id :acme/x
+                              :tools (fn [_])
+                              :commands (fn [_])
+                              :skills [{:name "s" :description "d" :body (fn [_])}]
+                              :contexts {:always (fn [_]) :types {"t" {:list (fn [_]) :refine (fn [_ _])}}}
+                              :transform-tools (fn [_ tools] tools)
+                              :chat-statuses {:login (fn [_ _])}
+                              :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]
+                              :providers {"p" {:login {:methods [{:key "k" :start (fn [& _])}]
+                                                       :steps {}
+                                                       :complete-oauth-code (fn [& _])}
+                                               :quota {:fetch (fn [_])}
+                                               :errors {:enrich (fn [_])}
+                                               :request-opts (fn [_ _])
+                                               :api-fn (fn [_])
+                                               :default-model {:rank 5 :fn (fn [_])}
+                                               :models-override-fn (fn [_])
+                                               :capabilities {:web-search #{"m"}}}}}
+                             {}))))
   (testing "warnings"
-    (is (match? {:errors [] :warnings [":activation is not supported yet and is ignored"
+    (is (match? {:errors [] :warnings ["Unknown key :activation is ignored"
                                        "Unknown key :foo is ignored"]}
-                (modules/problems {:id :acme/x :activation :opt-in :foo 1} {})))))
+                (modules/problems {:id :acme/x :activation :opt-in :foo 1} {})))
+    (testing "keys of the module API before its release are unknown"
+      (is (= {:errors [] :warnings ["Unknown key :agents is ignored" "Unknown key :api is ignored"
+                                    "Unknown key :defines is ignored" "Unknown key :priority is ignored"]}
+             (modules/problems {:id :acme/x :api 1 :priority 5 :defines {} :agents (fn [_])} {}))))))
 
 (deftest resolution-test
   (let [a {:id :acme/a}
@@ -167,10 +178,10 @@
         (is (modules/active? {:modules {:acme/off {:enabled false}}} :acme/off))
         (modules/set-enabled! :acme/a false)
         (is (not (modules/active? {:modules {:acme/a {:enabled true}}} :acme/a))))))
-  (testing "priority: higher first, then id; modules.<id>.priority overrides it"
-    (with-built-ins [{:id :acme/low :priority -5} {:id :acme/high :priority 5} {:id :acme/mid :priority 0}
-                     {:id :acme/also-mid :priority 0}]
-      (is (= [:acme/high :acme/also-mid :acme/mid :acme/low :eca/core] (active-ids {})))
+  (testing "priority, modules.<id>.priority: higher first, then id"
+    (with-built-ins [{:id :acme/low} {:id :acme/high} {:id :acme/mid} {:id :acme/also-mid}]
+      (is (= [:acme/high :acme/also-mid :acme/mid :eca/core :acme/low]
+             (active-ids {:modules {:acme/low {:priority -105} :acme/high {:priority 5}}})))
       (is (= :acme/low (first (active-ids {:modules {:acme/low {:priority 10}}}))))))
   (testing "a missing requirement"
     (with-built-ins [{:id :acme/b :requires #{:acme/nope}}]
@@ -180,17 +191,18 @@
       (is (= [:eca/core] (active-ids {})))
       (is (match? {:status :inactive} (status-of {} :acme/x)))))
   (testing "an invalid module is refused"
-    (with-built-ins [{:id :acme/bad :priority "high"}]
-      (is (match? {:status :refused :reason #":priority must be an integer"} (status-of {} :acme/bad)))))
+    (with-built-ins [{:id :acme/bad :default-enabled? "yes"}]
+      (is (match? {:status :refused :reason #":default-enabled\? must be a boolean"} (status-of {} :acme/bad)))))
   (testing "config spec conflicts refuse the later module, and the modules requiring it"
-    (with-built-ins [{:id :acme/first :priority 10 :config-spec {:shared {:type :string}}}
+    (with-built-ins [{:id :acme/first :config-spec {:shared {:type :string}}}
                      {:id :acme/second :config-spec {:shared {:type :number}}}
                      {:id :acme/third :requires #{:acme/second}}
                      {:id :acme/agrees :config-spec {:shared {:type :string :doc "Same."}}}]
-      (is (= [:acme/first :acme/agrees :eca/core] (active-ids {})))
-      (is (match? {:status :refused :reason #"shared: :acme/first declares it with another spec"}
-                  (status-of {} :acme/second)))
-      (is (match? {:status :inactive :reason "Requires :acme/second (refused)"} (status-of {} :acme/third)))))
+      (let [config {:modules {:acme/first {:priority 10}}}]
+        (is (= [:acme/first :acme/agrees :eca/core] (active-ids config)))
+        (is (match? {:status :refused :reason #"shared: :acme/first declares it with another spec"}
+                    (status-of config :acme/second)))
+        (is (match? {:status :inactive :reason "Requires :acme/second (refused)"} (status-of config :acme/third))))))
   (testing "an external module can't take a built-in's id"
     (with-built-ins [{:id :acme/x}]
       (modules/add-external! "/tmp/x.clj" {:id :acme/x :description "impostor"})
@@ -212,12 +224,15 @@
                                                        :token {:type :string}}}}]
       (is (= {:acme {:url "http://a"}} (modules/default-config {} nil)))))
   (testing ":config-defaults: a module wins over what it requires, then higher priority, then higher id"
-    (with-built-ins [{:id :acme/base :priority 50 :config-defaults {:defaultAgent "base" :x "base" :y "base"}}
+    (with-built-ins [{:id :acme/base :config-defaults {:defaultAgent "base" :x "base" :y "base"}}
                      {:id :acme/child :requires #{:acme/base} :config-defaults {:defaultAgent "child"}}
-                     {:id :acme/high :priority 10 :config-defaults {:x "high" :z "high"}}
-                     {:id :acme/zed :priority 10 :config-defaults {:z "zed"}}]
+                     {:id :acme/high :config-defaults {:x "high" :z "high"}}
+                     {:id :acme/zed :config-defaults {:z "zed"}}]
       (is (= {:defaultAgent "child" :x "base" :y "base" :z "zed"}
-             (modules/default-config {} nil)))))
+             (modules/default-config {:modules {:acme/base {:priority 50}
+                                                :acme/high {:priority 10}
+                                                :acme/zed {:priority 10}}}
+                                     nil)))))
   (testing "entries of a shared map keep module id order"
     (with-built-ins [{:id :acme/b :config-defaults {:agent {"b" {}}}}
                      {:id :acme/a :config-defaults {:agent {"a" {}}}}
@@ -312,16 +327,12 @@
         (is (= {:started :acme/a} (modules/state :acme/a)))
         (is (modules/running? :acme/b))
         (is (not (modules/running? :acme/plain))))
-      (testing "registrations are kept while the module runs"
-        (modules/register! :acme/b :tools "t" {:handler identity})
-        (is (match? [[{:id :acme/b} "t" map?]] (modules/registrations {} :tools))))
       (testing "disabling a module stops it and the modules that require it, in reverse order"
         (reset! calls* [])
         (modules/set-enabled! :acme/a false)
         (modules/reconcile-if-started! components {})
         (is (= [[:stop :acme/b] [:stop :acme/a]] @calls*))
-        (is (nil? (modules/state :acme/a)))
-        (is (= [] (modules/registrations {} :tools))))
+        (is (nil? (modules/state :acme/a))))
       (testing "enabling it again starts both"
         (reset! calls* [])
         (modules/set-enabled! :acme/a true)

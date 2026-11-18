@@ -321,19 +321,24 @@
     nil))
 
 (defn ^:private chat-status-prompt
-  "The handler of the prompts of a chat in `status`, when a built-in module
-   owns that status (`:chat-statuses`), e.g. `:login`: `(fn [params])`. Only a
-   status a built-in declares resolves the config. With no active module
-   owning it any more (disabled since), the chat goes back to idle and the
-   prompt, meant for that module (e.g. a pasted API key), isn't sent to the
-   model."
+  "The handler of the prompts of a chat in `status`, when a module owns that
+   status (`:chat-statuses`), e.g. `:login`: `(fn [params])`. Only a status a
+   built-in or loaded external module declares resolves the config. With no
+   active module owning it any more (disabled since), the chat goes back to
+   idle and the prompt, meant for that module (e.g. a pasted API key), isn't
+   sent to the model."
   [{:keys [db* messenger] :as components} status config-fn]
-  (when (and status (some #(get-in % [:chat-statuses status]) (modules/built-in-modules)))
+  (when (and status (some #(get-in % [:chat-statuses status])
+                          (concat (modules/built-in-modules) (keep :module (vals (modules/external-modules))))))
     (let [config (config-fn)]
       (or (some (fn [[entry statuses]]
                   (when-let [handler (get statuses status)]
                     (fn [params]
-                      (handler (modules/module-ctx (assoc components :config config) entry) params))))
+                      (let [module-ctx (modules/module-ctx (assoc components :config config) entry)]
+                        (if (:built-in? entry)
+                          (handler module-ctx params)
+                          (modules/invoke module-ctx entry (str "chat status " (name status)) {}
+                                          handler module-ctx params))))))
                 (modules/contributions config :chat-statuses))
           (fn [{:keys [chat-id]}]
             (swap! db* assoc-in [:chats chat-id :status] :idle)

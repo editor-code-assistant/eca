@@ -6,12 +6,28 @@
    [eca.features.context :as f.context]
    [eca.features.index :as f.index]
    [eca.llm-api :as llm-api]
+   [eca.modules :as modules]
    [eca.modules.mcp :as m.mcp]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (h/reset-components-before-test)
+
+(deftest external-contexts-test
+  (modules/add-external! "/tmp/acme-notes.clj"
+                         {:id :acme/notes
+                          :contexts {:always (fn [ctx] [{:type :text :label "notes" :content (str "by " (:module-id ctx))}])
+                                     :types {"note" {:list (fn [_ctx] [{:type "note" :id "n1"}])
+                                                     :refine (fn [_ctx {:keys [id]}]
+                                                               [{:type :text :label id :content "A note."}])}}}})
+  (testing "an external module gives every chat a context, as its module"
+    (is (match? (m/embeds [{:type :text :label "notes" :content "by :acme/notes"}])
+                (f.context/always-contexts (h/db) {}))))
+  (testing "and a context type: its items and their refined contexts"
+    (is (= [{:type "note" :id "n1"}] (#'f.context/module-context-items (h/db) {})))
+    (is (= [{:type :text :label "n1" :content "A note."}]
+           (f.context/raw-contexts->refined [{:type "note" :id "n1"}] (h/db))))))
 
 (deftest all-contexts-test
   (testing "includes the cursor, root directories, files/dirs, and mcp resources"

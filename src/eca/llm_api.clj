@@ -85,11 +85,11 @@
 (defn ^:private default-model-entries
   "The providers' `:default-model` entries, `{:rank :fn :decision}`, by rank."
   [config]
-  (->> (modules/contributions config :providers)
-       (mapcat (fn [[_entry providers]] (vals providers)))
+  (->> (vals (llm-util/provider-declarations config))
        (mapcat (fn [{:keys [default-model]}]
                  (cond (map? default-model) [default-model]
                        (sequential? default-model) default-model)))
+       (filter #(and (map? %) (number? (:rank %))))
        (sort-by :rank)))
 
 (defn refine-file-context [path lines-range]
@@ -120,7 +120,12 @@
         (or (when-let [config-default-model (:defaultModel config)]
               [:config-default-model config-default-model])
             (some (fn [{model-fn :fn :keys [decision]}]
-                    (when-let [model (model-fn {:db db :config config})]
+                    ;; one that fails, e.g. an external module's, gives no model
+                    (when-let [model (try (model-fn {:db db :config config})
+                                          (catch Exception e
+                                            (logger/warn logger-tag "Could not get a provider's default model:"
+                                                         (ex-message e))
+                                            nil))]
                       [(or decision :api-key-found) model]))
                   (default-model-entries config)))
         model (if (contains? (:models db) model-candidate)
@@ -141,7 +146,7 @@
    as `{:api :openai-chat :handler (fn [request callbacks])}`; nil when no
    active module has it."
   [api config]
-  (when-let [api-name (some-> api name)]
+  (when-let [api-name (when (or (string? api) (keyword? api)) (name api))]
     (when-let [[entry {:keys [handler]}] (modules/find-contribution config :apis api-name)]
       {:api (keyword api-name)
        :handler (fn [request callbacks]
@@ -154,19 +159,16 @@
   "The API handler of a request to `provider`'s `model`: the API its
    capabilities name (e.g. discovered from Copilot's catalog), else the one
    the provider's base picks (its declaration's `:api-fn`, which gets
-   `{:provider :model :config}`), else its config's `:api`."
+   `{:provider :model :config}`), else the one its config's `:api` names,
+   any module's (`:apis`); `openai` is `openai-responses`."
   ([provider model config]
    (provider->api-handler provider model nil config))
   ([provider model model-capabilities config]
    (or (api->handler (:api model-capabilities) config)
        (if-let [api-fn (:api-fn (llm-util/provider-declaration config (config/provider-base provider config)))]
          (api->handler (api-fn {:provider provider :model model :config config}) config)
-         (case (get-in config [:providers provider :api])
-           ("openai-responses" "openai") (api->handler :openai-responses config)
-           "anthropic" (api->handler :anthropic config)
-           "openai-chat" (api->handler :openai-chat config)
-           "bedrock" (api->handler :bedrock config)
-           nil)))))
+         (let [api (get-in config [:providers provider :api])]
+           (api->handler (if (= "openai" api) "openai-responses" api) config))))))
 
 (def ^:private reasoning-keys-by-api
   {:anthropic [:thinking]

@@ -13,7 +13,6 @@
    [eca.features.prompt :as f.prompt]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
-   [eca.modules :as modules]
    [eca.shared :as shared]))
 
 (set! *warn-on-reflection* true)
@@ -367,16 +366,21 @@
 
 (defn ^:private resolve-agents
   "`:config/resolve`, first: the legacy `behavior` keys as agents, the
-   modules' agents (Markdown ones) and the plugins' under the config's own,
-   then `inherit`, as the config did before modules."
+   Markdown agents (~/.config/eca/agents, .eca/agents) and the plugins' under
+   the config's own, then `inherit`, as the config did before modules."
   [{:keys [db]} {:keys [config]}]
   (let [pure-config? (:pureConfig @config/initialization-config*)
-        module-agents (when-not pure-config? (modules/contributed-agents config db))
+        md-agents (when-not pure-config?
+                    (try
+                      (all-md-agents (:workspace-folders db))
+                      (catch Exception e
+                        (logger/warn logger-tag "Could not read the Markdown agents:" (ex-message e))
+                        nil)))
         plugin-agents (when-not pure-config? (:agents @config/plugin-components*))
         config (migrate-legacy-config config)]
-    {:config (-> (if (or (seq module-agents) (seq plugin-agents))
+    {:config (-> (if (or (seq md-agents) (seq plugin-agents))
                    (update config :agent (fn [existing]
-                                           (merge module-agents plugin-agents existing)))
+                                           (merge md-agents plugin-agents existing)))
                    config)
                  (update :agent resolve-agent-inheritance))}))
 
@@ -385,8 +389,6 @@
    :description "Agents from config and Markdown files, and choosing one for each chat."
    :config-spec {:defaultAgent {:type :string}                     ; :eca/agent-code sets it to "code"
                  :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
-   ;; Markdown agents (~/.config/eca/agents, .eca/agents), under the config's own agents
-   :agents (fn [{:keys [db]}] (all-md-agents (:workspace-folders db)))
    ;; first, so other modules' handlers see the agents, as before modules
    :event-handlers {:config/resolve {:priority 1000 :handler #'resolve-agents}}
    :system-prompts [{:id :eca/agent-prompt :content #'prompt-section}]   ; the agent's own prompt, else prompts.chat

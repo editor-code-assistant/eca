@@ -5,7 +5,8 @@
    A module is a namespace that defines `module`. A file module is one `.clj`
    file. A folder module has a `module.clj`, and its other namespaces load
    from the folder: `acme.jira.client` from `<folder>/acme/jira/client.clj`.
-   Inside SCI, modules see only the `eca.api*` namespaces of ECA.
+   Inside SCI, modules see `eca.api` and `eca.api.test` of ECA, and for
+   files and JSON `babashka.fs`, `cheshire.core`, `slurp` and `spit`.
 
    Sources, the first one wins when two define the same module id:
    - `--module` paths, for the session;
@@ -19,13 +20,9 @@
    reloads on save."
   (:require
    [babashka.fs :as fs]
+   [cheshire.core]
    [clojure.string :as string]
    [eca.api]
-   [eca.api.debug]
-   [eca.api.dev]
-   [eca.api.fs]
-   [eca.api.http]
-   [eca.api.json]
    [eca.api.test]
    [eca.config :as config]
    [eca.logger :as logger]
@@ -202,12 +199,11 @@
   (sci/alter-var-root sci/out (constantly (log-writer logger/info)))
   (sci/alter-var-root sci/err (constantly (log-writer logger/warn)))
   (sci/init {:namespaces {'eca.api (sci/copy-ns eca.api (sci/create-ns 'eca.api))
-                          'eca.api.debug (sci/copy-ns eca.api.debug (sci/create-ns 'eca.api.debug))
-                          'eca.api.dev (sci/copy-ns eca.api.dev (sci/create-ns 'eca.api.dev))
-                          'eca.api.fs (sci/copy-ns eca.api.fs (sci/create-ns 'eca.api.fs))
-                          'eca.api.http (sci/copy-ns eca.api.http (sci/create-ns 'eca.api.http))
-                          'eca.api.json (sci/copy-ns eca.api.json (sci/create-ns 'eca.api.json))
-                          'eca.api.test (sci/copy-ns eca.api.test (sci/create-ns 'eca.api.test))}
+                          'eca.api.test (sci/copy-ns eca.api.test (sci/create-ns 'eca.api.test))
+                          ;; files and JSON, as Clojure code knows them
+                          'clojure.core {'slurp slurp 'spit spit}
+                          'babashka.fs (sci/copy-ns babashka.fs (sci/create-ns 'babashka.fs))
+                          'cheshire.core (sci/copy-ns cheshire.core (sci/create-ns 'cheshire.core))}
              :load-fn load-fn}))
 
 (defn ^:private ctx []

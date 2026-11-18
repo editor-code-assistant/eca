@@ -10,7 +10,6 @@
    [eca.llm-util :as llm-util]
    [eca.messenger :as messenger]
    [eca.models :as models]
-   [eca.modules :as modules]
    [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.shared :as shared]))
 
@@ -27,13 +26,7 @@
   "Provider id → declaration (`declaration-keys` and the config keys a login
    saves), from the active modules' `:providers`. The first module wins."
   [config]
-  (reduce (fn [acc [_entry providers]]
-            (reduce-kv (fn [acc id declaration]
-                         (if (contains? acc id) acc (assoc acc id declaration)))
-                       acc
-                       providers))
-          {}
-          (modules/contributions config :providers)))
+  (llm-util/provider-declarations config))
 
 (defn ^:private base-declaration
   "The declaration of `provider-name`, or of the provider it inherits from."

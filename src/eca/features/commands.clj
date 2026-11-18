@@ -18,29 +18,29 @@
 
 (defn ^:private command-entries
   "`[entry command-name command]` for each command of the active modules, in
-   start order, then the ones modules register while they run. A module's
-   `:commands` is a map, or (built-ins) a function of ctx, `:config` and
-   `:db`, giving `[command-name command]` pairs in order."
+   start order. A module's `:commands` is a map, or a function of ctx,
+   `:config` and `:db`, giving `[command-name command]` pairs in order."
   [db config]
-  (concat (for [[entry commands] (modules/contributions config :commands)
-                [command-name command] (if (modules/fn-like? commands)
-                                         (commands (modules/module-ctx {:config config :db db} entry))
-                                         commands)]
-            [entry command-name command])
-          (modules/registrations config :commands)))
+  (for [[entry commands] (modules/contributions config :commands)
+        :let [commands (if (modules/fn-like? commands)
+                         (let [module-ctx (modules/module-ctx {:config config :db db} entry)]
+                           (modules/guarded-call module-ctx entry "commands" commands module-ctx))
+                         commands)]
+        ;; only pairs: an external module's function may give anything
+        [command-name command] (when (coll? commands)
+                                 (filter #(and (vector? %) (= 2 (count %))) commands))]
+    [entry command-name command]))
 
 (defn ^:private source-entry?
-  "Whether a built-in module gives the command for one of the sources
-   clients tell apart by its `:client-type`: `:mcpPrompt`, `:skill` or
-   `:custom-prompt`."
-  [[entry _command-name command]]
-  (boolean (and (:built-in? entry) (:client-type command))))
+  "Whether a module gives the command for one of the sources clients tell
+   apart by its `:client-type`: `:mcpPrompt`, `:skill` or `:custom-prompt`."
+  [[_entry _command-name command]]
+  (boolean (:client-type command)))
 
 (defn ^:private own-commands
   "The modules' own commands, in the order clients list them: the built-in
-   ones in `built-in-command-order`, then the others in module start order,
-   the ones modules register while they run last. Each is
-   `{:name :full-id :entry :command}`. `:name` is the command name, or its
+   ones in `built-in-command-order`, then the others in module start order.
+   Each is `{:name :full-id :entry :command}`. `:name` is the command name, or its
    full id `<prefix>:<name>` when several modules have that name; the first
    module keeps a full id."
   [entries]
@@ -180,12 +180,13 @@
 (defn ^:private command-result
   "A module command's result as chat.clj handles it. A string is shown as a
    system message, `{:prompt ..}` sent as the user's message and nil does
-   nothing more; built-in commands may return typed results."
-  [result entry chat-id]
+   nothing more; a typed result, a map with a `:type`, passes as it is
+   (`eca.features.chat/run-command!` handles it)."
+  [result chat-id]
   (cond
     (string? result) {:type :chat-messages
                       :chats {chat-id {:messages [{:role "system" :content [{:type :text :text result}]}]}}}
-    (and (:built-in? entry) (map? result) (:type result)) result
+    (and (map? result) (:type result)) result
     (and (map? result) (contains? result :prompt)) {:type :send-prompt :prompt (:prompt result)}
     :else {:type :new-chat-status :status :idle}))
 
@@ -207,8 +208,10 @@
              handler (:handler module-command)]
          (command-result (if (:built-in? entry)
                            (handler ctx args)
-                           (modules/invoke ctx entry (str "command " command) {} handler ctx args))
-                         entry
+                           ;; e.g. a typed result's :on-finished-side-effect
+                           (modules/guard-fns ctx entry (str "result of command " command)
+                                              (modules/invoke ctx entry (str "command " command) {}
+                                                              handler ctx args)))
                          chat-id))
        (let [text (str "Unknown command: " command)]
          ;; an MCP prompt may be gone since it was typed, its server stopping:

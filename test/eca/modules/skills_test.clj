@@ -297,3 +297,22 @@
                     (#'m.skills/skill {"name" "computed"} tool-ctx))))
       (testing "turning the module off drops its skills"
         (is (empty? (m.skills/all {:pureConfig true :modules {:eca/test-skills {:enabled false}}} [])))))))
+
+(deftest external-module-skills-test
+  (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/skills))]
+    (modules/add-external! "/tmp/acme-skills.clj"
+                           {:id :acme/skills
+                            :skills [{:name "computed" :description "A computed skill"
+                                      :body (fn [{:keys [module-id]}] (str "Built by " module-id))}
+                                     {:name "broken" :description "A broken skill"
+                                      :body (fn [_] (throw (ex-info "boom" {})))}]})
+    (try
+      (let [tool-ctx {:db {:workspace-folders []} :config {:pureConfig true} :agent "code"}]
+        (testing "an external module's skill body is called as its module"
+          (is (match? {:error false :contents [{:type :text :text #"\n\nBuilt by :acme/skills$"}]}
+                      (#'m.skills/skill {"name" "computed"} tool-ctx))))
+        (testing "its errors fail the tool call, as the module's failures"
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" (#'m.skills/skill {"name" "broken"} tool-ctx)))
+          (is (= 1 (modules/failures :acme/skills)))))
+      (finally
+        (modules/reset-registry!)))))

@@ -8,6 +8,7 @@
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
    [eca.models :as models]
+   [eca.modules :as modules]
    [eca.modules.llm-providers.login :as m.llm-providers.login]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -123,7 +124,19 @@
                    {:chat-id "c1" :role "system" :content {:type :progress :state :finished}}]
                   (:chat-content-received (h/messages))))
       (is (= [{:chat-id "c1" :status :idle}] (:chat-status-changed (h/messages))))
-      (is (not (string/includes? (pr-str (h/messages)) "sk-secret"))))))
+      (is (not (string/includes? (pr-str (h/messages)) "sk-secret")))))
+
+  (testing "an external module's status works the same, its handler getting the module's ctx"
+    (h/reset-components!)
+    (modules/add-external! "/tmp/acme-wizard.clj"
+                           {:id :acme/wizard
+                            :chat-statuses {:wizard (fn [ctx {:keys [chat-id message]}]
+                                                      {:chat-id chat-id :status :wizard
+                                                       :module (:module-id ctx) :message message})}})
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :wizard})
+    (with-redefs [f.chat/prompt (fn [& _] (throw (ex-info "sent to the model" {})))]
+      (is (= {:chat-id "c1" :status :wizard :module :acme/wizard :message "next"}
+             (handlers/chat-prompt (h/components) {:chat-id "c1" :message "next"}))))))
 
 (deftest chat-selected-agent-changed-test
   (testing "Switching to agent with defaultModel updates model and variants"

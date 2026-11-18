@@ -223,33 +223,45 @@
     (nil? result) {:error false :contents [{:type :text :text ""}]}
     :else {:error false :contents [{:type :text :text (pr-str result)}]}))
 
+(defn ^:private guard-tool-fns
+  "An external module's tool with the functions ECA calls for itself
+   guarded (`modules/guarded-call`), nil when they fail: its details (which
+   get the module's ctx), cleanup, approval keys and arguments
+   normalization, which then leaves the arguments as they are."
+  [tool entry]
+  (let [guarded (fn [what f]
+                  (fn [& args] (apply modules/guarded-call (modules/module-ctx {} entry) entry what f args)))
+        with-module (fn [what f]
+                      (fn [ctx & args]
+                        (let [module-ctx (modules/module-ctx ctx entry)]
+                          (apply modules/guarded-call module-ctx entry what f module-ctx args))))]
+    (cond-> tool
+      (:details-before-fn tool) (update :details-before-fn #(with-module "tool details" %))
+      (:details-after-fn tool) (update :details-after-fn #(with-module "tool details" %))
+      (:cleanup-fn tool) (update :cleanup-fn #(guarded "tool cleanup" %))
+      (:approval-keys-fn tool) (update :approval-keys-fn #(guarded "tool approval keys" %))
+      (:normalize-arguments-fn tool) (update :normalize-arguments-fn
+                                             (fn [f]
+                                               (let [normalize (guarded "tool arguments" f)]
+                                                 (fn [arguments] (or (normalize arguments) arguments))))))))
+
 (defn ^:private module-definitions
   "The active modules' tools as tool definitions, by `definition-key`, with
    `:name` and `:server`. Built-in tools are on ECA's server, `eca__<name>`,
    and an external module's on its prefix's, `<prefix>__<name>`. A tool with
    `:replaces` takes over that full name, so approval rules and hooks still
    match it; otherwise the first module keeps a full name. A module's
-   `:tools` is a map, or (built-ins) a function of `ctx`: `:config`, `:db`,
-   `:chat-id` and `:agent`. The tools modules register while they run come
-   after."
+   `:tools` is a map, or a function of `ctx`: `:config`, `:db`, `:chat-id`
+   and `:agent`."
   [{:keys [config] :as ctx}]
   (let [entry-tools (fn [[entry module-tools]]
                       (let [module-ctx (modules/module-ctx ctx entry)
-                            module-tools (cond
-                                           (not (modules/fn-like? module-tools))
-                                           module-tools
-
-                                           ;; a built-in's error fails, as before modules, instead of
-                                           ;; quietly dropping its tools
-                                           (:built-in? entry)
-                                           (module-tools module-ctx)
-
-                                           :else
-                                           (modules/invoke-safe module-ctx entry "tools"
-                                                                {:timeout-ms (modules/timeout-for
-                                                                              entry nil modules/default-handler-timeout-ms)}
-                                                                module-tools module-ctx))]
-                        (for [[tool-name tool] module-tools]
+                            ;; a built-in's error fails, as before modules, instead of
+                            ;; quietly dropping its tools
+                            module-tools (if (modules/fn-like? module-tools)
+                                           (modules/guarded-call module-ctx entry "tools" module-tools module-ctx)
+                                           module-tools)]
+                        (for [[tool-name tool] (when (map? module-tools) module-tools)]
                           [entry tool-name tool])))
         {:keys [tools replacing]}
         (reduce
@@ -265,17 +277,15 @@
                  definition (cond-> (-> (tools.util/module-tool->definition tool with-module wrap)
                                         (dissoc :replaces)
                                         (assoc :name tool-name :server {:name server-name}))
+                              ;; an external module's that fails gives an empty one
                               (modules/fn-like? (:description tool))
-                              (update :description #(wrap "tool description" % (with-module ctx)))
+                              (update :description #(let [module-ctx (with-module ctx)]
+                                                      (or (modules/guarded-call module-ctx entry "tool description"
+                                                                                % module-ctx)
+                                                          "")))
 
-                              ;; details and cleanup functions are for built-in tools, for now
                               (not (:built-in? entry))
-                              (dissoc :details-before-fn :details-after-fn :cleanup-fn)
-
-                              ;; `(fn [args])`, without ctx
-                              (and (:approval-keys-fn tool) (not (:built-in? entry)))
-                              (update :approval-keys-fn
-                                      (fn [f] (fn [args] (modules/invoke-safe {} entry "tool approval keys" {} f args))))
+                              (guard-tool-fns entry)
 
                               ;; an external handler may return a string (4.7)
                               (and (:handler tool) (not (:built-in? entry)))
@@ -291,8 +301,7 @@
 
                :else (assoc-in acc [:tools k] definition))))
          {:tools {} :replacing {}}
-         (concat (mapcat entry-tools (modules/contributions config :tools))
-                 (modules/registrations config :tools)))]
+         (mapcat entry-tools (modules/contributions config :tools)))]
     (merge tools replacing)))
 
 (defn tool-approval-keys
@@ -429,8 +438,7 @@
   (for [[entry {server-name :name :keys [version tools]}] (listed-tool-servers ctx)
         tool tools]
     (cond-> (assoc tool :server {:name server-name :version version} ::module-id (:id entry))
-      ;; details and cleanup functions are for built-in modules' tools, for now
-      (not (:built-in? entry)) (dissoc :details-before-fn :details-after-fn :cleanup-fn))))
+      (not (:built-in? entry)) (guard-tool-fns entry))))
 
 (defn await-tool-servers-refresh!
   "Waits until the tool servers' pending tool list refreshes finish
@@ -454,8 +462,8 @@
    servers, like MCP servers.
    Removes denied tools.
    When chat is a subagent (has :subagent), filters tools based on agent definition.
-   Then each built-in module's `:transform-tools` changes the list, in module
-   order (`:eca/tool-search` defers MCP tools).
+   Then each module's `:transform-tools` changes the list, in module order
+   (`:eca/tool-search` defers MCP tools).
    `full-model` is the model the prompt runs with; it defaults to the chat's stored
    model, which is not set yet when the first prompt of a chat computes its tools,
    so prompt code passes the resolved model to keep the tool set stable across turns."
@@ -495,7 +503,10 @@
                            all-tools)
          ctx {:config config :db db :chat-id chat-id :agent agent-name :full-model full-model}]
      (reduce (fn [tools [entry transform]]
-               (transform (modules/module-ctx ctx entry) tools))
+               (let [module-ctx (modules/module-ctx ctx entry)
+                     transformed (modules/guarded-call module-ctx entry "tool list" transform module-ctx tools)]
+                 ;; an external module that fails, or gives no list, leaves it as it was
+                 (if (or (:built-in? entry) (sequential? transformed)) transformed tools)))
              all-tools
              (modules/contributions config :transform-tools)))))
 
@@ -758,8 +769,7 @@
 
 (defn refresh-module-tool-servers!
   "Sends ECA's tool server and the external modules' ones: at startup, and
-   again after modules change (loaded, reloaded, enabled, disabled, or a
-   module registered or removed a tool)."
+   again after modules change (loaded, reloaded, enabled or disabled)."
   [db* messenger config]
   (let [tool-status-fn (make-tool-status-fn config (get config :defaultAgent))]
     (messenger/tool-server-updated messenger {:type :native

@@ -69,7 +69,7 @@ ECA is a core plus modules. Core is layered, lowest first, and a namespace requi
 1. Libs: `eca.logger`, `eca.shared`, `eca.messenger`, `eca.cache`, ...
 2. The module runtime: `eca.modules`, `eca.modules.events`, `eca.modules.config-spec`, `eca.modules.data`; `eca.shell`.
 3. State and config: `eca.config`, `eca.db`, `eca.models`, `eca.llm-util`, ...
-4. The module loader and the module API (`eca.api*`).
+4. The module loader and the module API (`eca.api`, `eca.api.test`).
 5. Engines: `eca.features.*` (chat, tools, commands, prompt, ...), `eca.llm-api` and `eca.llm-api.*`.
 6. Wiring: `eca.server`, `eca.handlers`, `eca.main`, the built-in modules list.
 
@@ -77,7 +77,7 @@ Every other feature is a module under `src/eca/modules/`, built in or external, 
 
 - Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.
 - Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote, otel and repl aside) or offer a multimethod for modules to extend.
-- New module keys start built-in only; open one to external modules when one needs it.
+- Every module key works for every module, built in or external; only the calls differ: a built-in's run inline, as the code it replaced, and an external module's are guarded (timeouts, failures counted).
 
 `test/eca/architecture_test.clj` checks the layers and the rules, also in `requiring-resolve`s and fully qualified calls. Its allowlists hold the couplings left from before the rules (and the module API resolving the engines at runtime), and only shrink.
 

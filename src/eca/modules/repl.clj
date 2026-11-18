@@ -1,21 +1,22 @@
 (ns eca.modules.repl
   "The `:eca/repl` module: an nREPL server on the SCI context external
-   modules run in, to use `eca.api` live, develop modules and read
-   `eca.api.debug`. Off by default: `eca server --repl`, `/modules enable
-   eca/repl` or `modules.eca/repl.enabled` turn it on. nREPL has no
-   authentication, so it listens on a loopback address only."
+   modules run in, to use `eca.api` live, and develop modules and see ECA's
+   state with `eca.repl` (`eca.modules.repl.dev`). Off by default: `eca
+   server --repl`, `/modules enable eca/repl` or `modules.eca/repl.enabled`
+   turn it on. nREPL has no authentication, so it listens on a loopback
+   address only."
   (:require
    [babashka.fs :as fs]
    [babashka.nrepl.impl.server :as nrepl.server]
    [babashka.nrepl.server.middleware :as nrepl.middleware]
    [clojure.string :as string]
-   [eca.api.debug :as debug]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
    [eca.modules.data :as modules.data]
    [eca.modules.events :as events]
    [eca.modules.loader :as loader]
+   [eca.modules.repl.dev :as m.repl.dev]
    [sci.core :as sci])
   (:import
    [java.io BufferedOutputStream Closeable PrintWriter PushbackInputStream Writer]
@@ -54,7 +55,7 @@
   (reset! traced* {}))
 
 (defn ^:private start-trace-sender!
-  "A thread sending a client the trace lines `eca.api.debug/trace!` queues,
+  "A thread sending a client the trace lines `eca.repl/trace!` queues,
    so a chat never waits on the client's socket: `{:send! :stop!}`. `send!`
    drops lines when the client can't keep up. When the client goes away,
    its traces stop."
@@ -104,7 +105,7 @@
     (try
       ;; eval sets *1, *2, *3 and *e
       (binding [*1 nil *2 nil *3 nil *e nil]
-        (with-bindings {#'debug/*repl-connection* {:send! send! :traced traced*}}
+        (with-bindings {#'m.repl.dev/*connection* {:send! send! :traced traced*}}
           (sci/with-bindings {sci/ns (sci/create-ns 'user nil)
                               sci/print-length @sci/print-length
                               sci/print-level @sci/print-level
@@ -214,9 +215,16 @@
     (catch Exception e
       (logger/debug logger-tag "Could not delete the nREPL port file:" e))))
 
+(defn ^:private add-repl-namespace!
+  "Adds `eca.repl` to the modules' SCI context; its functions work only in
+   an evaluation of this nREPL."
+  [sci-ctx]
+  (sci/add-namespace! sci-ctx 'eca.repl (sci/copy-ns eca.modules.repl.dev (sci/create-ns 'eca.repl))))
+
 (defn ^:private start! [{:keys [config db* messenger]}]
   (let [[host port] (listen-address config)
-        server (start-server! (loader/sci-context) host port)
+        sci-ctx (doto (loader/sci-context) add-repl-namespace!)
+        server (start-server! sci-ctx host port)
         file (when db* (write-port-file! @db* (:port server)))]
     (logger/info logger-tag (format "nREPL server started on %s:%d" (:host server) (:port server)))
     (when messenger
@@ -242,10 +250,10 @@
        :always (conj ""
                      "Connect your editor's nREPL client to it, e.g. CIDER's cider-connect-clj, then:"
                      ""
-                     "(require '[eca.api :as eca] '[eca.api.dev :as dev] '[eca.api.debug :as debug])"
-                     "(eca/notify! (dev/ctx) \"Hello from the REPL\")"
-                     "(dev/modules)                 ; every module and its status"
-                     "(debug/trace! \"<chat-id>\")    ; prints a chat's module events here")))
+                     "(require '[eca.api :as eca] '[eca.repl :as repl])"
+                     "(eca/notify! (repl/ctx) \"Hello from the REPL\")"
+                     "(repl/modules)                 ; every module and its status"
+                     "(repl/trace! \"<chat-id>\")      ; prints a chat's module events here")))
     "ECA's nREPL isn't running."))
 
 (defn ^:private prompt-section
@@ -257,7 +265,7 @@
     ["## ECA's REPL"
      ""
      (format (str "ECA's nREPL is listening on %s:%d. Code evaluated there runs inside this ECA, with the "
-                  "eca.api, eca.api.dev and eca.api.debug namespaces (https://eca.dev/config/modules/). "
+                  "eca.api and eca.repl namespaces (https://eca.dev/config/modules/). "
                   "When the user asks about ECA itself, you can evaluate code there with an nREPL client "
                   "from the shell, if one is installed, e.g. `brepl -p %d '(+ 1 2)'`.")
              host port port)
@@ -265,7 +273,7 @@
 
 (def module
   {:id :eca/repl
-   :description "An nREPL on ECA's module runtime: use eca.api live, develop modules, read eca.api.debug."
+   :description "An nREPL on ECA's module runtime: use eca.api live, develop modules, see ECA's state."
    :default-enabled? false
    :config-spec {:repl {:host {:type :string
                                :default default-host

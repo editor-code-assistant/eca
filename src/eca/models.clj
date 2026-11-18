@@ -9,7 +9,6 @@
    [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.modules :as modules]
    [eca.modules.events :as events]
    [eca.shared :refer [assoc-some] :as shared]
    [hato.client :as http])
@@ -703,11 +702,15 @@
    full model name, with the provider's `models` config applied."
   [config]
   (into {}
-        (for [[_entry providers] (modules/contributions config :providers)
-              [provider {:keys [models-fn]}] providers
+        (for [[provider {:keys [models-fn]}] (llm-util/provider-declarations config)
               :when models-fn
               :let [models-config (get-in config [:providers provider :models])]
-              {:keys [model] :as provider-model} (models-fn {:api-url (llm-util/provider-api-url provider config)})]
+              ;; a provider that fails, e.g. an external module's, lists none
+              {:keys [model] :as provider-model} (try (models-fn {:api-url (llm-util/provider-api-url provider config)})
+                                                      (catch Exception e
+                                                        (logger/warn logger-tag (format "Provider '%s': could not list its models: %s"
+                                                                                        provider (ex-message e)))
+                                                        nil))]
           [(str provider "/" model)
            (merge-capabilities
             (select-keys provider-model [:tools :reason?])

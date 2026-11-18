@@ -6,6 +6,8 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
+   [eca.modules :as modules]
    [eca.modules.providers.anthropic :as m.anthropic]
    [eca.modules.providers.ollama :as m.ollama]
    [eca.modules.providers.openai :as m.openai]
@@ -122,6 +124,23 @@
              (->> messages (filter #(= "reason" (:role %))) (map #(get-in % [:content :id])))))
       (is (not (contains? (last messages) :created-at))))))
 
+(deftest external-provider-test
+  (modules/add-external! "/tmp/acme-provider.clj"
+                         {:id :acme/provider
+                          :providers {"acme" {:api-fn (fn [_] :openai-chat)
+                                              :errors {:enrich (fn [_] (throw (ex-info "boom" {})))}
+                                              :default-model {:rank 0 :fn (fn [_] (throw (ex-info "no model" {})))}}}})
+  (let [{:keys [api-fn errors]} (llm-util/provider-declaration {} "acme")]
+    (testing "an external module's provider functions work as a built-in's"
+      (is (= :openai-chat (api-fn {}))))
+    (testing "and are guarded: their errors reach the caller, as the module's failures"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" ((:enrich errors) {})))
+      (is (match? [{:what "provider acme :errors :enrich" :message "boom"}] (modules/errors :acme/provider)))))
+  (testing "a default model that fails gives none: the next provider's is taken"
+    (with-redefs [config/get-env (constantly nil)
+                  secrets/credential-file-paths (constantly [])]
+      (is (= "ollama/foo" (llm-api/default-model {:models {"ollama/foo" {}}} {}))))))
+
 (deftest default-model-test
   (testing "Custom provider defaultModel present"
     (with-redefs [config/get-env (constantly nil)
@@ -226,6 +245,25 @@
                 :auth {}}
             config {:providers {"anthropic" {:key "something"}}}]
         (is (= "custom/zeta" (llm-api/default-model db config)))))))
+
+(deftest provider->api-handler-by-name-test
+  (testing "a provider's :api names any module's API"
+    (modules/add-external! "/tmp/acme-api.clj"
+                           {:id :acme/api
+                            :apis {"acme-chat" {:handler (fn [ctx request _callbacks]
+                                                           {:module (:module-id ctx) :model (:model request)})}}})
+    (let [{:keys [api handler]} (llm-api/provider->api-handler "acme" "m1" {:providers {"acme" {:api "acme-chat"}}})]
+      (is (= :acme-chat api))
+      (is (= {:module :acme/api :model "m1"} (handler {:model "m1"} {})))))
+  (testing "ECA's APIs, openai being openai-responses"
+    (doseq [[config-api api] {"openai" :openai-responses "openai-responses" :openai-responses
+                              "anthropic" :anthropic "openai-chat" :openai-chat "ollama" :ollama}]
+      (is (= api (:api (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api config-api}}})))
+          config-api)))
+  (testing "an API no module has, or none, gives no handler"
+    (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api "nope"}}})))
+    (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api 42}}})))
+    (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {}}})))))
 
 (deftest provider->api-handler-copilot-metadata-test
   (let [config {:providers {"github-copilot" {:api "openai-chat"}}}]

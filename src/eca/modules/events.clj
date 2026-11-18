@@ -21,7 +21,7 @@
 (def ^:private logger-tag "[MODULES]")
 
 (def core-events
-  "The events core emits, defined by `:eca/core`. Every chat event also has
+  "The events core emits, the ones modules handle. Every chat event also has
    `:chat-id`, `:agent`, `:model`, `:variant` and, for subagents,
    `:parent-chat-id`."
   {:session/started {:kind :notify
@@ -64,7 +64,7 @@
                           :handled "A reply string, or true: the model isn't called."}}
    :chat/before-request {:kind :transform
                          :doc (str "Once per user message, before the first LLM request. Not for /compact: "
-                                   "its summary request isn't a user request; only built-in handlers with "
+                                   "its summary request isn't a user request; only handlers with "
                                    ":compaction? true get it, with :compaction? true.")
                          :payload {:prompt "The user's prompt; for a command or an MCP prompt, what was typed."}
                          :accepts {:prompt "Replaces the prompt; not for commands and MCP prompts."
@@ -204,19 +204,7 @@
   -899)
 
 (defn ^:private build-index [{:keys [active]}]
-  (let [definitions (reduce (fn [acc entry]
-                              (reduce-kv (fn [acc event-id definition]
-                                           (if (contains? acc event-id)
-                                             (do (logger/warn logger-tag
-                                                              (format "Event %s is defined by %s and %s; using the first"
-                                                                      event-id (:module (get acc event-id)) (:id entry)))
-                                                 acc)
-                                             (assoc acc event-id (assoc definition :module (:id entry)))))
-                                         acc
-                                         (get-in (:module entry) [:defines :events])))
-                            {}
-                            active)
-        handlers (for [entry active
+  (let [handlers (for [entry active
                        [event-id spec] (:event-handlers (:module entry))
                        [i h] (map-indexed vector (handler-entries spec))
                        :let [own-priority (if (integer? (:priority h)) (:priority h) (:priority entry))]]
@@ -224,20 +212,19 @@
                     :entry entry
                     :handler (:handler h)
                     :match (:match h)
-                    ;; a built-in's handler of :chat/before-request may also take a compaction's request
-                    :compaction? (boolean (and (:built-in? entry) (:compaction? h)))
+                    ;; a handler of :chat/before-request may also take a compaction's request
+                    :compaction? (boolean (:compaction? h))
                     :timeout-ms (:timeout-ms h)
                     ;; an external one lower than that runs there, in its own order among the others
                     :priority (if (:built-in? entry) own-priority (max lowest-external-priority own-priority))
                     :own-priority own-priority
                     :index i})]
     (doseq [[event-id module-ids] (->> handlers
-                                       (remove #(contains? definitions (:event-id %)))
+                                       (remove #(contains? core-events (:event-id %)))
                                        (group-by :event-id))]
-      (logger/warn logger-tag (format "%s handle %s, which no module defines"
+      (logger/warn logger-tag (format "%s handle %s, which isn't an ECA event"
                                       (string/join ", " (distinct (map (comp :id :entry) module-ids))) event-id)))
-    {:definitions definitions
-     :handlers (update-vals (group-by :event-id handlers)
+    {:handlers (update-vals (group-by :event-id handlers)
                             (fn [hs] (vec (sort-by (juxt (comp - :priority) (comp - :own-priority) (comp :id :entry) :index)
                                                    hs))))}))
 
@@ -251,11 +238,6 @@
       (let [idx (build-index resolution)]
         (reset! index-cache* {:resolution resolution :index idx})
         idx))))
-
-(defn definitions
-  "Event id → definition, from the active modules' `:defines`."
-  [config]
-  (:definitions (index config)))
 
 (defn handlers
   "The handlers of `event-id`, in the order they run."
@@ -303,9 +285,9 @@
 (defn ^:private module-contexts
   "The contexts module `entry` added with an `:additional-context` change,
    one per string or map of a list, as `{:module :content :data}`. `:data`
-   comes from a map's `:data`, when it's plain data. A built-in module's map
-   with `:label? false` gives a context without the module, `{:content ..}`,
-   which ECA keeps like the user's text, as the shell hooks' are."
+   comes from a map's `:data`, when it's plain data. A map with `:label?
+   false` gives a context without the module, `{:content ..}`, which ECA
+   keeps like the user's text, as the shell hooks' are."
   [entry v]
   (if (sequential? v)
     (into [] (mapcat #(module-contexts entry %)) v)
@@ -313,7 +295,7 @@
       (let [id (:id entry)
             data (when (map? v) (:data v))]
         (cond
-          (and (:built-in? entry) (map? v) (false? (:label? v)))
+          (and (map? v) (false? (:label? v)))
           [{:content text}]
 
           :else
@@ -322,7 +304,7 @@
               [(cond-> {:module id :content text}
                  (and (some? data) (shared/plain-data? data)) (assoc :data data))]))))))
 
-;; --- Tracing, for eca.api.debug/trace!
+;; --- Tracing, for eca/repl's trace!
 
 ;; chat id → (fn [event-id kind event result])
 (defonce ^:private tracers* (atom {}))
@@ -365,29 +347,36 @@
           (catch Exception e
             (logger/debug logger-tag "Could not trace event" event-id e)))))))
 
-(defn ^:private call-handler [ctx event-id definition {:keys [entry handler timeout-ms]} event]
-  (let [module-ctx (modules/module-ctx ctx entry)]
-    (modules/invoke-safe module-ctx entry (str "handler of " event-id)
-                         {:timeout-ms (modules/timeout-for entry timeout-ms
-                                                           (or (:timeout-ms definition)
-                                                               modules/default-handler-timeout-ms))}
-                         handler module-ctx event)))
+(defn ^:private call-handler
+  "Calls a handler of `event-id`. The functions in an external module's
+   answer to a handle event, e.g. a `:chat/compact` `{:request ..}`, are
+   guarded like its handler."
+  [ctx event-id definition {:keys [entry handler timeout-ms]} event]
+  (let [module-ctx (modules/module-ctx ctx entry)
+        answer (modules/invoke-safe module-ctx entry (str "handler of " event-id)
+                                    {:timeout-ms (modules/timeout-for entry timeout-ms
+                                                                      (or (:timeout-ms definition)
+                                                                          modules/default-handler-timeout-ms))}
+                                    handler module-ctx event)]
+    (if (= :handle (:kind definition))
+      (modules/guard-fns module-ctx entry (str "answer to " event-id) answer)
+      answer)))
 
 (defn emit!
   "Runs the handlers of `event-id` for `event`. `ctx` carries `:config`, and
    what handlers get as their ctx (`:db*`, `:messenger`, `:chat-id`...).
    - notify and transform events return the event with the handlers' accepted
      changes merged; the first `:block` or `:stop` ends the chain, and
-     `::ended-by` names the module that ended it. A built-in module may name
-     who acted for it with `:by` (e.g. \"hook 'lint'\"), kept in `::by`.
+     `::ended-by` names the module that ended it. A module may name who
+     acted for it with `:by` (e.g. \"hook 'lint'\"), kept in `::by`.
    - handle events return the first non-nil answer, or nil.
    An event with `:compaction? true`, a compaction's request, only reaches
    the handlers registered with `:compaction? true`."
   [ctx event-id event]
-  (let [{:keys [definitions handlers]} (index (:config ctx))
-        definition (get definitions event-id)
-        ;; a notify event without :accepts takes no change; an event nobody
-        ;; defines, or a transform without :accepts, takes any
+  (let [{:keys [handlers]} (index (:config ctx))
+        definition (get core-events event-id)
+        ;; a notify event without :accepts takes no change; an event that
+        ;; isn't one of ECA's, or a transform without :accepts, takes any
         accepted (cond
                    (:accepts definition) (set (keys (:accepts definition)))
                    (= :notify (:kind definition)) #{}
@@ -414,9 +403,8 @@
                                      event)
 
                                  :else
-                                 (let [built-in? (:built-in? (:entry h))
-                                       by (when built-in? (shared/not-blank (:by changes)))
-                                       changed (merge-changes event (cond-> changes built-in? (dissoc :by)) accepted)]
+                                 (let [by (shared/not-blank (:by changes))
+                                       changed (merge-changes event (dissoc changes :by) accepted)]
                                    (when (or (nil? accepted) (contains? accepted :additional-context))
                                      (vswap! contexts* into (module-contexts (:entry h) (:additional-context changes))))
                                    (if (or (and (:block changed) (not (:block event)))

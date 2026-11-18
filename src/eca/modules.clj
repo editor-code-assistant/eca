@@ -35,10 +35,6 @@
 
 (def ^:private logger-tag "[MODULES]")
 
-(def ^:private supported-api-versions
-  "The module API versions this ECA implements (a module's `:api`)."
-  #{1})
-
 (def built-in-priority -100)
 (def external-priority 0)
 
@@ -49,14 +45,10 @@
   "Failures in a row after which an external module is disabled for the session."
   5)
 
-(def ^:private v1-keys
-  #{:id :description :version :api :requires :priority :default-enabled?
-    :config-spec :start :stop :tools :prefix :commands :system-prompts
-    :providers :apis :config-defaults :event-handlers :defines :rpc :tool-servers})
-
-(def ^:private built-in-only-keys #{:agents :skills :contexts :transform-tools :chat-statuses})
-
-(def ^:private later-keys #{:activation :strategies :rules :capabilities :ui})
+(def ^:private module-keys
+  #{:id :description :version :requires :default-enabled? :config-spec :start :stop
+    :tools :prefix :commands :system-prompts :providers :apis :config-defaults :event-handlers
+    :rpc :tool-servers :skills :contexts :transform-tools :chat-statuses})
 
 ;; --- Registry
 
@@ -142,30 +134,6 @@
 
 (defn ^:private qualified-kw? [x] (qualified-keyword? x))
 
-(defn ^:private provider-problems
-  "Problems of a provider declaration. What ECA calls or reads (core, or
-   `eca/llm-providers`) beyond the label, the asked login and the listed
-   models (login steps and methods' `:start`, the OAuth code exchange, quota,
-   errors, the models override, request options, the API and default model
-   choices, capabilities) is for built-in modules, for now."
-  [built-in? declaration]
-  (let [login (:login declaration)]
-    (cond
-      (not (map? declaration))
-      ["must be a map"]
-
-      (and (not built-in?)
-           (or (some #(contains? declaration %) [:quota :errors :models-override-fn :request-opts :api-fn
-                                                 :default-model :capabilities])
-               (and (map? login)
-                    (or (contains? login :steps)
-                        (contains? login :complete-oauth-code)
-                        (and (sequential? (:methods login)) (some #(and (map? %) (:start %)) (:methods login)))))))
-      [(str ":quota, :errors, :models-override-fn, :request-opts, :api-fn, :default-model, :capabilities,"
-            " :login :steps, :login :complete-oauth-code and a login method's :start are only for built-in modules")]
-
-      :else [])))
-
 (defn ^:private map-of-problems
   "Problems of a map of name → entry, with `entry-problems` for each entry."
   [k m key-pred key-desc entry-problems]
@@ -227,38 +195,18 @@
               :else ["must be a function, a map with :handler, or a vector of those"]))]
     (if (sequential? spec) (vec (mapcat one spec)) (one spec))))
 
-(def ^:private built-in-only-section-keys
-  "Section keys only built-in modules' sections may have."
-  [:signature :resync?])
-
-(defn ^:private section-problems [built-in? sections]
+(defn ^:private section-problems [sections]
   (cond
     (nil? sections) []
     (not (sequential? sections)) [":system-prompts must be a vector of sections"]
     :else (vec (mapcat (fn [section]
                          (if-not (map? section)
                            [":system-prompts: each section must be a map"]
-                           (let [built-in-only (filter #(contains? section %) built-in-only-section-keys)]
-                             (cond-> []
-                               (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
-                               (not (or (string? (:content section)) (fn-like? (:content section))))
-                               (conj (format ":system-prompts %s: :content must be a string or a function" (:id section)))
-                               (and (not built-in?) (seq built-in-only))
-                               (conj (format ":system-prompts %s: %s are only for built-in modules"
-                                             (:id section) (string/join ", " built-in-only)))))))
+                           (cond-> []
+                             (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
+                             (not (or (string? (:content section)) (fn-like? (:content section))))
+                             (conj (format ":system-prompts %s: :content must be a string or a function" (:id section))))))
                        sections))))
-
-(defn ^:private defines-problems [defines]
-  (cond
-    (nil? defines) []
-    (not (map? defines)) [":defines must be a map"]
-    :else (map-of-problems ":defines :events" (:events defines) qualified-kw? "a qualified keyword"
-                           (fn [definition]
-                             (cond
-                               (not (map? definition)) ["must be a map"]
-                               (not (#{:notify :transform :handle} (:kind definition)))
-                               [":kind must be :notify, :transform or :handle"]
-                               :else [])))))
 
 (defn problems
   "What's wrong with `module`: `{:errors [..] :warnings [..]}`. A module with
@@ -266,7 +214,7 @@
   [module {:keys [built-in?]}]
   (if-not (map? module)
     {:errors ["A module must be a map"] :warnings []}
-    (let [{:keys [id api requires priority default-enabled? start stop prefix
+    (let [{:keys [id requires default-enabled? start stop prefix
                   tools commands providers apis config-defaults event-handlers]} module
           ks (set (keys module))
           errors (concat
@@ -274,12 +222,8 @@
                     (not (qualified-kw? id)) [":id must be a qualified keyword, e.g. :acme/example"]
                     (and (not built-in?) (= "eca" (namespace id))) [":eca/* ids are reserved for built-in modules"]
                     :else [])
-                  (when (and (some? api) (not (contains? supported-api-versions api)))
-                    [(format ":api %s is not supported; this ECA supports %s" (pr-str api)
-                             (string/join ", " (sort supported-api-versions)))])
                   (when (and (some? requires) (not (and (coll? requires) (every? qualified-kw? requires))))
                     [":requires must be a set of module ids"])
-                  (when (and (some? priority) (not (integer? priority))) [":priority must be an integer"])
                   (when (and (some? default-enabled?) (not (boolean? default-enabled?))) [":default-enabled? must be a boolean"])
                   (when (and (some? start) (not (fn-like? start))) [":start must be a function"])
                   (when (and (some? stop) (not (fn-like? stop))) [":stop must be a function"])
@@ -296,14 +240,15 @@
                     :else [])
                   (when (and (some? (:description module)) (not (string? (:description module)))) [":description must be a string"])
                   (when (and (some? (:version module)) (not (string? (:version module)))) [":version must be a string"])
-                  (if (and built-in? (fn-like? tools))
+                  (if (fn-like? tools)
                     []
                     (map-of-problems ":tools" tools string? "a string" tool-problems))
-                  (if (and built-in? (fn-like? commands))
+                  (if (fn-like? commands)
                     []
                     (map-of-problems ":commands" commands string? "a string" command-problems))
-                  (section-problems built-in? (:system-prompts module))
-                  (map-of-problems ":providers" providers string? "a string" (partial provider-problems built-in?))
+                  (section-problems (:system-prompts module))
+                  (map-of-problems ":providers" providers string? "a string"
+                                   #(if (map? %) [] ["must be a map"]))
                   (map-of-problems ":apis" apis string? "a string"
                                    #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))
                   (map-of-problems ":rpc" (:rpc module) string? "a string"
@@ -320,23 +265,17 @@
                       [":tool-servers must be a map with :list and :call functions, and maybe an :await-refresh function"]))
                   (when (and (some? config-defaults) (not (or (map? config-defaults) (fn-like? config-defaults))))
                     [":config-defaults must be a map or a function"])
-                  (when (and (some? (:agents module)) (not (fn-like? (:agents module))))
-                    [":agents must be a function"])
                   (when (and (some? (:transform-tools module)) (not (fn-like? (:transform-tools module))))
                     [":transform-tools must be a function"])
                   (map-of-problems ":chat-statuses" (:chat-statuses module) keyword? "a keyword"
                                    #(if (fn-like? %) [] ["must be a function"]))
                   (skills-problems (:skills module))
                   (map-of-problems ":event-handlers" event-handlers qualified-kw? "a qualified keyword" handler-spec-problems)
-                  (defines-problems (:defines module))
-                  (when (and (not built-in?) (some built-in-only-keys ks))
-                    [(format "%s is only for built-in modules" (string/join ", " (filter built-in-only-keys ks)))])
+                  (when (and (some? (:contexts module)) (not (map? (:contexts module))))
+                    [":contexts must be a map"])
                   (map #(str ":config-spec " %) (config-spec/problems (:config-spec module))))
-          warnings (concat
-                    (for [k (sort (filter later-keys ks))]
-                      (format "%s is not supported yet and is ignored" k))
-                    (for [k (sort (remove (set/union v1-keys built-in-only-keys later-keys) ks))]
-                      (format "Unknown key %s is ignored" k)))]
+          warnings (for [k (sort (remove module-keys ks))]
+                     (format "Unknown key %s is ignored" k))]
       {:errors (vec errors) :warnings (vec warnings)})))
 
 ;; --- Resolution: which modules are active
@@ -348,11 +287,13 @@
     (let [m (:modules config)]
       (when (map? m) m))))
 
-(defn ^:private effective-priority [{:keys [id module built-in?]} modules-config]
+(defn ^:private effective-priority
+  "A module's priority: `modules.<id>.priority` in the config, else
+   `built-in-priority` or `external-priority`."
+  [{:keys [id built-in?]} modules-config]
   (let [configured (get-in modules-config [id :priority])]
     (cond
       (number? configured) (long configured)
-      (integer? (:priority module)) (:priority module)
       built-in? built-in-priority
       :else external-priority)))
 
@@ -624,6 +565,33 @@
   [entry explicit default-ms]
   (or explicit (when-not (:built-in? entry) default-ms)))
 
+(defn guarded-call
+  "Calls `(apply f args)` on behalf of module `entry`, when ECA asks it for
+   something (its tools, contexts, chat statuses...): a built-in's inline, as
+   the code it replaced, its errors reaching the caller; an external's through
+   `invoke-safe` with a handler's default timeout, so nil when it fails."
+  [ctx entry what f & args]
+  (if (:built-in? entry)
+    (apply f args)
+    (apply invoke-safe ctx entry what {:timeout-ms (timeout-for entry nil default-handler-timeout-ms)} f args)))
+
+(defn guard-fns
+  "`v` with each function in it, in its maps and vectors at any depth, called
+   through `invoke` when `entry` is an external module: their errors are
+   counted like its other calls' and still reach the caller. A built-in
+   module's `v` as it is. `what`, followed by the keys leading to a function,
+   names its calls in errors."
+  [ctx entry what v]
+  (if (:built-in? entry)
+    v
+    (letfn [(guard [what v]
+              (cond
+                (fn-like? v) (fn [& args] (apply invoke ctx entry what {} v args))
+                (map? v) (reduce-kv (fn [m k x] (assoc m k (guard (str what " " k) x))) v v)
+                (vector? v) (mapv #(guard what %) v)
+                :else v))]
+      (guard what v))))
+
 ;; --- Background jobs (eca.api/background!)
 
 (def default-pool-size
@@ -673,26 +641,6 @@
                 (invoke-safe ctx entry (str "background job in pool " (name pool)) {} f)))]
     (.submit executor ^Callable job)))
 
-;; --- Registrations made at runtime (register-tool!, register-command!)
-
-(defn register!
-  "Records a registration of module `id`, undone when the module stops."
-  [id kind reg-name value]
-  (swap! registry* assoc-in [:registrations id kind reg-name] value))
-
-(defn unregister!
-  [id kind reg-name]
-  (swap! registry* update-in [:registrations id kind] dissoc reg-name))
-
-(defn registrations
-  "`[entry name value]` for each runtime registration of `kind` by an active
-   module."
-  [config kind]
-  (let [regs (:registrations @registry*)]
-    (for [entry (active config)
-          [reg-name value] (sort-by key (get-in regs [(:id entry) kind]))]
-      [entry reg-name value])))
-
 ;; --- Lifecycle
 
 (defn state
@@ -726,8 +674,7 @@
                        (-> registry
                            (update :running dissoc id)
                            (update :start-order (fn [order] (filterv #(not= id %) order)))
-                           (update :state dissoc id)
-                           (update :registrations dissoc id))))
+                           (update :state dissoc id))))
     (logger/info logger-tag (format "Stopped module %s" id))))
 
 (defn ^:private start-module! [components config entry]
@@ -752,8 +699,8 @@
 
 (defn reconcile!
   "Makes the running modules match the active ones under `config`: stops the
-   ones no longer active (and drops their registrations), starts the active
-   ones with a `:start` that aren't running, and restarts external modules
+   ones no longer active, starts the active ones with a `:start` that aren't
+   running, and restarts external modules
    that were reloaded or whose `:config-spec` keys changed. Modules that
    require a stopped module stop too, and start again with it."
   [components config]
@@ -771,7 +718,6 @@
                           (reverse (running)))]
         (doseq [r stale]
           (stop-module! components r))
-        (swap! registry* update :registrations select-keys active-ids)
         ;; modules without :start never run, so they don't stop: drop their pools here
         (doseq [id (keys (:pools @registry*))
                 :when (not (contains? active-ids id))]
@@ -930,20 +876,6 @@
                   acc)))
             spec-defaults
             (merge-order active))))
-
-(defn contributed-agents
-  "The agents the active modules under `config` add, name → agent config, from
-   their `:agents` functions; later modules win a name. `db` is what those
-   functions can read, e.g. the workspaces. The config's own agents win over
-   these."
-  [config db]
-  (reduce (fn [acc [entry f]]
-            (let [ctx {:db db :module-id (:id entry)}
-                  agents (invoke-safe ctx entry "agents"
-                                      {:timeout-ms (timeout-for entry nil default-handler-timeout-ms)} f ctx)]
-              (if (map? agents) (merge acc agents) acc)))
-          {}
-          (contributions config :agents)))
 
 (defn defaults-signature
   "What decides `default-config` under `config`: the active modules in merge

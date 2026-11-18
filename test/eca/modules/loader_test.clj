@@ -97,16 +97,15 @@
               "(ns acme.greeter (:require [acme.greeter.words :as words]))
                (def module
                  {:id :acme/greeter
-                  :defines {:events {:acme/greet {:kind :handle :doc \"Greet someone.\"}}}
-                  :event-handlers {:acme/greet (fn [_ctx {:keys [who]}] (str (words/greeting) \", \" who))}})")
+                  :event-handlers {:chat/title (fn [_ctx {:keys [who]}] {:title (str (words/greeting) \", \" who)})}})")
       (testing "module.clj loads, and its namespaces load from the folder"
         (is (= [{:path dir :status :loaded :id :acme/greeter}] (sync! {})))
-        (is (= "Hello, Ana" (events/emit! {:config {}} :acme/greet {:who "Ana"}))))
+        (is (= {:title "Hello, Ana"} (events/emit! {:config {}} :chat/title {:who "Ana"}))))
       (testing "a change to any of its files reloads them"
         (write! dir "acme/greeter/words.clj"
                 "(ns acme.greeter.words) (defn greeting [] \"Hi\")")
         (is (= [{:path dir :status :loaded :id :acme/greeter}] (sync! {})))
-        (is (= "Hi, Ana" (events/emit! {:config {}} :acme/greet {:who "Ana"})))))))
+        (is (= {:title "Hi, Ana"} (events/emit! {:config {}} :chat/title {:who "Ana"})))))))
 
 (deftest modules-require-each-other-test
   (with-dirs [global _workspace]
@@ -117,6 +116,15 @@
              (def module {:id :acme/b :system-prompts [{:id :acme/b-section :content (a/shout \"Hi\")}]})")
     (is (match? (m/in-any-order [{:status :loaded :id :acme/a} {:status :loaded :id :acme/b}]) (sync! {})))
     (is (= "Hi!" (-> (modules/active-entry {} :acme/b) :module :system-prompts first :content)))))
+
+(deftest hidden-namespaces-test
+  (with-dirs [global _workspace]
+    (testing "modules don't see ECA's own namespaces, or the REPL's"
+      (write! global "modules/sneaky.clj" "(ns acme.sneaky (:require [eca.repl :as repl])) (def module {:id :acme/sneaky})")
+      (write! global "modules/nosy.clj" "(ns acme.nosy (:require [eca.config :as c])) (def module {:id :acme/nosy})")
+      (is (match? (m/in-any-order [{:status :failed :error #"eca.repl"}
+                                   {:status :failed :error #"eca.config"}])
+                  (sync! {}))))))
 
 (deftest load-errors-test
   (with-dirs [global _workspace]
@@ -268,7 +276,7 @@
                                   :handler (fn [_ctx {:strs [key]}]
                                              (if (= \"bad\" key)
                                                (eca/error \"No such issue\")
-                                               (eca/text (str \"Issue \" key))))}}})")
+                                               (str \"Issue \" key)))}}})")
     (sync! {})
     (let [all-tools (f.tools/all-tools "chat-1" "code" (h/db) {})
           call! #(f.tools/call-tool! "jira__issue" {"key" %} "chat-1" "call-1" "code" (h/db*) {}
@@ -301,18 +309,18 @@
   (with-dirs [global _workspace]
     (write! global "modules/notes.clj"
             "(ns acme.notes
-               (:require [eca.api :as eca]
-                         [eca.api.fs :as fs]
-                         [eca.api.json :as json]))
+               (:require [babashka.fs :as fs]
+                         [cheshire.core :as json]
+                         [eca.api :as eca]))
              (def module
                {:id :acme/notes
                 :commands {\"note\" {:handler (fn [ctx {:keys [raw]}]
-                                               (let [file (fs/path (eca/data-dir ctx) \"notes.json\")
-                                                     notes (if (fs/exists? file) (json/parse (fs/read-file file)) [])]
-                                                 (fs/write-file! file (json/generate (conj notes raw)))
-                                                 (str (count (json/parse (fs/read-file file))) \" notes\")))}}})")
+                                               (let [file (str (fs/path (eca/data-dir ctx) \"notes.json\"))
+                                                     notes (if (fs/exists? file) (json/parse-string (slurp file)) [])]
+                                                 (spit file (json/generate-string (conj notes raw)))
+                                                 (str (count (json/parse-string (slurp file))) \" notes\")))}}})")
     (sync! {})
-    (testing "a module uses eca.api.fs and eca.api.json, in its data folder"
+    (testing "a module uses babashka.fs and cheshire.core, in its data folder"
       (is (= "1 notes" (command-text (f.commands/handle-command! "note" ["a"] (chat-ctx {}))))))
     (is (= "2 notes" (command-text (f.commands/handle-command! "note" ["b"] (chat-ctx {})))))))
 
