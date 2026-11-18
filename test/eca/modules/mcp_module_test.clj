@@ -93,7 +93,9 @@
         (is (string/includes? dynamic (str "<contexts description=\"Resources from connected MCP servers.\">\n"
                                            "<resource uri=\"mcp://docs/readme\">Hello docs</resource>\n"
                                            "</contexts>")))
-        (is (string/includes? dynamic "Use myMCP for the docs."))))
+        (is (string/includes? dynamic "Use myMCP for the docs."))
+        (is (< (string/index-of dynamic "## MCP Resources") (string/index-of dynamic "Use myMCP for the docs."))
+            "resources first, by their :order")))
     (testing "disabled, they're left out"
       (is (nil? (f.prompt/build-dynamic-instructions contexts db-with-mcp disabled))))))
 

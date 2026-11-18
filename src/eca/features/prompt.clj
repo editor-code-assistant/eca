@@ -163,10 +163,15 @@
   [ctx]
   (boolean (static-prompt-context-types (:type ctx))))
 
-(def ^:private built-in-static-sections
-  "The order of the built-in static sections."
-  [:eca/agent-prompt :eca/rules :eca/skills :eca/deferred-tools :eca/additional-info
-   :eca/workspace-roots :eca/path-resolution :eca/context])
+(defn ^:private built-in-static-sections
+  "`[module section]` of the built-in modules' static sections with an
+   `:order`, ECA's own ones, by it, whether their module is active or not."
+  []
+  (sort-by (comp :order second)
+           (for [module (modules/built-in-modules)
+                 section (:system-prompts module)
+                 :when (and (not (:dynamic? section)) (number? (:order section)))]
+             [module section])))
 
 (defn ^:private section-items
   "The active modules' sections of one part (static or dynamic), as
@@ -179,12 +184,11 @@
 
 (defn ^:private place-sections
   "The active modules' sections of one part (static or dynamic), in order:
-   built-in ones in `built-in-order`; the others right before or after the
-   section their `:before`/`:after` names, else at the end, in module order."
-  [config dynamic? built-in-order]
-  (let [sections (section-items config dynamic?)
-        order (zipmap built-in-order (range))
-        {built-ins true others false} (group-by #(contains? order (:id (:section %))) sections)]
+   the ones with an `:order` by it, as ECA's own; the others right before or
+   after the section their `:before`/`:after` names, else at the end, in
+   module order."
+  [config dynamic?]
+  (let [{ordered true others false} (group-by #(number? (:order (:section %))) (section-items config dynamic?))]
     (reduce (fn [placed {:keys [entry section] :as item}]
               (let [target (or (:before section) (:after section))
                     idx (when target (first (keep-indexed #(when (= target (:id (:section %2))) %1) placed)))]
@@ -197,7 +201,7 @@
                   (:before section) (into (conj (subvec placed 0 idx) item) (subvec placed idx))
                   (:after section) (into (conj (subvec placed 0 (inc idx)) item) (subvec placed (inc idx)))
                   :else (conj placed item))))
-            (vec (sort-by #(order (:id (:section %))) built-ins))
+            (vec (sort-by #(:order (:section %)) ordered))
             others)))
 
 (defn ^:private section-part
@@ -227,53 +231,45 @@
    own data from it."
   [{:keys [config] :as prompt-ctx}]
   (let [ctx (static-prompt-ctx prompt-ctx)]
-    (apply multi-str (map #(section-part ctx %) (place-sections config false built-in-static-sections)))))
+    (apply multi-str (map #(section-part ctx %) (place-sections config false)))))
 
 (defn section-signatures
-  "What the cache signature follows of the built-in static sections that
-   give a `:signature` (other sections' `:signature` and `:resync?` are
-   ignored): `[key signature resync?]` of each, keyed by its id's name
-   (`:rules`, `:skills`), in prompt order. Computed whether their module is
-   active or not, as core followed their data before modules. `resync?` is
-   false for a section with `:resync? false`: its changes alone never re-sync
-   a chat's pinned prompt (skills)."
+  "What the cache signature follows of ECA's own static sections (see
+   `built-in-static-sections`) that give a `:signature` (other sections'
+   `:signature` and `:resync?` are ignored): `[key signature resync?]` of
+   each, keyed by its id's name (`:rules`, `:skills`), in prompt order.
+   Computed whether their module is active or not, as core followed their
+   data before modules. `resync?` is false for a section with `:resync?
+   false`: its changes alone never re-sync a chat's pinned prompt (skills)."
   [prompt-ctx]
-  (let [by-id (into {} (for [module (modules/built-in-modules)
-                             section (:system-prompts module)
-                             :when (and (:signature section) (not (:dynamic? section)))]
-                         [(:id section) [module section]]))]
-    (vec (for [id built-in-static-sections
-               :let [[module section] (by-id id)]
-               :when section]
-           [(keyword (name id))
-            ((:signature section) (modules/module-ctx prompt-ctx {:id (:id module) :module module :built-in? true}))
-            (not (false? (:resync? section)))]))))
+  (vec (for [[module section] (built-in-static-sections)
+             :when (:signature section)]
+         [(keyword (name (:id section)))
+          ((:signature section) (modules/module-ctx prompt-ctx {:id (:id module) :module module :built-in? true}))
+          (not (false? (:resync? section)))])))
 
 (defn uncategorized-static-sections
   "What the static prompt holds that the cache signature's categories
    (prompt, contexts, rules, skills, tools) don't follow, or nil when that's
    nothing: `:sections`, `[id before after text]` of each static section
-   that isn't a built-in module's built-in section, its text as it renders
-   now, and `:missing`, the built-in sections no active module gives, e.g.
-   when `eca/skills` is turned off."
+   that isn't one of ECA's own (see `built-in-static-sections`), its text as
+   it renders now, and `:missing`, ECA's own sections no active module
+   gives, e.g. when `eca/skills` is turned off."
   [{:keys [config] :as prompt-ctx}]
   (let [items (section-items config false)
-        built-in-ids (set built-in-static-sections)
+        built-in-ids (mapv (comp :id second) (built-in-static-sections))
+        built-in-id? (set built-in-ids)
         categorized? (fn [{:keys [entry section]}]
-                       (boolean (and (:built-in? entry) (built-in-ids (:id section)))))
+                       (boolean (and (:built-in? entry) (built-in-id? (:id section)))))
         given (into #{} (comp (filter categorized?) (map (comp :id :section))) items)
         others (remove categorized? items)
-        missing (filterv (complement given) built-in-static-sections)]
+        missing (filterv (complement given) built-in-ids)]
     (when (or (seq others) (seq missing))
       (let [ctx (static-prompt-ctx prompt-ctx)]
         {:sections (mapv (fn [{:keys [section] :as item}]
                            [(:id section) (:before section) (:after section) (section-part ctx item)])
                          others)
          :missing missing}))))
-
-(def ^:private built-in-dynamic-sections
-  "The order of the built-in dynamic sections."
-  [:eca/mcp-resources :eca/mcp-instructions])
 
 (defn build-dynamic-instructions
   "Per-turn dynamic system instructions, from the active modules' `:dynamic?`
@@ -282,7 +278,7 @@
    (build-dynamic-instructions refined-contexts db nil))
   ([refined-contexts db config]
    (let [ctx {:refined-contexts refined-contexts :db db :config config :selmer-ctx {}}
-         result (apply multi-str (map #(section-part ctx %) (place-sections config true built-in-dynamic-sections)))]
+         result (apply multi-str (map #(section-part ctx %) (place-sections config true)))]
      (when-not (string/blank? result) result))))
 
 (defn build-editor-state-context

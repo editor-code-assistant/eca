@@ -263,7 +263,7 @@
    :config-spec {:skills {:type :array :default []}}
    :config-defaults {:toolCall {:approval {:allow {"eca__skill" {}}}}}
    ;; names and descriptions only; their changes alone never re-sync a chat's prompt
-   :system-prompts [{:id :eca/skills :content #'skills-section :signature #'skills-signature :resync? false}]
+   :system-prompts [{:id :eca/skills :order 300 :content #'skills-section :signature #'skills-signature :resync? false}]
    :tools (fn [_ctx] (tools.util/->module-tools definitions))
    ;; /skills, and each skill as a command, listed after the modules' own commands
    :commands #'commands})

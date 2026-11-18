@@ -214,7 +214,10 @@
                            (cond-> []
                              (not (qualified-kw? (:id section))) (conj ":system-prompts: each section needs a qualified keyword :id")
                              (not (or (string? (:content section)) (fn-like? (:content section))))
-                             (conj (format ":system-prompts %s: :content must be a string or a function" (:id section))))))
+                             (conj (format ":system-prompts %s: :content must be a string or a function" (:id section)))
+
+                             (not (nil-or number? (:order section)))
+                             (conj (format ":system-prompts %s: :order must be a number" (:id section))))))
                        sections))))
 
 (defn problems

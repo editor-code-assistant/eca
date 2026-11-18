@@ -87,3 +87,18 @@
     (testing "also while their module is off, as core followed their data before modules"
       (is (= [:rules :skills]
              (map first (f.prompt/section-signatures (prompt-ctx {:modules {:eca/skills {:enabled false}}}))))))))
+
+(deftest order-test
+  (testing "a module's section with an :order goes among ECA's own by it; one without still goes last"
+    (modules/add-external! "/tmp/acme-order.clj"
+                           {:id :acme/order
+                            :system-prompts [{:id :acme/unordered :content "UNORDERED"}
+                                             {:id :acme/first :order 50 :content "FIRST"}
+                                             {:id :acme/between :order 450 :content "BETWEEN"}]})
+    (let [prompt (build {})]
+      (is (< (index-of prompt "FIRST") (index-of prompt "# ECA — Editor Code Assistant")))
+      (is (< (index-of prompt "## Skills") (index-of prompt "BETWEEN") (index-of prompt "## Workspace Roots")))
+      (is (< (index-of prompt "## Workspace Roots") (index-of prompt "UNORDERED")))))
+  (testing "an :order must be a number"
+    (is (= [":system-prompts :acme/s: :order must be a number"]
+           (:errors (modules/problems {:id :acme/bad :system-prompts [{:id :acme/s :order "1" :content "S"}]} {}))))))

@@ -741,10 +741,10 @@
                            :doc "Per module id: enabled, source and priority."}
                  :disabledTools {:type :array :default []}
                  :toolCall {:outputTruncation {:type :map :default {:lines 2000 :sizeKb 50}}}}
-   :system-prompts [{:id :eca/additional-info :content #'additional-info-section}
-                    {:id :eca/workspace-roots :content #'workspace-roots-prompt-section}
-                    {:id :eca/path-resolution :content #'path-resolution-prompt-section}
-                    {:id :eca/context :content #'context-section}]  ; AGENTS.md, startup context
+   :system-prompts [{:id :eca/additional-info :order 500 :content #'additional-info-section}
+                    {:id :eca/workspace-roots :order 600 :content #'workspace-roots-prompt-section}
+                    {:id :eca/path-resolution :order 700 :content #'path-resolution-prompt-section}
+                    {:id :eca/context :order 800 :content #'context-section}]  ; AGENTS.md, startup context
    :commands (commands
               {"compact" #'compact-command "model" #'model-command "costs" #'costs-command "sync-system-prompt" #'sync-system-prompt-command "context" #'context-command "remote" #'remote-command "config" #'config-command "doctor" #'doctor-command "prompt-show" #'prompt-show-command "modules" #'modules-command}
               [["model" "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)" [{:name "full-model"}]]

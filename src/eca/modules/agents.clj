@@ -391,7 +391,7 @@
                  :prompts {:chat {:type :string :default "${classpath:prompts/code_agent.md}"}}}
    ;; first, so other modules' handlers see the agents, as before modules
    :event-handlers {:config/resolve {:priority 1000 :handler #'resolve-agents}}
-   :system-prompts [{:id :eca/agent-prompt :content #'prompt-section}]   ; the agent's own prompt, else prompts.chat
+   :system-prompts [{:id :eca/agent-prompt :order 100 :content #'prompt-section}]   ; the agent's own prompt, else prompts.chat
    :commands {"agent" {:description "Select agent for current chat (Ex: /agent plan)"
                        :arguments [{:name "agent-name"}]
                        :handler #'agent-command}}})

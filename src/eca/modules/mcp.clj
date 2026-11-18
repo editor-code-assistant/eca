@@ -2110,8 +2110,8 @@
          "mcp/removeServer"  {:kind :request :handler #'remove-server-method}}
    ;; the servers' tools
    :tool-servers {:list #'tool-servers :call #'call-server-tool :await-refresh #'await-servers-refresh}
-   :system-prompts [{:id :eca/mcp-resources :dynamic? true :content #'mcp-resources-section}
-                    {:id :eca/mcp-instructions :dynamic? true :content #'mcp-instructions-prompt-section}]
+   :system-prompts [{:id :eca/mcp-resources :dynamic? true :order 100 :content #'mcp-resources-section}
+                    {:id :eca/mcp-instructions :dynamic? true :order 200 :content #'mcp-instructions-prompt-section}]
    ;; resources, for the @ list and the contexts clients send
    :contexts {:types {"mcpResource" {:list #'resource-items :refine #'refine-resource}}}
    ;; each prompt as a command, listed first

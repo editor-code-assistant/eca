@@ -240,6 +240,6 @@
                                            :includePattern []
                                            :excludePattern []}}}
    :config-defaults {:toolCall {:approval {:allow {"eca__search_tools" {}}}}}
-   :system-prompts [{:id :eca/deferred-tools :content #'deferred-tools-prompt-section}]
+   :system-prompts [{:id :eca/deferred-tools :order 400 :content #'deferred-tools-prompt-section}]
    :tools (fn [_ctx] (tools.util/->module-tools definitions))
    :transform-tools #'transform-tools})
