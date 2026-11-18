@@ -283,7 +283,8 @@
 
     (testing "Without endpoint metadata, gpt models from 5.3 on route to Responses by name"
       (doseq [model ["gpt-5.3-codex" "gpt-5.4" "gpt-5.4-mini" "gpt-5.5"
-                     "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra" "GPT-5.6-Sol"]]
+                     "gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra" "gpt-6.2-astra" "gpt-6.2-sol"
+                     "GPT-5.6-Sol"]]
         (is (= :openai-responses
                (:api (llm-api/provider->api-handler "github-copilot" model config)))
             model)

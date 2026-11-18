@@ -25,9 +25,11 @@
    "max" {:reasoning {:effort "max" :summary "auto"}}})
 
 (def ^:private openai-gpt-6-variants
-  "Variants for gpt-6 models (gpt-6-astra). Same as `openai-gpt-5-6-variants`
-   minus \"none\": OpenAI documents that GPT-6 Astra rejects the none reasoning
-   effort. Codex also lists \"ultra\" but downgrades it to \"max\" on the wire."
+  "Variants for gpt-6 models (gpt-6-astra) and gpt-6.2 ones (gpt-6.2-astra,
+   gpt-6.2-sol). Same as `openai-gpt-5-6-variants` minus \"none\": OpenAI
+   documents that GPT-6 Astra and both GPT-6.2 models reject the none
+   reasoning effort. Codex also lists \"ultra\" but downgrades it to \"max\" on
+   the wire."
   {"low" {:reasoning {:effort "low" :summary "auto"}}
    "medium" {:reasoning {:effort "medium" :summary "auto"}}
    "high" {:reasoning {:effort "high" :summary "auto"}}
@@ -118,6 +120,10 @@
    ;; gpt-6 family (gpt-6-astra), not gpt-6.x point releases.
    ".*gpt[-._]6(?![-._]?\\d)" {:variants openai-gpt-6-variants
                                :api openai-responses-apis
+                               :excludeProviders ["github-copilot"]}
+   ;; gpt-6.2 (gpt-6.2-astra, gpt-6.2-sol): gpt-6's efforts, also without none.
+   ".*gpt[-._]6[-._]2(?!\\d)" {:variants openai-gpt-6-variants
+                               :api openai-responses-apis
                                :excludeProviders ["github-copilot"]}})
 
 (def openai-chat
@@ -137,6 +143,9 @@
                                    :api "openai-chat"
                                    :excludeProviders ["github-copilot"]}
    "(?:.*gpt[-._]6(?![-._]?\\d))" {:variants openai-chat-gpt-6-variants
+                                   :api "openai-chat"
+                                   :excludeProviders ["github-copilot"]}
+   "(?:.*gpt[-._]6[-._]2(?!\\d))" {:variants openai-chat-gpt-6-variants
                                    :api "openai-chat"
                                    :excludeProviders ["github-copilot"]}
    ".*deepseek[-._]v4[-._](?:pro|flash)" {:variants deepseek-variants

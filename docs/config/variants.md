@@ -88,9 +88,9 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
     | `xhigh`    | `{"reasoning": {"effort": "xhigh", "summary": "auto"}}` |
     | `max`      | `{"reasoning": {"effort": "max", "summary": "auto"}}` |
 
-=== "OpenAI (gpt-6)"
+=== "OpenAI (gpt-6, gpt-6.2)"
 
-    Applies to models matching `gpt-6` (e.g. `gpt-6-astra`; any separator: `-`, `.`, `_`), but not `gpt-6.x` point releases. Excluded for `github-copilot` provider. There is no `none` variant: GPT-6 Astra rejects that effort level. For Fast mode, add a custom variant with `"service_tier": "fast"` alongside the effort.
+    Applies to models matching `gpt-6` (e.g. `gpt-6-astra`) and `gpt-6.2` (e.g. `gpt-6.2-astra`, `gpt-6.2-sol`; any separator: `-`, `.`, `_`), but not other `gpt-6.x` point releases. Excluded for `github-copilot` provider. There is no `none` variant: GPT-6 Astra and the GPT-6.2 models reject that effort level. For Fast mode, add a custom variant with `"service_tier": "fast"` alongside the effort.
 
     | Variant    | Payload |
     | ---------- | ------- |
@@ -106,16 +106,16 @@ ECA ships with built-in variants for some known models via the `variantsByModel`
 
     | Variant    | Payload |
     | ---------- | ------- |
-    | `none`     | `{"reasoning_effort": "none"}` (not for `gpt-6`) |
+    | `none`     | `{"reasoning_effort": "none"}` (not for `gpt-6` and `gpt-6.2`) |
     | `low`      | `{"reasoning_effort": "low"}` |
     | `medium`   | `{"reasoning_effort": "medium"}` |
     | `high`     | `{"reasoning_effort": "high"}` |
     | `xhigh`    | `{"reasoning_effort": "xhigh"}` |
-    | `max`      | `{"reasoning_effort": "max"}` (`gpt-5.6` and `gpt-6` only) |
+    | `max`      | `{"reasoning_effort": "max"}` (`gpt-5.6`, `gpt-6` and `gpt-6.2` only) |
 
     !!! warning
 
-        OpenAI does not support function tools together with reasoning on `/chat/completions` for `gpt-5.6` and `gpt-6` models (`Function tools with reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to 'none'`), and `gpt-6-astra` rejects `none`. Since ECA sends its tools on every request, use `"api": "openai-responses"` for these models when your gateway supports `/responses` (LiteLLM does).
+        OpenAI does not support function tools together with reasoning on `/chat/completions` for `gpt-5.6`, `gpt-6` and `gpt-6.2` models (`Function tools with reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to 'none'`), and `gpt-6-astra` and the `gpt-6.2` models reject `none`. Since ECA sends its tools on every request, use `"api": "openai-responses"` for these models when your gateway supports `/responses` (LiteLLM does).
 
 === "DeepSeek"
 

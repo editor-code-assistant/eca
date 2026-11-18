@@ -45,6 +45,8 @@
    "gpt-5.6-terra" 272000
    "gpt-5.6-luna" 272000
    "gpt-6-astra" 272000
+   "gpt-6.2-astra" 272000
+   "gpt-6.2-sol" 500000
    "gpt-5" 272000})
 
 ;; ChatGPT subscription requests go through the Codex backend, which requires
@@ -127,6 +129,10 @@
    "gpt-5.6-luna" {:default-reasoning-effort "medium"
                    :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}
    "gpt-6-astra" {:default-reasoning-effort "low"
+                  :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}
+   "gpt-6.2-astra" {:default-reasoning-effort "low"
+                    :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}
+   "gpt-6.2-sol" {:default-reasoning-effort "low"
                   :supported-reasoning-efforts ["low" "medium" "high" "xhigh" "max"]}})
 
 (defn ^:private codex-model-fallback-discovery
@@ -1191,6 +1197,8 @@
     "gpt-5.6-terra"
     "gpt-5.6-sol"
     "gpt-6-astra"
+    "gpt-6.2-astra"
+    "gpt-6.2-sol"
     "o3"})
 
 (def ^:private web-search-models
@@ -1217,6 +1225,8 @@
     "gpt-6.1-sol"
     "gpt-6-sol"
     "gpt-6-luna"
+    "gpt-6.2-astra"
+    "gpt-6.2-sol"
     "o3"
     "o3-mini"
     "o4-mini"})

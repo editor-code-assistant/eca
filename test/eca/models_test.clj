@@ -21,7 +21,7 @@
     (#'models/build-all-supported-models known-models config models)))
 
 (deftest web-search-support-test
-  (let [supported {"openai" ["gpt-6.1-sol" "gpt-6-sol" "gpt-6-luna"]}
+  (let [supported {"openai" ["gpt-6.1-sol" "gpt-6-sol" "gpt-6-luna" "gpt-6.2-astra" "gpt-6.2-sol"]}
         unsupported {"openai" ["gpt-4.1-nano" "gpt-5.3-codex" "unknown-model"]
                      ;; Keep disabled pending verification of web_search_20250305 support.
                      "anthropic" ["claude-sonnet-5-5"]
@@ -40,6 +40,17 @@
               model names]
         (is (false? (get-in capabilities [(str provider "/" model) :web-search]))
             (str provider "/" model))))))
+
+(deftest image-generation-support-test
+  (let [catalog {"openai" {"models" {"gpt-6.2-astra" {} "gpt-6.2-sol" {} "gpt-5.3-codex" {}}}
+                 "other" {"models" {"gpt-6.2-sol" {}}}}
+        capabilities (#'models/all catalog {})]
+    (testing "gpt-6.2 models receive the built-in image-generation capability"
+      (is (true? (get-in capabilities ["openai/gpt-6.2-astra" :image-generation?])))
+      (is (true? (get-in capabilities ["openai/gpt-6.2-sol" :image-generation?]))))
+    (testing "Codex and other-provider models remain disabled"
+      (is (false? (get-in capabilities ["openai/gpt-5.3-codex" :image-generation?])))
+      (is (false? (get-in capabilities ["other/gpt-6.2-sol" :image-generation?]))))))
 
 (deftest fetch-models-dev-data-test
   (testing "Uses hato with json-string-keys and global client options"

@@ -1491,6 +1491,14 @@
           (is (= 272000 (get-in result ["gpt-5.5" :limit :context])))
           (is (zero? @calls*)))))))
 
+(deftest codex-client-version-test
+  (testing "presents a Codex version the backend lists gpt-6.2 models for (minimal_client_version 0.166.0)"
+    (let [client-version (second (re-find #"client_version=(\d+\.\d+\.\d+)"
+                                          @#'m.openai/codex-models-url))]
+      (is (<= 0 (compare (mapv parse-long (string/split client-version #"\."))
+                         [0 166 0]))
+          client-version))))
+
 (deftest codex-turn-context-headers-test
   (let [context (#'m.openai/new-codex-turn-context)
         turn-id (:session-id context)
@@ -1569,18 +1577,22 @@
 
 (deftest codex-model-fallback-discovery-test
   (testing "all current Lite Codex models retain Lite metadata without /models"
-    (doseq [model ["gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra"]]
+    (doseq [model ["gpt-5.6-sol" "gpt-5.6-terra" "gpt-5.6-luna" "gpt-6-astra" "gpt-6.2-astra" "gpt-6.2-sol"]]
       (is (true? (get-in (#'m.openai/codex-model-fallback-discovery model)
-                         [:discovered-provider-data :responses-lite?])))))
-  (testing "gpt-6-astra defaults to low effort and has no none variant"
-    (let [discovery (#'m.openai/codex-model-fallback-discovery "gpt-6-astra")]
-      (is (= "low" (get-in discovery [:discovered-provider-data :default-reasoning-effort])))
-      (is (= #{"low" "medium" "high" "xhigh" "max"}
-             (set (keys (:discovered-variants discovery)))))))
-  (testing "gpt-6-astra keeps the Codex context cap without /models"
-    (is (= 272000
-           (get-in (#'m.openai/fetch-oauth-models nil {})
-                   ["gpt-6-astra" :limit :context]))))
+                         [:discovered-provider-data :responses-lite?]))
+          model)))
+  (testing "gpt-6-astra and gpt-6.2 models default to low effort and have no none variant"
+    (doseq [model ["gpt-6-astra" "gpt-6.2-astra" "gpt-6.2-sol"]]
+      (let [discovery (#'m.openai/codex-model-fallback-discovery model)]
+        (is (= "low" (get-in discovery [:discovered-provider-data :default-reasoning-effort])) model)
+        (is (= #{"low" "medium" "high" "xhigh" "max"}
+               (set (keys (:discovered-variants discovery))))
+            model))))
+  (testing "gpt-6 models keep their Codex context caps without /models"
+    (let [models (#'m.openai/fetch-oauth-models nil {})]
+      (is (= 272000 (get-in models ["gpt-6-astra" :limit :context])))
+      (is (= 272000 (get-in models ["gpt-6.2-astra" :limit :context])))
+      (is (= 500000 (get-in models ["gpt-6.2-sol" :limit :context])))))
   (testing "model matching is case-insensitive"
     (is (true? (get-in (#'m.openai/codex-model-fallback-discovery "GPT-5.6-SOL")
                        [:discovered-provider-data :responses-lite?])))))

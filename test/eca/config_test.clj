@@ -1037,24 +1037,35 @@
                (config/effective-model-variants default-config "openai" "gpt-6-astra" nil nil)))
         (is (= gpt-6-variants
                (config/effective-model-variants default-config "custom" "gpt_6_astra" nil nil)))
+        ;; gpt-6.2 models reject none too
+        (doseq [model ["gpt-6.2-astra" "gpt-6.2-sol"]]
+          (is (= gpt-6-variants
+                 (config/effective-model-variants default-config "openai" model nil nil))
+              model))
+        (is (= gpt-6-variants
+               (config/effective-model-variants default-config "custom" "gpt_6_2_sol" nil nil)))
         ;; gpt-5.6 keeps its own set, including none
         (is (contains? (config/effective-model-variants default-config "openai" "gpt-5.6-sol" nil nil)
                        "none"))
-        ;; point releases and Copilot are not matched
+        ;; other point releases and Copilot are not matched
         (is (nil? (config/effective-model-variants default-config "openai" "gpt-6.1" nil nil)))
+        (is (nil? (config/effective-model-variants default-config "openai" "gpt-6.20" nil nil)))
         (is (nil? (config/effective-model-variants default-config "openai" "gpt-60" nil nil)))
-        (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-6-astra" nil nil)))))
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-6-astra" nil nil)))
+        (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-6.2-sol" nil nil)))))
 
     (testing "Default config: GPT models on openai-chat providers (e.g. LiteLLM/Azure gateways) get reasoning_effort variants (#609)"
       (let [default-config (-> (config/initial-config)
                                (assoc-in [:providers "gateway" :api] "openai-chat")
                                (assoc-in [:providers "legacy" :api] "openai"))]
-        (is (= {"low" {:reasoning_effort "low"}
-                "medium" {:reasoning_effort "medium"}
-                "high" {:reasoning_effort "high"}
-                "xhigh" {:reasoning_effort "xhigh"}
-                "max" {:reasoning_effort "max"}}
-               (config/effective-model-variants default-config "gateway" "openai/gpt-6-astra" nil nil)))
+        (doseq [model ["openai/gpt-6-astra" "openai/gpt-6.2-astra" "gpt-6.2-sol"]]
+          (is (= {"low" {:reasoning_effort "low"}
+                  "medium" {:reasoning_effort "medium"}
+                  "high" {:reasoning_effort "high"}
+                  "xhigh" {:reasoning_effort "xhigh"}
+                  "max" {:reasoning_effort "max"}}
+                 (config/effective-model-variants default-config "gateway" model nil nil))
+              model))
         (is (= {"none" {:reasoning_effort "none"}
                 "low" {:reasoning_effort "low"}
                 "medium" {:reasoning_effort "medium"}
