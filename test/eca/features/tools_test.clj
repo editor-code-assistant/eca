@@ -1364,3 +1364,17 @@
               identity
               nil))))
       (is (= {"path" ""} @received-args*)))))
+
+(deftest refresh-module-tool-servers-default-agent-test
+  (testing "the tool statuses clients get follow the default agent, the legacy chat.defaultAgent too"
+    (h/reset-components!)
+    (let [config {:defaultAgent "code"
+                  :chat {:defaultAgent "plan"}
+                  :agent {"code" {} "plan" {:disabledTools ["edit_file"]}}}
+          edit-file-disabled? (fn [config]
+                                (h/reset-messenger!)
+                                (f.tools/refresh-module-tool-servers! (h/db*) (h/messenger) config)
+                                (:disabled (some #(when (= "edit_file" (:name %)) %)
+                                                 (:tools (first (:tool-server-update (h/messages)))))))]
+      (is (true? (edit-file-disabled? config)))
+      (is (false? (edit-file-disabled? (update config :chat dissoc :defaultAgent)))))))

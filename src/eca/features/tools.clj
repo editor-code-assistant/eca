@@ -4,6 +4,7 @@
   (:require
    [clojure.string :as string]
    [clojure.walk :as walk]
+   [eca.config :as config]
    [eca.db :as db]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
@@ -773,7 +774,7 @@
   "Sends ECA's tool server and the external modules' ones: at startup, and
    again after modules change (loaded, reloaded, enabled or disabled)."
   [db* messenger config]
-  (let [tool-status-fn (make-tool-status-fn config (get config :defaultAgent))]
+  (let [tool-status-fn (make-tool-status-fn config (config/default-agent-name config))]
     (messenger/tool-server-updated messenger {:type :native
                                               :name "ECA"
                                               :status "running"

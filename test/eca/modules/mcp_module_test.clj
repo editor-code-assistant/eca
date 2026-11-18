@@ -160,3 +160,21 @@
                               :env {:FOO "bar"}
                               :headers {:Authorization "Bearer x"}}}
                     @captured*))))))
+
+(deftest servers-default-agent-test
+  (testing "the tool statuses clients get for the servers follow the default agent, the legacy chat.defaultAgent too"
+    (let [config {:defaultAgent "code"
+                  :chat {:defaultAgent "plan"}
+                  :agent {"code" {} "plan" {:disabledTools ["myMCP__lookup"]}}}
+          notifiers* (atom nil)
+          ;; the notifiers send to the ctx's messenger
+          lookup-disabled? (fn []
+                             ((:on-server-updated @notifiers*) {:name "myMCP" :status :running :tools [{:name "lookup"}]})
+                             (:disabled (first (:tools (last (:tool-server-update (h/messages)))))))]
+      (with-redefs [m.mcp/initialize-servers-async! (fn [notifiers & _] (reset! notifiers* notifiers))
+                    m.mcp/reconcile-servers! (fn [_prev-config _config _db* _metrics notifiers] (reset! notifiers* notifiers))]
+        (events/emit! (ctx config) :session/ready {})
+        (is (true? (lookup-disabled?)) "when the servers start")
+        (reset! notifiers* nil)
+        (events/emit! (ctx config) :config/changed {:prev-config config :config config})
+        (is (true? (lookup-disabled?)) "when the config changes")))))

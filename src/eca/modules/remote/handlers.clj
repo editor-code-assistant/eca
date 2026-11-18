@@ -100,10 +100,7 @@
    falling back to the validated configured default agent."
   [db config]
   (or (get-in db [:last-config-notified :chat :select-agent])
-      (config/validate-agent-name
-       (or (:defaultAgent (:chat config))
-           (:defaultAgent config))
-       config)))
+      (config/validate-agent-name (config/default-agent-name config) config)))
 
 (defn ^:private resolve-default-variant
   "Session-level selected variant, may be nil when none is selected."

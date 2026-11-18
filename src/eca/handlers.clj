@@ -61,10 +61,7 @@
   (let [db @db*
         fresh-config (config/all db)
         default-model (f.chat/default-model db fresh-config)
-        default-agent-name (config/validate-agent-name
-                            (or (:defaultAgent (:chat fresh-config))
-                                (:defaultAgent fresh-config))
-                            fresh-config)
+        default-agent-name (config/validate-agent-name (config/default-agent-name fresh-config) fresh-config)
         default-agent-config (get-in fresh-config [:agent default-agent-name])
         variants (model-variants fresh-config db default-model)]
     (config/notify-fields-changed-only!
@@ -199,8 +196,7 @@
                           (or (not= (:disabledTools prev-config) (:disabledTools new-config))
                               (not= (:toolCall prev-config) (:toolCall new-config))
                               (not= (:agent prev-config) (:agent new-config))))
-                 (let [default-agent (get new-config :defaultAgent)
-                       tool-status-fn (f.tools/make-tool-status-fn new-config default-agent)]
+                 (let [tool-status-fn (f.tools/make-tool-status-fn new-config (config/default-agent-name new-config))]
                    (f.tools/refresh-tool-servers! tool-status-fn db* messenger new-config)))))
       (shared/future* config
         (do (send-progress! db* messenger {:type "start" :taskId "models" :title "Syncing models"})
@@ -560,10 +556,7 @@
   [{:keys [db* messenger config metrics]} {:keys [chat-id model variant]}]
   (metrics/task metrics :eca/chat-selected-model-changed
     (let [chat-id (sanitize-client-chat-id chat-id "chat/selectedModelChanged")
-          default-agent-name (config/validate-agent-name
-                              (or (:defaultAgent (:chat config))
-                                  (:defaultAgent config))
-                              config)
+          default-agent-name (config/validate-agent-name (config/default-agent-name config) config)
           variants (model-variants config @db* model)
           ;; CAS: only mutate the chat record if it still exists at swap
           ;; time, avoiding TOCTOU resurrection when chat/delete races us.

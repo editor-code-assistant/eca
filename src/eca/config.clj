@@ -222,6 +222,13 @@
        (map key)
        distinct))
 
+(defn default-agent-name
+  "The configured default agent: the legacy `chat.defaultAgent` when set,
+   else `defaultAgent`. Not validated, see `validate-agent-name`."
+  [config]
+  (or (:defaultAgent (:chat config))
+      (:defaultAgent config)))
+
 (defn validate-agent-name
   "Validates if an agent exists in config. Returns the agent name if valid,
    or the fallback agent if not."
@@ -819,11 +826,7 @@
    (notify-selected-model-changed! full-model db* messenger config chat-variant nil))
   ([full-model db* messenger config chat-variant chat-id]
    (when (and full-model (contains? (:models @db*) full-model))
-     (let [default-agent-name (validate-agent-name
-                               (or (:defaultAgent (:chat config))
-                                   (:defaultAgent config))
-                               config)
-           agent-config (get-in config [:agent default-agent-name])
+     (let [agent-config (get-in config [:agent (validate-agent-name (default-agent-name config) config)])
            [provider model-name] (shared/full-model->provider+model full-model)
            model-capabilities (get-in @db* [:models full-model])
            user-variants (when (and provider model-name)

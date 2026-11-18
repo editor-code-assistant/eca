@@ -1884,7 +1884,7 @@
 (defn ^:private start-servers!
   "Starts the configured servers that don't run yet."
   [{:keys [db* metrics config] :as ctx}]
-  (initialize-servers-async! (notifiers ctx (get config :defaultAgent)) db* config metrics))
+  (initialize-servers-async! (notifiers ctx (config/default-agent-name config)) db* config metrics))
 
 (defn ^:private stop-servers!
   "Stops every server, and tells clients they're gone."
@@ -1933,7 +1933,7 @@
   [{:keys [db* metrics] :as ctx} {:keys [prev-config config]}]
   (when (and prev-config (modules/active? prev-config :eca/mcp))
     (reconcile-servers! prev-config config db* metrics
-                        (notifiers (assoc ctx :config config) (get config :defaultAgent))))
+                        (notifiers (assoc ctx :config config) (config/default-agent-name config))))
   nil)
 
 (defn stop-server-method

@@ -1391,3 +1391,11 @@
       (is (= [] (config/unknown-config-keys config)))
       (testing "while the user's own keys still are"
         (is (= [:chatAgnt] (config/unknown-config-keys (assoc config :chatAgnt "code"))))))))
+
+(deftest default-agent-name-test
+  (testing "the legacy chat.defaultAgent wins, as eca/agent-code always sets defaultAgent"
+    (is (= "plan" (config/default-agent-name {:defaultAgent "code" :chat {:defaultAgent "plan"}}))))
+  (testing "else defaultAgent, not validated"
+    (is (= "code" (config/default-agent-name {:defaultAgent "code"})))
+    (is (= "nope" (config/default-agent-name {:defaultAgent "nope"})))
+    (is (nil? (config/default-agent-name {})))))

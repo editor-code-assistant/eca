@@ -404,8 +404,7 @@
                   raw-agent (or agent
                                 behavior ;; backward compat: accept old 'behavior' param
                                 (get-in @db* [:chats chat-id :agent])
-                                (-> config :chat :defaultAgent) ;; legacy
-                                (-> config :defaultAgent))
+                                (config/default-agent-name config))
                   ;; A freshly-created chat with no client-provided trust inherits
                   ;; the server default (chat.defaultTrust), so every editor gets
                   ;; trust-by-default without having to send anything.

@@ -421,11 +421,7 @@
                                 (:model chat) db* messenger config (:variant chat) chat-id)
                trust-selection (config/notify-selected-trust-changed!
                                 (:trust chat) db* messenger chat-id)
-               agent-selection (config/validate-agent-name
-                                (or (:agent chat)
-                                    (:defaultAgent (:chat config))
-                                    (:defaultAgent config))
-                                config)
+               agent-selection (config/validate-agent-name (or (:agent chat) (config/default-agent-name config)) config)
                selection (merge {:model nil :variant nil :variants []}
                                 model-selection
                                 {:agent agent-selection
