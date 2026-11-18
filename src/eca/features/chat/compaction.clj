@@ -18,7 +18,7 @@
 
 (def ^:private logger-tag "[CHAT]")
 
-(defn auto-compact-max-per-turn
+(defn ^:private auto-compact-max-per-turn
   "How many times a single turn may auto-compact (`autoCompactMaxPerTurn`).
    Per-agent value wins over the global one; nil when unset (no limit)."
   [config agent-name]
@@ -130,7 +130,7 @@
     (when-let [idx (llm-util/find-last-msg-idx #(= "compact_marker" (:role %)) messages)]
       {:marker (messages idx) :messages (subvec messages (inc idx))})))
 
-(defn run-after-compact!
+(defn ^:private run-after-compact!
   "After a compaction wrote its checkpoint: runs the `:chat/after-compact`
    event, with `compact-summary`, the postCompact shell hooks last (4.17).
    The handlers' contexts go on the summary, in their order; a `:stop` ends

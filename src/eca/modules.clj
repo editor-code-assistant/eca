@@ -35,13 +35,13 @@
 
 (def ^:private logger-tag "[MODULES]")
 
-(def built-in-priority -100)
-(def external-priority 0)
+(def ^:private built-in-priority -100)
+(def ^:private external-priority 0)
 
 (def default-handler-timeout-ms 10000)
-(def default-start-timeout-ms 30000)
+(def ^:private default-start-timeout-ms 30000)
 
-(def max-failures
+(def ^:private max-failures
   "Failures in a row after which an external module is disabled for the session."
   5)
 
@@ -151,7 +151,7 @@
                            (map #(format "%s %s: %s" k (pr-str n) %) (entry-problems entry))))
                        m))))
 
-(defn tool-problems
+(defn ^:private tool-problems
   "What's wrong with a tool entry, as strings."
   [tool]
   (if-not (map? tool)
@@ -165,7 +165,7 @@
       (not (nil-or boolean? (:asks-user? tool))) (conj ":asks-user? must be a boolean")
       (not (nil-or string? (:progress-text tool))) (conj ":progress-text must be a string"))))
 
-(defn command-problems
+(defn ^:private command-problems
   "What's wrong with a command entry, as strings."
   [command]
   (if-not (map? command)
@@ -235,7 +235,7 @@
       (not (nil-or fn-like? (:list-models api)))
       (conj ":list-models must be a function"))))
 
-(defn problems
+(defn ^:private problems
   "What's wrong with `module`: `{:errors [..] :warnings [..]}`. A module with
    errors is refused."
   [module {:keys [built-in?]}]
@@ -565,7 +565,7 @@
   [ctx entry]
   (assoc (merge (:components @registry*) ctx) :module-id (:id entry)))
 
-(declare fail!)
+(declare ^:private fail!)
 
 (defn ^:private record-success! [id]
   (when (pos? (get-in @registry* [:failures id] 0))
@@ -652,7 +652,7 @@
 
 ;; --- Background jobs (eca.api/background!)
 
-(def default-pool-size
+(def ^:private default-pool-size
   "Threads of a module's background pool when it doesn't say."
   4)
 
@@ -706,13 +706,13 @@
   [id]
   (get-in @registry* [:state id]))
 
-(defn running
+(defn ^:private running
   "The modules whose `:start` ran, in start order: [{:entry :spec-values}]."
   []
   (let [{:keys [running start-order]} @registry*]
     (keep #(get running %) start-order)))
 
-(defn running? [id]
+(defn ^:private running? [id]
   (contains? (:running @registry*) id))
 
 (defn ^:private spec-values-of
@@ -755,7 +755,7 @@
 
 (def ^:private lifecycle-lock (Object.))
 
-(defn reconcile!
+(defn ^:private reconcile!
   "Makes the running modules match the active ones under `config`: stops the
    ones no longer active, starts the active ones with a `:start` that aren't
    running, and restarts external modules
@@ -842,7 +842,7 @@
              :when (not (contains? keep-running id))]
        (shutdown-pools! id)))))
 
-(defn fail!
+(defn ^:private fail!
   "Marks module `id` as failed for the session: it becomes inactive, with
    `reason` in `/modules`, and modules that require it stop too."
   ([ctx id reason] (fail! ctx id reason {}))
@@ -869,7 +869,7 @@
                     enabled? (-> (update :failed dissoc id)
                                  (update :failures dissoc id))))))
 
-(defn clear-failure!
+(defn ^:private clear-failure!
   [id]
   (swap-inputs! (fn [registry] (-> registry (update :failed dissoc id) (update :failures dissoc id)))))
 
@@ -882,12 +882,12 @@
     (clear-failure! id)
     (reconcile! components config)))
 
-(defn errors
+(defn ^:private errors
   "The last errors of module `id`."
   [id]
   (get-in @registry* [:errors id]))
 
-(defn failures
+(defn ^:private failures
   [id]
   (get-in @registry* [:failures id] 0))
 

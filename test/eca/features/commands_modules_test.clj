@@ -134,7 +134,7 @@
           (is (match? {:type :send-prompt :prompt "Go"} result))
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" (on-finished-side-effect)))
           (is (match? [{:what "result of command go :on-finished-side-effect" :message "boom"}]
-                      (modules/errors :acme/typed))))))))
+                      (#'modules/errors :acme/typed))))))))
 
 (deftest external-client-type-test
   (testing "an external module's :client-type works as a built-in's: the command is listed as that source"

@@ -313,7 +313,7 @@
                       (#'m.skills/skill {"name" "computed"} tool-ctx))))
         (testing "its errors fail the tool call, as the module's failures"
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" (#'m.skills/skill {"name" "broken"} tool-ctx)))
-          (is (= 1 (modules/failures :acme/skills)))))
+          (is (= 1 (#'modules/failures :acme/skills)))))
       (finally
         (modules/reset-registry!)))))
 

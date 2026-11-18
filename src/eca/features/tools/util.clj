@@ -88,7 +88,7 @@
        (map #(shared/uri->filename (:uri %)))
        (string/join "\n")))
 
-(defn workspace-root-paths
+(defn ^:private workspace-root-paths
   "Returns a vector of workspace root absolute paths from `db`."
   [db]
   (mapv (comp shared/uri->filename :uri) (:workspace-folders db)))
@@ -106,7 +106,7 @@
               (distinct))
         (when (sequential? folders) folders)))
 
-(defn path-outside-workspace?
+(defn ^:private path-outside-workspace?
   "Returns true if `path` is outside any workspace root in `db` and outside
    `inside-folders`, the folders that count as inside the workspace (see
    `inside-workspace-folders`).

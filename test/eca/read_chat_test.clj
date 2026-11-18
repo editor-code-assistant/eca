@@ -97,10 +97,10 @@
         shared/uri->filename)))
 
 (defn- listing-ids [opts]
-  (set (map :id (read-chat/list-chats sample-db opts))))
+  (set (map :id (#'read-chat/list-chats sample-db opts))))
 
 (defn- message-ids [chat-id opts]
-  (mapv :content-id (:messages (read-chat/chat-messages sample-db chat-id opts))))
+  (mapv :content-id (:messages (#'read-chat/chat-messages sample-db chat-id opts))))
 
 ;; read-db tests
 
@@ -108,14 +108,14 @@
   (testing "reads a valid transit file"
     (with-tmp-transit-file sample-db
       (fn [path]
-        (let [db (read-chat/read-db path)]
+        (let [db (#'read-chat/read-db path)]
           (is (= 6 (:version db)))
           (is (= 3 (count (:chats db)))))))))
 
 (deftest read-db-missing-file-test
   (testing "throws ex-info for missing file"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (read-chat/read-db "/nonexistent/path/db.transit.json")))))
+                 (#'read-chat/read-db "/nonexistent/path/db.transit.json")))))
 
 (deftest read-db-corrupted-file-test
   (testing "throws ex-info for corrupted transit file"
@@ -123,7 +123,7 @@
       (try
         (spit (str tmp) "this is not transit data!!!")
         (is (thrown? clojure.lang.ExceptionInfo
-                     (read-chat/read-db (str tmp))))
+                     (#'read-chat/read-db (str tmp))))
         (finally
           (fs/delete tmp))))))
 
@@ -131,7 +131,7 @@
 
 (deftest list-chats-no-filter-test
   (testing "lists all chat summaries without message bodies"
-    (let [result (vec (read-chat/list-chats sample-db {}))]
+    (let [result (vec (#'read-chat/list-chats sample-db {}))]
       (is (= #{"chat-1" "chat-2" "chat-3"} (set (map :id result))))
       (is (every? #(every? % [:id :title :status :model :created-at :updated-at :user-prompt-count]) result))
       (is (not-any? #(contains? % :messages) result)))))
@@ -146,7 +146,7 @@
                                 :updated-at jan-2-ms
                                 :user-prompt-count 1
                                 :messages []}}}
-          result (vec (read-chat/list-chats db {}))]
+          result (vec (#'read-chat/list-chats db {}))]
       (is (= "db-key" (:id (first result)))))))
 
 (deftest chat-messages-uses-db-key-as-chat-id-test
@@ -156,14 +156,14 @@
                                             :content "Hello"
                                             :content-id "m1"
                                             :created-at jan-1-ms}]}}}
-          {:keys [messages]} (read-chat/chat-messages db "db-key" {})]
+          {:keys [messages]} (#'read-chat/chat-messages db "db-key" {})]
       (is (= ["Hello"] (mapv :content messages)))
       (is (thrown? clojure.lang.ExceptionInfo
-                   (read-chat/chat-messages db "stale-stored-id" {}))))))
+                   (#'read-chat/chat-messages db "stale-stored-id" {}))))))
 
 (deftest list-chats-sorted-by-updated-at-desc-test
   (testing "chats are sorted by :updated-at descending"
-    (let [result (vec (read-chat/list-chats sample-db {}))
+    (let [result (vec (#'read-chat/list-chats sample-db {}))
           updated-ats (mapv :updated-at result)]
       (is (= updated-ats (vec (reverse (sort updated-ats)))))
       ;; chat-2 has feb-2 which is newest, so it must be first
@@ -174,7 +174,7 @@
     (let [db {:chats {"a" {:id "a" :updated-at 100}
                       "b" {:id "b"}
                       "c" {:id "c" :updated-at 200}}}
-          result (vec (read-chat/list-chats db {}))]
+          result (vec (#'read-chat/list-chats db {}))]
       (is (= ["c" "a" "b"] (mapv :id result))))))
 
 (deftest list-chats-time-filter-test
@@ -187,13 +187,13 @@
 
 (deftest list-chats-empty-test
   (testing "returns empty seq for empty chats"
-    (let [result (vec (read-chat/list-chats {:chats {}} {}))]
+    (let [result (vec (#'read-chat/list-chats {:chats {}} {}))]
       (is (= [] result)))))
 
 (deftest list-chats-invalid-date-test
   (testing "throws ex-info for invalid date format"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (doall (read-chat/list-chats sample-db {:since "not-a-date"}))))))
+                 (doall (#'read-chat/list-chats sample-db {:since "not-a-date"}))))))
 
 ;; relative time parsing tests
 
@@ -206,11 +206,11 @@
                      "recent" {:id "recent" :title "Recent" :status :idle :model "x"
                                :created-at (- now-ms 1800000) :updated-at (- now-ms 1800000) :user-prompt-count 0}})]
       (testing "1h includes recent chat only"
-        (let [result (vec (read-chat/list-chats db {:since "1h"}))]
+        (let [result (vec (#'read-chat/list-chats db {:since "1h"}))]
           (is (some #(= "recent" (:id %)) result))
           (is (not (some #(= "old" (:id %)) result)))))
       (testing "1d includes both chats"
-        (let [result (vec (read-chat/list-chats db {:since "1d"}))]
+        (let [result (vec (#'read-chat/list-chats db {:since "1d"}))]
           (is (= 2 (count result))))))))
 
 (deftest parse-date-relative-formats-test
@@ -232,14 +232,14 @@
 
 (deftest chat-messages-no-options-test
   (testing "returns all messages for given chat-id"
-    (let [{:keys [messages warnings]} (read-chat/chat-messages sample-db "chat-1" {})]
+    (let [{:keys [messages warnings]} (#'read-chat/chat-messages sample-db "chat-1" {})]
       (is (= 5 (count (vec messages))))
       (is (= [] warnings)))))
 
 (deftest chat-messages-missing-chat-test
   (testing "throws ex-info for missing chat-id"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (read-chat/chat-messages sample-db "nonexistent" {})))))
+                 (#'read-chat/chat-messages sample-db "nonexistent" {})))))
 
 (deftest chat-messages-filter-test
   (testing "filters messages by role and time bounds"
@@ -254,7 +254,7 @@
   (testing "messages without :created-at are excluded when --since is set; a warning is reported"
     (let [db-without-ts (update-in sample-db [:chats "chat-1" :messages]
                                    (fn [msgs] (mapv #(dissoc % :created-at) msgs)))
-          {:keys [messages warnings]} (read-chat/chat-messages db-without-ts "chat-1" {:since "2025-01-01"})]
+          {:keys [messages warnings]} (#'read-chat/chat-messages db-without-ts "chat-1" {:since "2025-01-01"})]
       (is (= 0 (count (vec messages))))
       (is (= 1 (count warnings)))
       (is (string/includes? (first warnings) "5"))
@@ -264,14 +264,14 @@
   (testing "no warning is produced when no time filter is active"
     (let [db-without-ts (update-in sample-db [:chats "chat-1" :messages]
                                    (fn [msgs] (mapv #(dissoc % :created-at) msgs)))
-          {:keys [warnings]} (read-chat/chat-messages db-without-ts "chat-1" {})]
+          {:keys [warnings]} (#'read-chat/chat-messages db-without-ts "chat-1" {})]
       (is (= [] warnings)))))
 
 ;; raw content preservation tests
 
 (deftest chat-messages-preserves-vector-content-test
   (testing "message content vectors are preserved as stored"
-    (let [{:keys [messages]} (read-chat/chat-messages sample-db "chat-3" {})
+    (let [{:keys [messages]} (#'read-chat/chat-messages sample-db "chat-3" {})
           msgs (vec messages)]
       (is (= [{:type :text :text "What is in this image?"}
               {:type :image :base64 "iVBOR..." :media-type "image/png"}]
@@ -282,7 +282,7 @@
 
 (deftest chat-messages-preserves-tool-map-content-test
   (testing "structured tool content maps are preserved as stored"
-    (let [{:keys [messages]} (read-chat/chat-messages sample-db "chat-3" {})
+    (let [{:keys [messages]} (#'read-chat/chat-messages sample-db "chat-3" {})
           tool-msg (last (vec messages))]
       (is (= "tool_call" (:role tool-msg)))
       (is (= {:name "Read" :arguments {:path "/foo/bar"} :id "tc-1"}
@@ -293,7 +293,7 @@
 (deftest emit-jsonl-one-line-per-record-test
   (testing "emits one valid JSON object per line"
     (let [data [{:a 1} {:b 2} {:c "hello"}]
-          out (with-out-str (read-chat/emit-jsonl! data))
+          out (with-out-str (#'read-chat/emit-jsonl! data))
           lines (string/split-lines (string/trim out))]
       (is (= 3 (count lines)))
       (is (= {:a 1} (cheshire/parse-string (nth lines 0) keyword)))
@@ -302,12 +302,12 @@
 
 (deftest emit-jsonl-empty-test
   (testing "empty seq emits nothing"
-    (is (= "" (with-out-str (read-chat/emit-jsonl! []))))))
+    (is (= "" (with-out-str (#'read-chat/emit-jsonl! []))))))
 
 (deftest emit-jsonl-escapes-newlines-in-content-test
   (testing "multi-line content stays on a single line via JSON escaping"
     (let [data [{:content "line one\nline two"}]
-          out (with-out-str (read-chat/emit-jsonl! data))
+          out (with-out-str (#'read-chat/emit-jsonl! data))
           lines (string/split-lines (string/trim out))]
       (is (= 1 (count lines)))
       (is (= "line one\nline two" (:content (cheshire/parse-string (first lines) keyword)))))))

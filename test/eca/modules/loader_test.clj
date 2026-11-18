@@ -197,7 +197,7 @@
                 {:path workspace-path :kind :workspace}
                 {:path global-path :kind :global}
                 {:path plugin-path :kind :plugin :plugin "acme-plugin"}]
-               (loader/sources {} (h/db)))))
+               (#'loader/sources {} (h/db)))))
       (testing "when two sources define one id, the first keeps it"
         (sync! {})
         (is (match? {:status :active :source cli-path :kind :cli} (status-of {} :acme/hello)))
@@ -208,7 +208,7 @@
         (is (modules/active? {} :acme/p)))
       (testing "pureConfig keeps only --module paths and configured sources"
         (is (= [{:path cli-path :kind :cli}]
-               (loader/sources {:pureConfig true} (h/db))))))))
+               (#'loader/sources {:pureConfig true} (h/db))))))))
 
 (deftest same-namespace-test
   (with-dirs [global _workspace]
@@ -258,7 +258,7 @@
         (is (= "Hey" (:acmeGreeting config))))
       (testing ":start runs, and its value is the module state"
         (modules/start! {:db* (h/db*) :messenger (h/messenger) :metrics (h/metrics)} config)
-        (is (modules/running? :acme/stateful))
+        (is (#'modules/running? :acme/stateful))
         (is (= "Hey from 1 workspace"
                (command-text (f.commands/handle-command! "greet" [] (chat-ctx config)))))))))
 

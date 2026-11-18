@@ -17,7 +17,7 @@
 
 (set! *warn-on-reflection* true)
 
-(def last-compaction-sentinel
+(def ^:private last-compaction-sentinel
   "Literal cursor value resolving to the position of the last compaction marker."
   "lastCompaction")
 
@@ -157,7 +157,7 @@
    :after-cursor (:after-cursor page)
    :compaction-cursor (compaction-cursor messages)})
 
-(def default-history-page-size
+(def ^:private default-history-page-size
   "Messages sent when the server creates a chat for a client supporting
    incremental updates that did not declare a `historyPageSize`."
   50)
@@ -171,7 +171,7 @@
   [db]
   (boolean (incremental-updates-capability db)))
 
-(defn history-page-size
+(defn ^:private history-page-size
   "Number of messages to send for a chat the server creates, as declared by
    the client's `incrementalUpdates` capability."
   [db]

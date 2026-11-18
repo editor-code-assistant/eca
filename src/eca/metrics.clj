@@ -6,7 +6,7 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:dynamic extra-base-metrics {})
+(def ^:dynamic ^:private extra-base-metrics {})
 
 (defn set-extra-metrics! [db*]
   (alter-var-root #'extra-base-metrics
@@ -50,7 +50,7 @@
     @(:impl* metrics)
     metrics))
 
-(defn default-attrs []
+(defn ^:private default-attrs []
   (merge extra-base-metrics
          {:hostname (shared/hostname)
           :server-version (config/eca-version)
@@ -58,7 +58,7 @@
           :os-version (System/getProperty "os.version")
           :os-arch (System/getProperty "os.arch")}))
 
-(defn format-time-delta-ms [start-time end-time]
+(defn ^:private format-time-delta-ms [start-time end-time]
   (format "%.0fms" (float (/ (- end-time start-time) 1000000))))
 
 (defn start-time->end-time-ms [start-time]

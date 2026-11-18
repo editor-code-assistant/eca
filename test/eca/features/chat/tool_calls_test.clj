@@ -570,7 +570,7 @@
                                     (assoc-in [:chats chat-id :messages] [])
                                     (assoc-in [:chats chat-id :tool-calls "call-1" :status] :preparing)))
           chat-ctx  {:db*       db*
-                     :config    (assoc-in (config/initial-config)
+                     :config    (assoc-in (#'config/initial-config)
                                           [:providers provider :key] "key-resolved-at-prompt-start")
                      :chat-id   chat-id
                      :provider  provider

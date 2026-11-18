@@ -61,9 +61,9 @@
   (str "The following errors occurred while parsing your command:\n\n"
        (string/join \newline (map cli-error-msg errors))))
 
-(def log-levels #{"error" "warn" "info" "debug"})
+(def ^:private log-levels #{"error" "warn" "info" "debug"})
 
-(def cli-spec
+(def ^:private cli-spec
   {:order [:help :version :verbose :config-file :log-level :module :repl]
    :spec {:help {:alias :h
                  :desc "Print the available commands and its options"}
@@ -172,7 +172,7 @@
           (println (.getMessage e)))
         {:result-code 1}))))
 
-(defn run!
+(defn ^:private run!
   "Entrypoint for ECA CLI."
   [& args]
   (modules/set-built-ins! built-in/modules)
@@ -182,17 +182,17 @@
        :message-fn (constantly  exit-message)}
       (handle-action! action options))))
 
-(defn main [& args]
+(defn ^:private main [& args]
   (let [{:keys [result-code message-fn]} (apply run! args)]
     (exit result-code (when message-fn (message-fn)))))
 
-(def musl?
+(def ^:private musl?
   "Captured at compile time, to know if we are running inside a
   statically compiled executable with musl."
   (and (= "true" (System/getenv "ECA_STATIC"))
        (= "true" (System/getenv "ECA_MUSL"))))
 
-(defmacro run [args]
+(defmacro ^:private run [args]
   (if musl?
     ;; When running in musl-compiled static executable we lift execution of eca
     ;; inside a thread, so we have a larger than default stack size, set by an

@@ -183,7 +183,7 @@
                                    #(filter map? (cons (:items %) (vals (:properties %))))
                                    schema))]
       (is (= []
-             (for [tool (f.tools/native-tools {} {})
+             (for [tool (#'f.tools/native-tools {} {})
                    node (schema-nodes (:parameters tool))
                    :when (or (not ((some-fn nil? string?) (:type node)))
                              (some #(contains? node %) [:anyOf :oneOf :allOf :$ref]))]

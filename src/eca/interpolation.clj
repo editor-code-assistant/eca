@@ -56,7 +56,7 @@
                              (string/starts-with? normalized (str dir separator)))
                      dir)))))))
 
-(defn get-env [env] (System/getenv env))
+(defn ^:private get-env [env] (System/getenv env))
 
 (def ^:private cmd-default-timeout-ms 30000)
 (def ^:private cmd-cache-ttl-ms (* 5 60 1000))
@@ -80,7 +80,7 @@
           (string/replace #".*/" "")
           string/lower-case))
 
-(defn supported-query-shell?
+(defn ^:private supported-query-shell?
   "True when the shell's basename is a POSIX shell we know how to query
   (bash/zsh/sh/dash/ksh). Other shells (notably fish) use different syntax
   for `$PATH` expansion and are skipped -- we fall back to hardcoded
@@ -88,7 +88,7 @@
   [shell-path]
   (contains? supported-query-shells (posix-shell-name shell-path)))
 
-(defn augment-path
+(defn ^:private augment-path
   "Pure helper. On macOS, returns a PATH string with Homebrew, /usr/local/bin
   and `<home>/.local/bin` prepended (only entries not already present in
   `existing-path`). On other OSes returns `existing-path` unchanged."
@@ -107,7 +107,7 @@
         :else (str (string/join sep missing) sep existing)))
     existing-path))
 
-(defn run-process!
+(defn ^:private run-process!
   "Spawns `cmd-vector` via babashka.process with `extra-env` merged into the
   child env, deref'd with `timeout-ms`. Returns {:exit :out :err}.
   On timeout destroys the process tree and throws ex-info.
@@ -127,7 +127,7 @@
                         {:cmd cmd-vector :timeout-ms timeout-ms})))
       result)))
 
-(defn query-user-shell-path*
+(defn ^:private query-user-shell-path*
   "Spawns `shell-path` as `<shell> -ilc 'printf DELIM%sDELIM \"$PATH\"'` (an
   interactive login shell, which sources the user's rc/profile files) and
   extracts the captured PATH from between the delimiters. Returns the PATH
@@ -153,7 +153,7 @@
       (logger/debug logger-tag "Shell PATH query failed:" (.getMessage e))
       nil)))
 
-(defn query-user-shell-path
+(defn ^:private query-user-shell-path
   "Reads `$SHELL` from the environment (defaulting to /bin/bash) and queries it
   for the user's PATH. Returns the PATH string or nil on failure. Public for
   test redefinition."
@@ -162,7 +162,7 @@
 
 (defonce ^:private user-shell-path-cache* (atom ::unset))
 
-(defn user-shell-path
+(defn ^:private user-shell-path
   "Returns the user's interactive shell PATH or nil. Lazily queried on first
   call and cached for the process lifetime. Both successful and unsuccessful
   results are cached -- we don't retry the shell query on every miss."
@@ -179,7 +179,7 @@
   []
   (reset! user-shell-path-cache* ::unset))
 
-(defn effective-path
+(defn ^:private effective-path
   "Returns the PATH to use for the cmd resolver child process.
 
   On macOS, prefers the user's interactive shell PATH (queried once and cached);
@@ -197,7 +197,7 @@
     ["powershell.exe" "-NoProfile" "-Command" cmd-string]
     ["bash" "-c" cmd-string]))
 
-(defn resolve-cmd
+(defn ^:private resolve-cmd
   "Runs `cmd-string` via the platform shell (bash on POSIX, PowerShell on Windows)
   and returns its stdout with trailing whitespace trimmed.
 

@@ -78,7 +78,7 @@
          (map (fn [path] {:path (canonical path) :kind kind}))
          (sort-by :path))))
 
-(defn sources
+(defn ^:private sources
   "The external module sources under `config`, by precedence, one per path:
    `{:path :kind}`, with `:expected-id` for a `modules.<id>.source` and
    `:plugin` for a plugin's module. `pureConfig` keeps only the `--module`

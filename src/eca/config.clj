@@ -34,11 +34,11 @@
 
 (def ^:private logger-tag "[CONFIG]")
 
-(def ^:dynamic *env-var-config-error* false)
-(def ^:dynamic *custom-config-error* false)
-(def ^:dynamic *global-config-error* false)
-(def ^:dynamic *local-config-error* false)
-(def ^:dynamic *extra-config-error* false)
+(def ^:dynamic ^:private *env-var-config-error* false)
+(def ^:dynamic ^:private *custom-config-error* false)
+(def ^:dynamic ^:private *global-config-error* false)
+(def ^:dynamic ^:private *local-config-error* false)
+(def ^:dynamic ^:private *extra-config-error* false)
 
 (def ^:private listen-idle-ms 3000)
 
@@ -81,7 +81,7 @@
    :remote {:enabled false}
    :env "prod"})
 
-(def core-root-keys
+(def ^:private core-root-keys
   "Root config keys ECA reads that no module declares (yet): the ones above,
    which keep their defaults here, and keys without a default, legacy keys and
    keys ECA sets itself. Modules' keys come from their `:config-spec`."
@@ -101,9 +101,9 @@
        x))
    config))
 
-(declare deep-merge)
+(declare ^:private deep-merge)
 
-(defn initial-config
+(defn ^:private initial-config
   "ECA's config defaults: the ones the active modules declare (their
    `:config-spec` defaults and `:config-defaults`, see
    `eca.modules/default-config`) under the rest in `initial-config*`.
@@ -179,7 +179,7 @@
 
 (def ^:private default-modes #{"primary" "subagent"})
 
-(defn agent-modes
+(defn ^:private agent-modes
   "Returns the effective set of modes for an agent config.
 
    The `:mode` field accepts either a single string (e.g. \"primary\") or a
@@ -193,7 +193,7 @@
       (and (coll? mode) (seq mode)) (set mode)
       :else default-modes)))
 
-(defn subagent-available?
+(defn ^:private subagent-available?
   "Returns whether an agent config is available as a subagent to parent-agent-name."
   [agent-config parent-agent-name]
   (let [spawnable-by (:spawnableBy agent-config)
@@ -282,7 +282,7 @@
       (some-> (safe-read-json-string (slurp config-file) (var *global-config-error*))
               (parse-dynamic-string-values (shared/global-config-dir))))))
 
-(declare merge-config)
+(declare ^:private merge-config)
 
 (defn ^:private merge-config-layers
   "Merges file config layers into config. Non-plugin keys stay aggregated
@@ -326,7 +326,7 @@
   []
   (deref plugins-resolved* 30000 nil))
 
-(defn ^:private deep-merge [& maps]
+(defn ^:private ^:private deep-merge [& maps]
   (apply merge-with (fn [& args]
                       (if (every? #(or (map? %) (nil? %)) args)
                         (apply deep-merge args)
@@ -539,7 +539,7 @@
    `mcpServers`'."
   [])
 
-(defn ^:private merge-config
+(defn ^:private ^:private merge-config
   "Deep-merges a normalized config layer into config. The plugins install
    lists combine across layers: a layer's entries append unless its own
    installMode is \"replace\"; so do `shared/additive-config-lists`, e.g.
@@ -580,7 +580,7 @@
              config
              optional-modules-turned-on-by))
 
-(declare all-layers*)
+(declare ^:private all-layers*)
 
 (defn ^:private all-layers
   "The config from every source, over the defaults of the modules active
@@ -589,7 +589,7 @@
   (binding [*module-string-key-paths* (modules/external-map-paths {:modules modules-config})]
     (all-layers* db modules-config)))
 
-(defn ^:private all-layers*
+(defn ^:private ^:private all-layers*
   [db modules-config]
   (let [initialization-config @initialization-config*
         pure-config? (:pureConfig initialization-config)
@@ -744,7 +744,7 @@
                   (logger/error logger-tag "Error in config-updated fn:" (.getMessage e)))))))
         (recur new-config new-validation-error)))))
 
-(defn diff-keeping-vectors
+(defn ^:private diff-keeping-vectors
   "Like (second (clojure.data/diff a b)) but if a value is a vector, keep vector value from b.
 
   Example1: (diff-keeping-vectors {:a 1 :b 2}  {:a 1 :b 3}) => {:b 3}

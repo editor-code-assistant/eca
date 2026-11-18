@@ -74,7 +74,7 @@
             (is (instance? FakeExporter (metrics/current m))))
           (testing "turning it off stops it"
             (modules/set-enabled! :eca/otel false)
-            (modules/reconcile! components (config {:otlp otlp}))
+            (#'modules/reconcile! components (config {:otlp otlp}))
             (is (instance? eca.metrics.NoopMetrics (metrics/current m))))
           (finally
             (modules/stop-all! components)))))))

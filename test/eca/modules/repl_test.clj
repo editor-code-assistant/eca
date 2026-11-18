@@ -186,7 +186,7 @@
 (deftest loopback-only-test
   (with-repl (repl-config {:repl {:host "8.8.8.8"}})
     (testing "a host that isn't a loopback address fails to start"
-      (is (not (modules/running? :eca/repl)))
+      (is (not (#'modules/running? :eca/repl)))
       (is (match? {:status :failed :reason #"repl.host must be a loopback address"}
                   (some #(when (= :eca/repl (:id %)) %) (modules/statuses (repl-config))))))))
 

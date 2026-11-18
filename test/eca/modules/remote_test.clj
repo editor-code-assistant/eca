@@ -86,12 +86,12 @@
           (is (empty? @calls*)))
         (testing "turning it on for the session starts the server"
           (modules/set-enabled! :eca/remote true)
-          (modules/reconcile! components {})
+          (#'modules/reconcile! components {})
           (is (= :start (ffirst @calls*)))
           (is (some? (m.remote/running))))
         (testing "turning it off stops it"
           (modules/set-enabled! :eca/remote false)
-          (modules/reconcile! components {})
+          (#'modules/reconcile! components {})
           (is (= [:stop ::jetty] (last @calls*)))
           (is (nil? (m.remote/running))))
         (finally

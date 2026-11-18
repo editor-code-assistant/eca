@@ -12,27 +12,27 @@
 (deftest parse-key-rc-simple-machine-test
   (testing "Parse simple machine name"
     (is (= {:machine "api.openai.com" :login nil :port nil}
-           (secrets/parse-key-rc "api.openai.com")))))
+           (#'secrets/parse-key-rc "api.openai.com")))))
 
 (deftest parse-key-rc-with-login-test
   (testing "Parse with login prefix"
     (is (= {:machine "api.anthropic.com" :login "work" :port nil}
-           (secrets/parse-key-rc "work@api.anthropic.com")))))
+           (#'secrets/parse-key-rc "work@api.anthropic.com")))))
 
 (deftest parse-key-rc-with-port-test
   (testing "Parse with port suffix"
     (is (= {:machine "api.custom.com" :login nil :port "8443"}
-           (secrets/parse-key-rc "api.custom.com:8443")))))
+           (#'secrets/parse-key-rc "api.custom.com:8443")))))
 
 (deftest parse-key-rc-full-format-test
   (testing "Parse full format with login and port"
     (is (= {:machine "api.anthropic.com" :login "personal" :port "443"}
-           (secrets/parse-key-rc "personal@api.anthropic.com:443")))))
+           (#'secrets/parse-key-rc "personal@api.anthropic.com:443")))))
 
 (deftest parse-key-rc-empty-string-test
   (testing "Handle empty string"
-    (is (nil? (secrets/parse-key-rc "")))
-    (is (nil? (secrets/parse-key-rc nil)))))
+    (is (nil? (#'secrets/parse-key-rc "")))
+    (is (nil? (#'secrets/parse-key-rc nil)))))
 
 (deftest get-credential-simple-machine-test
   (testing "Get credential with simple machine name"
@@ -212,10 +212,10 @@
 
 (deftest netrc-file-path-test
   (testing "Use specified netrc file when provided"
-    (let [paths (secrets/credential-file-paths "/dev/test/mynetrc")]
+    (let [paths (#'secrets/credential-file-paths "/dev/test/mynetrc")]
       (is (= ["/dev/test/mynetrc"] paths))))
   (testing "Home directory is resolved correctly across platforms"
-    (let [paths (secrets/credential-file-paths nil)]
+    (let [paths (#'secrets/credential-file-paths nil)]
       (is (seq paths))
       (is (every? string? paths))
       ;; Should contain standard credential files

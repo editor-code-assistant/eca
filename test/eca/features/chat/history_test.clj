@@ -98,15 +98,15 @@
                      (msg "user" "summary" 4)
                      (msg "assistant" "m4" 5)]]
     (testing "after=lastCompaction returns post-compaction messages, newest-anchored"
-      (let [r (f.chat.history/window-messages with-marker {:after f.chat.history/last-compaction-sentinel})]
+      (let [r (f.chat.history/window-messages with-marker {:after @#'f.chat.history/last-compaction-sentinel})]
         (is (= ["summary" "m4"] (texts r)))
         (is (nil? (:after-cursor r)))
         (is (some? (:before-cursor r))))
-      (let [r (f.chat.history/window-messages with-marker {:after f.chat.history/last-compaction-sentinel :limit 1})]
+      (let [r (f.chat.history/window-messages with-marker {:after @#'f.chat.history/last-compaction-sentinel :limit 1})]
         (is (= ["m4"] (texts r)))))
 
     (testing "before=lastCompaction returns the summarized-away history"
-      (let [r (f.chat.history/window-messages with-marker {:before f.chat.history/last-compaction-sentinel})]
+      (let [r (f.chat.history/window-messages with-marker {:before @#'f.chat.history/last-compaction-sentinel})]
         (is (= ["m0" "m1"] (texts r)))))
 
     (testing "compaction-cursor is present only when compacted"
@@ -114,5 +114,5 @@
       (is (nil? (f.chat.history/compaction-cursor messages))))
 
     (testing "lastCompaction with no marker falls back to the full window"
-      (let [r (f.chat.history/window-messages messages {:after f.chat.history/last-compaction-sentinel})]
+      (let [r (f.chat.history/window-messages messages {:after @#'f.chat.history/last-compaction-sentinel})]
         (is (= ["m0" "m1" "m2" "m3" "m4"] (texts r)))))))

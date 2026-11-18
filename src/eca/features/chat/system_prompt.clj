@@ -20,7 +20,7 @@
   (str (System/getProperty "user.name") "@ECA"
        (when (not-empty agent) (str "/" agent))))
 
-(defn static-prompt-cache-signature
+(defn ^:private static-prompt-cache-signature
   "Per-component SHA-256 cache identity for static prompt reuse.
    Returns a map of category -> hash so mid-chat instruction changes
    can be attributed to what changed: prompt, contexts, the sections with
@@ -52,7 +52,7 @@
                                     :deferrable (sort (map :full-name (filter :deferrable all-tools)))})))
       uncategorized (assoc :modules (sha uncategorized)))))
 
-(defn changed-system-prompt-categories
+(defn ^:private changed-system-prompt-categories
   "Names of system prompt categories that changed vs the cached signature;
    a category on one side only (modules) counts as changed.
    Empty when the old signature has an unknown (legacy) shape."
@@ -66,7 +66,7 @@
                                      (name k))))
                            (distinct (concat (keys static-signature) (keys old-sig)))))))
 
-(defn send-system-prompt-changed-notice!
+(defn ^:private send-system-prompt-changed-notice!
   [chat-ctx categories suffix]
   (f.chat.lifecycle/send-content!
    chat-ctx :system
@@ -76,7 +76,7 @@
                  (str " (" (string/join ", " categories) ")"))
                suffix)}))
 
-(defn pinned-system-prompt-changed-text
+(defn ^:private pinned-system-prompt-changed-text
   "Notice for a pinned chat whose system prompt inputs drifted.
    Tools are special: the tool schemas sent to the LLM are recomputed every
    turn, so tool changes (e.g. a MCP server connected/disconnected) already

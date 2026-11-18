@@ -94,11 +94,11 @@
     (is (not (string/includes? (spawn-description nil) "duel-worker"))))
 
   (testing "native tool generation propagates the current primary agent"
-    (let [duel-description (->> (f.tools/native-tools "chat-1" "duel" test-db test-config)
+    (let [duel-description (->> (#'f.tools/native-tools "chat-1" "duel" test-db test-config)
                                 (filter #(= "spawn_agent" (:name %)))
                                 first
                                 :description)
-          code-description (->> (f.tools/native-tools "chat-1" "code" test-db test-config)
+          code-description (->> (#'f.tools/native-tools "chat-1" "code" test-db test-config)
                                 (filter #(= "spawn_agent" (:name %)))
                                 first
                                 :description)]

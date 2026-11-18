@@ -43,7 +43,7 @@
                                             db)))]
     [(get-in old-db path) (get-in new-db path)]))
 
-(defn flush-reason-group!
+(defn ^:private flush-reason-group!
   "Closes the chat's open reasoning group, if any, sending its single
    reasonFinished with the total time of the merged blocks, counting blocks
    still in flight (e.g. stopped mid-thinking) up to now."
@@ -225,7 +225,7 @@
   (when-let [module (::events/ended-by event)]
     (assoc-some {:module module} :by (::events/by event))))
 
-(defn ended-message
+(defn ^:private ended-message
   "The user-facing message when `ended-by` ended something, `what`, e.g.
    \"Turn stopped by hook 'lint': too risky\" or \"Request blocked by module
    'acme/x'.\". A stop's reason is never sent to the model."
@@ -247,7 +247,7 @@
   [chat-ctx]
   (dissoc chat-ctx :on-finished-side-effect :on-after-finish!))
 
-(defn wrap-additional-context
+(defn ^:private wrap-additional-context
   "Return XML-wrapped additional context."
   [content]
   (format "<additionalContext>\n%s\n</additionalContext>"

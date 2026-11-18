@@ -978,7 +978,7 @@
       ;; Intentional: Copilot variants come only from /models discovery; built-in
       ;; Claude variants are restricted to the anthropic/bedrock APIs (see
       ;; :variantsByModel :api and docs/config/variants.md).
-      (let [default-config (config/initial-config)]
+      (let [default-config (#'config/initial-config)]
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-sonnet-4-6" nil nil)))
         (is (nil? (config/effective-model-variants default-config "github-copilot" "claude-sonnet-5" nil nil)))
         (is (= anthropic-variants
@@ -992,7 +992,7 @@
                (config/effective-model-variants default-config "anthropic" "claude-opus-5-5" nil nil)))))
 
     (testing "Default config: Claude models on openai-chat providers (e.g. OpenRouter) get verbosity-based variants"
-      (let [default-config (assoc-in (config/initial-config) [:providers "openrouter" :api] "openai-chat")]
+      (let [default-config (assoc-in (#'config/initial-config) [:providers "openrouter" :api] "openai-chat")]
         (is (= {"low" {:verbosity "low" :reasoning {:enabled true}}
                 "medium" {:verbosity "medium" :reasoning {:enabled true}}
                 "high" {:verbosity "high" :reasoning {:enabled true}}
@@ -1027,7 +1027,7 @@
                                                    {:api :openai-chat} nil)))))
 
     (testing "Default config: gpt-6 models get effort variants without none"
-      (let [default-config (assoc-in (config/initial-config) [:providers "custom" :api] "openai-responses")
+      (let [default-config (assoc-in (#'config/initial-config) [:providers "custom" :api] "openai-responses")
             gpt-6-variants {"low" {:reasoning {:effort "low" :summary "auto"}}
                             "medium" {:reasoning {:effort "medium" :summary "auto"}}
                             "high" {:reasoning {:effort "high" :summary "auto"}}
@@ -1055,7 +1055,7 @@
         (is (nil? (config/effective-model-variants default-config "github-copilot" "gpt-6.2-sol" nil nil)))))
 
     (testing "Default config: GPT models on openai-chat providers (e.g. LiteLLM/Azure gateways) get reasoning_effort variants (#609)"
-      (let [default-config (-> (config/initial-config)
+      (let [default-config (-> (#'config/initial-config)
                                (assoc-in [:providers "gateway" :api] "openai-chat")
                                (assoc-in [:providers "legacy" :api] "openai"))]
         (doseq [model ["openai/gpt-6-astra" "openai/gpt-6.2-astra" "gpt-6.2-sol"]]
@@ -1295,19 +1295,19 @@
 
 (deftest agent-modes-test
   (testing "scalar string :mode is honored"
-    (is (= #{"primary"} (config/agent-modes {:mode "primary"})))
-    (is (= #{"subagent"} (config/agent-modes {:mode "subagent"}))))
+    (is (= #{"primary"} (#'config/agent-modes {:mode "primary"})))
+    (is (= #{"subagent"} (#'config/agent-modes {:mode "subagent"}))))
   (testing "list :mode is honored"
-    (is (= #{"primary"} (config/agent-modes {:mode ["primary"]})))
-    (is (= #{"subagent"} (config/agent-modes {:mode ["subagent"]})))
+    (is (= #{"primary"} (#'config/agent-modes {:mode ["primary"]})))
+    (is (= #{"subagent"} (#'config/agent-modes {:mode ["subagent"]})))
     (is (= #{"primary" "subagent"}
-           (config/agent-modes {:mode ["primary" "subagent"]}))))
+           (#'config/agent-modes {:mode ["primary" "subagent"]}))))
   (testing "duplicates in list :mode collapse via set semantics"
-    (is (= #{"primary"} (config/agent-modes {:mode ["primary" "primary"]}))))
+    (is (= #{"primary"} (#'config/agent-modes {:mode ["primary" "primary"]}))))
   (testing "absent, nil, or empty :mode defaults to both primary and subagent"
-    (is (= #{"primary" "subagent"} (config/agent-modes {})))
-    (is (= #{"primary" "subagent"} (config/agent-modes {:mode nil})))
-    (is (= #{"primary" "subagent"} (config/agent-modes {:mode []})))))
+    (is (= #{"primary" "subagent"} (#'config/agent-modes {})))
+    (is (= #{"primary" "subagent"} (#'config/agent-modes {:mode nil})))
+    (is (= #{"primary" "subagent"} (#'config/agent-modes {:mode []})))))
 
 (deftest subagent-availability-test
   (let [unrestricted {:mode "subagent"}
@@ -1316,16 +1316,16 @@
                                :spawnableBy ["duel" "another"]}
         primary-only {:mode "primary" :spawnableBy "duel"}]
     (testing "unrestricted subagents are available to every or no parent"
-      (is (config/subagent-available? unrestricted "code"))
-      (is (config/subagent-available? unrestricted nil)))
+      (is (#'config/subagent-available? unrestricted "code"))
+      (is (#'config/subagent-available? unrestricted nil)))
     (testing "restricted subagents require an exact allowed parent id"
-      (is (config/subagent-available? restricted-string "duel"))
-      (is (config/subagent-available? restricted-collection "another"))
-      (is (not (config/subagent-available? restricted-string "Duel")))
-      (is (not (config/subagent-available? restricted-string "code")))
-      (is (not (config/subagent-available? restricted-string nil))))
+      (is (#'config/subagent-available? restricted-string "duel"))
+      (is (#'config/subagent-available? restricted-collection "another"))
+      (is (not (#'config/subagent-available? restricted-string "Duel")))
+      (is (not (#'config/subagent-available? restricted-string "code")))
+      (is (not (#'config/subagent-available? restricted-string nil))))
     (testing "spawnableBy does not make primary-only agents into subagents"
-      (is (not (config/subagent-available? primary-only "duel"))))))
+      (is (not (#'config/subagent-available? primary-only "duel"))))))
 
 (deftest primary-agent-names-test
   (testing "includes agents whose effective modes contain 'primary'"

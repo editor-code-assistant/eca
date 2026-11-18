@@ -223,7 +223,7 @@
   [{:keys [all-tools chat-id db] :as prompt-ctx}]
   (assoc prompt-ctx :selmer-ctx (->base-selmer-ctx all-tools chat-id db)))
 
-(defn build-static-instructions
+(defn ^:private build-static-instructions
   "Builds the cacheable static system-prompt prefix, from the active modules'
    static `:system-prompts` sections. `prompt-ctx` is what a chat's system
    prompt is built from: `:refined-contexts`, `:agent`, `:config`,

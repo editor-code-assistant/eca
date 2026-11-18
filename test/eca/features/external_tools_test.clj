@@ -216,7 +216,7 @@
       (testing "one that fails gives nothing, and counts as the module's failure"
         (is (nil? (f.tools/tool-call-details-after-invocation tool {"path" "/a"} nil {:error false :contents []}
                                                               {:db (h/db) :config {}})))
-        (is (= 1 (modules/failures :acme/rich)))))))
+        (is (= 1 (#'modules/failures :acme/rich)))))))
 
 (deftest transform-tools-test
   (with-modules [{:id :acme/hide-grep
@@ -231,7 +231,7 @@
         (is (= [:acme/hide-grep] @calls*)))
       (testing "one that fails leaves it as it was"
         (is (contains? names "eca__read_file"))
-        (is (= 1 (modules/failures :acme/broken)))))))
+        (is (= 1 (#'modules/failures :acme/broken)))))))
 
 (deftest command-functions-test
   (with-modules [{:id :acme/cmds
@@ -278,10 +278,10 @@
       (is (string/includes? text "tools `eca__read_file`")))))
 
 (deftest reserved-prefix-test
-  (is (match? {:errors [#":prefix eca is reserved"]} (modules/problems {:id :acme/x :prefix "eca"} {})))
-  (is (match? {:errors [#":prefix defaults to the name in :id"]} (modules/problems {:id :acme/eca} {})))
-  (is (= [] (:errors (modules/problems {:id :acme/eca :prefix "acme"} {}))))
-  (is (= [] (:errors (modules/problems {:id :eca/x :prefix "eca"} {:built-in? true})))))
+  (is (match? {:errors [#":prefix eca is reserved"]} (#'modules/problems {:id :acme/x :prefix "eca"} {})))
+  (is (match? {:errors [#":prefix defaults to the name in :id"]} (#'modules/problems {:id :acme/eca} {})))
+  (is (= [] (:errors (#'modules/problems {:id :acme/eca :prefix "acme"} {}))))
+  (is (= [] (:errors (#'modules/problems {:id :eca/x :prefix "eca"} {:built-in? true})))))
 
 (defn- refreshes
   "The tool servers clients get, from each of the two refreshes: when modules
@@ -314,11 +314,11 @@
                     (filter #(= :module (:type %)) updates)))))
     (testing "the traits' values are checked"
       (is (match? {:errors [#":subagents\? must be a boolean" #":progress-text must be a string"]}
-                  (modules/problems {:id :acme/bad
-                                     :tools {"t" {:description "T." :parameters {:type "object"}
-                                                  :handler (fn [_ _] "ok")
-                                                  :subagents? "no" :progress-text 1}}}
-                                    {}))))))
+                  (#'modules/problems {:id :acme/bad
+                                       :tools {"t" {:description "T." :parameters {:type "object"}
+                                                    :handler (fn [_ _] "ok")
+                                                    :subagents? "no" :progress-text 1}}}
+                                      {}))))))
 
 (deftest tool-approval-event-test
   (testing "the tools a module's :tool/approval denies are left out of the model's tools"

@@ -72,7 +72,7 @@
         (logger/warn logger-tag (str "Dropping " (count invalid-ids) " chat(s) with invalid ids from legacy cache " f)))
       (db.chats/stamp-chat-ids (into {} (filter (comp string? key)) chats)))))
 
-(defn migrate-legacy-workspace-caches!
+(defn ^:private migrate-legacy-workspace-caches!
   "Migrates pre-v7 whole-workspace `db.transit.json` blobs into the per-chat
    layout (#557). Reads the canonical blob plus blobs living in redundant
    cache dirs for the same workspace set (legacy hash-only names, different

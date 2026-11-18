@@ -36,7 +36,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `context.clj`            | Contexts attached to prompts: files, folders, the cursor, and the ones modules give.
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
-   └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
+   └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls; `tools/util.clj` helpers. The approval rules are `eca/approval`'s (`modules/approval.clj`).
    `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`, which `eca.main` hands to the runtime
    ├─ `core.clj`               | ECA's own commands (`/model`, `/compact`, `/context`, `/modules`, ...) and prompt sections; the chat ones (`/fork`, `/resume`, `/export`, `/debug-chat`, ...) are in `chat_management.clj`.
    ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...

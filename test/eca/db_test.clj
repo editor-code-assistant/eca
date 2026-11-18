@@ -354,7 +354,7 @@
                             {:version db.io/version
                              :chats {"a" {:id "a" :updated-at 200 :title "new-a" :messages []}
                                      "b" {:id "b" :updated-at 50 :title "b" :messages []}}})
-            (db.migration/migrate-legacy-workspace-caches! workspaces nil)
+            (#'db.migration/migrate-legacy-workspace-caches! workspaces nil)
             (is (= "new-a" (:title (read-chat-cache workspaces "a"))) "newest :updated-at wins on conflict")
             (is (= "b" (:title (read-chat-cache workspaces "b"))))
             (is (= #{"a" "b"} (set (keys (read-index workspaces)))))
@@ -374,7 +374,7 @@
                                      "aaaaaaaa-1111-2222-3333-444444444444"
                                      {:id "aaaaaaaa-1111-2222-3333-444444444444"
                                       :title "good" :updated-at 100 :messages []}}})
-            (db.migration/migrate-legacy-workspace-caches! workspaces nil)
+            (#'db.migration/migrate-legacy-workspace-caches! workspaces nil)
             (is (= "good" (:title (read-chat-cache workspaces "aaaaaaaa-1111-2222-3333-444444444444")))
                 "valid chats still migrate")
             (is (= #{"aaaaaaaa-1111-2222-3333-444444444444"} (set (keys (read-index workspaces)))))
@@ -393,7 +393,7 @@
             (write-transit! canonical
                             {:version db.io/version
                              :chats {"a" {:id "a" :updated-at 100 :title "stale-blob" :messages []}}})
-            (db.migration/migrate-legacy-workspace-caches! workspaces nil)
+            (#'db.migration/migrate-legacy-workspace-caches! workspaces nil)
             (is (= "newer-per-chat" (:title (read-chat-cache workspaces "a"))))
             (is (= "newer-per-chat" (get-in (read-index workspaces) ["a" :title]))))
           (finally (fs/delete-tree tmpdir)))))))
@@ -570,17 +570,17 @@
                     "orphan" {:id "orphan" :parent-chat-id "deleted"}
                     "loop"   {:id "loop" :parent-chat-id "loop"}}}]
     (testing "a top-level chat is its own root"
-      (is (= "root" (db/root-chat-id db "root"))))
+      (is (= "root" (#'db/root-chat-id db "root"))))
     (testing "a subagent resolves to the chat that spawned it"
-      (is (= "root" (db/root-chat-id db "sub"))))
+      (is (= "root" (#'db/root-chat-id db "sub"))))
     (testing "a nested chain resolves to its top-level chat"
-      (is (= "root" (db/root-chat-id db "leaf"))))
+      (is (= "root" (#'db/root-chat-id db "leaf"))))
     (testing "stops at the last existing chat when the parent is gone"
-      (is (= "orphan" (db/root-chat-id db "orphan"))))
+      (is (= "orphan" (#'db/root-chat-id db "orphan"))))
     (testing "an unknown chat-id resolves to itself"
-      (is (= "missing" (db/root-chat-id db "missing"))))
+      (is (= "missing" (#'db/root-chat-id db "missing"))))
     (testing "a self-referential parent chain terminates instead of looping forever"
-      (is (= "loop" (db/root-chat-id db "loop"))))))
+      (is (= "loop" (#'db/root-chat-id db "loop"))))))
 
 (deftest update-remembered-approvals-test
   (let [db {:chats {"root" {:id "root"}

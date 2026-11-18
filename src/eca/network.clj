@@ -23,7 +23,7 @@
 
 (def ^:private logger-tag "[NETWORK]")
 
-(defn parse-proxy-url
+(defn ^:private parse-proxy-url
   "Parses a proxy URL-STR of the form `scheme://[user:pass@]host:port` into a map.
 
   Returns a map with the following keys:
@@ -57,7 +57,7 @@
        :username (decode user)
        :password (decode pass)})))
 
-(defn proxy-urls-system-env-get
+(defn ^:private proxy-urls-system-env-get
   "Returns a map of the HTTP and HTTPS proxy environment variables,
   preferring lowercase variable names over uppercase.
 
@@ -71,7 +71,7 @@
    :https  (or (config/get-env "https_proxy")
                (config/get-env "HTTPS_PROXY"))})
 
-(defn proxy-urls-parse
+(defn ^:private proxy-urls-parse
   "Parses the HTTP and HTTPS proxy URL strings from URLS-MAP and returns a map of parsed values.
 
   The input map may contain the keys:
@@ -132,7 +132,7 @@
 (defn ^:private non-blank [^String s]
   (when-not (or (nil? s) (string/blank? s)) s))
 
-(defn read-network-config
+(defn ^:private read-network-config
   "Reads network TLS configuration from the config `network` section
   (when available) and falls back to well-known environment variables.
 
@@ -163,7 +163,7 @@
      :client-key-passphrase (or (non-blank (:client-key-passphrase net))
                                 (non-blank (config/get-env "ECA_CLIENT_KEY_PASSPHRASE")))}))
 
-(defn load-pem-certificates
+(defn ^:private load-pem-certificates
   "Loads X.509 certificates from a PEM file at PEM-PATH.
   Returns a vector of `java.security.cert.Certificate` instances."
   [^String pem-path]
@@ -202,7 +202,7 @@
     (.init cipher Cipher/DECRYPT_MODE pbe-key (.getAlgParameters epki))
     (.getKeySpec epki cipher)))
 
-(defn load-private-key
+(defn ^:private load-private-key
   "Loads a PKCS8 private key from a PEM file at KEY-PATH.
   If PASSPHRASE is non-nil the key is decrypted first.
   Tries RSA, then EC key factories for untyped PKCS8 keys."
@@ -274,7 +274,7 @@
       (.init kmf ks empty-pass)
       (.getKeyManagers kmf))))
 
-(defn build-ssl-context
+(defn ^:private build-ssl-context
   "Builds a `javax.net.ssl.SSLContext` from the given network config map.
 
   Supports:

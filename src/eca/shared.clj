@@ -168,7 +168,7 @@
 (def windows-os?
   (.contains (System/getProperty "os.name") "Windows"))
 
-(defn hostname* []
+(defn ^:private hostname* []
   (try (.getHostName (java.net.InetAddress/getLocalHost))
        (catch java.net.UnknownHostException _ nil)))
 
@@ -450,7 +450,7 @@
 (def ^:private system-prompt-category-order
   ["System prompt" "Rules" "Skills" "AGENTS.md"])
 
-(def context-category-colors
+(def ^:private context-category-colors
   "Canonical per-category colors for the context-usage breakdown. The server is
    the source of truth so all clients render the same colors. Colors are aligned
    with `context-category-emojis`; every category has a distinct hue."
@@ -462,7 +462,7 @@
    "Tool calls"       "#e06c75"
    "Conversation"     "#98c379"})
 
-(def context-category-emojis
+(def ^:private context-category-emojis
   "Canonical per-category emoji swatches. Used in plain-text legends (e.g. the
    `/context` command) where colors cannot be rendered. Each category has a
    distinct emoji so it correlates with the colored UI."
@@ -474,11 +474,11 @@
    "Tool calls"       "🟥"
    "Conversation"     "🟩"})
 
-(def context-free-color
+(def ^:private context-free-color
   "Canonical color for the free (unused) portion of the context window."
   "#5c6370")
 
-(def context-free-emoji
+(def ^:private context-free-emoji
   "Canonical emoji swatch for the free (unused) portion of the window."
   "⬜")
 
@@ -720,7 +720,7 @@
   (when (and (string? s) (not (string/blank? s)))
     s))
 
-(def additive-config-lists
+(def ^:private additive-config-lists
   "Config lists that add up when config layers and modules' defaults merge:
    a later list adds its entries to the earlier one instead of replacing
    it. `:ANY` stands for any key, e.g. an agent's name."

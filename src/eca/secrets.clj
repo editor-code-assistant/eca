@@ -23,7 +23,7 @@
                      (when (seq value) value))
     :else (str port)))
 
-(defn credential-file-paths
+(defn ^:private credential-file-paths
   "Returns ordered list of credential file paths to check."
   [netrc-file]
   (if (some? netrc-file)
@@ -83,7 +83,7 @@
   (vec (mapcat #(or (load-credentials-from-file %) [])
                (credential-file-paths netrc-file))))
 
-(defn parse-key-rc
+(defn ^:private parse-key-rc
   "Parses keyRc value in format [login@]machine[:port].
    Returns map with :machine, :login, and :port keys."
   [key-rc]

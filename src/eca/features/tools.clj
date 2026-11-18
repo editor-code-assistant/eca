@@ -46,7 +46,7 @@
                                  entry))
             nil)))))
 
-(defn tool-entry-matches?
+(defn ^:private tool-entry-matches?
   "Matches a tool pattern entry (`disabledTools`, `mcpToolSearch`) against a
    tool, checking in order:
    1. Entry as anchored regex against a eca builtin tool name (no `eca__` prefix needed).
@@ -221,7 +221,7 @@
                :variant          (get-in db [:chats chat-id :variant])})]))
    (module-definitions {:chat-id chat-id :agent agent-name :db db :config config})))
 
-(defn native-tools
+(defn ^:private native-tools
   "The modules' tools: ECA's own and the external modules' ones."
   ([db config]
    (native-tools nil nil db config))
@@ -391,7 +391,7 @@
          all-tools (if subagent
                      (filter-subagent-tools all-tools)
                      all-tools)
-         ;; the tools a call of would be denied whatever its arguments (`:tool/approval`,
+         ;; the tools whose calls would be denied whatever their arguments (`:tool/approval`,
          ;; eca/approval's rules), without the chat's remembered approvals or trust
          approval-ctx {:config config :db db :agent agent-name :all-tools all-tools}
          all-tools (remove (fn [tool]

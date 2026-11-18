@@ -124,30 +124,30 @@
 
 (deftest auto-compact-max-per-turn-test
   (testing "returns the global value"
-    (is (= 3 (f.chat.compaction/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
+    (is (= 3 (#'f.chat.compaction/auto-compact-max-per-turn {:autoCompactMaxPerTurn 3} agent-name))))
 
   (testing "respects per-agent autoCompactMaxPerTurn override"
-    (is (= 1 (f.chat.compaction/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
-                                                           :autoCompactMaxPerTurn 3}
-                                                          agent-name))))
+    (is (= 1 (#'f.chat.compaction/auto-compact-max-per-turn {:agent {agent-name {:autoCompactMaxPerTurn 1}}
+                                                             :autoCompactMaxPerTurn 3}
+                                                            agent-name))))
 
   (testing "nil when unset"
-    (is (nil? (f.chat.compaction/auto-compact-max-per-turn {} agent-name)))))
+    (is (nil? (#'f.chat.compaction/auto-compact-max-per-turn {} agent-name)))))
 
 (deftest ended-message-test
   (testing "a hook, named by its module with :by; a blank reason gives the short message"
     (is (= "Turn stopped by hook 'guard'."
-           (f.chat.lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "")))
+           (#'f.chat.lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "")))
     (is (= "Turn stopped by hook 'guard'."
-           (f.chat.lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "   ")))
+           (#'f.chat.lifecycle/ended-message "Turn stopped" {:module :eca/hooks :by "hook 'guard'"} "   ")))
     (is (= "Compaction blocked by hook 'guard'."
-           (f.chat.lifecycle/ended-message "Compaction blocked" {:module :eca/hooks :by "hook 'guard'"} nil))))
+           (#'f.chat.lifecycle/ended-message "Compaction blocked" {:module :eca/hooks :by "hook 'guard'"} nil))))
 
   (testing "a module, by its id, with the reason"
     (is (= "Request blocked by module 'acme/x': too risky"
-           (f.chat.lifecycle/ended-message "Request blocked" {:module :acme/x} "too risky")))
+           (#'f.chat.lifecycle/ended-message "Request blocked" {:module :acme/x} "too risky")))
     (is (= "Turn stopped by module '?'."
-           (f.chat.lifecycle/ended-message "Turn stopped" nil nil)))))
+           (#'f.chat.lifecycle/ended-message "Turn stopped" nil nil)))))
 
 (defn- dispatch-ctx
   "Build a chat-ctx for dispatch-finish-callbacks! whose callbacks record their

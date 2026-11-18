@@ -157,7 +157,7 @@
                     :event-handlers {:test/answered (prioritized 10 (fn [_ _] (throw (ex-info "boom" {}))))}}
                    {:id :acme/answers :event-handlers {:test/answered (constantly :answer)}}]
       (is (= :answer (events/emit! {} :test/answered {})))
-      (is (= 1 (modules/failures :acme/fails)))))
+      (is (= 1 (#'modules/failures :acme/fails)))))
   (testing "no handler: nil"
     (with-modules []
       (is (nil? (events/emit! {} :test/answered {}))))))
@@ -184,7 +184,7 @@
                               :event-handlers {:test/changed {:timeout-ms 50
                                                               :handler (fn [_ _] (Thread/sleep 5000) {:text "late"})}}})
       (is (= {:text "a"} (events/emit! {} :test/changed {:text "a"})))
-      (is (match? [{:message "Timed out after 50 ms"}] (modules/errors :acme/slow)))))
+      (is (match? [{:message "Timed out after 50 ms"}] (#'modules/errors :acme/slow)))))
   (testing "a non-map change is ignored"
     (with-modules [{:id :acme/odd :event-handlers {:test/changed (constantly "a string")}}]
       (is (= {:text "a"} (events/emit! {} :test/changed {:text "a"})))))
@@ -208,9 +208,9 @@
       (let [{{:keys [prompt done?]} :request} (events/emit! {} :test/answered {})]
         (is (true? (done?)))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" (prompt)))
-        (is (= 1 (modules/failures :acme/compact)))
+        (is (= 1 (#'modules/failures :acme/compact)))
         (is (match? [{:what "answer to :test/answered :request :prompt" :message "boom"}]
-                    (modules/errors :acme/compact)))))))
+                    (#'modules/errors :acme/compact)))))))
 
 (deftest unknown-events-test
   (testing "an event that isn't one of ECA's works as a notify event that accepts any change"

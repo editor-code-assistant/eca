@@ -55,7 +55,7 @@
        "Options:\n"
        (cli/format-opts read-chat-spec)))
 
-(defn read-db
+(defn ^:private read-db
   [path]
   (or (try
         (db.io/read-transit-file (io/file path))
@@ -76,7 +76,7 @@
     (f)
     (catch Exception _ nil)))
 
-(defn resolve-db-cache-path
+(defn ^:private resolve-db-cache-path
   "Resolve the db cache path from explicit opts.
    Accepts either :db-cache-path or repeated :workspace paths; the latter
    resolves to the workspace cache dir (per-chat layout)."
@@ -108,7 +108,7 @@
   (and (or (nil? since-ms) (>= timestamp since-ms))
        (or (nil? until-ms) (< timestamp until-ms))))
 
-(defn list-chats
+(defn ^:private list-chats
   "Returns a seq of chat summary maps, sorted by :updated-at desc."
   [db opts]
   (let [bounds (parse-time-bounds opts)]
@@ -128,7 +128,7 @@
            (within-time-bounds? created-at bounds))
          true)))
 
-(defn chat-messages
+(defn ^:private chat-messages
   "Returns a map {:messages <lazy-seq> :warnings <vector>} for the given chat-id.
    Throws ex-info if chat-id is not found in the db.
 
@@ -150,7 +150,7 @@
     (throw (ex-info (str "Chat not found: " chat-id)
                     {:chat-id chat-id :type ::chat-not-found}))))
 
-(defn emit-jsonl!
+(defn ^:private emit-jsonl!
   "Emit a seq of records as JSONL to *out*. One JSON object per line."
   [records]
   (doseq [r records]

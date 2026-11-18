@@ -19,7 +19,7 @@
         (string/split out #"\n")))
     (catch Exception _ nil)))
 
-(def git-ls-files
+(def ^:private git-ls-files
   "The files `git ls-files` lists in `root-path`, tracked and untracked but not
    ignored, relative to it; nil when git fails. Cached for a minute."
   (memoize/ttl git-ls-files* :ttl/threshold ttl-git-ls-files-ms))
@@ -29,7 +29,7 @@
 (defn ^:private all-files-from* [root-filename] (fs/glob root-filename "**"))
 (def ^:private all-files-from (memoize/ttl all-files-from* :ttl/threshold ttl-all-files-ms))
 
-(defn filter-allowed [file-paths root-filename config]
+(defn ^:private filter-allowed [file-paths root-filename config]
   (reduce
    (fn [files {:keys [type]}]
      (case type

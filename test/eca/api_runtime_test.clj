@@ -47,7 +47,7 @@
         (is (string/starts-with? (deref job 5000 :timeout) "eca-module-acme/worker-summaries-"))))
     (testing "a failing job is logged and counted as a failure, and gives nil"
       (is (nil? (deref (eca/background! (ctx) #(throw (ex-info "boom" {}))) 5000 :timeout)))
-      (is (= 1 (modules/failures :acme/worker))))
+      (is (= 1 (#'modules/failures :acme/worker))))
     (testing "jobs are interrupted when the module stops"
       (let [interrupted (promise)
             started (promise)

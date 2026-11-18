@@ -309,7 +309,7 @@
       (m.otel/install! metrics (:otlp config)))
     metrics))
 
-(defn start-server! [server]
+(defn ^:private start-server! [server]
   (let [db* (atom (assoc db/initial-db :started-at (System/currentTimeMillis)))
         metrics (->Metrics db*)
         stdio-messenger (->ServerMessenger server db*)

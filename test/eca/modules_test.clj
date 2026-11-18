@@ -31,7 +31,7 @@
 (deftest built-in-modules-test
   (testing "every built-in module is valid"
     (doseq [module built-in/modules]
-      (is (= {:errors [] :warnings []} (modules/problems module {:built-in? true}))
+      (is (= {:errors [] :warnings []} (#'modules/problems module {:built-in? true}))
           (str (:id module)))))
   (testing "built-in ids are unique and under :eca/"
     (is (apply distinct? (map :id built-in/modules)))
@@ -86,73 +86,73 @@
         (reset! calls* [])
         (modules/stop-all! components #{:acme/kept})
         (is (= [[:stop :acme/a]] @calls*))
-        (is (modules/running? :acme/kept))
-        (is (not (modules/running? :acme/a)))))))
+        (is (#'modules/running? :acme/kept))
+        (is (not (#'modules/running? :acme/a)))))))
 
 (deftest problems-test
   (testing "a minimal module is valid"
-    (is (= {:errors [] :warnings []} (modules/problems {:id :acme/x} {}))))
+    (is (= {:errors [] :warnings []} (#'modules/problems {:id :acme/x} {}))))
   (testing "errors"
-    (is (match? {:errors [#":id must be a qualified keyword"]} (modules/problems {:id :x} {})))
-    (is (match? {:errors [#"reserved for built-in"]} (modules/problems {:id :eca/x} {})))
-    (is (= [] (:errors (modules/problems {:id :eca/x} {:built-in? true}))))
+    (is (match? {:errors [#":id must be a qualified keyword"]} (#'modules/problems {:id :x} {})))
+    (is (match? {:errors [#"reserved for built-in"]} (#'modules/problems {:id :eca/x} {})))
+    (is (= [] (:errors (#'modules/problems {:id :eca/x} {:built-in? true}))))
     (is (match? {:errors [#":tools \"t\": :handler must be a function"]}
-                (modules/problems {:id :acme/x :tools {"t" {:description "d" :parameters {}}}} {})))
+                (#'modules/problems {:id :acme/x :tools {"t" {:description "d" :parameters {}}}} {})))
     (is (match? {:errors [#":commands \"c\": :handler must be a function"]}
-                (modules/problems {:id :acme/x :commands {"c" {}}} {})))
+                (#'modules/problems {:id :acme/x :commands {"c" {}}} {})))
     (is (match? {:errors [#":event-handlers :tool/before-call: must be a function"]}
-                (modules/problems {:id :acme/x :event-handlers {:tool/before-call "nope"}} {})))
+                (#'modules/problems {:id :acme/x :event-handlers {:tool/before-call "nope"}} {})))
     (is (match? {:errors [#":rpc \"x/y\": must be a map with :kind :request or :notification and a :handler function"]}
-                (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request}}} {})))
+                (#'modules/problems {:id :acme/x :rpc {"x/y" {:kind :request}}} {})))
     (is (= {:errors [] :warnings []}
-           (modules/problems {:id :acme/x :rpc {"x/y" {:kind :request :handler (fn [_ _])}}} {})))
+           (#'modules/problems {:id :acme/x :rpc {"x/y" {:kind :request :handler (fn [_ _])}}} {})))
     (is (match? {:errors [#":tool-servers must be a map with :list and :call functions"]}
-                (modules/problems {:id :acme/x :tool-servers {:list (fn [_])}} {})))
+                (#'modules/problems {:id :acme/x :tool-servers {:list (fn [_])}} {})))
     (is (= {:errors [] :warnings []}
-           (modules/problems {:id :acme/x :tool-servers {:list (fn [_]) :call (fn [_ _ _ _ _])}} {})))
+           (#'modules/problems {:id :acme/x :tool-servers {:list (fn [_]) :call (fn [_ _ _ _ _])}} {})))
     (is (match? {:errors [#":transform-tools must be a function"]}
-                (modules/problems {:id :acme/x :transform-tools {}} {})))
+                (#'modules/problems {:id :acme/x :transform-tools {}} {})))
     (is (match? {:errors [#":chat-statuses :login: must be a function"]}
-                (modules/problems {:id :acme/x :chat-statuses {:login "nope"}} {})))
+                (#'modules/problems {:id :acme/x :chat-statuses {:login "nope"}} {})))
     (is (match? {:errors [#":chat-statuses: \"login\" must be a keyword"]}
-                (modules/problems {:id :acme/x :chat-statuses {"login" (fn [_ _])}} {})))
+                (#'modules/problems {:id :acme/x :chat-statuses {"login" (fn [_ _])}} {})))
     (is (match? {:errors [#":contexts must be a map"]}
-                (modules/problems {:id :acme/x :contexts [(fn [_])]} {})))
+                (#'modules/problems {:id :acme/x :contexts [(fn [_])]} {})))
     (is (match? {:errors [#":providers \"p\": must be a map"]}
-                (modules/problems {:id :acme/x :providers {"p" "nope"}} {})))
+                (#'modules/problems {:id :acme/x :providers {"p" "nope"}} {})))
     (is (match? {:errors [#":skills \"s\": :body must be a string or a function"]}
-                (modules/problems {:id :acme/x :skills [{:name "s" :description "d"}]} {})))
+                (#'modules/problems {:id :acme/x :skills [{:name "s" :description "d"}]} {})))
     (is (match? {:errors [#":config-spec x: :type must be one of"]}
-                (modules/problems {:id :acme/x :config-spec {:x {:type :int}}} {}))))
+                (#'modules/problems {:id :acme/x :config-spec {:x {:type :int}}} {}))))
   (testing "every key is for every module, built-in or not"
     (is (= {:errors [] :warnings []}
-           (modules/problems {:id :acme/x
-                              :tools (fn [_])
-                              :commands (fn [_])
-                              :skills [{:name "s" :description "d" :body (fn [_])}]
-                              :contexts {:always (fn [_]) :types {"t" {:list (fn [_]) :refine (fn [_ _])}}}
-                              :transform-tools (fn [_ tools] tools)
-                              :chat-statuses {:login (fn [_ _])}
-                              :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]
-                              :providers {"p" {:login {:methods [{:key "k" :start (fn [& _])}]
-                                                       :steps {}
-                                                       :complete-oauth-code (fn [& _])}
-                                               :quota {:fetch (fn [_])}
-                                               :errors {:enrich (fn [_])}
-                                               :request-opts (fn [_ _])
-                                               :api-fn (fn [_])
-                                               :default-model {:rank 5 :fn (fn [_])}
-                                               :models-override-fn (fn [_])
-                                               :capabilities {:web-search #{"m"}}}}}
-                             {}))))
+           (#'modules/problems {:id :acme/x
+                                :tools (fn [_])
+                                :commands (fn [_])
+                                :skills [{:name "s" :description "d" :body (fn [_])}]
+                                :contexts {:always (fn [_]) :types {"t" {:list (fn [_]) :refine (fn [_ _])}}}
+                                :transform-tools (fn [_ tools] tools)
+                                :chat-statuses {:login (fn [_ _])}
+                                :system-prompts [{:id :acme/s :content "c" :signature (fn [_]) :resync? false}]
+                                :providers {"p" {:login {:methods [{:key "k" :start (fn [& _])}]
+                                                         :steps {}
+                                                         :complete-oauth-code (fn [& _])}
+                                                 :quota {:fetch (fn [_])}
+                                                 :errors {:enrich (fn [_])}
+                                                 :request-opts (fn [_ _])
+                                                 :api-fn (fn [_])
+                                                 :default-model {:rank 5 :fn (fn [_])}
+                                                 :models-override-fn (fn [_])
+                                                 :capabilities {:web-search #{"m"}}}}}
+                               {}))))
   (testing "warnings"
     (is (match? {:errors [] :warnings ["Unknown key :activation is ignored"
                                        "Unknown key :foo is ignored"]}
-                (modules/problems {:id :acme/x :activation :opt-in :foo 1} {})))
+                (#'modules/problems {:id :acme/x :activation :opt-in :foo 1} {})))
     (testing "keys of the module API before its release are unknown"
       (is (= {:errors [] :warnings ["Unknown key :agents is ignored" "Unknown key :api is ignored"
                                     "Unknown key :defines is ignored" "Unknown key :priority is ignored"]}
-             (modules/problems {:id :acme/x :api 1 :priority 5 :defines {} :agents (fn [_])} {}))))))
+             (#'modules/problems {:id :acme/x :api 1 :priority 5 :defines {} :agents (fn [_])} {}))))))
 
 (deftest resolution-test
   (let [a {:id :acme/a}
@@ -284,11 +284,11 @@
         boom (fn [] (throw (ex-info "boom" {})))]
     (testing "errors are recorded and rethrown"
       (is (thrown? Exception (modules/invoke {} external "test" {} boom)))
-      (is (= 1 (modules/failures :acme/flaky)))
-      (is (match? [{:what "test" :message "boom"}] (modules/errors :acme/flaky))))
+      (is (= 1 (#'modules/failures :acme/flaky)))
+      (is (match? [{:what "test" :message "boom"}] (#'modules/errors :acme/flaky))))
     (testing "a success resets the count"
       (is (= :ok (modules/invoke {} external "test" {} (constantly :ok))))
-      (is (= 0 (modules/failures :acme/flaky))))
+      (is (= 0 (#'modules/failures :acme/flaky))))
     (testing "invoke-safe returns nil"
       (is (nil? (modules/invoke-safe {} external "test" {} boom))))
     (testing "an external module fails for the session after 5 failures in a row"
@@ -301,7 +301,7 @@
     (testing "built-in modules are never disabled for failures"
       (with-built-ins [{:id :eca/flaky}]
         (dotimes [_ 6] (modules/invoke-safe {} built-in "test" {} boom))
-        (is (= 6 (modules/failures :eca/flaky)))
+        (is (= 6 (#'modules/failures :eca/flaky)))
         (is (modules/active? {} :eca/flaky))))
     (testing "timeouts"
       (is (match? {:message #"Timed out after 50 ms"}
@@ -325,8 +325,8 @@
         (modules/start! components {})
         (is (= [[:start :acme/a] [:start :acme/b]] @calls*))
         (is (= {:started :acme/a} (modules/state :acme/a)))
-        (is (modules/running? :acme/b))
-        (is (not (modules/running? :acme/plain))))
+        (is (#'modules/running? :acme/b))
+        (is (not (#'modules/running? :acme/plain))))
       (testing "disabling a module stops it and the modules that require it, in reverse order"
         (reset! calls* [])
         (modules/set-enabled! :acme/a false)
@@ -346,10 +346,10 @@
         (reset! calls* [])
         (modules/stop-all! components)
         (is (= [[:stop :acme/b] [:stop :acme/a]] @calls*))
-        (is (empty? (modules/running)))
+        (is (empty? (#'modules/running)))
         (testing "and reconcile does nothing until start! again"
           (modules/reconcile-if-started! components {})
-          (is (empty? (modules/running)))))))
+          (is (empty? (#'modules/running)))))))
   (testing "a failing :start marks the module failed; the modules that require it don't start"
     (let [calls* (atom [])]
       (with-built-ins [{:id :acme/broken :start (fn [_] (throw (ex-info "no db" {})))}
@@ -373,16 +373,16 @@
                                 :start (fn [ctx] (swap! starts* conj (:extUrl (:config ctx))))})
         (let [components {:db* (h/db*) :messenger (h/messenger)}]
           (modules/start! components {:extUrl "a"})
-          (modules/reconcile! components {:extUrl "a" :other 1})
+          (#'modules/reconcile! components {:extUrl "a" :other 1})
           (is (= ["a"] @starts*))
-          (modules/reconcile! components {:extUrl "b"})
+          (#'modules/reconcile! components {:extUrl "b"})
           (is (= ["a" "b"] @starts*))
           (testing "and when reloaded with a new module map"
             (modules/add-external! "/tmp/ext.clj"
                                    {:id :acme/ext
                                     :config-spec {:extUrl {:type :string}}
                                     :start (fn [_] (swap! starts* conj :reloaded))})
-            (modules/reconcile! components {:extUrl "b"})
+            (#'modules/reconcile! components {:extUrl "b"})
             (is (= ["a" "b" :reloaded] @starts*))))))))
 
 (deftest prefix-test

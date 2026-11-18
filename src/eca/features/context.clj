@@ -140,7 +140,7 @@
    sent in full once, then only announced when they change. #683"
   #{:file})
 
-(defn attached-context?
+(defn ^:private attached-context?
   "True when ctx is a context-area item tracked per chat (a file)."
   [ctx]
   (boolean (attached-context-types (:type ctx))))

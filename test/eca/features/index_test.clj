@@ -22,7 +22,7 @@
           (is
            (match?
             [file2]
-            (f.index/filter-allowed [file1 file2] root gitignore-config)))))
+            (#'f.index/filter-allowed [file1 file2] root gitignore-config)))))
 
       (testing "returns all files when `git ls-files` exits non-zero"
         (with-redefs [f.index/git-ls-files #'f.index/git-ls-files*
@@ -30,7 +30,7 @@
           (is
            (match?
             [file1 file2]
-            (f.index/filter-allowed [file1 file2] root gitignore-config))))))))
+            (#'f.index/filter-allowed [file1 file2] root gitignore-config))))))))
 
 (deftest allowed-files-test
   (let [root (h/file-path "/fake/repo")]

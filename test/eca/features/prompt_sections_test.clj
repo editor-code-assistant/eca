@@ -19,7 +19,7 @@
 (defn- build [config]
   (with-redefs [m.rules/all-rules (constantly {:static [] :path-scoped []})
                 m.skills/all (constantly skills)]
-    (f.prompt/build-static-instructions (prompt-ctx config))))
+    (#'f.prompt/build-static-instructions (prompt-ctx config))))
 
 (defn- index-of [s sub]
   (string/index-of s sub))
@@ -101,4 +101,4 @@
       (is (< (index-of prompt "## Workspace Roots") (index-of prompt "UNORDERED")))))
   (testing "an :order must be a number"
     (is (= [":system-prompts :acme/s: :order must be a number"]
-           (:errors (modules/problems {:id :acme/bad :system-prompts [{:id :acme/s :order "1" :content "S"}]} {}))))))
+           (:errors (#'modules/problems {:id :acme/bad :system-prompts [{:id :acme/s :order "1" :content "S"}]} {}))))))

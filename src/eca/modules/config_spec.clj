@@ -10,11 +10,11 @@
 
 (set! *warn-on-reflection* true)
 
-(def types #{:string :number :boolean :enum :map :array})
+(def ^:private types #{:string :number :boolean :enum :map :array})
 
 (def ^:private spec-keys #{:type :default :doc :values :secret?})
 
-(defn key-spec?
+(defn ^:private key-spec?
   "Whether `node` is a key's spec rather than a level."
   [node]
   (and (map? node) (contains? node :type)))
@@ -36,7 +36,7 @@
       (into {} (mapcat (fn [[k v]] (walk [k] v)) tree))
       {})))
 
-(defn valid-value?
+(defn ^:private valid-value?
   "Whether `value` fits the key spec. `nil` always fits: it means unset."
   [{:keys [type values]} value]
   (or (nil? value)

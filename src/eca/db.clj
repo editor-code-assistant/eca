@@ -169,7 +169,7 @@
           (:trust chat)
           (recur (:parent-chat-id chat) (conj seen id)))))))
 
-(defn root-chat-id
+(defn ^:private root-chat-id
   "Resolve the top-level chat of `chat-id` by walking up `:parent-chat-id`
    while the parent chat exists, so a subagent resolves to the chat that
    spawned it. Returns `chat-id` itself for top-level chats."

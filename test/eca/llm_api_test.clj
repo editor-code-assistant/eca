@@ -26,7 +26,7 @@
                                           :api :anthropic}}
                 {:role "assistant" :content [{:type :text :text "ok"}]}]
           {:keys [messages dropped-count dropped-apis]}
-          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+          (#'llm-api/sanitize-past-messages-for-api :openai-chat past)]
       (is (= 1 dropped-count))
       (is (= #{:anthropic} dropped-apis))
       (is (= 2 (count messages)))
@@ -37,7 +37,7 @@
                                           :api :openai-responses}}
                 {:role "user" :content [{:type :text :text "hi"}]}]
           {:keys [messages dropped-count dropped-apis]}
-          (llm-api/sanitize-past-messages-for-api :anthropic past)]
+          (#'llm-api/sanitize-past-messages-for-api :anthropic past)]
       (is (= 1 dropped-count))
       (is (= #{:openai-responses} dropped-apis))
       (is (= 1 (count messages)))
@@ -51,7 +51,7 @@
                                                     :api :anthropic}}
                 {:role "user" :content [{:type :text :text "next"}]}]
           {:keys [messages dropped-count]}
-          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+          (#'llm-api/sanitize-past-messages-for-api :openai-chat past)]
       (is (= 2 dropped-count) "tool_call and tool_call_output both removed")
       (is (= 2 (count messages)))
       (is (every? #(= "user" (:role %)) messages))))
@@ -63,7 +63,7 @@
                                                       :api :anthropic}}
                 {:role "user" :content [{:type :text :text "k"}]}]
           {:keys [messages dropped-count]}
-          (llm-api/sanitize-past-messages-for-api :openai-responses past)]
+          (#'llm-api/sanitize-past-messages-for-api :openai-responses past)]
       (is (= 2 dropped-count))
       (is (= [{:role "user" :content [{:type :text :text "k"}]}] messages))))
 
@@ -76,7 +76,7 @@
                 {:role "tool_call_output" :content {:id "toolu_a" :output {:contents []}
                                                     :api :anthropic}}]
           {:keys [messages dropped-count dropped-apis]}
-          (llm-api/sanitize-past-messages-for-api :anthropic past)]
+          (#'llm-api/sanitize-past-messages-for-api :anthropic past)]
       (is (zero? dropped-count))
       (is (empty? dropped-apis))
       (is (= past messages))))
@@ -86,7 +86,7 @@
                 {:role "reason" :content {:id "r1" :external-id "sig" :text "t"}}
                 {:role "tool_call" :content {:id "toolu_a" :full-name "read"}}]
           {:keys [messages dropped-count]}
-          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+          (#'llm-api/sanitize-past-messages-for-api :openai-chat past)]
       (is (zero? dropped-count))
       (is (= past messages))))
 
@@ -100,7 +100,7 @@
                  :created-at 456
                  :content-id "c2"}]
           {:keys [messages dropped-count]}
-          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+          (#'llm-api/sanitize-past-messages-for-api :openai-chat past)]
       (is (zero? dropped-count))
       (is (= [{:role "user" :content [{:type :text :text "hi"}]}
               {:role "assistant" :content [{:type :text :text "ok"}]}]
@@ -115,7 +115,7 @@
                 {:role "reason" :content {:id "r2" :text "t" :api :openai-chat}}               ; matching → kept
                 {:role "assistant" :content [{:type :text :text "a"}] :created-at 999}]
           {:keys [messages dropped-count dropped-apis]}
-          (llm-api/sanitize-past-messages-for-api :openai-chat past)]
+          (#'llm-api/sanitize-past-messages-for-api :openai-chat past)]
       (is (= 1 dropped-count))
       (is (= #{:anthropic} dropped-apis))
       (is (= 4 (count messages)))
@@ -135,7 +135,7 @@
       (is (= :openai-chat (api-fn {}))))
     (testing "and are guarded: their errors reach the caller, as the module's failures"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" ((:enrich errors) {})))
-      (is (match? [{:what "provider acme :errors :enrich" :message "boom"}] (modules/errors :acme/provider)))))
+      (is (match? [{:what "provider acme :errors :enrich" :message "boom"}] (#'modules/errors :acme/provider)))))
   (testing "a default model that fails gives none: the next provider's is taken"
     (with-redefs [config/get-env (constantly nil)
                   secrets/credential-file-paths (constantly [])]
@@ -283,10 +283,10 @@
     (is (= [":apis \"bad\": :aliases must be a vector of API names"
             ":apis \"bad\": :reasoning-keys must be a vector of keywords"
             ":apis \"bad\": :list-models must be a function"]
-           (:errors (modules/problems {:id :acme/bad
-                                       :apis {"bad" {:handler (fn [_ _ _]) :aliases "x"
-                                                     :reasoning-keys ["thinking"] :list-models 1}}}
-                                      {}))))))
+           (:errors (#'modules/problems {:id :acme/bad
+                                         :apis {"bad" {:handler (fn [_ _ _]) :aliases "x"
+                                                       :reasoning-keys ["thinking"] :list-models 1}}}
+                                        {}))))))
 
 (deftest provider->api-handler-copilot-metadata-test
   (let [config {:providers {"github-copilot" {:api "openai-chat"}}}]
@@ -534,7 +534,7 @@
   ;; #609: a custom openai-chat provider (LiteLLM/Azure gateway) serving GPT
   ;; models must get the Chat Completions `reasoning_effort` param, not the
   ;; Responses `reasoning` object the gateway rejects as an unknown parameter.
-  (let [config (-> (config/initial-config)
+  (let [config (-> (#'config/initial-config)
                    (assoc :providers {"gateway" {:api "openai-chat"
                                                  :url "https://gateway.example.com"
                                                  :key "k"

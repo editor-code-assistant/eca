@@ -184,7 +184,7 @@
                 (not= (:api content) target-api)
                 (contains? roles-with-provider-specific-ids role))))
 
-(defn sanitize-past-messages-for-api
+(defn ^:private sanitize-past-messages-for-api
   "Drops history entries whose opaque provider-specific ids would make the
    request invalid under `target-api`, then strips internal-only top-level
    message metadata before provider serialization. Returns a map:

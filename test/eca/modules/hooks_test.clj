@@ -1012,14 +1012,14 @@
                                             {:exit 0
                                              :out "{\"additionalContext\":\"resume snapshot\"}"
                                              :err nil})]
-        (f.chat.compaction/run-after-compact! {:db* (h/db*)
-                                               :config (h/config)
-                                               :chat-id "chat-1"
-                                               :agent "code"
-                                               :full-model "openai/gpt"
-                                               :variant "low"}
-                                              "manual"
-                                              "summary"))
+        (#'f.chat.compaction/run-after-compact! {:db* (h/db*)
+                                                 :config (h/config)
+                                                 :chat-id "chat-1"
+                                                 :agent "code"
+                                                 :full-model "openai/gpt"
+                                                 :variant "low"}
+                                                "manual"
+                                                "summary"))
       (is (= "postCompact" (:hook_type @input*)))
       (is (= "manual" (:triggered @input*)))
       (is (= "summary" (:compact_summary @input*)))
@@ -1066,12 +1066,12 @@
     (with-redefs [m.hooks/run-shell-cmd (constantly {:exit 0
                                                      :out "plain resume snapshot"
                                                      :err nil})]
-      (f.chat.compaction/run-after-compact! {:db* (h/db*)
-                                             :config (h/config)
-                                             :chat-id "chat-1"
-                                             :agent "code"}
-                                            "manual"
-                                            "summary"))
+      (#'f.chat.compaction/run-after-compact! {:db* (h/db*)
+                                               :config (h/config)
+                                               :chat-id "chat-1"
+                                               :agent "code"}
+                                              "manual"
+                                              "summary"))
     ;; Plain stdout is NOT converted to additionalContext
     (is (= [{:type :text :text "The conversation was compacted."}]
            (:content (last (get-in (h/db) [:chats "chat-1" :messages]))))))
@@ -1109,12 +1109,12 @@
                     m.hooks/run-shell-cmd (constantly {:exit 0
                                                        :out "{\"additionalContext\":\"resume snapshot\"}"
                                                        :err nil})]
-        (f.chat.compaction/run-after-compact! {:db* (h/db*)
-                                               :config (h/config)
-                                               :chat-id "chat-1"
-                                               :agent "code"}
-                                              "manual"
-                                              "summary"))
+        (#'f.chat.compaction/run-after-compact! {:db* (h/db*)
+                                                 :config (h/config)
+                                                 :chat-id "chat-1"
+                                                 :agent "code"}
+                                                "manual"
+                                                "summary"))
       (is (= [{:role "assistant" :content [{:type :text :text "no marker"}]}]
              (get-in (h/db) [:chats "chat-1" :messages])))
       (is (some #(= "Skipping postCompact additionalContext: compact summary message not found" (second %))
@@ -2153,7 +2153,7 @@
 (deftest simplified-additional-context-wrapper-test
   (testing "wrap-additional-context no longer includes from attribute"
     (is (= "<additionalContext>\nextra info\n</additionalContext>"
-           (f.chat.lifecycle/wrap-additional-context "extra info")))))
+           (#'f.chat.lifecycle/wrap-additional-context "extra info")))))
 
 (deftest followup-plain-text-test
   (testing "followUp continuation is plain user text, not XML-wrapped"

@@ -111,7 +111,7 @@
   {:db* (atom db/initial-db)
    :messenger (->TestMessenger (atom {}) (atom []) (atom nil) (atom nil) (atom nil))
    :metrics (metrics/->NoopMetrics)
-   :config config/initial-config})
+   :config #'config/initial-config})
 
 (def components* (atom (make-components)))
 (defn components [] @components*)

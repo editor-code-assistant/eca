@@ -63,7 +63,7 @@
       (is (not (contains? (first chats) :kind))))))
 
 (deftest prompt-steer-test
-  (let [test-config (assoc (config/initial-config) :env "test")]
+  (let [test-config (assoc (#'config/initial-config) :env "test")]
     (testing "steered message on a running chat is queued"
       (h/reset-components!)
       (swap! (h/db*) assoc-in [:chats "chat-1"] {:id "chat-1" :status :running})
@@ -789,7 +789,7 @@
           api-mock (fn [{:keys [provider model model-capabilities config past-messages
                                 on-history-sanitized on-first-response-received on-message-received]}]
                      (let [target-api (:api (llm-api/provider->api-handler provider model model-capabilities config))
-                           {:keys [dropped-count dropped-apis]} (llm-api/sanitize-past-messages-for-api target-api past-messages)]
+                           {:keys [dropped-count dropped-apis]} (#'llm-api/sanitize-past-messages-for-api target-api past-messages)]
                        (when (pos? dropped-count)
                          (on-history-sanitized {:dropped-count dropped-count
                                                 :dropped-apis dropped-apis
@@ -4744,4 +4744,3 @@
                                 (:chat-content-received (h/messages))))]
         (is (contains? progress "Waiting for you"))
         (is (contains? progress "Calling tool"))))))
-
