@@ -2,8 +2,13 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [hato.client :as http]
+   [matcher-combinators.matchers :as m]
+   [matcher-combinators.test :refer [match?]]
    [eca.client-test-helpers :refer [with-client-proxied]]
    [eca.llm-api.errors :as llm-providers.errors]
+   [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
    [eca.modules.providers.copilot :as m.copilot]
    [eca.test-helper :as h]))
 
@@ -481,3 +486,183 @@
       (let [outcome (recover! {:result :no-policy})]
         (is (false? (:retry? outcome)))
         (is (nil? (:notice outcome)))))))
+
+(deftest models-override-catalog-metadata-test
+  (with-redefs [http/get (fn [_url _opts]
+                           {:status 200
+                            :body {:data [{:id "gpt-responses"
+                                           :supported_endpoints ["/responses" "/chat/completions"]
+                                           :capabilities {:supports {:reasoning_effort ["low" "max"]}}}
+                                          {:id "gpt-chat"
+                                           :supported_endpoints ["/chat/completions"]
+                                           :capabilities {:supports {:reasoning_effort ["low" "high"]}}}
+                                          {:id "claude-adaptive"
+                                           :supported_endpoints ["/chat/completions" "/responses" "/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :reasoning_effort ["low" "high"]}}}
+                                          {:id "claude-opus-4-7"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :reasoning_effort ["high"]}}}
+                                          {:id "claude-adaptive-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:adaptive_thinking true
+                                                                     :max_thinking_budget 10000}}}
+                                          {:id "claude-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:max_thinking_budget 10000}}}
+                                          {:id "claude-small-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:min_thinking_budget 1400
+                                                                     :max_thinking_budget 1500}}}
+                                          {:id "claude-invalid-budget"
+                                           :supported_endpoints ["/v1/messages"]
+                                           :capabilities {:supports {:max_thinking_budget 1000}}}]}})]
+    (is (match?
+         {"gpt-responses" {:discovered-api :openai-responses
+                           :discovered-reason? true
+                           :discovered-variants
+                           {"low" {:reasoning {:effort "low" :summary "auto"}}
+                            "max" {:reasoning {:effort "max" :summary "auto"}}}}
+          "gpt-chat" {:discovered-api :openai-chat
+                      :discovered-reason? true
+                      :discovered-variants
+                      {"low" {:reasoning_effort "low"}
+                       "high" {:reasoning_effort "high"}}}
+          "claude-adaptive" {:discovered-api :anthropic
+                             :discovered-reason? true
+                             :discovered-variants
+                             {"default" {:thinking {:type "adaptive"}}
+                              "low" {:thinking {:type "adaptive"}
+                                     :output_config {:effort "low"}}
+                              "high" {:thinking {:type "adaptive"}
+                                      :output_config {:effort "high"}}}}
+          "claude-opus-4-7" {:discovered-api :anthropic
+                             :discovered-reason? true
+                             :discovered-variants
+                             {"default" {:thinking {:type "adaptive" :display "summarized"}}
+                              "high" {:thinking {:type "adaptive" :display "summarized"}
+                                      :output_config {:effort "high"}}}}
+          "claude-adaptive-budget" {:discovered-api :anthropic
+                                    :discovered-reason? true
+                                    :discovered-variants
+                                    (m/equals {"default" {:thinking {:type "adaptive"}}})}
+          "claude-budget" {:discovered-api :anthropic
+                           :discovered-reason? true
+                           :discovered-variants
+                           {"high" {:thinking {:type "enabled" :budget_tokens 5000}}
+                            "max" {:thinking {:type "enabled" :budget_tokens 9999}}}}
+          "claude-small-budget" {:discovered-api :anthropic
+                                 :discovered-reason? true
+                                 :discovered-variants
+                                 {"high" {:thinking {:type "enabled" :budget_tokens 1400}}
+                                  "max" {:thinking {:type "enabled" :budget_tokens 1499}}}}
+          "claude-invalid-budget" {:discovered-api :anthropic
+                                   :discovered-reason? true}}
+         (#'m.copilot/models-override
+          {:provider "github-copilot"
+           :api-url "https://api.githubcopilot.com"
+           :auth-type :auth/oauth
+           :api-key "tok"})))))
+
+(deftest models-override-picker-filter-test
+  (let [fetch (fn []
+                (#'m.copilot/models-override
+                 {:provider "github-copilot"
+                  :api-url "https://api.githubcopilot.com"
+                  :auth-type :auth/oauth
+                  :api-key "tok"}))]
+    (testing "Skips entries hidden from the picker or with a disabled policy, keeps enabled, unconfigured and unflagged ones"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200
+                                :body {:data [{:id "gpt-5.4"
+                                               :model_picker_enabled true
+                                               :model_picker_category "powerful"
+                                               :policy {:state "enabled"}
+                                               :supported_endpoints ["/responses"]}
+                                              {:id "claude-sonnet-5"
+                                               :model_picker_enabled true
+                                               :model_picker_category "versatile"
+                                               :policy {:state "unconfigured" :terms "Enable access"}
+                                               :supported_endpoints ["/v1/messages"]}
+                                              {:id "unflagged-model"
+                                               :supported_endpoints ["/chat/completions"]}
+                                              {:id "claude-opus-5"
+                                               :model_picker_enabled true
+                                               :model_picker_category "powerful"
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/v1/messages"]}
+                                              {:id "auto-model-3"
+                                               :model_picker_enabled false
+                                               :supported_endpoints ["/chat/completions"]}
+                                              {:id "text-embedding-3-small"
+                                               :model_picker_enabled false}
+                                              {:id "exec-agent-a"
+                                               :model_picker_enabled false
+                                               :policy {:state "enabled"}
+                                               :supported_endpoints ["/chat/completions"]}]}})]
+        (is (match?
+             (m/equals
+              {"gpt-5.4" {:discovered-api :openai-responses
+                          :discovered-provider-data {:picker-category "powerful"}}
+               "claude-sonnet-5" {:discovered-api :anthropic
+                                  :discovered-provider-data {:picker-category "versatile"}}
+               "unflagged-model" {:discovered-api :openai-chat}})
+             (fetch)))))
+
+    (testing "Hidden entries listed in the provider models config keep their discovered metadata, by id or modelName alias"
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 200
+                                :body {:data [{:id "gpt-5.6-sol"
+                                               :model_picker_enabled true
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/responses" "ws:/responses"]
+                                               :capabilities {:supports {:reasoning_effort ["low" "max"]}}}
+                                              {:id "claude-opus-5"
+                                               :model_picker_enabled true
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/v1/messages"]}
+                                              {:id "exec-agent-a"
+                                               :model_picker_enabled false
+                                               :supported_endpoints ["/chat/completions"]}
+                                              {:id "gpt-6-astra"
+                                               :model_picker_enabled true
+                                               :policy {:state "disabled"}
+                                               :supported_endpoints ["/responses"]}]}})]
+        (is (match?
+             (m/equals
+              {"gpt-5.6-sol" {:discovered-api :openai-responses
+                              :discovered-reason? true
+                              :discovered-variants {"low" {:reasoning {:effort "low" :summary "auto"}}
+                                                    "max" {:reasoning {:effort "max" :summary "auto"}}}}
+               "claude-opus-5" {:discovered-api :anthropic}
+               "exec-agent-a" {:discovered-api :openai-chat}})
+             (#'m.copilot/models-override
+              {:provider "github-copilot"
+               :api-url "https://api.githubcopilot.com"
+               :auth-type :auth/oauth
+               :api-key "tok"
+               :static-models {"gpt-5.6-sol" {}
+                               "opus" {:modelName "github-copilot/claude-opus-5"}
+                               "agent" {:modelName "exec-agent-a"}
+                               "other-provider-alias" {:modelName "openai/gpt-6-astra"}}})))))
+
+    (testing "A catalog with entries but none usable is an empty map, not nil, so models.dev is not used as fallback"
+      (let [warnings* (atom [])]
+        (with-redefs [http/get (fn [_url _opts]
+                                 {:status 200
+                                  :body {:data [{:id "gpt-5.5"
+                                                 :model_picker_enabled true
+                                                 :policy {:state "disabled"}}
+                                                {:id "auto-model-3"
+                                                 :model_picker_enabled false}]}})
+                      logger/warn (fn [& args] (swap! warnings* conj (apply str args)) nil)]
+          (is (= {} (fetch)))
+          (is (some #(re-find #"none is available for this account's plan" %) @warnings*)))))
+
+    (testing "An empty catalog or a failed fetch gives no models, for models.dev's, without the generic fetch"
+      (with-redefs [http/get (fn [_url _opts] {:status 200 :body {:data []}})]
+        (is (= llm-util/no-native-models (fetch))))
+      (with-redefs [http/get (fn [_url _opts] {:status 503 :body {:error "temporary"}})
+                    logger/warn (fn [& _] nil)]
+        (is (= llm-util/no-native-models (fetch)))))))

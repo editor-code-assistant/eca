@@ -32,46 +32,46 @@
 (defn ^:private code-list [xs]
   (string/join ", " (map #(str "`" % "`") xs)))
 
-(defn ^:private registered
-  "The names of what module `entry` registered while it runs, of `kind`."
-  [config kind entry]
-  (for [[registering reg-name _] (modules/registrations config kind)
-        :when (= (:id entry) (:id registering))]
-    reg-name))
+(defn ^:private module-fn-value
+  "What a module's `:tools` or `:commands` function `f` gives outside of a
+   chat, or nil when it fails."
+  [entry ctx what f]
+  (let [module-ctx (modules/module-ctx ctx entry)]
+    (try
+      (modules/guarded-call module-ctx entry what f module-ctx)
+      (catch Exception e
+        (logger/warn "[modules]" (format "Could not list the %s of %s:" what (:id entry)) e)
+        nil))))
+
+(defn ^:private pairs
+  "The `[name value]` pairs of a module's `:tools` or `:commands`."
+  [m]
+  (when (coll? m)
+    (filter #(and (vector? %) (= 2 (count %))) m)))
 
 (defn ^:private tool-names
   "The full names of a module's tools: `<prefix>__<name>`, or the name a tool
    `:replaces`. For `:tools` functions, the ones they give outside of a chat."
-  [{:keys [module] :as entry} {:keys [config] :as ctx}]
+  [{:keys [module] :as entry} ctx]
   (let [prefix (modules/prefix entry)
         tools (:tools module)
-        tools (if (modules/fn-like? tools)
-                (try (tools (modules/module-ctx ctx entry)) (catch Exception _ nil))
-                tools)]
-    (sort (concat (for [[tool-name tool] tools]
-                    (or (:replaces tool) (str prefix "__" tool-name)))
-                  (for [tool-name (registered config :tools entry)]
-                    (str prefix "__" tool-name))))))
+        tools (if (modules/fn-like? tools) (module-fn-value entry ctx "tools" tools) tools)]
+    (sort (for [[tool-name tool] (pairs tools)]
+            (or (:replaces tool) (str prefix "__" tool-name))))))
 
 (defn ^:private command-names
   "The names of a module's own commands. For `:commands` functions, the ones
-   they give outside of a chat, without the ones a built-in gives for MCP
-   prompts, skills and custom commands (`:client-type`)."
-  [{:keys [module built-in?] :as entry} {:keys [config] :as ctx}]
+   they give outside of a chat, without the ones it gives for MCP prompts,
+   skills and custom commands (`:client-type`)."
+  [{:keys [module] :as entry} ctx]
   (let [commands (:commands module)
-        commands (if (modules/fn-like? commands)
-                   (try (commands (modules/module-ctx ctx entry))
-                        (catch Exception e
-                          (logger/warn "[modules]" (format "Could not list the commands of %s:" (:id entry)) e)
-                          nil))
-                   commands)]
-    (sort (distinct (concat (for [[command-name command] commands
-                                  :when (not (and built-in? (:client-type command)))]
-                              command-name)
-                            (registered config :commands entry))))))
+        commands (if (modules/fn-like? commands) (module-fn-value entry ctx "commands" commands) commands)]
+    (sort (distinct (for [[command-name command] (pairs commands)
+                          :when (not (:client-type command))]
+                      command-name)))))
 
 (defn ^:private contributions [{:keys [module] :as entry} ctx]
-  (let [{:keys [system-prompts providers apis event-handlers defines config-spec rpc]} module
+  (let [{:keys [system-prompts providers apis event-handlers config-spec rpc]} module
         tools (tool-names entry ctx)
         commands (command-names entry ctx)]
     (remove nil?
@@ -89,8 +89,6 @@
                (str "protocol methods " (code-list (sort (keys rpc)))))
              (when (seq event-handlers)
                (str "handles " (code-list (sort (keys event-handlers)))))
-             (when-let [events (seq (:events defines))]
-               (format "defines %d events" (count events)))
              (when-let [paths (seq (keys (config-spec/leaves config-spec)))]
                (str "config " (code-list (sort (map config-spec/path-str paths)))))])))
 

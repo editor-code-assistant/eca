@@ -136,10 +136,10 @@
 
     (testing "a client evaluates code through it, with eca.api on the live session"
       (is (match? {:value ":active" :out (str "hi" (System/lineSeparator))}
-                  (nrepl-eval port (str "(require '[eca.api :as eca] '[eca.api.dev :as dev])"
+                  (nrepl-eval port (str "(require '[eca.api :as eca] '[eca.repl :as repl])"
                                         "(println \"hi\")"
-                                        "(eca/notify! (dev/ctx) \"Hello from the REPL\")"
-                                        "(:status (some #(when (= :eca/repl (:id %)) %) (dev/modules)))"))))
+                                        "(eca/notify! (repl/ctx) \"Hello from the REPL\")"
+                                        "(:status (some #(when (= :eca/repl (:id %)) %) (repl/modules)))"))))
       (is (match? {:message "Hello from the REPL"}
                   (eca/client-awaits-server-notification :$/showMessage))))
 
@@ -157,6 +157,12 @@
                             ["(.getMessage (ex-info \"x\" {}))" "\"x\""]
                             ["(let [w (java.io.StringWriter.)] (.write w \"hi\") (str w))" "\"hi\""]]]
         (is (= value (:value (nrepl-eval port code))) code)))
+
+    (testing "babashka.fs and cheshire.core work as on the JVM, also in the native binary"
+      (is (= "{:file \"b.md\", :dir? true}"
+             (:value (nrepl-eval port (str "(require '[babashka.fs :as fs] '[cheshire.core :as json])"
+                                           "(json/parse-string (json/generate-string {:file (str (fs/file-name \"/a/b.md\"))"
+                                           " :dir? (fs/directory? (fs/temp-dir))}) true)"))))))
 
     (testing "/repl is listed"
       (is (match? {:commands (m/embeds [{:name "repl"}])}

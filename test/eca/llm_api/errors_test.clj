@@ -645,6 +645,16 @@
 (defn ^:private instant-str [epoch-ms]
   (str (java.time.Instant/ofEpochMilli epoch-ms)))
 
+(defn ^:private provider-rate-limit-wait
+  "`rate-limit-wait` of an error response of `provider`, with the reset its
+   declaration reads (`:errors :retry-after-ms`), as `llm-api` calls it."
+  [provider headers body now-ms]
+  (llm-providers.errors/rate-limit-wait
+   headers
+   (llm-providers.errors/provider-retry-after-ms {:provider provider
+                                                  :error-data {:headers headers :body body}})
+   now-ms))
+
 (deftest rate-limit-wait-test
   (let [now-ms 1000000000000]
     (testing "retry-after delta seconds"
@@ -662,19 +672,32 @@
     (testing "anthropic unified reset in epoch seconds (subscription session limits)"
       (let [reset-epoch-s (+ (quot now-ms 1000) 3600)]
         (is (= {:delay-ms 3600000 :resets-at (* reset-epoch-s 1000)}
-               (llm-providers.errors/rate-limit-wait
-                {"anthropic-ratelimit-unified-reset" (str reset-epoch-s)} now-ms)))))
+               (provider-rate-limit-wait
+                "anthropic" {"anthropic-ratelimit-unified-reset" (str reset-epoch-s)} nil now-ms)))))
 
     (testing "anthropic unified reset already in epoch millis is kept as-is"
       (is (= {:delay-ms 5000 :resets-at (+ now-ms 5000)}
-             (llm-providers.errors/rate-limit-wait
-              {"anthropic-ratelimit-unified-reset" (str (+ now-ms 5000))} now-ms))))
+             (provider-rate-limit-wait
+              "anthropic" {"anthropic-ratelimit-unified-reset" (str (+ now-ms 5000))} nil now-ms))))
+
+    (testing "anthropic unified reset takes precedence over rate-limit buckets"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 3600)]
+        (is (= {:delay-ms 3600000 :resets-at (* reset-epoch-s 1000)}
+               (provider-rate-limit-wait
+                "anthropic"
+                {"anthropic-ratelimit-unified-reset" (str reset-epoch-s)
+                 "anthropic-ratelimit-requests-reset" (instant-str (+ now-ms 30000))}
+                nil
+                now-ms)))))
 
     (testing "retry-after takes precedence over reset headers"
       (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
-             (llm-providers.errors/rate-limit-wait
+             (provider-rate-limit-wait
+              "anthropic"
               {"retry-after" "7"
-               "anthropic-ratelimit-unified-reset" (str (+ (quot now-ms 1000) 3600))} now-ms))))
+               "anthropic-ratelimit-unified-reset" (str (+ (quot now-ms 1000) 3600))}
+              nil
+              now-ms))))
 
     (testing "RFC 3339 bucket resets: latest exhausted bucket wins"
       (is (= {:delay-ms 60000 :resets-at (+ now-ms 60000)}
@@ -724,14 +747,15 @@
                  ["string-keyed decoded map"
                   {"error" {"type" "usage_limit_reached" "resets_at" reset-epoch-s}}]]]
           (is (= expected
-                 (llm-providers.errors/rate-limit-wait headers body now-ms))
+                 (provider-rate-limit-wait "openai" headers body now-ms))
               label))))
 
     (testing "future retry-after takes precedence over chatgpt codex body reset"
       (let [reset-epoch-s (+ (quot now-ms 1000) 1800)
             body {:error {:type "usage_limit_reached" :resets_at reset-epoch-s}}]
         (is (= {:delay-ms 7000 :resets-at (+ now-ms 7000)}
-               (llm-providers.errors/rate-limit-wait
+               (provider-rate-limit-wait
+                "openai"
                 {"retry-after" "7"}
                 body
                 now-ms)))))
@@ -744,7 +768,8 @@
                                                 (java.time.ZoneId/of "GMT")))]
         (doseq [retry-after ["0" expired-http-date]]
           (is (= {:delay-ms 1800000 :resets-at (* reset-epoch-s 1000)}
-                 (llm-providers.errors/rate-limit-wait
+                 (provider-rate-limit-wait
+                  "openai"
                   {"retry-after" retry-after}
                   body
                   now-ms))))))
@@ -753,17 +778,28 @@
       (let [past-reset-epoch-s (- (quot now-ms 1000) 60)
             future-reset-epoch-s (+ (quot now-ms 1000) 30)]
         (is (= {:delay-ms 30000 :resets-at (* future-reset-epoch-s 1000)}
-               (llm-providers.errors/rate-limit-wait
+               (provider-rate-limit-wait
+                "openai"
                 {"anthropic-ratelimit-unified-reset" (str future-reset-epoch-s)}
                 {:error {:type "usage_limit_reached" :resets_at past-reset-epoch-s}}
                 now-ms)))))
 
+    (testing "a provider's own reset only applies to its responses"
+      (let [reset-epoch-s (+ (quot now-ms 1000) 1800)]
+        (is (nil? (provider-rate-limit-wait
+                   "anthropic"
+                   nil
+                   {:error {:type "usage_limit_reached" :resets_at reset-epoch-s}}
+                   now-ms)))))
+
     (testing "chatgpt codex quota-window headers are not retry instructions"
-      (is (nil? (llm-providers.errors/rate-limit-wait
+      (is (nil? (provider-rate-limit-wait
+                 "openai"
                  {"x-codex-primary-used-percent" "100"
                   "x-codex-primary-reset-at" (str (+ (quot now-ms 1000) 3600))
                   "x-codex-secondary-used-percent" "100"
                   "x-codex-secondary-reset-at" (str (+ (quot now-ms 1000) 604800))}
+                 nil
                  now-ms))))
 
     (testing "past resets, malformed or absent reset data return nil"
@@ -773,15 +809,17 @@
                  {"anthropic-ratelimit-requests-reset" "not-a-date"} now-ms)))
       (is (nil? (llm-providers.errors/rate-limit-wait
                  {"anthropic-ratelimit-requests-reset" (instant-str (- now-ms 30000))} now-ms)))
-      (is (nil? (llm-providers.errors/rate-limit-wait
+      (is (nil? (provider-rate-limit-wait
+                 "openai"
                  nil
                  "{\"error\":{\"type\":\"rate_limit_exceeded\",\"resets_at\":1000000060}}"
                  now-ms)))
-      (is (nil? (llm-providers.errors/rate-limit-wait
+      (is (nil? (provider-rate-limit-wait
+                 "openai"
                  nil
                  {:error {:type "usage_limit_reached"
                           :resets_at (- (quot now-ms 1000) 60)}}
                  now-ms)))
-      (is (nil? (llm-providers.errors/rate-limit-wait nil "not-json" now-ms)))
+      (is (nil? (provider-rate-limit-wait "openai" nil "not-json" now-ms)))
       (is (nil? (llm-providers.errors/rate-limit-wait {} now-ms)))
       (is (nil? (llm-providers.errors/rate-limit-wait nil now-ms))))))

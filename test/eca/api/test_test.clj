@@ -11,31 +11,37 @@
                    :parameters {:type "object"}
                    :handler (fn [ctx {:strs [text]}]
                               (eca/swap-chat-state! ctx update :echoes (fnil inc 0))
-                              (eca/text (str (:greeting (eca/config ctx)) " " text)))}}
+                              (str (:greeting (eca/config ctx)) " " text))}}
    :commands {"jira" {:arguments [{:name "key"}]
                       :handler (fn [_ctx args] args)}
               "ask" {:handler (fn [ctx _]
                                 (eca/notify! ctx "Asking.")
                                 [(eca/confirm ctx "Sure?") (eca/input ctx {:title "Name"})])}}
-   :defines {:events {:acme/rank {:kind :handle}}}
    :event-handlers {:chat/before-request [{:priority 10
                                            :handler (fn [_ _] {:additional-context "first"})}
                                           {:match {:prompt "write it"}
                                            :handler (fn [_ _] {:block "No writes."})}
                                           {:handler (fn [_ _] {:additional-context "second"
                                                                :ignored "not accepted"})}]
-                    :acme/rank [(fn [_ _] nil)
-                                (fn [_ {:keys [results]}] (sort results))]}})
+                    :chat/title [(fn [_ _] nil)
+                                 (fn [_ {:keys [prompt-count]}] {:title (str "Chat " prompt-count)})]}})
 
 (deftest run-tool-test
   (let [ctx (api.test/mock-ctx {:module module :config {:greeting "Hi"}})]
-    (is (= {:error false :contents [{:type :text :text "Hi there"}]}
-           (api.test/run-tool module "echo" {"text" "there"} ctx)))
+    (is (= "Hi there" (api.test/run-tool module "echo" {"text" "there"} ctx)))
     (testing "the mock chat keeps the module's state"
       (api.test/run-tool module "echo" {"text" "again"} ctx)
       (is (= {:echoes 2} (eca/chat-state ctx)))))
   (testing "a tool the module doesn't have"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no tool nope" (api.test/run-tool module "nope" {})))))
+
+(deftest tools-and-commands-functions-test
+  (testing ":tools and :commands given by functions of the ctx"
+    (let [module {:id :acme/fns
+                  :tools (fn [ctx] {"whoami" {:handler (fn [_ _] (str (eca/module-id ctx)))}})
+                  :commands (fn [_ctx] [["bye" {:handler (fn [_ _] "Bye!")}]])}]
+      (is (= ":acme/fns" (api.test/run-tool module "whoami" {})))
+      (is (= "Bye!" (api.test/run-command module "bye" ""))))))
 
 (deftest run-command-test
   (testing "args typed as text"
@@ -57,4 +63,4 @@
     (is (= {:prompt "write it" :block "No writes." :additional-context "first"}
            (api.test/run-event module :chat/before-request {:prompt "write it"}))))
   (testing "a handle event: the first answer"
-    (is (= [1 2 3] (api.test/run-event module :acme/rank {:results [3 1 2]})))))
+    (is (= {:title "Chat 3"} (api.test/run-event module :chat/title {:prompt-count 3})))))

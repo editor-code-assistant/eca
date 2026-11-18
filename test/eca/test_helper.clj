@@ -153,6 +153,13 @@
                    wanted))]
     (filterv #(contains? wanted (:id %)) all)))
 
-(defn reset-components-before-test []
-  (use-fixtures :each (fn [f] (reset-components!) (f))))
+(defn reset-components-before-test
+  "Resets the components before each test of the namespace, and again after
+   it, so the modules, config and db a test leaves never reach the tests that
+   run next, in namespaces without this fixture too."
+  []
+  (use-fixtures :each (fn [f]
+                        (reset-components!)
+                        (try (f) (finally (reset-components!))))))
+
 (defn reset-messenger! [] (swap! components* assoc :messenger (:messenger (make-components))))

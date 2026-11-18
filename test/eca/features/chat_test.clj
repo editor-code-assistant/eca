@@ -3043,6 +3043,15 @@
       (is (nil? (get-in (h/db) [:chats chat-id])))
       (is (contains? (:deleted-chat-ids (h/db)) chat-id)))))
 
+(deftest unknown-command-result-test
+  (testing "a command result of a type no ECA command returns ends the turn, instead of leaving the chat running"
+    (h/reset-components!)
+    (modules/add-external! "/tmp/acme-odd.clj" {:id :acme/odd :commands {"odd" {:handler (fn [_ _] {:type :mystery})}}})
+    (let [{:keys [chat-id]} (prompt! {:message "/odd"}
+                                     {:all-tools-mock (constantly [])
+                                      :api-mock (fn [& _] (throw (ex-info "commands should not call the LLM" {})))})]
+      (is (= :idle (get-in (h/db) [:chats chat-id :status]))))))
+
 (deftest message->decision-test
   (testing "plain prompt message"
     (is (= {:type :prompt-message

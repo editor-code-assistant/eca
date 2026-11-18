@@ -49,13 +49,10 @@
 
 (def ^:private initial-config*
   {:defaultModel nil
-   :prompts {:completion "${classpath:prompts/inline_completion.md}"
-             :rewrite "${classpath:prompts/rewrite.md}"}
    :chat {:defaultTrust false
           :autoSyncSystemPrompt false}
    :chatInline {}
    :chatRetentionDays 30
-   :rewrite {:fullFileMaxLines 2000}
    :extraConfigs []
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
@@ -78,7 +75,6 @@
                               ""
                               "Toggle **trust mode** to auto-accept all tool calls"
                               "")
-   :completion {:model "openai/gpt-4.1"}
    :netrcFile nil
    :index {:ignoreFiles [{:type :gitignore}]}
    :remote {:enabled false}
@@ -90,7 +86,9 @@
    keys ECA sets itself. Modules' keys come from their `:config-spec`."
   (into (set (keys initial-config*))
         #{:$schema :agent :behavior :defaultBehavior :network :otlp :providers :variantsByModel
-          :pureConfig :pluginSkillDirs :compactPrompt :compactPromptFile}))
+          :pureConfig :pluginSkillDirs :compactPrompt :compactPromptFile
+          ;; prompts.tools, which core reads and no module declares
+          :prompts}))
 
 (defn ^:private parse-dynamic-string-values
   "walk through config parsing dynamic string contents if value is a string."

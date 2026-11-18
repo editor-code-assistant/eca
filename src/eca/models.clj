@@ -9,7 +9,6 @@
    [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.modules :as modules]
    [eca.modules.events :as events]
    [eca.shared :refer [assoc-some] :as shared]
    [hato.client :as http])
@@ -52,14 +51,13 @@
     nil))
 
 (defn ^:private models-endpoint-headers
-  [copilot? auth-type api-type api-key extra-headers]
+  [auth-type api-type api-key extra-headers]
   (let [oauth? (= :auth/oauth auth-type)
         anthropic? (= "anthropic" api-type)]
     (client/merge-llm-headers
      (merge
       (assoc-some
-       (cond-> {"Content-Type" "application/json"}
-         copilot? (merge (llm-util/copilot-ide-headers)))
+       {"Content-Type" "application/json"}
        "anthropic-version" (when anthropic? "2023-06-01")
        "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
        "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
@@ -163,120 +161,38 @@
   (when-not (and context output (>= output context))
     output))
 
-(def ^:private models-with-image-generation-support
-  "Mainline OpenAI chat models that support the built-in `image_generation`
-   tool on the Responses API. Sourced from OpenAI's image-generation tool
-   guide (explicit list: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini,
-   gpt-5, gpt-5.5, o3) plus the published guide rule: \"gpt-5 and newer
-   models should support the image generation tool\". Codex variants are
-   deliberately excluded — OpenAI restricts them to function calling,
-   structured outputs, streaming, and prompt caching."
-  #{"openai/gpt-4.1"
-    "openai/gpt-4.1-mini"
-    "openai/gpt-4.1-nano"
-    "openai/gpt-4o-mini"
-    "openai/gpt-5"
-    "openai/gpt-5-mini"
-    "openai/gpt-5-nano"
-    "openai/gpt-5.1"
-    "openai/gpt-5.2"
-    "openai/gpt-5.4"
-    "openai/gpt-5.5"
-    "openai/gpt-5.6-luna"
-    "openai/gpt-5.6-terra"
-    "openai/gpt-5.6-sol"
-    "openai/gpt-6-astra"
-    "openai/o3"})
-
-(def ^:private models-with-web-search-support
-  "Models that support a built-in web-search tool. OpenAI portion sourced
-   from the web-search tool guide; explicit denylist names only
-   `gpt-4.1-nano` and `gpt-5 with minimal reasoning` (the latter is a
-   runtime config, not a model id, so `gpt-5` itself stays in the set).
-   Codex variants are deliberately excluded."
-  #{"openai/gpt-4.1"
-    "openai/gpt-4.1-mini"
-    "openai/gpt-4o"
-    "openai/gpt-4o-mini"
-    "openai/gpt-5"
-    "openai/gpt-5-mini"
-    "openai/gpt-5-nano"
-    "openai/gpt-5.1"
-    "openai/gpt-5.2"
-    "openai/gpt-5.4"
-    "openai/gpt-5.5"
-    "openai/gpt-5.6-luna"
-    "openai/gpt-5.6-terra"
-    "openai/gpt-5.6-sol"
-    "openai/gpt-6-astra"
-    "openai/gpt-6.1-sol"
-    "openai/gpt-6-sol"
-    "openai/gpt-6-luna"
-    "openai/o3"
-    "openai/o3-mini"
-    "openai/o4-mini"
-    "anthropic/claude-sonnet-4-5"
-    "anthropic/claude-sonnet-4-6"
-    "anthropic/claude-opus-4.1"
-    "anthropic/claude-opus-4.5"
-    "anthropic/claude-opus-4.6"
-    "anthropic/claude-opus-4-6"
-    "anthropic/claude-haiku-4.5"
-    "anthropic/claude-sonnet-4-5-20250929"
-    "anthropic/claude-sonnet-4-20250514"
-    "anthropic/claude-opus-4-20250514"
-    "anthropic/claude-opus-4-1-20250805"
-    "anthropic/claude-opus-4-5-20251101"
-    "anthropic/claude-opus-4.7"
-    "anthropic/claude-opus-4-7"
-    "anthropic/claude-opus-4.8"
-    "anthropic/claude-opus-4-8"
-    "anthropic/claude-opus-5"
-    "anthropic/claude-opus-5-5"
-    "anthropic/claude-sonnet-5"
-    "anthropic/claude-fable-5"
-    "anthropic/claude-fable-5-1"
-    "anthropic/claude-mythos-5"
-    "anthropic/claude-mythos-5-1"
-    "anthropic/claude-haiku-4-5-20251001"})
-
-(def ^:private models-with-mid-conversation-system-support
-  "Models that accept `role: \"system\"` entries inside the messages array
-   (mid-conversation system messages), letting volatile instructions be sent
-   after a user turn without invalidating the cached history prefix.
-   Documented for Claude Opus 4.8."
-  #{"anthropic/claude-opus-4.8"
-    "anthropic/claude-opus-4-8"})
-
 (defn ^:private all
-  "Return all known existing models with their capabilities and configs."
-  [models-dev-data]
+  "Return all known existing models with their capabilities and configs. The
+   capabilities models.dev doesn't tell come from the providers' declarations:
+   `:capabilities`, capability → model ids, e.g. `{:web-search #{\"gpt-5\"}}`."
+  [models-dev-data config]
   (reduce
    (fn [m [provider provider-config]]
-     (merge m
-            (reduce
-             (fn [p [model model-config]]
-               (let [context (pos-num (get-in model-config ["limit" "context"]))
-                     output (sane-output-limit context (pos-num (get-in model-config ["limit" "output"])))]
-                 (assoc p (str provider "/" model)
-                        (assoc-some
-                         {:reason? (get model-config "reasoning")
-                          :image-input? (contains? (set (get-in model-config ["modalities" "input"])) "image")
-                          ;; TODO how to check for web-search mode dynamically,
-                          ;; maybe fixed after web-search toolcall is implemented
-                          :web-search (contains? models-with-web-search-support (str provider "/" model))
-                          :mid-conversation-system? (contains? models-with-mid-conversation-system-support (str provider "/" model))
-                          :image-generation? (contains? models-with-image-generation-support (str provider "/" model))
-                          :tools (get model-config "tool_call")
-                          :max-output-tokens output}
-                         :limit {:context context
-                                 :output output}
-                         :input-token-cost (some-> (get-in model-config ["cost" "input"]) float (/ one-million))
-                         :output-token-cost (some-> (get-in model-config ["cost" "output"]) float (/ one-million))
-                         :input-cache-creation-token-cost (some-> (get-in model-config ["cost" "cache_write"]) float (/ one-million))
-                         :input-cache-read-token-cost (some-> (get-in model-config ["cost" "cache_read"]) float (/ one-million))))))
-             {}
-             (get provider-config "models"))))
+     (let [capabilities (:capabilities (llm-util/provider-declaration config provider))]
+       (merge m
+              (reduce
+               (fn [p [model model-config]]
+                 (let [context (pos-num (get-in model-config ["limit" "context"]))
+                       output (sane-output-limit context (pos-num (get-in model-config ["limit" "output"])))]
+                   (assoc p (str provider "/" model)
+                          (assoc-some
+                           {:reason? (get model-config "reasoning")
+                            :image-input? (contains? (set (get-in model-config ["modalities" "input"])) "image")
+                            ;; TODO how to check for web-search mode dynamically,
+                            ;; maybe fixed after web-search toolcall is implemented
+                            :web-search (contains? (:web-search capabilities) model)
+                            :mid-conversation-system? (contains? (:mid-conversation-system? capabilities) model)
+                            :image-generation? (contains? (:image-generation? capabilities) model)
+                            :tools (get model-config "tool_call")
+                            :max-output-tokens output}
+                           :limit {:context context
+                                   :output output}
+                           :input-token-cost (some-> (get-in model-config ["cost" "input"]) float (/ one-million))
+                           :output-token-cost (some-> (get-in model-config ["cost" "output"]) float (/ one-million))
+                           :input-cache-creation-token-cost (some-> (get-in model-config ["cost" "cache_write"]) float (/ one-million))
+                           :input-cache-read-token-cost (some-> (get-in model-config ["cost" "cache_read"]) float (/ one-million))))))
+               {}
+               (get provider-config "models")))))
    {}
    models-dev-data))
 
@@ -411,143 +327,6 @@
                (format "Provider '%s': Ignoring models.dev model entry '%s' with invalid key/model fields"
                        provider model-key)))
 
-(defn ^:private copilot-model-api [supported-endpoints]
-  (let [endpoints (set supported-endpoints)]
-    (cond
-      (contains? endpoints "/v1/messages") :anthropic
-      (contains? endpoints "/responses") :openai-responses
-      (contains? endpoints "/chat/completions") :openai-chat)))
-
-(defn ^:private copilot-reasoning-variants [model-id api supports]
-  (let [efforts (some->> (:reasoning_effort supports)
-                         (filter string?)
-                         seq)
-        adaptive? (true? (:adaptive_thinking supports))
-        min-budget (:min_thinking_budget supports)
-        max-budget (:max_thinking_budget supports)]
-    (case api
-      :openai-responses
-      (when efforts
-        (into {}
-              (map (fn [effort]
-                     [effort {:reasoning {:effort effort :summary "auto"}}]))
-              efforts))
-
-      :openai-chat
-      (when efforts
-        (into {}
-              (map (fn [effort]
-                     [effort {:reasoning_effort effort}]))
-              efforts))
-
-      :anthropic
-      (let [adaptive-thinking (cond-> {:type "adaptive"}
-                                ;; Opus 4.7 defaults adaptive thinking display to "omitted", which
-                                ;; produces empty thinking blocks. Request summaries explicitly.
-                                (re-find #"(?i)opus[-._]4[-._]7(?:$|[-._])" model-id)
-                                (assoc :display "summarized"))]
-        (cond
-          ;; Adaptive-thinking models (Opus 4.7+/Sonnet 5+) reject thinking.type
-          ;; "enabled", so a "default" variant keeps no-variant requests on
-          ;; adaptive instead of the enabled fallback in the provider (#528).
-          (and efforts adaptive?)
-          (into {"default" {:thinking adaptive-thinking}}
-                (map (fn [effort]
-                       [effort {:thinking adaptive-thinking
-                                :output_config {:effort effort}}]))
-                efforts)
-
-          adaptive?
-          {"default" {:thinking adaptive-thinking}}
-
-          ;; Some Copilot Messages models (for example Claude Opus/Sonnet 4.5) advertise
-          ;; budget bounds instead of named reasoning efforts. Project that range into
-          ;; the existing variant picker without exposing raw token budgets in the UI.
-          (and (number? max-budget) (pos? max-budget))
-          (let [min-value (max 1024 (long (if (number? min-budget) min-budget 1024)))
-                max-value (dec (long max-budget))
-                high-value (max min-value (quot (long max-budget) 2))]
-            (when (<= min-value max-value)
-              {"high" {:thinking {:type "enabled"
-                                  :budget_tokens high-value}}
-               "max" {:thinking {:type "enabled"
-                                 :budget_tokens max-value}}}))
-
-          :else nil))
-
-      nil)))
-
-(defn ^:private copilot-model-hidden?
-  "True for catalog entries VS Code's picker hides (#601): flagged
-   `model_picker_enabled: false` (embeddings, internal agents, the Auto router
-   entry) or with a `disabled` policy, which GitHub accepts but never enables
-   for plans that don't include the model. `unconfigured` policies are not
-   hidden: the model works once the user accepts its terms via the consent
-   flow. Entries without the flag or policy are not hidden."
-  [{:keys [model_picker_enabled policy]}]
-  (or (false? model_picker_enabled)
-      (= "disabled" (:state policy))))
-
-(defn ^:private parse-copilot-model-entry
-  "Parses a Copilot /models entry into [id discovered-config]. The picker
-   category (versatile/powerful/lightweight) is kept as provider data to
-   choose a default model."
-  [{:keys [id supported_endpoints capabilities model_picker_category]}]
-  (when (and (string? id)
-             (not (string/blank? id)))
-    (let [supports (:supports capabilities)
-          api (copilot-model-api supported_endpoints)
-          variants (copilot-reasoning-variants id api supports)
-          reason? (or (true? (:adaptive_thinking supports))
-                      (seq (:reasoning_effort supports))
-                      (number? (:max_thinking_budget supports))
-                      (number? (:min_thinking_budget supports)))]
-      [id (assoc-some {}
-                      :discovered-api api
-                      :discovered-reason? (when reason? true)
-                      :discovered-variants (not-empty variants)
-                      :discovered-provider-data (when (shared/not-blank model_picker_category)
-                                                  {:picker-category model_picker_category}))])))
-
-(defn ^:private configured-model-ids
-  "Model ids referenced by a provider's static `models` config: the keys plus
-   `modelName` aliases, without a `<provider>/` prefix."
-  [provider static-models]
-  (into (set (keys static-models))
-        (keep (fn [[_ {:keys [modelName]}]]
-                (when (string? modelName)
-                  (if (string/includes? modelName "/")
-                    (let [[alias-provider model] (shared/full-model->provider+model modelName)]
-                      (when (= provider alias-provider) model))
-                    modelName))))
-        static-models))
-
-(defn ^:private parse-copilot-models
-  "Parses the Copilot catalog entries. The catalog returns every model the API
-   knows regardless of purpose or plan; entries hidden from the picker (see
-   `copilot-model-hidden?`) are dropped unless the user lists them under the
-   provider's `models` config, keeping their discovered API and reasoning
-   variants so they aren't routed by model name. When the catalog has entries
-   but none is usable for the account (Copilot Free/Student only get auto model
-   selection, which third-party clients can't use), returns an empty map
-   rather than nil so callers don't fall back to models.dev and list models
-   the account can't use."
-  [provider models-data static-models]
-  (let [configured? (configured-model-ids provider static-models)
-        models (into {}
-                     (keep (fn [entry]
-                             (when-let [[id _ :as parsed] (parse-copilot-model-entry entry)]
-                               (when (or (not (copilot-model-hidden? entry))
-                                         (configured? id))
-                                 parsed))))
-                     models-data)]
-    (when (and (seq models-data) (empty? models))
-      (logger/warn logger-tag
-                   (format "Provider '%s': /models returned %d models but none is available for this account's plan"
-                           provider (count models-data))))
-    (when (seq models-data)
-      models)))
-
 (def ^:private effort-list-paths
   [[:reasoning :supported_efforts]     ; OpenRouter
    [:reasoning_parameters :efforts]])  ; Synthetic
@@ -590,45 +369,51 @@
                                                      :output output))
                       :discovered-effort-variants effort-variants)])))
 
+(defn fetch-models-endpoint
+  "GETs `provider`'s /models `url` with `headers`: what `parse` makes of its
+   `data` entries, or nil, logged, when the request fails, the payload's
+   `data` isn't a list or `parse` throws."
+  [provider url headers parse]
+  (let [rid (llm-util/gen-rid)]
+    (try
+      (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
+      (let [{:keys [status body]} (http/get url
+                                            {:headers headers
+                                             :throw-exceptions? false
+                                             :as :json
+                                             :coerce :unexceptional
+                                             :http-client (client/merge-with-global-http-client {})
+                                             :timeout provider-models-timeout-ms})]
+        (if (not= 200 status)
+          (logger/warn logger-tag
+                       (format "Provider '%s': /models endpoint returned status %s: %s"
+                               provider status (truncate-for-log body)))
+
+          (let [models-data (:data body)]
+            (if (not (sequential? models-data))
+              (logger/warn logger-tag
+                           (format "Provider '%s': /models payload missing sequential :data (status %s, keys %s)"
+                                   provider status (if (map? body) (-> body keys sort vec) :non-map-body)))
+              (do
+                (logger/debug logger-tag
+                              (format "[%s] Provider '%s': Received %d models from %s"
+                                      rid provider (count models-data) url))
+                (parse models-data))))))
+      (catch Exception e
+        (logger/warn logger-tag
+                     (format "Provider '%s': Failed to fetch models from %s: %s"
+                             provider url e))))))
+
 (defn ^:private fetch-provider-native-models
   "Fetches models from provider's native /models endpoint.
    Returns a map of model-id -> discovered model config on success, nil on failure."
-  [{:keys [api-url auth-type api-key api-type provider provider-base extra-headers static-models]}]
+  [{:keys [api-url auth-type api-key api-type provider extra-headers]}]
   (when-let [models-path (provider-models-endpoint-path api-type)]
-    (let [url (shared/join-api-url api-url models-path)
-          rid (llm-util/gen-rid)
-          copilot? (= "github-copilot" (or provider-base provider))
-          headers (models-endpoint-headers copilot? auth-type api-type api-key extra-headers)]
-      (try
-        (logger/debug logger-tag (format "[%s] Provider '%s': Fetching models from %s" rid provider url))
-        (let [{:keys [status body]} (http/get url
-                                              {:headers headers
-                                               :throw-exceptions? false
-                                               :as :json
-                                               :coerce :unexceptional
-                                               :http-client (client/merge-with-global-http-client {})
-                                               :timeout provider-models-timeout-ms})]
-          (if (not= 200 status)
-            (logger/warn logger-tag
-                         (format "Provider '%s': /models endpoint returned status %s: %s"
-                                 provider status (truncate-for-log body)))
-
-            (let [models-data (:data body)]
-              (if (not (sequential? models-data))
-                (logger/warn logger-tag
-                             (format "Provider '%s': /models payload missing sequential :data (status %s, keys %s)"
-                                     provider status (if (map? body) (-> body keys sort vec) :non-map-body)))
-                (do
-                  (logger/debug logger-tag
-                                (format "[%s] Provider '%s': Received %d models from %s"
-                                        rid provider (count models-data) url))
-                  (if copilot?
-                    (parse-copilot-models provider models-data static-models)
-                    (not-empty (into {} (keep #(parse-native-model-entry % api-type) models-data)))))))))
-        (catch Exception e
-          (logger/warn logger-tag
-                       (format "Provider '%s': Failed to fetch models from %s: %s"
-                               provider url e)))))))
+    (fetch-models-endpoint provider
+                           (shared/join-api-url api-url models-path)
+                           (models-endpoint-headers auth-type api-type api-key extra-headers)
+                           (fn [models-data]
+                             (not-empty (into {} (keep #(parse-native-model-entry % api-type) models-data)))))))
 
 (defn ^:private fetch-provider-native-models-with-fallback
   "Tries to fetch models from provider's native endpoint first.
@@ -644,26 +429,28 @@
           api-type (:api provider-config)
           provider-base (config/provider-base provider config)]
       ;; Provider+auth specific source first (e.g. OpenAI OAuth -> ChatGPT Codex
-      ;; /models, registered via `llm-util/provider-models-override`), then the
-      ;; generic native /models endpoint.
-      (when-let [models (or (llm-util/provider-models-override
-                             {:provider provider
-                              :provider-base provider-base
-                              :config config
-                              :auth-type auth-type
-                              :api-key api-key
-                              :account-id (:account-id provider-auth)
-                              :static-models (:models provider-config)})
-                            (when api-url
-                              (fetch-provider-native-models
-                               {:provider provider
-                                :provider-base provider-base
-                                :api-url api-url
-                                :auth-type auth-type
-                                :api-key api-key
-                                :api-type api-type
-                                :extra-headers (:extraHeaders provider-config)
-                                :static-models (:models provider-config)})))]
+      ;; /models, Copilot's catalog; see `llm-util/provider-models-override`),
+      ;; then the generic native /models endpoint.
+      (when-let [models (let [override (llm-util/provider-models-override
+                                        {:provider provider
+                                         :provider-base provider-base
+                                         :config config
+                                         :api-url api-url
+                                         :auth-type auth-type
+                                         :api-key api-key
+                                         :account-id (:account-id provider-auth)
+                                         :extra-headers (:extraHeaders provider-config)
+                                         :static-models (:models provider-config)})]
+                          (cond
+                            (= llm-util/no-native-models override) nil
+                            override override
+                            api-url (fetch-provider-native-models
+                                     {:provider provider
+                                      :api-url api-url
+                                      :auth-type auth-type
+                                      :api-key api-key
+                                      :api-type api-type
+                                      :extra-headers (:extraHeaders provider-config)})))]
         (logger/debug logger-tag
                       (format "Provider '%s': Discovered %d models"
                               provider (count models)))
@@ -915,11 +702,15 @@
    full model name, with the provider's `models` config applied."
   [config]
   (into {}
-        (for [[_entry providers] (modules/contributions config :providers)
-              [provider {:keys [models-fn]}] providers
+        (for [[provider {:keys [models-fn]}] (llm-util/provider-declarations config)
               :when models-fn
               :let [models-config (get-in config [:providers provider :models])]
-              {:keys [model] :as provider-model} (models-fn {:api-url (llm-util/provider-api-url provider config)})]
+              ;; a provider that fails, e.g. an external module's, lists none
+              {:keys [model] :as provider-model} (try (models-fn {:api-url (llm-util/provider-api-url provider config)})
+                                                      (catch Exception e
+                                                        (logger/warn logger-tag (format "Provider '%s': could not list its models: %s"
+                                                                                        provider (ex-message e)))
+                                                        nil))]
           [(str provider "/" model)
            (merge-capabilities
             (select-keys provider-model [:tools :reason?])
@@ -927,7 +718,7 @@
 
 (defn sync-models! [db* config on-models-updated]
   (let [models-dev-data (models-dev)
-        known-models (all models-dev-data)
+        known-models (all models-dev-data config)
         db @db*
         {:keys [models]} (fetch-provider-model-catalogs config db models-dev-data)
         all-supported-models (build-all-supported-models
@@ -944,7 +735,7 @@
 (comment
   (require '[clojure.pprint :as pprint])
   (pprint/pprint (models-dev))
-  (pprint/pprint (all (models-dev)))
+  (pprint/pprint (all (models-dev) {}))
   (require '[eca.db :as db])
   (sync-models! db/db*
                 (config/all @db/db*)

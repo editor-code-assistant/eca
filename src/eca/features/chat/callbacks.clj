@@ -13,8 +13,6 @@
    [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.prompt :as f.prompt]
-   [eca.features.providers :as f.providers]
-   [eca.features.quota :as f.quota]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.logger :as logger]
@@ -33,15 +31,11 @@
     (odd? (count (re-seq #"(?m)^```" text)))))
 
 (defn ^:private on-response-headers
+  "A subscription login's response headers go to modules, e.g. for its quota."
   [{:keys [chat-ctx]} headers]
-  (let [{:keys [db* config provider messenger]} chat-ctx]
-    (when (:subscription? chat-ctx)
-      ;; Display-only, so never let it break the request.
-      (try
-        (when (f.quota/update-from-headers! db* provider headers)
-          (f.providers/notify-provider-updated! provider db* config messenger))
-        (catch Exception e
-          (logger/warn logger-tag "Failed to update provider quota" e))))))
+  (when (:subscription? chat-ctx)
+    (events/emit! chat-ctx :llm/response-headers
+                  (f.chat.lifecycle/chat-event chat-ctx {:provider (:provider chat-ctx) :headers headers}))))
 
 (defn ^:private on-usage-updated
   [{:keys [chat-ctx all-tools]} usage]

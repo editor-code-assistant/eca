@@ -5,8 +5,8 @@
    [clojure.test :refer [deftest is testing]]
    [eca.cache :as cache]
    [eca.db.global-cache :as db.global-cache]
-   [eca.features.login :as f.login]
    [eca.llm-api :as llm-api]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.modules.completion :as m.completion]
    [eca.test-helper :as h]))
 
@@ -33,7 +33,7 @@
           (let [login-ctx* (atom nil)
                 api-opts* (atom nil)
                 result (with-redefs [db.global-cache/update-global-cache! (fn [& _] nil)
-                                     f.login/login-step
+                                     llm-api.auth/renew-token!
                                      (fn [{:keys [db*] :as ctx}]
                                        (reset! login-ctx* ctx)
                                        (swap! db* assoc-in [:auth "github-copilot"] {:api-key "renewed"

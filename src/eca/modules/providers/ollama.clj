@@ -6,6 +6,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.client-http :as client]
+   [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -279,10 +280,37 @@
    :apis {"ollama" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
    :config-defaults {:variantsByModel m.variants/any-api}})
 
+(defn ^:private request-opts
+  "A request's options (the declaration's `:request-opts`): no API key, nor
+   web search or reasoning history."
+  [_opts {:keys [model flat-instructions user-messages max-output-tokens supports-image? past-messages tools
+                 extra-payload extra-headers api-url model-capabilities cancelled? stream-idle-timeout-seconds]}]
+  {:api-url api-url
+   :reason? (:reason? model-capabilities)
+   :supports-image? supports-image?
+   :model model
+   :instructions flat-instructions
+   :user-messages user-messages
+   :past-messages past-messages
+   :tools tools
+   :max-output-tokens max-output-tokens
+   :extra-payload extra-payload
+   :extra-headers extra-headers
+   :cancelled? cancelled?
+   :stream-idle-timeout-seconds stream-idle-timeout-seconds})
+
+(defn ^:private default-model
+  "The first model of a running Ollama (the declaration's `:default-model`)."
+  [{:keys [db]}]
+  (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db)))))
+
 (def module
   {:id :eca/ollama
    :description "Local models through Ollama: the models pulled locally."
    :requires #{:eca/api-ollama}
    :providers {"ollama" {:label "Ollama"
-                         :models-fn #'local-models}}
+                         :models-fn #'local-models
+                         :request-opts #'request-opts
+                         :api-fn (constantly :ollama)
+                         :default-model {:rank 4 :decision :ollama-running :fn #'default-model}}}
    :config-defaults {:providers {"ollama" {:url "${env:OLLAMA_API_URL:http://localhost:11434}"}}}})
