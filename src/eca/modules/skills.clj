@@ -10,11 +10,11 @@
    [eca.config :as config]
    [eca.features.commands :as f.commands]
    [eca.features.prompt :as f.prompt]
-   [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.interpolation :as interpolation]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :as shared :refer [multi-str]]))
 
 (set! *warn-on-reflection* true)
@@ -226,16 +226,14 @@
 
 (defn ^:private prompt-skills
   "The skills of the chat's system prompt: all but the ones the `skill`
-   tool's approval denies."
+   tool's approval denies (`:tool/approval`)."
   [{:keys [config db agent all-tools]}]
   (->> (all config (:workspace-folders db))
        (remove (fn [skill]
-                 (= :deny (f.tools/approval all-tools
-                                            {:server {:name "eca"} :name "skill"}
-                                            {"name" (:name skill)}
-                                            db
-                                            config
-                                            agent))))))
+                 (= :deny (:approval (events/emit! {:config config :db db :agent agent :all-tools all-tools}
+                                                   :tool/approval
+                                                   {:tool "eca__skill" :server "eca"
+                                                    :arguments {"name" (:name skill)}})))))))
 
 (defn skills-section
   "`:eca/skills`: the skills' names and descriptions."

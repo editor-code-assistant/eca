@@ -5,6 +5,7 @@
    [clojure.test :refer [deftest is testing]]
    [eca.features.tools :as f.tools]
    [eca.modules :as modules]
+   [eca.modules.approval :as m.approval]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
 
@@ -48,7 +49,7 @@
                       echo)))
         (testing "its functions get ctx first, with the module in it"
           (is (= "Echoing hi" (f.tools/tool-call-summary tools "eca__echo" {"text" "hi"} {} @db*)))
-          (is (= :ask (f.tools/approval tools echo {"text" "ask"} @db* {} "code")))
+          (is (= :ask (#'m.approval/approval tools echo {"text" "ask"} @db* {} "code")))
           (is (match? {:error false :contents [{:type :text :text "hi"}]}
                       (f.tools/call-tool! "eca__echo" {"text" "hi"} "chat-1" "call-1" "code" db* {}
                                           (h/messenger) (h/metrics) identity identity {})))

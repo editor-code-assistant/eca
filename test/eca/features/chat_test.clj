@@ -23,6 +23,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.approval :as m.approval]
    [eca.modules.chat-title :as m.chat-title]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.hooks :as m.hooks]
@@ -153,7 +154,7 @@
                       llm-api/sync-prompt! (constantly nil)
                       f.tools/call-tool! (:call-tool-mock mocks)
                       f.tools/all-tools (:all-tools-mock mocks)
-                      f.tools/approval (constantly :allow)
+                      m.approval/approval (constantly :allow)
                       config/await-plugins-resolved! (constantly true)]
           (h/config! {:env "test"})
           (swap! (h/db*) update :models
@@ -187,7 +188,7 @@
                                                         (on-message-received {:type :finish}))
                         llm-api/sync-prompt! (constantly nil)
                         f.tools/all-tools (constantly [])
-                        f.tools/approval (constantly :allow)
+                        m.approval/approval (constantly :allow)
                         config/await-plugins-resolved! (constantly true)]
             (h/config! {:env "test"})
             (swap! (h/db*) update :models
@@ -835,7 +836,7 @@
                                     llm-api/sync-prompt! (constantly nil)
                                     f.tools/call-tool! (constantly nil)
                                     f.tools/all-tools (constantly [])
-                                    f.tools/approval (constantly :allow)
+                                    m.approval/approval (constantly :allow)
                                     config/await-plugins-resolved! (constantly true)]
                         (h/config! (merge {:env "test"} extra-config))
                         (swap! (h/db*) update :models
@@ -874,7 +875,7 @@
                                     llm-api/sync-prompt! (constantly nil)
                                     f.tools/call-tool! (constantly nil)
                                     f.tools/all-tools (constantly [])
-                                    f.tools/approval (constantly :allow)
+                                    m.approval/approval (constantly :allow)
                                     config/await-plugins-resolved! (constantly true)]
                         (h/config! (merge {:env "test"} agents-config))
                         (swap! (h/db*) update :models
@@ -911,7 +912,7 @@
                       llm-api/sync-prompt! (:sync-prompt-mock mocks)
                       f.tools/call-tool! (constantly nil)
                       f.tools/all-tools (constantly [])
-                      f.tools/approval (constantly :allow)
+                      m.approval/approval (constantly :allow)
                       config/await-plugins-resolved! (constantly true)]
           (h/config! (merge {:env "test" :chat {:title true}}
                             (:config mocks)))
@@ -4015,7 +4016,7 @@
                                        llm-api/sync-prompt! (constantly nil)
                                        f.tools/call-tool! (constantly nil)
                                        f.tools/all-tools (constantly [])
-                                       f.tools/approval (constantly :allow)
+                                       m.approval/approval (constantly :allow)
                                        config/await-plugins-resolved! (constantly true)
                                        f.prompt/build-chat-instructions (fn [& _]
                                                                           (swap! build-calls* inc)
@@ -4211,7 +4212,7 @@
                 llm-api/sync-prompt! (constantly nil)
                 f.tools/call-tool! (:call-tool-mock mocks)
                 f.tools/all-tools (:all-tools-mock mocks)
-                f.tools/approval (constantly :allow)
+                m.approval/approval (constantly :allow)
                 config/await-plugins-resolved! (constantly true)]
     (h/config! {:env "test"})
     (swap! (h/db*) update :models

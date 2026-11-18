@@ -4,9 +4,9 @@
   (:require
    [clojure.test :refer [deftest is testing]]
    [eca.features.chat.tool-batch :as f.chat.tool-batch]
-   [eca.features.tools :as f.tools]
    [eca.logger :as logger]
    [eca.modules :as modules]
+   [eca.modules.approval :as m.approval]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -40,10 +40,10 @@
   (testing "without :eca/approval, calls ask"
     (is (match? {:decision :ask}
                 (decide (assoc (config-by-default "allow") :modules {:eca/approval {:enabled false}})))))
-  (testing "the config rules decide twice per call, as before modules: for the log and the deny check, and in :eca/approval"
+  (testing "the config rules decide twice per call, as before modules: :eca/approval logs the rule and decides"
     (let [calls* (atom 0)
-          approval-decision f.tools/approval-decision]
-      (with-redefs [f.tools/approval-decision (fn [& args] (swap! calls* inc) (apply approval-decision args))]
+          approval-decision @#'m.approval/approval-decision]
+      (with-redefs [m.approval/approval-decision (fn [& args] (swap! calls* inc) (apply approval-decision args))]
         (is (match? {:decision :deny} (decide (config-by-default "deny"))))
         (is (= 2 @calls*))
         (reset! calls* 0)

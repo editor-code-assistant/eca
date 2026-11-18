@@ -108,6 +108,12 @@
                                 :block "Rejects the call, with this reason for the model."
                                 :stop "Ends the turn, with this reason."
                                 :additional-context "Added to the call's output for the model, run or rejected."}}
+   :tool/approval {:kind :handle
+                   :doc (str "What a tool call's approval would be, outside of a chat and without running it: "
+                             "ECA hides the tools and skills the answer denies. :eca/approval answers from "
+                             "the config rules.")
+                   :payload {:tool "The tool's full name." :server "Its server." :arguments "The arguments."}
+                   :accepts {:approval ":allow, :ask or :deny."}}
    :tool/after-call {:kind :transform
                      :doc (str "After a tool call ran, before the model, the client and the postToolCall hooks "
                                "see its result.")

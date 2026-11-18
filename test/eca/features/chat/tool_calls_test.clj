@@ -7,6 +7,7 @@
    [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.tools :as f.tools]
+   [eca.modules.approval :as m.approval]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -28,7 +29,7 @@
           config (h/config)
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
         (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :allow
@@ -52,7 +53,7 @@
           config (h/config)
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :ask)
+      (with-redefs [m.approval/approval (constantly :ask)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
         (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :ask
@@ -74,7 +75,7 @@
           config (h/config)
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :deny)
+      (with-redefs [m.approval/approval (constantly :deny)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
         (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id)]
           (is (match? {:decision :deny
@@ -100,7 +101,7 @@
           agent-name :default
           chat-id "test-chat"
           hook-call-count (atom 0)]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (swap! hook-call-count inc)
@@ -127,7 +128,7 @@
           config (h/config! {:hooks {"hook1" {:type    "preToolCall"
                                               :actions [{:type "shell" :command "echo"}]}}})
           run-plan (fn [config-approval hook-approvals]
-                     (with-redefs [f.tools/approval (constantly config-approval)
+                     (with-redefs [m.approval/approval (constantly config-approval)
                                    m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                                  (when (= event :preToolCall)
                                                                    (when-let [on-after (:on-after-action callbacks)]
@@ -168,7 +169,7 @@
                                               :actions [{:type "shell" :command "exit 2"}]}}})
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
@@ -200,7 +201,7 @@
                                               :actions [{:type "shell" :command "echo"}]}}})
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
@@ -230,9 +231,9 @@
           config (h/config)
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (fn [& args]
-                                       (let [opts (last args)]
-                                         (if (:trust opts) :trust/allow :ask)))
+      (with-redefs [m.approval/approval (fn [& args]
+                                          (let [opts (last args)]
+                                            (if (:trust opts) :trust/allow :ask)))
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
         (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                                  {:trust true})]
@@ -257,7 +258,7 @@
           config (h/config)
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :deny)
+      (with-redefs [m.approval/approval (constantly :deny)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)]
         (let [plan (#'f.chat.tool-batch/decide-tool-call-action tool-call all-tools db config agent-name chat-id
                                                  {:trust true})]
@@ -281,9 +282,9 @@
           agent-name :default
           chat-id "test-chat"
           hook-data* (atom nil)]
-      (with-redefs [f.tools/approval (fn [& args]
-                                       (let [opts (last args)]
-                                         (if (:trust opts) :trust/allow :ask)))
+      (with-redefs [m.approval/approval (fn [& args]
+                                          (let [opts (last args)]
+                                            (if (:trust opts) :trust/allow :ask)))
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
@@ -305,7 +306,7 @@
                                               :actions [{:type "shell" :command "exit 2"}]}}})
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
@@ -335,7 +336,7 @@
                                               :actions [{:type "shell" :command "echo 'modify args'"}]}}})
           agent-name :default
           chat-id "test-chat"]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
@@ -363,7 +364,7 @@
           agent-name :default
           chat-id "test-chat"
           notified* (atom nil)]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event _ callbacks _ _]
                                                   (when (= event :preToolCall)
                                                     (when-let [on-after (:on-after-action callbacks)]
@@ -390,7 +391,7 @@
           agent-name :default
           chat-id "test-chat"
           hook-data* (atom nil)]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
@@ -417,7 +418,7 @@
           agent-name :default
           chat-id "test-chat"
           hook-data* (atom nil)]
-      (with-redefs [f.tools/approval (constantly :deny)
+      (with-redefs [m.approval/approval (constantly :deny)
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
@@ -440,7 +441,7 @@
           agent-name :default
           chat-id "test-chat"
           hook-data* (atom nil)]
-      (with-redefs [f.tools/approval (constantly :allow)
+      (with-redefs [m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [event data _ _ _]
                                                   (when (= event :preToolCall)
                                                     (reset! hook-data* data)))]
@@ -487,7 +488,7 @@
                        :server    {:name "eca"}}]
           expected-provider-auth (merge {:api-key "stale-token-abc"} renewed-provider-auth)]
       (with-redefs [f.tools/all-tools                       (constantly all-tools)
-                    f.tools/approval                        (constantly :allow)
+                    m.approval/approval                     (constantly :allow)
                     m.hooks/trigger-if-matches!             (fn [_ _ _ _ _] nil)
                     f.tools/call-tool!                      (fn [& _] {:contents [{:text "result" :type :text}]})
                     f.tools/tool-call-details-before-invocation (constantly nil)
@@ -538,7 +539,7 @@
                        :origin    :eca
                        :server    {:name "eca"}}]]
       (with-redefs [f.tools/all-tools                           (constantly all-tools)
-                    f.tools/approval                            (constantly :deny)
+                    m.approval/approval                         (constantly :deny)
                     m.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
                     f.tools/call-tool!                          (fn [& _] {:contents [{:text "ignored" :type :text}]})
                     f.tools/tool-call-details-before-invocation (constantly nil)
@@ -587,7 +588,7 @@
                        :origin    :eca
                        :server    {:name "eca"}}]]
       (with-redefs [f.tools/all-tools                           (constantly all-tools)
-                    f.tools/approval                            (constantly :allow)
+                    m.approval/approval                         (constantly :allow)
                     m.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
                     f.tools/call-tool!                          (fn [& _] {:contents [{:text "result" :type :text}]})
                     f.tools/tool-call-details-before-invocation (constantly nil)
@@ -628,7 +629,7 @@
                       :server {:name "eca"}}]
           tool-called?* (atom false)]
       (with-redefs [f.tools/all-tools (constantly all-tools)
-                    f.tools/approval (constantly :allow)
+                    m.approval/approval (constantly :allow)
                     m.hooks/trigger-if-matches! (fn [_ _ _ _ _] nil)
                     f.tools/call-tool! (fn [& _]
                                          (reset! tool-called?* true)
@@ -673,7 +674,7 @@
           ;; system messages surfaced to the user
           sent* (atom [])]
       (with-redefs [f.tools/all-tools                           (constantly all-tools)
-                    f.tools/approval                            (constantly :allow)
+                    m.approval/approval                         (constantly :allow)
                     m.hooks/trigger-if-matches!
                     (fn [hook-type data {:keys [on-after-action]} _ _]
                       (when (= :preToolCall hook-type)
@@ -743,7 +744,7 @@
                                                                           :text "Tool call allowed by user choice"}})
                        ran-before-approval?))]
       (with-redefs [f.tools/all-tools                           (constantly all-tools)
-                    f.tools/approval                            (fn [_ tool & _]
+                    m.approval/approval                         (fn [_ tool & _]
                                                                   (if (= "tool_a" (:name tool)) :ask :allow))
                     m.hooks/trigger-if-matches!                 (fn [_ _ _ _ _] nil)
                     f.tools/call-tool!                          (fn [full-name & _]
@@ -972,9 +973,9 @@
                                                   :full-name "eca__test_tool"
                                                   :origin :eca
                                                   :server {:name "eca"}}])
-                  f.tools/approval (fn [& _]
-                                     (swap! approval-count* inc)
-                                     approval)
+                  m.approval/approval (fn [& _]
+                                        (swap! approval-count* inc)
+                                        approval)
                   m.hooks/trigger-if-matches! (fn [hook-type & _]
                                                 (swap! hook-types* conj hook-type)
                                                 nil)

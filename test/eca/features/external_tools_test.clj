@@ -10,6 +10,7 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.modules :as modules]
+   [eca.modules.approval :as m.approval]
    [eca.modules.core :as m.core]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
@@ -85,8 +86,8 @@
   (with-modules [jira]
     (let [approval (fn [config]
                      (let [all-tools (tools config)]
-                       (f.tools/approval all-tools (f.tools/resolve-tool "jira__issue" all-tools) {"key" "X"}
-                                         (h/db) config "code")))]
+                       (#'m.approval/approval all-tools (f.tools/resolve-tool "jira__issue" all-tools) {"key" "X"}
+                                              (h/db) config "code")))]
       (testing "external tools ask by default"
         (is (= :ask (approval {:toolCall {:approval {:byDefault "ask"}}}))))
       (testing "rules name them in full, or by their server"
@@ -318,6 +319,21 @@
                                                   :handler (fn [_ _] "ok")
                                                   :subagents? "no" :progress-text 1}}}
                                     {}))))))
+
+(deftest tool-approval-event-test
+  (testing "the tools a module's :tool/approval denies are left out of the model's tools"
+    (with-modules [jira {:id :acme/guard
+                         :event-handlers {:tool/approval (fn [_ctx {:keys [tool]}]
+                                                           (when (= "jira__issue" tool) {:approval :deny}))}}]
+      (is (nil? (tool-named {} "jira__issue")))
+      (is (some? (tool-named {} "eca__read_file"))))))
+
+(deftest tool-approval-rules-test
+  (testing "eca/approval answers :tool/approval from the config rules; without it, no tool is left out"
+    (with-modules [jira]
+      (let [config {:toolCall {:approval {:deny {"jira__issue" {}}}}}]
+        (is (nil? (tool-named config "jira__issue")))
+        (is (some? (tool-named (assoc config :modules {:eca/approval {:enabled false}}) "jira__issue")))))))
 
 (deftest compact-chat-not-listed-test
   (testing "ECA's compact_chat, the model's during a compaction, is never in the tool list clients get"

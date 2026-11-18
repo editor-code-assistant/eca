@@ -173,11 +173,6 @@
   [{:keys [full-name arguments] tool-call-id :id} all-tools db config agent-name chat-id
    & [{:keys [chat-ctx trust full-model variant]}]]
   (let [tool (f.tools/resolve-tool full-name all-tools)
-        ;; Which rule caused the config's decision, to help debugging approval configs. #536
-        _ (logger/debug logger-tag "Tool call approval decision"
-                        (assoc (f.tools/approval-decision all-tools tool arguments db config agent-name
-                                                          {:trust trust :chat-id chat-id})
-                               :tool full-name :agent agent-name))
         event (events/emit! (assoc chat-ctx :config config :db db :all-tools all-tools :trust trust
                                    :chat-id chat-id :agent agent-name
                                    ;; for :eca/approval to keep a deny from the config

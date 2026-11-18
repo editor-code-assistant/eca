@@ -12,6 +12,7 @@
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
+   [eca.modules.approval :as m.approval]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -63,7 +64,7 @@
                 llm-api/sync-prompt! (constantly nil)
                 f.tools/call-tool! (or call-tool (constantly {:error false :contents [{:type :text :text "ok"}]}))
                 f.tools/all-tools (constantly [{:name "tool_a" :full-name "eca__tool_a" :origin :native :server {:name "eca"}}])
-                f.tools/approval (constantly :allow)
+                m.approval/approval (constantly :allow)
                 config/await-plugins-resolved! (constantly true)]
     (h/config! {:env "test"})
     (swap! (h/db*) update :models #(merge {"openai/gpt-5.2" {:tools true}} %))

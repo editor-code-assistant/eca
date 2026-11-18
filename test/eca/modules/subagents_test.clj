@@ -11,6 +11,7 @@
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.llm-api :as llm-api]
+   [eca.modules.approval :as m.approval]
    [eca.modules.hooks :as m.hooks]
    [eca.modules.subagents :as m.subagents]
    [eca.test-helper :as h]
@@ -426,7 +427,7 @@
                       config/await-plugins-resolved! (constantly true)
                       f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
                                                       :server {:name "eca"} :origin :native}])
-                      f.tools/approval (fn
+                      m.approval/approval (fn
                                          ;; Filtering out denied skills, not a tool call.
                                          ([_ _ _ _ _ _] :allow)
                                          ([_ _ _ _ _ _ opts]
@@ -1552,7 +1553,7 @@
                   config/await-plugins-resolved! (constantly true)
                   f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
                                                   :server {:name "eca"} :origin :native}])
-                  f.tools/approval (constantly :allow)
+                  m.approval/approval (constantly :allow)
                   f.tools/call-tool! (constantly {:contents [{:type :text :text "earlier tool result"}]})
                   llm-api/sync-or-async-prompt!
                   (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call
@@ -1614,7 +1615,7 @@
                       config/await-plugins-resolved! (constantly true)
                       f.tools/all-tools (constantly [{:name "lookup" :full-name "eca__lookup"
                                                       :server {:name "eca"} :origin :native}])
-                      f.tools/approval (constantly :allow)
+                      m.approval/approval (constantly :allow)
                       f.chat.tool-calls/get-active-tool-calls (fn [db chat-id]
                                                                (when (realized? stopped) (deliver joining true))
                                                                (active db chat-id))
@@ -1695,7 +1696,7 @@
       (with-redefs [llm-api/sync-or-async-prompt! api-mock
                     llm-api/sync-prompt! (constantly nil)
                     f.tools/all-tools (constantly [])
-                    f.tools/approval (constantly :allow)
+                    m.approval/approval (constantly :allow)
                     config/await-plugins-resolved! (constantly true)]
         (let [handler (get-in (m.subagents/definitions (h/config) (h/db)) ["spawn_agent" :handler])
               ;; Bound the wait so a stalled prompt fails the test; allow headroom

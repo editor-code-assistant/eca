@@ -32,9 +32,10 @@
   (testing "the events ECA emits"
     (is (match? {:tool/before-call {:kind :transform}
                  :chat/compact {:kind :handle}
+                 :tool/approval {:kind :handle}
                  :session/started {:kind :notify}}
                 events/core-events))
-    (is (= 27 (count events/core-events)))))
+    (is (= 28 (count events/core-events)))))
 
 (deftest transform-test
   (let [calls* (atom [])

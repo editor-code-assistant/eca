@@ -316,3 +316,14 @@
           (is (= 1 (modules/failures :acme/skills)))))
       (finally
         (modules/reset-registry!)))))
+
+(deftest prompt-skills-approval-test
+  (let [skills [{:name "review" :description "Review."} {:name "secret" :description "Secret."}]
+        names (fn [config]
+                (with-redefs [m.skills/all (constantly skills)]
+                  (mapv :name (#'m.skills/prompt-skills {:config config :db (h/db) :agent "code" :all-tools []}))))
+        deny-secret {:toolCall {:approval {:deny {"eca__skill" {:argsMatchers {"name" ["secret"]}}}}}}]
+    (testing "the skills the skill tool's approval denies (:tool/approval) stay out of the prompt"
+      (is (= ["review"] (names deny-secret))))
+    (testing "without eca/approval, none do"
+      (is (= ["review" "secret"] (names (assoc deny-secret :modules {:eca/approval {:enabled false}})))))))

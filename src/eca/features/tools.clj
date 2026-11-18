@@ -5,12 +5,12 @@
    [clojure.string :as string]
    [clojure.walk :as walk]
    [eca.config :as config]
-   [eca.db :as db]
    [eca.features.tools.util :as tools.util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
    [eca.modules :as modules]
+   [eca.modules.events :as events]
    [eca.shared :refer [assoc-some] :as shared])
   (:import
    [java.util Map]
@@ -19,115 +19,6 @@
 (set! *warn-on-reflection* true)
 
 (def ^:private logger-tag "[TOOLS]")
-
-(defn legacy-manual-approval? [config tool-name]
-  (let [manual-approval? (get-in config [:toolCall :manualApproval] nil)]
-    (if (coll? manual-approval?)
-      (some #(= tool-name (str %)) manual-approval?)
-      manual-approval?)))
-
-(defn ^:private approval-match
-  "When the approval rule entry matches this tool call, returns what matched:
-   {:selector <config selector> :args-matcher <regex str>} (:args-matcher only
-   when the rule has argsMatchers). Returns nil when the rule doesn't match."
-  [[server-or-full-tool-name config] tool-call-server tool-call-name args native-tools]
-  (when (tools.util/tool-selector-matches? server-or-full-tool-name tool-call-server tool-call-name native-tools)
-    (let [args-matchers (:argsMatchers config)]
-      (if (map? args-matchers)
-        (when-let [matcher (some (fn [[arg-name matchers]]
-                                   (when-let [arg (get args arg-name)]
-                                     (some #(when (re-matches (re-pattern (str %)) (str arg))
-                                              (str %))
-                                           matchers)))
-                                 args-matchers)]
-          {:selector server-or-full-tool-name
-           :args-matcher matcher})
-        {:selector server-or-full-tool-name}))))
-
-(defn approval-decision
-  "Full approval decision for the specific tool call:
-   {:decision (:ask, :allow, :deny or :trust/allow)
-    :rule     <map with the :source of the decision and, for config rules,
-               the matched :selector and :args-matcher>}.
-   Sources are checked in precedence order:
-   1. :config-deny             - config `deny` rules
-   2. :session-remember        - the chat session 'approve and remember' approvals
-   3. :tool-built-in-check     - the tool's own check (e.g. path outside workspace)
-   4. :config-ask              - config `ask` rules
-   5. :config-allow            - config `allow` rules
-   6. :legacy-manual-approval  - deprecated `toolCall.manualApproval`
-   7. :by-default              - config `byDefault`
-   8. :fallback                - probably a config error, default to ask
-   Agent-name parameter is required - pass nil for global-only approval rules.
-   Optional opts map supports :trust - when true, promotes :ask to :trust/allow
-   (never overrides :deny) - and :chat-id, whose chat session remembered
-   approvals are considered (none without it). Callers should normalize
-   :trust/allow to :allow."
-  ([all-tools tool args db config agent-name]
-   (approval-decision all-tools tool args db config agent-name nil))
-  ([all-tools tool args db config agent-name {:keys [trust chat-id]}]
-   (let [{:keys [server name require-approval-fn approval-keys-fn]} tool
-         remembered (get (db/remembered-approvals db chat-id) (str (:name server) "__" name))
-         remembered? (if approval-keys-fn
-                       ;; Granular remember: every derived key (e.g. "git checkout")
-                       ;; must have been remembered, and the command must be fully
-                       ;; understood (:complete?), otherwise still ask.
-                       (let [{keys' :keys complete? :complete?} (approval-keys-fn args)
-                             remembered-keys (:remembered-command-keys remembered #{})]
-                         (boolean (and complete?
-                                       (seq keys')
-                                       (every? remembered-keys keys'))))
-                       (boolean (:remember-to-approve? remembered)))
-         native-tools (filter #(= :native (:origin %)) all-tools)
-         {:keys [allow ask deny byDefault]}   (merge (get-in config [:toolCall :approval])
-                                                     (get-in config [:agent agent-name :toolCall :approval]))
-         ;; unlike the rules, an agent's folders add to the global ones
-         inside-workspace (tools.util/inside-workspace-folders
-                           (concat (get-in config [:toolCall :approval :insideWorkspace])
-                                   (get-in config [:agent agent-name :toolCall :approval :insideWorkspace])))
-         match-rule (fn [rules source]
-                      (when-let [match (some #(approval-match % (:name server) name args native-tools) rules)]
-                        (assoc match :source source)))
-         {:keys [decision rule]}
-         (or (when-let [rule (match-rule deny :config-deny)]
-               {:decision :deny :rule rule})
-
-             (when remembered?
-               {:decision :allow :rule {:source :session-remember}})
-
-             (when (and require-approval-fn
-                        (require-approval-fn args {:db db :inside-workspace inside-workspace}))
-               {:decision :ask :rule {:source :tool-built-in-check}})
-
-             (when-let [rule (match-rule ask :config-ask)]
-               {:decision :ask :rule rule})
-
-             (when-let [rule (match-rule allow :config-allow)]
-               {:decision :allow :rule rule})
-
-             (when (legacy-manual-approval? config name)
-               {:decision :ask :rule {:source :legacy-manual-approval}})
-
-             (case byDefault
-               "ask" {:decision :ask :rule {:source :by-default}}
-               "allow" {:decision :allow :rule {:source :by-default}}
-               "deny" {:decision :deny :rule {:source :by-default}}
-               nil)
-
-             ;; Probably a config error, default to ask
-             {:decision :ask :rule {:source :fallback}})]
-     (if (and trust (= decision :ask))
-       {:decision :trust/allow :rule rule}
-       {:decision decision :rule rule}))))
-
-(defn approval
-  "Return the approval keyword for the specific tool call: :ask, :allow or :deny.
-   See `approval-decision` for the full decision including which rule matched,
-   the precedence order and the supported opts."
-  ([all-tools tool args db config agent-name]
-   (approval all-tools tool args db config agent-name nil))
-  ([all-tools tool args db config agent-name opts]
-   (:decision (approval-decision all-tools tool args db config agent-name opts))))
 
 (defn get-tool-patterns
   "Returns a set of tool patterns at `config-path`, merging global and agent-specific."
@@ -500,8 +391,14 @@
          all-tools (if subagent
                      (filter-subagent-tools all-tools)
                      all-tools)
+         ;; the tools a call of would be denied whatever its arguments (`:tool/approval`,
+         ;; eca/approval's rules), without the chat's remembered approvals or trust
+         approval-ctx {:config config :db db :agent agent-name :all-tools all-tools}
          all-tools (remove (fn [tool]
-                             (= :deny (approval all-tools tool {} db config agent-name)))
+                             (= :deny (:approval (events/emit! approval-ctx :tool/approval
+                                                               {:tool (:full-name tool)
+                                                                :server (:name (:server tool))
+                                                                :arguments {}}))))
                            all-tools)
          ctx {:config config :db db :chat-id chat-id :agent agent-name :full-model full-model}]
      (reduce (fn [tools [entry transform]]

@@ -13,6 +13,7 @@
    [eca.features.tools :as f.tools]
    [eca.handlers :as handlers]
    [eca.llm-api :as llm-api]
+   [eca.modules.approval :as m.approval]
    [eca.modules.compact-as-summary :as m.compact-as-summary]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
@@ -116,7 +117,7 @@
           (with-redefs [llm-api/sync-or-async-prompt! (llm-mock requests* steps)
                         llm-api/sync-prompt! (constantly nil)
                         f.tools/all-tools (fn [& _] (if (and tools-after-call (seq @calls*)) tools-after-call tools))
-                        f.tools/approval (fn [_ tool & _] (if (= "compact_chat" (:name tool)) :allow approval))
+                        m.approval/approval (fn [_ tool & _] (if (= "compact_chat" (:name tool)) :allow approval))
                         f.tools/call-tool! (call-tool-mock calls* result)
                         ;; the chat start reads the config from the db
                         config/all (fn [& _] (h/config))

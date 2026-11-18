@@ -9,6 +9,7 @@
    [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.tools :as f.tools]
    [eca.modules :as modules]
+   [eca.modules.approval :as m.approval]
    [eca.modules.hooks :as m.hooks]
    [eca.modules.tools.custom-tools :as m.custom-tools]
    [eca.modules.tools.git :as m.git]
@@ -63,7 +64,7 @@
                   :messenger (h/messenger) :metrics (h/metrics) :prompt-id "prompt-1"}
         add-to-history! (fn [msg] (swap! db* update-in [:chats chat-id :messages] (fnil conj []) msg))
         continue (with-redefs [f.tools/all-tools (constantly all-tools)
-                               f.tools/approval (constantly :allow)
+                               m.approval/approval (constantly :allow)
                                m.hooks/trigger-if-matches! (fn [hook-type data & _]
                                                              (swap! hooks* conj [hook-type data])
                                                              nil)
