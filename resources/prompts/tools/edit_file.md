@@ -5,7 +5,7 @@ Usage:
 - You must use your `eca__read_file` tool at least once in the conversation before editing.
 - `original_content` must be copied verbatim from the file you read (use `eca__read_file` output) — do not invent or modify it.
 - `original_content` must be exact (including whitespace); include enough surrounding context for a unique match.
-- Prefer small, targeted edits over replacing entire functions.
+- Unless instructed otherwise, combine nearby changes into one edit; use separate edits when combining would include large unchanged blocks (to save tokens by avoiding both unnecessary tool calls and oversized replacements).
 - Requires exactly one match; otherwise it fails. Add context to disambiguate, or set `all_occurrences` to true to update all matches.
 - If the edit fails, you must reread the file and call eca__edit_file again.
 - To delete content, set `new_content` to an empty string.
