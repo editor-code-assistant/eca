@@ -1465,7 +1465,7 @@
 </tr>
 <tr>
 <td><code>src/eca/db.clj</code> + <code>db/</code></td>
-<td>In-memory state atom (<code>db*</code>); sessions, chats, tool servers — all state lives here. <code>db/</code> saves and loads it: the cache files (<code>io</code>), chat files (<code>chats</code>), the global cache (<code>global_cache</code>), loading and migrating (<code>migration</code>), other workspaces' chats (<code>workspaces</code>).</td>
+<td>In-memory state atom (<code>db*</code>); sessions, chats, tool servers — all state lives here. <code>db/</code> saves and loads it: the cache files (<code>io</code>), chat files (<code>chats</code>), the global cache (<code>global_cache</code>), loading and migrating (<code>migration</code>).</td>
 </tr>
 <tr>
 <td><code>src/eca/config.clj</code></td>
@@ -1512,12 +1512,8 @@
 <td>Workspace files, as <code>index.ignoreFiles</code> allows.</td>
 </tr>
 <tr>
-<td>├─ <code>modules.clj</code></td>
-<td>The <code>/modules</code> command.</td>
-</tr>
-<tr>
 <td>└─ <code>tools.clj</code> + <code>tools/</code></td>
-<td>Tool pipeline: tool servers, calls, approval rules; <code>tools/util.clj</code> helpers.</td>
+<td>Tool pipeline: tool servers, calls; <code>tools/util.clj</code> helpers. The approval rules are <code>eca/approval</code>'s (<code>modules/approval.clj</code>).</td>
 </tr>
 <tr>
 <td><code>src/eca/modules/</code></td>
@@ -1525,7 +1521,7 @@
 </tr>
 <tr>
 <td>├─ <code>core.clj</code></td>
-<td>ECA's own commands (<code>/model</code>, <code>/compact</code>, <code>/context</code>, ...); the chat ones (<code>/fork</code>, <code>/resume</code>, <code>/export</code>, ...) are in <code>chat_management.clj</code>.</td>
+<td>ECA's own commands (<code>/model</code>, <code>/compact</code>, <code>/context</code>, <code>/modules</code>, ...) and prompt sections; the chat ones (<code>/fork</code>, <code>/resume</code>, <code>/export</code>, <code>/debug-chat</code>, ...) are in <code>chat_management.clj</code>.</td>
 </tr>
 <tr>
 <td>├─ <code>tools/</code></td>
@@ -1545,7 +1541,7 @@
 </tr>
 <tr>
 <td>├─ <code>mcp.clj</code></td>
-<td>MCP (Model Context Protocol) servers integration.</td>
+<td>MCP (Model Context Protocol) servers integration, with their OAuth.</td>
 </tr>
 <tr>
 <td>├─ <code>hooks.clj</code></td>
@@ -1596,6 +1592,7 @@
 <li>Core requires no built-in module, except the built-in list and the startup of plugins, remote and otel.</li>
 <li>Modules extend core through module keys (what they contribute: config, tools, tool servers, commands, protocol methods, contexts, prompt sections, providers, ...) and events (decisions at runtime). Core doesn't call a module, check a module's id (the startup of remote, otel and repl aside) or offer a multimethod for modules to extend.</li>
 <li>Every module key works for every module, built in or external; only the calls differ: a built-in's run inline, as the code it replaced, and an external module's are guarded (timeouts, failures counted).</li>
+<li>A built-in module uses another module's namespaces only when it requires that module (<code>:requires</code>), so turning a module off never leaves its code running for another. Code two modules share goes in a core lib, or reaches the other module through an event, a module key or a function it hands over (like <code>eca/llm-providers</code>' <code>done!</code> to a provider's login).</li>
 </ul>
 <p><code>test/eca/architecture_test.clj</code> checks the layers and the rules, also in <code>requiring-resolve</code>s and fully qualified calls. Its allowlists hold the couplings left from before the rules (and the module API resolving the engines at runtime), and only shrink.</p>
 <h3 id="unit-tests">Unit Tests<a class="headerlink" href="#unit-tests" title="Permanent link">#</a></h3>
@@ -1693,7 +1690,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 15:57:45 UTC">November 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 21:58:04 UTC">November 18, 2026</span>
   </span>
 
     

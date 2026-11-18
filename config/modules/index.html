@@ -2035,6 +2035,22 @@
 <td><code>:replaces</code></td>
 <td>Optional. A built-in tool it takes over, like <code>"eca__read_file"</code>.</td>
 </tr>
+<tr>
+<td><code>:subagents?</code></td>
+<td>Optional. <code>false</code> keeps the tool from subagents, like <code>spawn_agent</code> and <code>ask_user</code>.</td>
+</tr>
+<tr>
+<td><code>:asks-user?</code></td>
+<td>Optional. <code>true</code> when a running call waits for the user's answer, like <code>ask_user</code>'s: <code>chatStatusChanged</code> hooks and remote clients see it as a pending question, and <code>preToolCall</code> hooks see an allowed call as ask.</td>
+</tr>
+<tr>
+<td><code>:progress-text</code></td>
+<td>Optional. What editors show while a call runs, instead of "Calling tool", like <code>spawn_agent</code>'s "Waiting subagent".</td>
+</tr>
+<tr>
+<td><code>:listed?</code></td>
+<td>Optional. <code>false</code> leaves the tool out of the tool lists clients get, like <code>compact_chat</code>; the model still gets it.</td>
+</tr>
 </tbody>
 </table>
 <p>A tool's full name is <code>&lt;prefix&gt;__&lt;name&gt;</code>: <code>jira__issue</code> above. The prefix is the name in the module's <code>:id</code>, unless the module sets <code>:prefix</code>; pick a distinctive one, since when two modules have a tool with the same full name, the first one keeps it. Use the full name in approval rules and <code>disabledTools</code>, or just <code>jira</code> for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.</p>
@@ -2123,7 +2139,7 @@
 </tr>
 </tbody>
 </table>
-<p>ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling <code>eca/mcp</code> drops the <code>mcp/*</code> methods, <code>eca/llm-providers</code> the <code>providers/*</code> ones.</p>
+<p>ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling <code>eca/mcp</code> drops the <code>mcp/*</code> methods, <code>eca/llm-providers</code> the <code>providers/*</code> ones. Web clients of <a href="../remote/">remote</a> run the same methods, so they lose them too: their MCP actions get a 404 <code>method_not_found</code>.</p>
 <h3 id="events">Events<a class="headerlink" href="#events" title="Permanent link">#</a></h3>
 <p>Event handlers let a module react to what ECA does, change it, or give an answer ECA asks for. This one rejects writes to <code>.env</code> files:</p>
 <div class="highlight"><pre><span></span><code><span class="p">(</span><span class="k">def </span><span class="nv">module</span>
@@ -2249,6 +2265,12 @@
 <td><code>:arguments</code>, <code>:approval</code>, <code>:reason</code>, <code>:block</code>, <code>:stop</code>, <code>:additional-context</code> (added to the call's output for the model)</td>
 </tr>
 <tr>
+<td><code>:tool/approval</code></td>
+<td>handle</td>
+<td><code>:tool</code> (full name), <code>:server</code>, <code>:arguments</code>. What a call's approval would be, outside of a chat and without running it: ECA leaves out the tools whose calls it would deny whatever their arguments, and eca/skills the skills the <code>skill</code> tool's approval denies. <code>:eca/approval</code> answers from the config rules.</td>
+<td><code>:approval</code> (<code>:allow</code>, <code>:ask</code> or <code>:deny</code>)</td>
+</tr>
+<tr>
 <td><code>:tool/after-call</code></td>
 <td>transform</td>
 <td><code>:tool</code>, <code>:server</code>, <code>:arguments</code>, <code>:result</code>, <code>:error?</code>, <code>:tool-call-id</code>. Runs before the model, the editor and postToolCall hooks see the result.</td>
@@ -2289,6 +2311,12 @@
 <td>transform</td>
 <td><code>:command</code>, <code>:cwd</code>, <code>:env</code>, <code>:timeout-ms</code>, <code>:background?</code>, <code>:source</code> (<code>:tool</code>, <code>:hook</code> or <code>:module</code>, named by <code>:tool</code>, <code>:hook</code> and <code>:hook-type</code>, or <code>:module</code>). Runs for every shell command ECA runs: shell, git and custom tools, shell hooks and <code>eca/shell!</code>.</td>
 <td><code>:command</code>, <code>:cwd</code>, <code>:env</code></td>
+</tr>
+<tr>
+<td><code>:file/before-access</code></td>
+<td>transform</td>
+<td><code>:tool</code> (full name), <code>:path</code> (as the tool got it), <code>:access</code> (<code>:read</code> or <code>:modify</code>). Before a file tool reads or modifies a file, after it checked its arguments: <code>read_file</code> and <code>view_image</code> read, <code>write_file</code> and <code>edit_file</code> modify. <code>eca/rules</code> blocks until the chat fetched the file's path-scoped rules.</td>
+<td><code>:block</code>: the tool fails with this text for the model</td>
 </tr>
 <tr>
 <td><code>:config/resolve</code></td>
@@ -2373,7 +2401,7 @@
 </tr>
 <tr>
 <td><code>:system-prompts</code></td>
-<td>Sections it adds to the system prompt: <code>[{:id :acme/conventions :after :eca/rules :content "..."}]</code>. <code>:content</code> is a string or <code>(fn [ctx])</code>. <code>:before</code> or <code>:after</code> place it next to another section; <code>:dynamic? true</code> is for content that changes every turn.</td>
+<td>Sections it adds to the system prompt: <code>[{:id :acme/conventions :after :eca/rules :content "..."}]</code>. <code>:content</code> is a string or <code>(fn [ctx])</code>. <code>:order</code>, a number, places it among the sections that have one, ECA's own: static <code>:eca/agent-prompt</code> 100, <code>:eca/rules</code> 200, <code>:eca/skills</code> 300, <code>:eca/deferred-tools</code> 400, <code>:eca/additional-info</code> 500, <code>:eca/workspace-roots</code> 600, <code>:eca/path-resolution</code> 700, <code>:eca/context</code> 800; dynamic <code>:eca/mcp-resources</code> 100, <code>:eca/mcp-instructions</code> 200. Without one, <code>:before</code> or <code>:after</code> place it next to another section, else it goes last. <code>:dynamic? true</code> is for content that changes every turn.</td>
 </tr>
 <tr>
 <td><code>:event-handlers</code></td>
@@ -2418,7 +2446,7 @@
 </tr>
 <tr>
 <td><code>:login</code></td>
-<td>How users log in: <code>{:ask [:api-key :url :models]}</code> asks for those fields; <code>{:methods [{:key :label :start}] :complete-oauth-code .. :steps {..}}</code> runs its own flows, as <code>eca/anthropic</code>, <code>eca/openai</code> and <code>eca/copilot</code> do.</td>
+<td>How users log in: <code>{:ask [:api-key :url :models]}</code> asks for those fields; <code>{:methods [{:key :label :start}] :complete-oauth-code .. :steps {..}}</code> runs its own flows, as <code>eca/anthropic</code>, <code>eca/openai</code> and <code>eca/copilot</code> do: <code>:start</code> is <code>(fn [provider db* config done!])</code>, <code>:complete-oauth-code</code> <code>(fn [provider data db* config done!])</code> and <code>/login</code>'s <code>:steps</code> <code>{step (fn [ctx])}</code>. Each calls its <code>done!</code>, or the ctx's <code>:login-done!</code>, with no arguments, once the login's auth is saved.</td>
 </tr>
 <tr>
 <td><code>:models-fn</code></td>
@@ -2426,7 +2454,7 @@
 </tr>
 <tr>
 <td><code>:models-override-fn</code></td>
-<td><code>(fn [ctx])</code>. Its models from its own catalog instead of the generic <code>/models</code> fetch.</td>
+<td><code>(fn [ctx])</code>. Its models from its own catalog instead of its API's <code>/models</code> (<code>:list-models</code>).</td>
 </tr>
 <tr>
 <td><code>:default-model</code></td>
@@ -2446,7 +2474,7 @@
 </tr>
 <tr>
 <td><code>:quota</code></td>
-<td><code>{:fetch (fn [ctx]) :headers (fn [headers])}</code>: a subscription login's quota.</td>
+<td><code>{:fetch (fn [ctx]) :headers (fn [headers])}</code>: a subscription login's quota windows, <code>[{:id :label :used-percent :resets-at :window-minutes}]</code>, from its usage endpoint and from a response's headers.</td>
 </tr>
 <tr>
 <td><code>:errors</code></td>
@@ -2454,7 +2482,33 @@
 </tr>
 </tbody>
 </table>
-<p><code>:apis</code> maps an API name, like <code>"openai-chat"</code>, to <code>{:handler (fn [ctx request callbacks])}</code>. A provider's config names it with <code>:api</code>, any module's API: <code>"openai-chat"</code>, <code>"openai-responses"</code> (also <code>"openai"</code>), <code>"anthropic"</code>, <code>"ollama"</code> and <code>"bedrock"</code> are ECA's. The request and callbacks follow ECA's own code: see <a href="https://github.com/editor-code-assistant/eca/tree/master/src/eca/modules/providers">ECA's APIs</a>, e.g. <code>openai_chat.clj</code>.</p>
+<p><code>:apis</code> maps an API name, like <code>"openai-chat"</code>, to its entry. A provider's config names it with <code>:api</code>, any module's API: <code>"openai-chat"</code>, <code>"openai-responses"</code> (also <code>"openai"</code>), <code>"anthropic"</code>, <code>"ollama"</code> and <code>"bedrock"</code> are ECA's. The request and callbacks follow ECA's own code: see <a href="https://github.com/editor-code-assistant/eca/tree/master/src/eca/modules/providers">ECA's APIs</a>, e.g. <code>openai_chat.clj</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>:handler</code></td>
+<td><code>(fn [ctx request callbacks])</code>: sends the request. An error it gives may say what it is as <code>:error/api-type</code>, e.g. <code>:overloaded</code> or <code>:rate-limited</code>; ECA takes it after the user's <code>retryRules</code>.</td>
+</tr>
+<tr>
+<td><code>:aliases</code></td>
+<td>Optional. Other names a provider's <code>:api</code> may give it, like <code>"openai"</code> for <code>"openai-responses"</code>.</td>
+</tr>
+<tr>
+<td><code>:reasoning-keys</code></td>
+<td>Optional. The keys of a request's extra payload that ask for reasoning, dropped for a model that doesn't reason, like <code>[:reasoning]</code>.</td>
+</tr>
+<tr>
+<td><code>:list-models</code></td>
+<td>Optional. <code>(fn [ctx {:keys [provider api-url auth-type api-key extra-headers]}])</code>: a provider's models from the API's <code>/models</code>, as <code>{model-id model-config}</code>, when the provider has no <code>:models-override-fn</code>.</td>
+</tr>
+</tbody>
+</table>
 <h3 id="keys-only-one-eca-feature-uses">Keys only one ECA feature uses<a class="headerlink" href="#keys-only-one-eca-feature-uses" title="Permanent link">#</a></h3>
 <p>These work for any module, as ECA's own code uses them; most modules won't need them.</p>
 <table>
@@ -2571,7 +2625,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 15:57:45 UTC">November 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 18, 2026 21:58:04 UTC">November 18, 2026</span>
   </span>
 
     
