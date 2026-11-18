@@ -4716,3 +4716,30 @@
       (is (= "company-litellm/big"
              (resolve-model nil "main" {:defaultModel "explorer-small"}))))))
 
+(deftest tool-call-traits-test
+  (testing "a tool's :progress-text is the running text of its calls, and its :asks-user? goes into their state"
+    (h/reset-components!)
+    (let [asks-user* (atom {})]
+      (prompt!
+       {:message "Ask me."}
+       {:all-tools-mock (constantly [{:name "ask" :full-name "acme__ask" :server {:name "acme"}
+                                      :progress-text "Waiting for you" :asks-user? true}
+                                     {:name "plain" :full-name "acme__plain" :server {:name "acme"}}])
+        :api-mock
+        (fn [{:keys [on-first-response-received on-message-received on-prepare-tool-call on-tools-called]}]
+          (on-first-response-received {:type :text :text "Ok"})
+          (on-prepare-tool-call {:id "call-1" :full-name "acme__ask" :arguments-text ""})
+          (on-prepare-tool-call {:id "call-2" :full-name "acme__plain" :arguments-text ""})
+          (on-tools-called [{:id "call-1" :full-name "acme__ask" :arguments {}}
+                            {:id "call-2" :full-name "acme__plain" :arguments {}}])
+          (on-message-received {:type :finish}))
+        :call-tool-mock
+        (fn [full-name _arguments chat-id tool-call-id & _]
+          (swap! asks-user* assoc full-name (get-in (h/db) [:chats chat-id :tool-calls tool-call-id :asks-user?]))
+          {:error false :contents [{:type :text :text "done"}]})})
+      (is (= {"acme__ask" true "acme__plain" nil} @asks-user*))
+      (let [progress (set (keep #(when (= :progress (get-in % [:content :type])) (get-in % [:content :text]))
+                                (:chat-content-received (h/messages))))]
+        (is (contains? progress "Waiting for you"))
+        (is (contains? progress "Calling tool"))))))
+

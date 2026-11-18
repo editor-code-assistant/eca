@@ -36,6 +36,28 @@
                                             "toolName" "y"
                                             :tool-input {:file-path "z"}})))))
 
+(deftest pre-tool-call-asks-user-test
+  (testing "an allowed call of a tool that waits for the user's answer shows as ask to the hooks, any module's tool"
+    (h/reset-components!)
+    (h/config! {:hooks {"t" {:type "preToolCall" :actions [{:type "shell" :shell "true"}]}}})
+    (let [inputs* (atom [])
+          all-tools [{:name "ask_user" :full-name "eca__ask_user" :server {:name "eca"} :asks-user? true}
+                     {:name "ask" :full-name "acme__ask" :server {:name "acme"} :asks-user? true}
+                     {:name "read_file" :full-name "eca__read_file" :server {:name "eca"}}]
+          approval-seen (fn [tool server]
+                          (reset! inputs* [])
+                          (with-redefs [m.hooks/run-shell-cmd (fn [{:keys [input]}]
+                                                                (swap! inputs* conj (json/parse-string input))
+                                                                {:exit 0 :out "" :err nil})]
+                            (#'m.hooks/pre-tool-call {:config (h/config) :db (h/db) :db* (h/db*) :messenger (h/messenger)
+                                                      :chat-id "chat-1" :all-tools all-tools}
+                                                     {:tool tool :server server :arguments {} :approval :allow
+                                                      :tool-call-id "call-1" :chat-id "chat-1" :agent "code"}))
+                          (get (first @inputs*) "approval"))]
+      (is (= "ask" (approval-seen "eca__ask_user" "eca")))
+      (is (= "ask" (approval-seen "acme__ask" "acme")))
+      (is (= "allow" (approval-seen "eca__read_file" "eca"))))))
+
 ;;; Basic trigger and matching tests
 
 (deftest trigger-if-matches!-test

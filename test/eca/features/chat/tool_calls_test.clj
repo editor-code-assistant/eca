@@ -383,7 +383,8 @@
           all-tools [{:name "ask_user"
                       :full-name "eca__ask_user"
                       :origin :native
-                      :server {:name "eca"}}]
+                      :server {:name "eca"}
+                      :asks-user? true}]
           db (h/db)
           config (h/config)
           agent-name :default
@@ -409,7 +410,8 @@
           all-tools [{:name "ask_user"
                       :full-name "eca__ask_user"
                       :origin :native
-                      :server {:name "eca"}}]
+                      :server {:name "eca"}
+                      :asks-user? true}]
           db (h/db)
           config (h/config)
           agent-name :default

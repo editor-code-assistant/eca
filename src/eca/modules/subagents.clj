@@ -584,6 +584,9 @@
                                               :description "Optional sub-agent model variant override. Reserved for explicit user override only. Omit unless the user explicitly named a variant."}}
                      :required   ["agent" "task"]}
        :handler     #'spawn-agent
+       ;; no nesting
+       :subagents? false
+       :progress-text "Waiting subagent"
        :details-before-fn #'spawn-agent-details-before
        :details-after-fn #'spawn-agent-details-after
        :summary-fn  (fn [{:keys [args]}]

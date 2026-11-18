@@ -134,6 +134,11 @@
 
 (defn ^:private qualified-kw? [x] (qualified-keyword? x))
 
+(defn ^:private nil-or
+  "Whether `x`, an optional value, is nil or `pred` holds for it."
+  [pred x]
+  (or (nil? x) (boolean (pred x))))
+
 (defn ^:private map-of-problems
   "Problems of a map of name → entry, with `entry-problems` for each entry."
   [k m key-pred key-desc entry-problems]
@@ -154,7 +159,11 @@
     (cond-> []
       (not (fn-like? (:handler tool))) (conj ":handler must be a function")
       (not (or (string? (:description tool)) (fn-like? (:description tool)))) (conj ":description must be a string or a function")
-      (not (map? (:parameters tool))) (conj ":parameters must be a JSON Schema map"))))
+      (not (map? (:parameters tool))) (conj ":parameters must be a JSON Schema map")
+      (not (nil-or boolean? (:subagents? tool))) (conj ":subagents? must be a boolean")
+      (not (nil-or boolean? (:listed? tool))) (conj ":listed? must be a boolean")
+      (not (nil-or boolean? (:asks-user? tool))) (conj ":asks-user? must be a boolean")
+      (not (nil-or string? (:progress-text tool))) (conj ":progress-text must be a string"))))
 
 (defn command-problems
   "What's wrong with a command entry, as strings."

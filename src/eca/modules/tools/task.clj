@@ -534,6 +534,8 @@
                                               :required ["subject" "description"]}}}
                  :required ["op"]}
     :handler execute-task
+    ;; the task list is the chat's: the parent agent keeps it
+    :subagents? false
     :details-after-fn #'task-details-after}})
 
 (defn ^:private clear-done-tasks

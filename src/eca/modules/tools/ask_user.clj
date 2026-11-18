@@ -109,6 +109,9 @@
                                                :description "Whether the user can type a custom answer instead of selecting an option. Defaults to true."}}
                  :required ["question"]}
     :handler #'ask-user
+    ;; a running call waits for the user's answer; subagents run without a user
+    :asks-user? true
+    :subagents? false
     :enabled-fn (fn [{:keys [db]}] (-> db :client-capabilities :code-assistant :chat-capabilities :ask-question))
     :summary-fn (fn [{:keys [args]}]
                   (if-let [q (get args "question")]

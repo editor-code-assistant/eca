@@ -39,6 +39,8 @@
                                          :description "The summary/compacted text"}}
                  :required ["summary"]}
     :handler #'compact-chat
+    ;; the model's, during a compaction: not for the clients' tool list
+    :listed? false
     :summary-fn (constantly "Compacting...")}})
 
 ;; When

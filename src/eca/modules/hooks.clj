@@ -832,13 +832,12 @@
    hook's ask makes an allowed call ask, but its allow never loosens an ask or
    a deny; an exit 2 or a deny rejects the call, with the stderr or the
    additionalContext as the reason for the model; a successful continue:false
-   stops the turn. ask_user, which always waits for the user, shows as ask."
+   stops the turn. A tool that waits for the user's answer (`:asks-user?`),
+   like ask_user, shows as ask."
   [{:keys [config db all-tools] :as chat-ctx}
    {:keys [tool server arguments approval tool-call-id chat-id agent model variant]}]
-  (let [{:keys [name]} (f.tools/resolve-tool tool all-tools)
-        hook-approval (if (and (= "eca" server)
-                               (= "ask_user" name)
-                               (= :allow approval))
+  (let [{:keys [name asks-user?]} (f.tools/resolve-tool tool all-tools)
+        hook-approval (if (and asks-user? (= :allow approval))
                         :ask
                         approval)
         state* (atom {:hook-results []

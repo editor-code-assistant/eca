@@ -340,14 +340,15 @@
   (= "eca" (get-in tool [:server :name])))
 
 (defn ^:private filter-subagent-tools
-  "Filter tools for subagent execution.
-
-   - Excludes spawn_agent to prevent nesting.
-   - Excludes task because task list state is currently chat-local; it should be managed by the parent agent.
-   - Excludes git because subagents don't perform git operations.
-   - Excludes ask_user because subagents run non-interactively and cannot prompt the user."
+  "The tools a subagent gets: all but the ones that say `:subagents? false`."
   [tools]
-  (filterv #(not (contains? #{"spawn_agent" "task" "git" "ask_user"} (:name %))) tools))
+  (filterv #(not (false? (:subagents? %))) tools))
+
+(defn ^:private listed-tools
+  "The tools clients get in a tool server's list: all but the ones that say
+   `:listed? false`."
+  [tools]
+  (remove #(false? (:listed? %)) tools))
 
 (defn tools-for-llm
   "Tools whose schemas should be sent to the LLM on this turn."
@@ -688,7 +689,7 @@
                                      (update server :tools
                                              (fn [tools]
                                                (mapv #(select-keys (tool-status-fn %) [:name :description :parameters :disabled])
-                                                     tools)))))
+                                                     (listed-tools tools))))))
     (doseq [gone (sort (remove server-names (:module-tool-servers @db*)))]
       (messenger/tool-server-removed messenger {:name gone}))
     (swap! db* assoc :module-tool-servers server-names)))
@@ -754,6 +755,7 @@
                                             :status "running"
                                             :tools (->> (native-tools @db* config)
                                                         (filter eca-server-tool?)
+                                                        listed-tools
                                                         (mapv tool-status-fn)
                                                         (mapv #(select-keys % [:name :description :parameters :disabled])))})
   (notify-module-servers! db* messenger config tool-status-fn)
@@ -777,7 +779,7 @@
                                               :status "running"
                                               :tools (->> (native-tools @db* config)
                                                           (filter eca-server-tool?)
-                                                          (remove #(= "compact_chat" (:name %)))
+                                                          listed-tools
                                                           (mapv tool-status-fn)
                                                           (mapv #(select-keys % [:name :description :parameters :disabled])))})
     (notify-module-servers! db* messenger config tool-status-fn)))

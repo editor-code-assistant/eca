@@ -724,15 +724,16 @@
                                                                  :server server
                                                                  :origin :native
                                                                  :arguments-text "{}"}))
-          run! (fn [tool-call-id name server]
+          run! (fn [tool-call-id name server & [tool-traits]]
                  (#'f.chat.tool-calls/transition-tool-call! db* chat-ctx tool-call-id :tool-run
-                                                            {:approved?* (promise)
-                                                             :future-cleanup-complete?* (promise)
-                                                             :name name
-                                                             :server server
-                                                             :origin :native
-                                                             :arguments {}
-                                                             :manual-approval true}))]
+                                                            (merge {:approved?* (promise)
+                                                                    :future-cleanup-complete?* (promise)
+                                                                    :name name
+                                                                    :server server
+                                                                    :origin :native
+                                                                    :arguments {}
+                                                                    :manual-approval true}
+                                                                   tool-traits)))]
       (swap! db* assoc-in [:chats chat-id] {:id chat-id :status :running})
       (with-redefs [m.hooks/run-shell-cmd
                     (fn [{:keys [input]}]
@@ -774,7 +775,8 @@
                     (last-hook)))
 
         (prepare! "question" "ask_user" "eca")
-        (run! "question" "ask_user" "eca")
+        ;; the tool batch passes ask_user's :asks-user?
+        (run! "question" "ask_user" "eca" {:asks-user? true})
         (#'f.chat.tool-calls/transition-tool-call! db* chat-ctx "question" :approval-allow
                                                    {:reason {:code :user-config-allow
                                                              :text "allowed"}})

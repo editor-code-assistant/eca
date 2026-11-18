@@ -280,9 +280,8 @@
   [db chat-id]
   (let [chat (get-in db [:chats chat-id])
         tool-calls (:tool-calls chat)
-        ask-user? (fn [tc]
-                    (and (= "ask_user" (:name tc))
-                         (= "eca" (:server tc))))
+        ;; a running call of a tool that waits for the user's answer
+        ask-user? (fn [tc] (boolean (:asks-user? tc)))
         ids-by (fn [pred]
                  (->> tool-calls
                       (filter (fn [[_ tc]] (pred tc)))

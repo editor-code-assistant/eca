@@ -171,6 +171,7 @@
                                    :name "ask_user"
                                    :server "eca"
                                    :origin :native
+                                   :asks-user? true
                                    :arguments {"question" "Proceed?" "allowFreeform" true}
                                    :manual-approval false
                                    :ask-question-request-id "req-123"
@@ -202,6 +203,7 @@
                                    :name "ask_user"
                                    :server "eca"
                                    :origin :native
+                                   :asks-user? true
                                    :arguments {"question" "Ready?"}
                                    :manual-approval false}}})
     (let [response (m.remote.handlers/handle-get-chat (components) nil "c1")

@@ -281,3 +281,48 @@
   (is (match? {:errors [#":prefix defaults to the name in :id"]} (modules/problems {:id :acme/eca} {})))
   (is (= [] (:errors (modules/problems {:id :acme/eca :prefix "acme"} {}))))
   (is (= [] (:errors (modules/problems {:id :eca/x :prefix "eca"} {:built-in? true})))))
+
+(defn- refreshes
+  "The tool servers clients get, from each of the two refreshes: when modules
+   change, and when the config does."
+  []
+  (mapv (fn [refresh!]
+          (h/reset-messenger!)
+          (refresh!)
+          (:tool-server-update (h/messages)))
+        [#(f.tools/refresh-module-tool-servers! (h/db*) (h/messenger) {})
+         #(f.tools/refresh-tool-servers! identity (h/db*) (h/messenger) {})]))
+
+(deftest tool-traits-test
+  (with-modules [{:id :acme/traits
+                  :tools {"plain" {:description "Plain." :parameters {:type "object"} :handler (fn [_ _] "ok")}
+                          "hidden" {:description "Hidden." :parameters {:type "object"} :handler (fn [_ _] "ok")
+                                    :listed? false}
+                          "solo" {:description "Not for subagents." :parameters {:type "object"}
+                                  :handler (fn [_ _] "ok") :subagents? false}}}]
+    (testing ":subagents? false keeps a tool from subagents"
+      (swap! (h/db*) assoc-in [:chats "sub-1"] {:id "sub-1" :subagent true})
+      (let [names #(set (map :full-name (f.tools/all-tools % "code" (h/db) {})))]
+        (is (contains? (names "chat-1") "traits__solo"))
+        (is (not (contains? (names "sub-1") "traits__solo")))
+        (is (contains? (names "sub-1") "traits__plain"))))
+    (testing ":listed? false leaves a tool out of the lists clients get; the model still gets it"
+      (is (some? (tool-named {} "traits__hidden")))
+      (doseq [updates (refreshes)]
+        (is (match? [{:type :module :name "traits" :tools (m/in-any-order [{:name "plain"} {:name "solo"}])}]
+                    (filter #(= :module (:type %)) updates)))))
+    (testing "the traits' values are checked"
+      (is (match? {:errors [#":subagents\? must be a boolean" #":progress-text must be a string"]}
+                  (modules/problems {:id :acme/bad
+                                     :tools {"t" {:description "T." :parameters {:type "object"}
+                                                  :handler (fn [_ _] "ok")
+                                                  :subagents? "no" :progress-text 1}}}
+                                    {}))))))
+
+(deftest compact-chat-not-listed-test
+  (testing "ECA's compact_chat, the model's during a compaction, is never in the tool list clients get"
+    (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/approval :eca/compact-as-summary))]
+      (is (some? (tool-named {} "eca__compact_chat")))
+      (doseq [updates (refreshes)]
+        (is (match? {:type :native :name "ECA"} (first updates)))
+        (is (not-any? #(= "compact_chat" (:name %)) (:tools (first updates))))))))

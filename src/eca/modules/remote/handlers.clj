@@ -52,10 +52,11 @@
 
 (defn ^:private pending-tool-call? [[_ tc]]
   (or (= :waiting-approval (:status tc))
-      ;; ask_user blocks inside its handler while :executing; surface it so
-      ;; reconnecting clients can render the question input.
+      ;; a tool that waits for the user's answer, like ask_user, blocks inside
+      ;; its handler while :executing; surface it so reconnecting clients can
+      ;; render the question input.
       (and (= :executing (:status tc))
-           (= "ask_user" (:name tc)))))
+           (:asks-user? tc))))
 
 (defn ^:private pending-tool-calls
   "Tool calls awaiting user interaction, shaped for the REST API so clients

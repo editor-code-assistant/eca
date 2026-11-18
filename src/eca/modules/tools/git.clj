@@ -145,6 +145,8 @@
                                          :description "Concise 2-3 word description of what is being done (e.g. \"staged changes\", \"all test files\")."}}
                  :required ["command" "operation"]}
     :handler #'git-command
+    ;; subagents don't do git operations
+    :subagents? false
     :approval-keys-fn (fn [arguments] (m.shell.parser/approval-keys (get arguments "command")))
     :summary-fn #'git-command-summary
     :details-before-fn #'git-details-before

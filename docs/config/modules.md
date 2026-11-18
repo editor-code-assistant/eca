@@ -200,6 +200,10 @@ ECA warns about config keys that neither it nor a loaded module knows, at startu
 | `:details-before-fn` | Optional `(fn [ctx args])`. Details editors show for the call before it runs, as the protocol's tool call details, like a file change's diff. |
 | `:details-after-fn` | Optional `(fn [ctx args details result])`. The details once it ran; by default the details from before, else its JSON outputs. |
 | `:replaces` | Optional. A built-in tool it takes over, like `"eca__read_file"`. |
+| `:subagents?` | Optional. `false` keeps the tool from subagents, like `spawn_agent` and `ask_user`. |
+| `:asks-user?` | Optional. `true` when a running call waits for the user's answer, like `ask_user`'s: `chatStatusChanged` hooks and remote clients see it as a pending question, and `preToolCall` hooks see an allowed call as ask. |
+| `:progress-text` | Optional. What editors show while a call runs, instead of "Calling tool", like `spawn_agent`'s "Waiting subagent". |
+| `:listed?` | Optional. `false` leaves the tool out of the tool lists clients get, like `compact_chat`; the model still gets it. |
 
 A tool's full name is `<prefix>__<name>`: `jira__issue` above. The prefix is the name in the module's `:id`, unless the module sets `:prefix`; pick a distinctive one, since when two modules have a tool with the same full name, the first one keeps it. Use the full name in approval rules and `disabledTools`, or just `jira` for all the module's tools. Like any tool, ECA asks before running it unless your config allows it.
 

@@ -354,6 +354,7 @@
                                                                                  :origin                    origin
                                                                                  :arguments                 arguments
                                                                                  :manual-approval           ask?
+                                                                                 :asks-user?                (:asks-user? resolved-tool)
                                                                                  :details                   details
                                                                                  :summary                   summary}))
                              (when-not (#{:stopping :cleanup :rejected} (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id id)))
@@ -455,9 +456,8 @@
                                                                             :start-time     (System/currentTimeMillis)
                                                                             :details        details
                                                                             :summary        summary
-                                                                            :progress-text  (if (= name "spawn_agent")
-                                                                                              "Waiting subagent"
-                                                                                              "Calling tool")})))
+                                                                            :progress-text  (or (:progress-text resolved-tool)
+                                                                                                "Calling tool")})))
                                (let [tool-call-state (f.chat.tool-calls/get-tool-call-state @db* chat-id id)
                                      {:keys [code text]} (:decision-reason tool-call-state)]
                                  (add-to-history! {:role "tool_call" :content tool-call})

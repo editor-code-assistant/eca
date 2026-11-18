@@ -16,7 +16,7 @@
 (def ^:private config {:autoCompactPercentage 75})
 
 (deftest chat-status-payload-test
-  (testing "computes sorted aggregate status fields and classifies ask_user separately"
+  (testing "computes sorted aggregate status fields and classifies the calls that wait for the user's answer separately"
     (let [db {:chats {chat-id {:status :running
                                :tool-calls {"tool-z" {:status :waiting-approval
                                                        :name "write_file"
@@ -24,9 +24,11 @@
                                             "tool-a" {:status :waiting-approval
                                                        :name "shell"
                                                        :server "eca"}
+                                            ;; from its tool's :asks-user?
                                             "question" {:status :executing
                                                         :name "ask_user"
-                                                        :server "eca"}
+                                                        :server "eca"
+                                                        :asks-user? true}
                                             "other-question" {:status :executing
                                                               :name "ask_user"
                                                               :server "other"}
