@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.172.0
+
 - Encourage models to combine nearby edits instead of splitting them unnecessarily.
 - Bump the Codex compatibility version to 0.170.0 for ChatGPT subscription requests and model discovery.
 - Add `gpt-6.2-astra` and `gpt-6.2-sol` support: built-in variants `low` to `max` (no `none`), Codex Lite/context fallbacks, web search and image generation.
