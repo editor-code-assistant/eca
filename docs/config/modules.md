@@ -257,7 +257,7 @@ You type `/name`, or `/<prefix>:<name>` when two modules have a command with the
 | `:kind` | `:request`, answered with what the handler returns, or `:notification`. |
 | `:handler` | `(fn [ctx params])`. It runs on a thread of its own. |
 
-ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling `eca/mcp` drops the `mcp/*` methods, `eca/llm-providers` the `providers/*` ones.
+ECA's own methods win over a module's; when two modules have a method, the first one to start keeps it. A module's methods answer while it's active, also before it starts. Once it's disabled or has failed, they're gone, built-in modules' too: requests get "Method not found" and notifications are ignored. Disabling `eca/mcp` drops the `mcp/*` methods, `eca/llm-providers` the `providers/*` ones. Web clients of [remote](remote.md) run the same methods, so they lose them too: their MCP actions get a 404 `method_not_found`.
 
 ### Events
 

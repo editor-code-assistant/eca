@@ -126,3 +126,22 @@
     (is (= ::jsonrpc.server/method-not-found (request "nope/nope" {})))
     (is (= ::jsonrpc.server/method-not-found (jsonrpc.server/receive-notification "nope/nope" (h/components) {})))
     (is (= ::jsonrpc.server/method-not-found (request "chat/promptStop" {})))))
+
+(deftest call-method-test
+  (h/reset-components!)
+  (let [call! (partial #'server/call-method (h/components))
+        thread-name #(.getName (Thread/currentThread))]
+    (testing "core's methods run on the caller's thread, with the session's config: also the ones stdio runs on a thread"
+      (with-redefs [handlers/chat-query-commands (fn [{:keys [config]} params]
+                                                   {:params params :config? (map? config) :thread (thread-name)})]
+        (is (= {:params {:query "x"} :config? true :thread (thread-name)}
+               (call! :request "chat/queryCommands" {:query "x"})))))
+    (testing "an active module's methods, gone once it's disabled"
+      (with-redefs [m.completion/complete (fn [params & _] {:items [{:text (:doc-text params)}]})]
+        (is (= {:items [{:text "abc"}]} (call! :request "completion/inline" {:doc-text "abc"})))
+        (reset! config/initialization-config* {:modules {:eca/completion {:enabled false}}})
+        (config/clear-cache!)
+        (is (= ::server/method-not-found (call! :request "completion/inline" {:doc-text "abc"})))))
+    (testing "unknown methods, and core's with the other kind"
+      (is (= ::server/method-not-found (call! :request "nope/nope" {})))
+      (is (= ::server/method-not-found (call! :request "chat/promptStop" {}))))))

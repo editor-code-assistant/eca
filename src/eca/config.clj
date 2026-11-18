@@ -229,6 +229,13 @@
   (or (:defaultAgent (:chat config))
       (:defaultAgent config)))
 
+(defn welcome-message
+  "The chat's welcome message: the legacy `chat.welcomeMessage` when set,
+   else `welcomeMessage`."
+  [config]
+  (or (:welcomeMessage (:chat config))
+      (:welcomeMessage config)))
+
 (defn validate-agent-name
   "Validates if an agent exists in config. Returns the agent name if valid,
    or the fallback agent if not."

@@ -6,16 +6,11 @@
    ECA's startup as before modules (`eca.handlers/initialized`); the module's
    `:start` and `:stop` start and stop it when the module is turned on or off
    later. Once `remote.enabled` turned it on, it stays on for the session, and
-   the server stops when ECA exits, as before modules.
-
-   The server's code, `eca.modules.remote.server`, is resolved when called: it
-   requires the remote handlers, which require `eca.handlers`, which requires
-   this namespace.")
+   the server stops when ECA exits, as before modules."
+  (:require
+   [eca.modules.remote.server :as m.remote.server]))
 
 (set! *warn-on-reflection* true)
-
-(defn ^:private remote-server [fn-name]
-  (requiring-resolve (symbol "eca.modules.remote.server" fn-name)))
 
 (def ^:private ask-question-path
   [:client-capabilities :code-assistant :chat-capabilities :ask-question])
@@ -38,7 +33,7 @@
   (locking lock
     (or @server*
         (let [ask-question (get-in @db* ask-question-path)]
-          (when-let [rs ((remote-server "start!") components (:sse-connections* messenger))]
+          (when-let [rs (m.remote.server/start! components (:sse-connections* messenger))]
             (swap! db* assoc
                    :remote-connect-url (:connect-url rs)
                    :remote-host (:host rs)
@@ -59,7 +54,7 @@
   (locking lock
     (when-let [rs @server*]
       (reset! server* nil)
-      ((remote-server "stop!") rs)
+      (m.remote.server/stop! rs)
       (when db*
         (swap! db* (fn [db]
                      (-> db

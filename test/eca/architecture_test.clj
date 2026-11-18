@@ -211,8 +211,7 @@
 (def ^:private allowed-undeclared-module-uses
   "Built-in module namespaces that use another built-in module's namespace without requiring that module
   (`:requires`). Only shrinks."
-  '#{;; eca/remote calls eca/mcp's server methods for web clients
-     [eca.modules.remote.handlers eca.modules.mcp]})
+  '#{})
 
 (defn ^:private defined-modules
   "The built-in modules a source defines, as its `module` and `api-module` vars: id → the ids it `:requires`."

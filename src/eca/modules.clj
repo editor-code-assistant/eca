@@ -528,8 +528,9 @@
 
 (defn module-ctx
   "The ctx a module's function gets: the caller's ctx plus the module, and the
-   session's components (`:db*`, `:messenger`, `:metrics`) when the caller
-   didn't pass them, so `eca.api` works wherever a module runs."
+   session's components (`:db*`, `:messenger`, `:metrics`, and `:call-method`
+   to run a protocol method as an editor would) when the caller didn't pass
+   them, so `eca.api` works wherever a module runs."
   [ctx entry]
   (assoc (merge (:components @registry*) ctx) :module-id (:id entry)))
 
@@ -764,7 +765,7 @@
   [components config]
   (swap! registry* assoc
          :session-started? true
-         :components (select-keys components [:db* :messenger :metrics]))
+         :components (select-keys components [:db* :messenger :metrics :call-method]))
   (reconcile! components config))
 
 (defn started?

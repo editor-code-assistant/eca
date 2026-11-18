@@ -199,6 +199,16 @@
       (= :request kind) (eventually (run))
       :else (async-notify (run)))))
 
+(defn ^:private call-method
+  "Runs method `method` of `kind` (`:request` or `:notification`) as the
+   editor's would run, core's or an active module's, but on the caller's
+   thread: what its handler returns, or `::method-not-found`. The session's
+   components have it as `:call-method`, for eca/remote's web clients."
+  [components kind method params]
+  (if-let [{:keys [handler no-config?]} (find-method kind method components)]
+    (handler (if no-config? components (with-config components)) params)
+    ::method-not-found))
+
 ;; jsonrpc4clj's own default methods answer ::method-not-found: "Method not
 ;; found" for a request, a warning for a notification
 (defmethod jsonrpc.server/receive-request :default [method components params]
@@ -312,7 +322,8 @@
         components {:db* db*
                     :messenger messenger
                     :metrics metrics
-                    :server server}]
+                    :server server}
+        components (assoc components :call-method (partial call-method components))]
     (logger/info "[server]" "Starting server...")
     (metrics/start! metrics)
     (monitor-server-logs (:log-ch server))

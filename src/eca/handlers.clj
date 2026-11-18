@@ -42,12 +42,6 @@
     (when (and agent-variant variants (some #{agent-variant} variants))
       agent-variant)))
 
-(defn welcome-message
-  "Builds the welcome message from config, appending a remote hint when available."
-  [config]
-  (or (:welcomeMessage (:chat config)) ;;legacy
-      (:welcomeMessage config)))
-
 (defn ^:private notify-chat-config-state!
   "Emits a `config/updated` chat payload (models, agents, defaults, variants)
    built from the current db and freshly-read config.
@@ -74,7 +68,7 @@
                :select-agent default-agent-name
                :variants (or variants [])
                :select-variant (select-variant default-agent-config variants)
-               :welcome-message (welcome-message fresh-config)
+               :welcome-message (config/welcome-message fresh-config)
           ;; Deprecated, remove after changing emacs, vscode and intellij.
                :default-model default-model
                :default-agent default-agent-name
@@ -101,7 +95,7 @@
       (when-not (:pureConfig config)
         (db.migration/load-db-from-cache! db* config metrics))
 
-      {:chat-welcome-message (welcome-message config)
+      {:chat-welcome-message (config/welcome-message config)
        :global-config-path (str (config/global-config-file))})))
 
 (defn ^:private send-progress! [db* messenger params]
@@ -242,7 +236,8 @@
           (logger/error "[MODULES]" "Could not load external modules:" e)))
       (let [config (config/all @db*)]
         (try
-          (modules/start! {:db* db* :messenger messenger :metrics metrics} config)
+          ;; :call-method, for eca/remote to run the editors' methods for web clients
+          (modules/start! (select-keys components [:db* :messenger :metrics :call-method]) config)
           (catch Exception e
             (logger/error "[MODULES]" "Could not start modules:" e)))
         ;; external modules reload when their files change

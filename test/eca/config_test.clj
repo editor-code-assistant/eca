@@ -1399,3 +1399,9 @@
     (is (= "code" (config/default-agent-name {:defaultAgent "code"})))
     (is (= "nope" (config/default-agent-name {:defaultAgent "nope"})))
     (is (nil? (config/default-agent-name {})))))
+
+(deftest welcome-message-test
+  (testing "the legacy chat.welcomeMessage wins, else welcomeMessage"
+    (is (= "old" (config/welcome-message {:welcomeMessage "new" :chat {:welcomeMessage "old"}})))
+    (is (= "new" (config/welcome-message {:welcomeMessage "new"})))
+    (is (nil? (config/welcome-message {})))))

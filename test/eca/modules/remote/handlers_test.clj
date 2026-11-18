@@ -5,16 +5,23 @@
    [eca.config :as config]
    [eca.features.chat.history :as f.chat.history]
    [eca.messenger :as messenger]
+   [eca.modules.mcp :as m.mcp]
    [eca.modules.remote.handlers :as m.remote.handlers]
    [eca.modules.remote.messenger :as m.remote.messenger]
    [eca.modules.remote.sse :as m.remote.sse]
+   [eca.server :as server]
    [eca.test-helper :as h]))
 
 (h/reset-components-before-test)
 
-(defn- components []
+(defn- components
+  "The test session's components, with its config and the server's
+   `:call-method`, as eca/remote gets them."
+  []
   (let [c (h/components)]
-    (assoc c :config (config/all @(:db* c)))))
+    (assoc c
+           :config (config/all @(:db* c))
+           :call-method (partial #'server/call-method c))))
 
 (deftest handle-health-test
   (testing "returns ok with version"
@@ -432,6 +439,22 @@
       (let [response (m.remote.handlers/handle-change-agent (components) (request {:agent "plan"}) "ghost")]
         (is (= 404 (:status response)))
         (is (empty? (select-agent-updates)))))))
+
+(deftest handle-mcp-actions-test
+  (let [error-code #(get-in (json/parse-string (:body %) true) [:error :code])]
+    (testing "an MCP server action runs eca/mcp's method, as an editor's does"
+      (let [stopped* (atom [])]
+        (with-redefs [m.mcp/stop-server! (fn [server-name & _] (swap! stopped* conj server-name))]
+          (is (= 204 (:status (m.remote.handlers/handle-mcp-stop (components) nil "github"))))
+          (is (= ["github"] @stopped*)))))
+    (testing "with eca/mcp off, its methods are gone for web clients too"
+      (reset! config/initialization-config* {:pureConfig true :modules {:eca/mcp {:enabled false}}})
+      (config/clear-cache!)
+      (let [response (m.remote.handlers/handle-mcp-stop (components) nil "github")]
+        (is (= 404 (:status response)))
+        (is (= "method_not_found" (error-code response))))
+      (let [request {:body (java.io.ByteArrayInputStream. (.getBytes "{\"name\":\"github\"}" "UTF-8"))}]
+        (is (= "method_not_found" (error-code (m.remote.handlers/handle-mcp-add (components) request))))))))
 
 (deftest handle-session-test
   (testing "returns session info"

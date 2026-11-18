@@ -1,7 +1,9 @@
 (ns eca.modules.remote.handlers
   "REST API handlers for the remote web control server.
-   Each handler receives components map and Ring request, delegates to
-   the same feature functions used by JSON-RPC handlers."
+   Each handler receives components map and Ring request. Actions run the
+   protocol methods editors call, through the session's `:call-method`, so
+   web clients get what editors get: a disabled module's methods are gone
+   for them too."
   (:require
    [cheshire.core :as json]
    [clojure.core.async :as async]
@@ -9,8 +11,6 @@
    [eca.db.chats :as db.chats]
    [eca.features.chat :as f.chat]
    [eca.features.chat.history :as f.chat.history]
-   [eca.handlers :as handlers]
-   [eca.modules.mcp :as m.mcp]
    [eca.modules.remote.messenger :as m.remote.messenger]
    [eca.modules.remote.sse :as m.remote.sse]
    [eca.shared :as shared]
@@ -43,6 +43,21 @@
 
 (defn ^:private no-content []
   {:status 204 :headers {} :body nil})
+
+(def ^:private method-not-found
+  "What the session's `:call-method` gives for a method no active module
+   serves, like eca/mcp's when it's off."
+  :eca.server/method-not-found)
+
+(defn ^:private call!
+  "Runs protocol method `method` of `kind` as an editor's would run, on this
+   thread, through the session's `:call-method`: what it returns, or
+   `method-not-found`."
+  [components kind method params]
+  ((:call-method components) kind method params))
+
+(defn ^:private method-not-found-response [method]
+  (error-response 404 "method_not_found" (str "Method " method " not found")))
 
 (defn ^:private chat-or-404 [db* chat-id]
   (get-in @db* [:chats chat-id]))
@@ -132,7 +147,7 @@
                    (mapv (fn [[id chat]] (chat-summary (assoc chat :id id))))))
      :startedAt (when-let [ms (:started-at db)]
                   (.toString (Instant/ofEpochMilli ^long ms)))
-     :welcomeMessage (handlers/welcome-message config)
+     :welcomeMessage (config/welcome-message config)
      :selectModel default-model
      :selectAgent default-agent-name
      :variants variants
@@ -218,7 +233,7 @@
                      (:agent body) (assoc :agent (:agent body))
                      (:variant body) (assoc :variant (:variant body))
                      (:trust body) (assoc :trust (:trust body)))
-            result (handlers/chat-prompt components params)]
+            result (call! components :request "chat/prompt" params)]
         (json-response (camel-keys result))))))
 
 (defn handle-stop [{:keys [db*] :as components} _request chat-id]
@@ -226,40 +241,30 @@
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (if-not (identical? :running (get-in @db* [:chats chat-id :status]))
       (error-response 409 "chat_wrong_status" "Chat is not running")
-      (let [config (config/all @db*)]
-        (handlers/chat-prompt-stop (assoc components :config config) {:chat-id chat-id})
-        (no-content)))))
+      (do (call! components :notification "chat/promptStop" {:chat-id chat-id})
+          (no-content)))))
 
 (defn handle-approve [{:keys [db*] :as components} _request chat-id tool-call-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
       (error-response 404 "tool_call_not_found" (str "Tool call " tool-call-id " does not exist"))
-      (let [config (config/all @db*)]
-        (handlers/chat-tool-call-approve
-         (assoc components :config config)
-         {:chat-id chat-id :tool-call-id tool-call-id})
-        (no-content)))))
+      (do (call! components :notification "chat/toolCallApprove" {:chat-id chat-id :tool-call-id tool-call-id})
+          (no-content)))))
 
 (defn handle-reject [{:keys [db*] :as components} _request chat-id tool-call-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
       (error-response 404 "tool_call_not_found" (str "Tool call " tool-call-id " does not exist"))
-      (let [config (config/all @db*)]
-        (handlers/chat-tool-call-reject
-         (assoc components :config config)
-         {:chat-id chat-id :tool-call-id tool-call-id})
-        (no-content)))))
+      (do (call! components :notification "chat/toolCallReject" {:chat-id chat-id :tool-call-id tool-call-id})
+          (no-content)))))
 
 (defn handle-rollback [{:keys [db*] :as components} request chat-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (let [body (parse-body request)
-          config (config/all @db*)
-          {:keys [error]} (handlers/chat-rollback
-                           (assoc components :config config)
-                           {:chat-id chat-id :content-id (:contentId body)})]
+          {:keys [error]} (call! components :request "chat/rollback" {:chat-id chat-id :content-id (:contentId body)})]
       (if error
         (error-response (if (= "invalid_request" (:code error)) 400 404)
                         (:code error)
@@ -269,20 +274,14 @@
 (defn handle-clear [{:keys [db*] :as components} _request chat-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
-    (let [config (config/all @db*)]
-      (handlers/chat-clear
-       (assoc components :config config)
-       {:chat-id chat-id :messages true})
-      (no-content))))
+    (do (call! components :request "chat/clear" {:chat-id chat-id :messages true})
+        (no-content))))
 
 (defn handle-delete-chat [{:keys [db*] :as components} _request chat-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
-    (let [config (config/all @db*)]
-      (handlers/chat-delete
-       (assoc components :config config)
-       {:chat-id chat-id})
-      (no-content))))
+    (do (call! components :request "chat/delete" {:chat-id chat-id})
+        (no-content))))
 
 (defn handle-change-model [{:keys [db*] :as components} request chat-id]
   (if-not (chat-or-404 db* chat-id)
@@ -290,13 +289,9 @@
     (let [body (parse-body request)]
       (if-not (:model body)
         (error-response 400 "invalid_request" "Missing required field: model")
-        (let [config (config/all @db*)]
-          (handlers/chat-selected-model-changed
-           (assoc components :config config)
-           {:chat-id chat-id
-            :model (:model body)
-            :variant (:variant body)})
-          (no-content))))))
+        (do (call! components :notification "chat/selectedModelChanged"
+                   {:chat-id chat-id :model (:model body) :variant (:variant body)})
+            (no-content))))))
 
 (defn handle-change-agent [{:keys [db* messenger] :as components} request chat-id]
   (if-not (chat-or-404 db* chat-id)
@@ -304,11 +299,8 @@
     (let [body (parse-body request)]
       (if-not (:agent body)
         (error-response 400 "invalid_request" "Missing required field: agent")
-        (let [config (config/all @db*)]
-          (handlers/chat-selected-agent-changed
-           (assoc components :config config)
-           {:chat-id chat-id
-            :agent (:agent body)})
+        (do
+          (call! components :notification "chat/selectedAgentChanged" {:chat-id chat-id :agent (:agent body)})
           ;; The editor showing this chat must learn it too, otherwise its
           ;; next prompt sends its stale agent and reverts this change.
           (config/notify-selected-agent-changed!
@@ -324,21 +316,15 @@
         (let [config (config/all @db*)
               model (or (get-in @db* [:chats chat-id :model])
                         (f.chat/default-model @db* config))]
-          (handlers/chat-selected-model-changed
-           (assoc components :config config)
-           {:chat-id chat-id
-            :model model
-            :variant (:variant body)})
+          (call! components :notification "chat/selectedModelChanged"
+                 {:chat-id chat-id :model model :variant (:variant body)})
           (no-content))))))
 
 (defn handle-update-chat [{:keys [db*] :as components} request chat-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
-    (let [body (parse-body request)
-          config (config/all @db*)]
-      (handlers/chat-update
-       (assoc components :config config)
-       {:chat-id chat-id :title (:title body) :trust (:trust body)})
+    (let [body (parse-body request)]
+      (call! components :request "chat/update" {:chat-id chat-id :title (:title body) :trust (:trust body)})
       (no-content))))
 
 (defn handle-set-trust [{:keys [db*]} request {:keys [sse-connections*]}]
@@ -370,51 +356,59 @@
       (error-response 404 "question_not_found"
                       (str "No pending question for requestId " request-id)))))
 
-(defn handle-mcp-start [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)]
-    (m.mcp/start-server-method (assoc components :config config) {:name server-name})
+(defn ^:private mcp-action
+  "Runs eca/mcp's notification `method` on MCP server `server-name`: 204, or
+   404 when eca/mcp is off."
+  [components method server-name]
+  (if (= method-not-found (call! components :notification method {:name server-name}))
+    (method-not-found-response method)
     (no-content)))
 
-(defn handle-mcp-stop [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)]
-    (m.mcp/stop-server-method (assoc components :config config) {:name server-name})
-    (no-content)))
+(defn handle-mcp-start [components _request server-name]
+  (mcp-action components "mcp/startServer" server-name))
 
-(defn handle-mcp-connect [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)]
-    (m.mcp/connect-server-method (assoc components :config config) {:name server-name})
-    (no-content)))
+(defn handle-mcp-stop [components _request server-name]
+  (mcp-action components "mcp/stopServer" server-name))
 
-(defn handle-mcp-logout [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)]
-    (m.mcp/logout-server-method (assoc components :config config) {:name server-name})
-    (no-content)))
+(defn handle-mcp-connect [components _request server-name]
+  (mcp-action components "mcp/connectServer" server-name))
 
-(defn handle-mcp-disable [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)]
-    (m.mcp/disable-server-method (assoc components :config config) {:name server-name})
-    (no-content)))
+(defn handle-mcp-logout [components _request server-name]
+  (mcp-action components "mcp/logoutServer" server-name))
 
-(defn handle-mcp-enable [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)]
-    (m.mcp/enable-server-method (assoc components :config config) {:name server-name})
-    (no-content)))
+(defn handle-mcp-disable [components _request server-name]
+  (mcp-action components "mcp/disableServer" server-name))
 
-(defn handle-mcp-add [{:keys [db*] :as components} request]
+(defn handle-mcp-enable [components _request server-name]
+  (mcp-action components "mcp/enableServer" server-name))
+
+(defn handle-mcp-add [components request]
   (let [body (parse-body request)]
     (if-not (:name body)
       (error-response 400 "invalid_request" "Missing required field: name")
-      (let [config (config/all @db*)
-            result (m.mcp/add-server-method (assoc components :config config) body)]
-        (if-let [{:keys [code message]} (:error result)]
-          (error-response 400 (or code "invalid_request") (or message "Failed to add MCP server"))
+      (let [result (call! components :request "mcp/addServer" body)]
+        (cond
+          (= method-not-found result)
+          (method-not-found-response "mcp/addServer")
+
+          (:error result)
+          (let [{:keys [code message]} (:error result)]
+            (error-response 400 (or code "invalid_request") (or message "Failed to add MCP server")))
+
+          :else
           (json-response (camel-keys result)))))))
 
-(defn handle-mcp-remove [{:keys [db*] :as components} _request server-name]
-  (let [config (config/all @db*)
-        result (m.mcp/remove-server-method (assoc components :config config) {:name server-name})]
-    (if-let [{:keys [code message]} (:error result)]
-      (error-response 400 (or code "invalid_request") (or message "Failed to remove MCP server"))
+(defn handle-mcp-remove [components _request server-name]
+  (let [result (call! components :request "mcp/removeServer" {:name server-name})]
+    (cond
+      (= method-not-found result)
+      (method-not-found-response "mcp/removeServer")
+
+      (:error result)
+      (let [{:keys [code message]} (:error result)]
+        (error-response 400 (or code "invalid_request") (or message "Failed to remove MCP server")))
+
+      :else
       (no-content))))
 
 (deftype SSEBody [db* sse-connections*]
