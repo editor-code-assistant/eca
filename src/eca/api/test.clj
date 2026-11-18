@@ -79,39 +79,47 @@
 (defn ^:private ctx-for [module ctx]
   (assoc (or ctx (mock-ctx {:module module})) :module-id (:id module)))
 
+(defn ^:private entry-named
+  "`module`'s entry `entry-name` of `k`, `:tools` or `:commands`: a map, or
+   a function of the ctx giving a map or `[name entry]` pairs."
+  [module k entry-name ctx]
+  (let [entries (get module k)
+        entries (if (or (nil? entries) (map? entries) (sequential? entries)) entries (entries ctx))]
+    (some (fn [[n entry]] (when (= entry-name n) entry)) entries)))
+
 (defn run-tool
   "Runs `module`'s tool `tool-name` with `args` (string keys, as the model
    sends them), and returns what its handler returns."
   ([module tool-name args] (run-tool module tool-name args nil))
   ([module tool-name args ctx]
-   (let [tool (or (get-in module [:tools tool-name])
+   (let [ctx (ctx-for module ctx)
+         tool (or (entry-named module :tools tool-name ctx)
                   (throw (ex-info (str "The module has no tool " tool-name) {:tool tool-name})))]
-     ((:handler tool) (ctx-for module ctx) args))))
+     ((:handler tool) ctx args))))
 
 (defn run-command
   "Runs `module`'s command `command-name` with `args`: the text typed after
    the command, or a map of its arguments. Returns what its handler returns."
   ([module command-name args] (run-command module command-name args nil))
   ([module command-name args ctx]
-   (let [command (or (get-in module [:commands command-name])
+   (let [ctx (ctx-for module ctx)
+         command (or (entry-named module :commands command-name ctx)
                      (throw (ex-info (str "The module has no command " command-name) {:command command-name})))
          args (if (map? args)
                 args
                 (let [argv (remove string/blank? (string/split (str args) #"\s+"))]
                   (merge (zipmap (map (comp keyword :name) (:arguments command)) argv)
                          {:argv (vec argv) :raw (string/trim (str args))})))]
-     ((:handler command) (ctx-for module ctx) args))))
+     ((:handler command) ctx args))))
 
 (defn run-event
   "Runs `module`'s handlers of `event-id` for `event`, in order, as ECA
    would: returns the event with the handlers' changes for a notify or
    transform event (the first `:block` or `:stop` ends the chain), and the
-   first answer for a handle event. The kind comes from the core events or
-   the module's `:defines`."
+   first answer for a handle event."
   ([module event-id event] (run-event module event-id event nil))
   ([module event-id event ctx]
-   (let [definition (or (get events/core-events event-id)
-                        (get-in module [:defines :events event-id]))
+   (let [definition (get events/core-events event-id)
          accepted (some-> (:accepts definition) keys set)
          ctx (ctx-for module ctx)
          handlers (->> (events/handler-entries (get-in module [:event-handlers event-id]))

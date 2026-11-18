@@ -1,12 +1,11 @@
 (ns eca.features.external-tools-test
   "External modules' tools and commands: their prefix as tool server, call
-   routing, approval and disabledTools by full name, :replaces, the tools
-   and commands modules register while they run, and the tool servers
-   clients get."
+   routing, approval and disabledTools by full name, :replaces, the
+   functions ECA calls, :tools and :commands as functions, and the tool
+   servers clients get."
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.api :as eca]
    [eca.features.commands :as f.commands]
    [eca.features.modules :as f.modules]
    [eca.features.tools :as f.tools]
@@ -25,7 +24,7 @@
    :parameters {:type "object" :properties {"key" {:type "string"}} :required ["key"]}
    :handler (fn [ctx {:strs [key]}]
               (swap! calls* conj [(:module-id ctx) key])
-              (eca/text (str text " " key)))})
+              (str text " " key))})
 
 (def ^:private jira
   {:id :acme/jira
@@ -113,7 +112,7 @@
                   :tools {"read_file" {:replaces "eca__read_file"
                                        :description "Read a file on the remote host."
                                        :parameters {:type "object" :properties {"path" {:type "string"}}}
-                                       :handler (fn [_ctx {:strs [path]}] (eca/text (str "remote " path)))}}}]
+                                       :handler (fn [_ctx {:strs [path]}] (str "remote " path))}}}]
     (testing "the tool keeps the full name it replaces"
       (is (match? {:server {:name "eca"} :description "Read a file on the remote host."}
                   (tool-named {} "eca__read_file")))
@@ -193,37 +192,61 @@
     (testing "bare names are still ECA's tools"
       (is (nil? (f.tools/tool-approval-keys "issue" {"key" "ECA-1"} (h/db) {}))))))
 
-(deftest registrations-test
-  (with-modules [{:id :acme/dynamic}]
-    (let [ctx {:module-id :acme/dynamic}]
-      (testing "a module adds a tool while it runs"
-        (eca/register-tool! ctx "ping" {:description "Ping."
-                                        :parameters {:type "object"}
-                                        :handler (fn [_ _] (eca/text "pong"))})
-        (is (some? (tool-named {} "dynamic__ping")))
-        (is (match? {:contents [{:text "pong"}]} (call! {} "dynamic__ping" {}))))
-      (testing "and removes it"
-        (eca/unregister-tool! ctx "ping")
-        (is (nil? (tool-named {} "dynamic__ping"))))
-      (testing "invalid tools and names are refused"
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #":handler must be a function"
-                              (eca/register-tool! ctx "bad" {:description "x" :parameters {}})))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"the name must be a string"
-                              (eca/register-tool! ctx "a b" {:description "x" :parameters {} :handler (fn [_ _])})))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"belongs to no module"
-                              (eca/register-tool! {} "x" {:description "x" :parameters {} :handler (fn [_ _])}))))
-      (testing "a module adds a command"
-        (eca/register-command! ctx "greet" {:description "Greet." :handler (fn [_ {:keys [raw]}] (str "Hi " raw))})
-        (is (match? (m/embeds [{:name "greet" :type :module :description "Greet."}])
-                    (f.commands/all-commands (h/db) {})))
-        (is (= "Hi Ana"
-               (get-in (f.commands/handle-command! "greet" ["Ana"] {:chat-id "chat-1" :config {} :db* (h/db*)})
-                       [:chats "chat-1" :messages 0 :content 0 :text])))
-        (eca/unregister-command! ctx "greet")
-        (is (not-any? #(= "greet" (:name %)) (f.commands/all-commands (h/db) {}))))
-      (testing "registrations of a module that isn't active don't count"
-        (eca/register-tool! ctx "ping" {:description "Ping." :parameters {:type "object"} :handler (fn [_ _] "pong")})
-        (is (nil? (tool-named {:modules {:acme/dynamic {:enabled false}}} "dynamic__ping")))))))
+(deftest tool-functions-test
+  (with-modules [{:id :acme/rich
+                  :tools (fn [_ctx]
+                           {"edit" {:description "Edit."
+                                    :parameters {:type "object" :properties {"path" {:type "string"}}}
+                                    :handler (fn [_ _] "done")
+                                    :details-before-fn (fn [ctx {:strs [path]}]
+                                                         {:type :fileChange :path path :module (:module-id ctx)})
+                                    :details-after-fn (fn [_ctx _args _details _result] (throw (ex-info "boom" {})))
+                                    :normalize-arguments-fn (fn [arguments] (update arguments "path" str "!"))
+                                    :cleanup-fn (fn [resource-kwd _resource] (swap! calls* conj resource-kwd))}})}]
+    (let [tool (tool-named {} "rich__edit")]
+      (testing "a :tools function gives an external module's tools"
+        (is (match? {:description "Edit." :server {:name "rich"}} tool)))
+      (testing "the functions ECA calls for itself work, with the module's ctx"
+        (is (= {:type :fileChange :path "/a" :module :acme/rich}
+               (f.tools/tool-call-details-before-invocation tool {"path" "/a"} (h/db) {} "chat-1" false "call-1")))
+        (is (= {"path" "/a!"} ((:normalize-arguments-fn tool) {"path" "/a"})))
+        (f.tools/tool-call-destroy-resource! "rich__edit" :process :p (h/db) {})
+        (is (= [:process] @calls*)))
+      (testing "one that fails gives nothing, and counts as the module's failure"
+        (is (nil? (f.tools/tool-call-details-after-invocation tool {"path" "/a"} nil {:error false :contents []}
+                                                              {:db (h/db) :config {}})))
+        (is (= 1 (modules/failures :acme/rich)))))))
+
+(deftest transform-tools-test
+  (with-modules [{:id :acme/hide-grep
+                  :transform-tools (fn [ctx tools]
+                                     (swap! calls* conj (:module-id ctx))
+                                     (remove #(= "eca__grep" (:full-name %)) tools))}
+                 {:id :acme/broken
+                  :transform-tools (fn [_ _] (throw (ex-info "boom" {})))}]
+    (let [names (set (map :full-name (tools {})))]
+      (testing "an external module changes the tool list"
+        (is (not (contains? names "eca__grep")))
+        (is (= [:acme/hide-grep] @calls*)))
+      (testing "one that fails leaves it as it was"
+        (is (contains? names "eca__read_file"))
+        (is (= 1 (modules/failures :acme/broken)))))))
+
+(deftest command-functions-test
+  (with-modules [{:id :acme/cmds
+                  :commands (fn [_ctx]
+                              [["hello" {:description "Hello." :handler (fn [_ _] "Hi")}]
+                               ["note" {:client-type :custom-prompt :description "A note."
+                                        :handler (fn [_ _] {:prompt "Take a note"})}]
+                               "not a pair"])}]
+    (testing "a :commands function gives an external module's commands, also for a source like custom prompts"
+      (is (match? (m/embeds [{:name "hello" :type :module :description "Hello."}
+                             {:name "note" :type :custom-prompt :description "A note."}])
+                  (f.commands/all-commands (h/db) {})))
+      (is (= {:type :send-prompt :prompt "Take a note"}
+             (f.commands/handle-command! "note" [] {:chat-id "chat-1" :config {} :db* (h/db*)}))))
+    (testing "/modules lists its own commands"
+      (is (string/includes? (f.modules/modules-text {} (h/db)) "commands `/hello`")))))
 
 (deftest module-tool-servers-test
   (with-modules [jira]

@@ -1,24 +1,18 @@
 (ns eca.modules.core
   "The `:eca/core` module: what stays in core (protocol, persistence, config,
    the chat loop and the module runtime), as a module so its config keys,
-   events and commands are listed like any other module's. It can't be
-   disabled."
+   prompt sections and commands are listed like any other module's. It can't
+   be disabled."
   (:require
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
-   [eca.features.login :as f.login]
    [eca.features.modules :as f.modules]
    [eca.features.prompt :as f.prompt]
-   [eca.features.providers :as f.providers]
-   [eca.features.quota :as f.quota]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
-   [eca.logger :as logger]
-   [eca.messenger :as messenger]
-   [eca.modules.events :as events]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -305,26 +299,6 @@
       :else
       no-compaction)))
 
-(defn ^:private login-command
-  [{:keys [chat-id db* config messenger metrics]} {args :argv}]
-  (messenger/chat-content-received
-   messenger
-   {:chat-id chat-id
-    :role "system"
-    :content {:type :text
-              :text (multi-str
-                     "Login started, type 'cancel' anytime to exit login."
-                     ""
-                     "Note: Login should be used to authenticate via oauth (subs) on some providers or auto configure ECA config with a provider API key.")}})
-  (f.login/handle-step {:message (or (first args) "")
-                        :chat-id chat-id}
-                       db*
-                       messenger
-                       config
-                       metrics)
-  {:type :new-chat-status
-   :status :login})
-
 (defn ^:private model-command
   [{:keys [chat-id db* messenger full-model]} {args :argv}]
   (let [db @db*
@@ -380,7 +354,7 @@
         total-input-cache-read-tokens (get-in db [:chats chat-id :usage :total-input-cache-read-tokens] nil)
         total-output-tokens (get-in db [:chats chat-id :usage :total-output-tokens] 0)
         model-capabilities (get-in db [:models full-model])
-        subscription? (f.quota/subscription? provider db config)
+        subscription? (llm-util/subscription? provider db config)
         text (multi-str (str "Total input tokens: " total-input-tokens)
                         (when total-input-cache-creation-tokens
                           (str "Total input cache creation tokens: " total-input-cache-creation-tokens))
@@ -393,22 +367,6 @@
                         (module-usage-lines (get-in db [:chats chat-id :module-usage])))]
     {:type :chat-messages
      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}}))
-
-(defn ^:private quota-command
-  [{:keys [chat-id db* config messenger] :as chat-ctx} _args]
-  (let [db @db*
-        providers (f.quota/subscription-providers db config)]
-    (doseq [provider providers]
-      (f.login/maybe-renew-auth-token!
-       {:provider provider
-        :on-error (fn [msg]
-                    (logger/warn "[commands]" (format "Could not renew '%s' auth token before fetching quota: %s" provider msg)))}
-       chat-ctx)
-      (f.providers/refresh-quota! provider db* config messenger :force? true))
-    {:type :chat-messages
-     :chats {chat-id {:messages [{:role "system"
-                                  :content [{:type :text
-                                             :text (f.quota/quota-text @db* providers)}]}]}}}))
 
 (defn ^:private sync-system-prompt-command
   [{:keys [chat-id db*]} _args]
@@ -423,7 +381,7 @@
   (let [db @db*
         messages (get-in db [:chats chat-id :messages] [])
         usage (shared/usage-sumary chat-id full-model db
-                                   {:subscription? (f.quota/subscription? provider db config)})
+                                   {:subscription? (llm-util/subscription? provider db config)})
         context-limit (get-in db [:models full-model :limit :context])
         compact-percentage (f.chat.lifecycle/usage-updated! chat-ctx usage context-limit)
         breakdown (shared/context-breakdown
@@ -514,17 +472,14 @@
                            :doc "Per module id: enabled, source and priority."}
                  :disabledTools {:type :array :default []}
                  :toolCall {:outputTruncation {:type :map :default {:lines 2000 :sizeKb 50}}}}
-   :defines {:events events/core-events}
    :system-prompts [{:id :eca/additional-info :content #'f.prompt/additional-info-section}
                     {:id :eca/workspace-roots :content #'f.prompt/workspace-roots-prompt-section}
                     {:id :eca/path-resolution :content #'f.prompt/path-resolution-prompt-section}
                     {:id :eca/context :content #'f.prompt/context-section}]  ; AGENTS.md, startup context
    :commands (commands
-              {"compact" #'compact-command "login" #'login-command "model" #'model-command "costs" #'costs-command "quota" #'quota-command "sync-system-prompt" #'sync-system-prompt-command "context" #'context-command "remote" #'remote-command "config" #'config-command "doctor" #'doctor-command "prompt-show" #'prompt-show-command "modules" #'modules-command}
-              [["login" "Log into a provider (Ex: /login github-copilot)" [{:name "provider-id"}]]
-               ["model" "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)" [{:name "full-model"}]]
+              {"compact" #'compact-command "model" #'model-command "costs" #'costs-command "sync-system-prompt" #'sync-system-prompt-command "context" #'context-command "remote" #'remote-command "config" #'config-command "doctor" #'doctor-command "prompt-show" #'prompt-show-command "modules" #'modules-command}
+              [["model" "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)" [{:name "full-model"}]]
                ["costs" "Total costs of the current chat session." []]
-               ["quota" "Subscription quota usage and reset times (Claude Pro/Max, ChatGPT, GitHub Copilot)." []]
                ["context" "Context window usage breakdown for the current chat." []]
                ["compact" "Summarize the chat so far cleaning previous chat history to reduce context."
                 [{:name "additional-input"}]]

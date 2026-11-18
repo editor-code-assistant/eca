@@ -3,7 +3,7 @@
    [clojure.string :as string]
    [eca.db :as db]
    [eca.db.chats :as db.chats]
-   [eca.features.login :as f.login]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
@@ -458,7 +458,7 @@
                            strip-hook-callbacks)))
 
 (defn maybe-renew-auth-token [chat-ctx]
-  (f.login/maybe-renew-auth-token!
+  (llm-api.auth/maybe-renew-auth-token!
    {:provider (:provider chat-ctx)
     :on-renewing (fn []
                    (send-content! chat-ctx :system {:type  :progress

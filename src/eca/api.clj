@@ -1,25 +1,27 @@
 (ns eca.api
   "The module API: what modules call, built-in and external alike. External
-   modules, interpreted with SCI, see only the `eca.api*` namespaces of ECA.
+   modules, interpreted with SCI, see this namespace and `eca.api.test` of
+   ECA, and `babashka.fs` and `cheshire.core` for files and JSON.
 
    Every function that needs one takes first the `ctx` ECA passed to the
    module's function (`:start`, a tool or command handler, an event
    handler...). `ctx` is opaque: what it carries depends on where the
-   function runs. Within one module API version (`:api` 1) this namespace
-   only grows."
+   function runs. Once released, this namespace only grows."
   (:require
    [babashka.fs :as fs]
    [babashka.process :as process]
+   [cheshire.core :as json]
    [clojure.string :as string]
+   [eca.client-http :as client-http]
    [eca.config :as config]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
    [eca.modules.data :as modules.data]
-   [eca.modules.events :as events]
    [eca.shared :as shared]
-   [eca.shell :as shell]))
+   [eca.shell :as shell]
+   [hato.client :as hato]))
 
 (set! *warn-on-reflection* true)
 
@@ -67,7 +69,7 @@
     nil))
 
 (defn ^:private owner
-  "The id of the module `ctx` belongs to; registrations need one."
+  "The id of the module `ctx` belongs to; what acts as the module needs one."
   [ctx]
   (or (:module-id ctx)
       (throw (ex-info "This ctx belongs to no module" {}))))
@@ -303,7 +305,7 @@
     (on-progress {:message (str text)}))
   nil)
 
-(defn ui?
+(defn ^:private ui?
   "Whether dialogs (`confirm`, `select`, `input`) can ask the user: the
    client supports them and the ctx runs in a chat."
   [ctx]
@@ -324,16 +326,19 @@
 
 (defn confirm
   "Asks the user a yes or no question in the chat and waits for the answer:
-   true for yes. False when the user cancels, or without `ui?`."
-  [ctx text]
+   true for yes. The question is a string, or `{:title ..}` as `select`'s
+   and `input`'s. False when the user cancels, or when the client can't ask
+   (outside a chat, or a client without dialogs)."
+  [ctx question]
   (boolean (when (ui? ctx)
-             (let [{:keys [answer cancelled]} (ask! ctx (str text) [{:label "Yes"} {:label "No"}] false)]
+             (let [text (if (map? question) (:title question) question)
+                   {:keys [answer cancelled]} (ask! ctx (str text) [{:label "Yes"} {:label "No"}] false)]
                (and (not cancelled) (= "Yes" answer))))))
 
 (defn select
   "Asks the user to pick one of `options` in the chat and waits: returns the
-   option picked, or nil when the user cancels, or without `ui?`. An option
-   is a string, or `{:label .. :description ..}`."
+   option picked, or nil when the user cancels, or when the client can't
+   ask. An option is a string, or `{:label .. :description ..}`."
   [ctx {:keys [title options]}]
   (when (and (ui? ctx) (seq options))
     (let [label-of #(if (map? %) (str (:label %)) (str %))
@@ -348,26 +353,13 @@
 
 (defn input
   "Asks the user for text in the chat and waits: returns it, or nil when the
-   user cancels, or without `ui?`. `:placeholder` is shown after the title."
+   user cancels, or when the client can't ask. `:placeholder` is shown after
+   the title."
   [ctx {:keys [title placeholder]}]
   (when (ui? ctx)
     (let [{:keys [answer cancelled]} (ask! ctx (str title (when placeholder (str " (" placeholder ")"))) nil true)]
       (when-not (or cancelled (nil? answer))
         (str answer)))))
-
-;; --- Events
-
-(defn emit!
-  "Runs the handlers of `event-id` for `event`, e.g. an event the module
-   defines in `:defines`. Returns the changed event for a transform event,
-   the first answer for a handle event, and nil for a notify event."
-  [ctx event-id event]
-  (let [config (config ctx)
-        result (events/emit! (assoc ctx :config config) event-id event)]
-    (case (:kind (get (events/definitions config) event-id))
-      :transform result
-      :handle result
-      nil)))
 
 ;; --- Tools and commands
 
@@ -394,59 +386,6 @@
     ((requiring-resolve 'eca.features.tools/call-tool!)
      full-name args chat-id (str "module-" (random-uuid)) agent db* (config ctx) messenger metrics
      (constantly nil) (fn [& _] nil) {})))
-
-(defn ^:private tools-changed!
-  "Sends the clients the tools again, when ECA runs a session."
-  [ctx]
-  (when-let [db* (:db* ctx)]
-    (when-let [messenger (:messenger ctx)]
-      (try
-        ((requiring-resolve 'eca.features.tools/refresh-module-tool-servers!) db* messenger (config ctx))
-        (catch Exception e
-          (logger/warn "[MODULES]" "Could not send the tools to the client:" e))))))
-
-(defn ^:private check!
-  "Throws when the entry named `entry-name` has problems, or its name doesn't
-   match `name-re`."
-  [what entry-name name-re problems]
-  (let [problems (cond-> (vec problems)
-                   (not (and (string? entry-name) (re-matches name-re entry-name)))
-                   (conj (str "the name must be a string matching " name-re)))]
-    (when (seq problems)
-      (throw (ex-info (format "Invalid %s %s: %s" what (pr-str entry-name) (string/join "; " problems))
-                      {:name entry-name :problems problems})))))
-
-(defn register-tool!
-  "Adds a tool while the module runs, like an entry of its `:tools`: named
-   `<prefix>__<tool-name>`, removed when the module stops. Registering a name
-   again replaces the tool."
-  [ctx tool-name tool]
-  (check! "tool" tool-name #"[A-Za-z0-9_-]+" (modules/tool-problems tool))
-  (modules/register! (owner ctx) :tools tool-name tool)
-  (tools-changed! ctx)
-  nil)
-
-(defn unregister-tool!
-  "Removes a tool `register-tool!` added."
-  [ctx tool-name]
-  (modules/unregister! (owner ctx) :tools tool-name)
-  (tools-changed! ctx)
-  nil)
-
-(defn register-command!
-  "Adds a slash command while the module runs, like an entry of its
-   `:commands`: `/<command-name>`, or `/<prefix>:<command-name>`. Removed
-   when the module stops."
-  [ctx command-name command]
-  (check! "command" command-name #"[A-Za-z0-9_.-]+" (modules/command-problems command))
-  (modules/register! (owner ctx) :commands command-name command)
-  nil)
-
-(defn unregister-command!
-  "Removes a command `register-command!` added."
-  [ctx command-name]
-  (modules/unregister! (owner ctx) :commands command-name)
-  nil)
 
 ;; --- LLM
 
@@ -508,7 +447,7 @@
         _ (when-not (= "user" (:role (peek messages)))
             (throw (ex-info "complete! needs the user's message last: end :messages with one, or give :prompt" {})))
         _ (try
-            ((requiring-resolve 'eca.features.login/maybe-renew-auth-token!)
+            ((requiring-resolve 'eca.llm-api.auth/maybe-renew-auth-token!)
              {:provider provider
               :on-error (fn [msg] (logger/warn "[MODULES]" "Could not renew the auth of" provider msg))}
              {:db* db* :messenger (:messenger ctx) :config config :metrics (:metrics ctx)})
@@ -593,16 +532,46 @@
            {:exit nil :out "" :err (str "Timed out after " timeout-ms " ms") :timeout? true})
        {:exit (:exit result) :out (str (:out result)) :err (str (:err result))}))))
 
+(defn http
+  "Sends an HTTP request and waits for the response, `{:status :headers
+   :body}`; error statuses don't throw. It goes through ECA's HTTP client, so
+   its proxy and TLS settings apply. `opts`:
+   - `:url`; `:method`: `:get` (the default), `:post`, `:put`, `:patch`,
+     `:delete` or `:head`.
+   - `:headers`: string → string; `:query-params`: a map.
+   - `:body`: text to send, or `:json`: data sent as a JSON body.
+   - `:oauth-token`, or `:basic-auth` `[user password]`.
+   - `:timeout-ms`: 30000 by default.
+   - `:as`: `:string` (the default), or `:json` to parse the body, with
+     keyword keys."
+  [{:keys [method url headers query-params body json oauth-token basic-auth timeout-ms as]
+    :or {method :get timeout-ms 30000 as :string}}]
+  (let [response (hato/request
+                  (cond-> {:method method
+                           :url url
+                           :as :string
+                           :throw-exceptions? false
+                           :timeout timeout-ms
+                           :http-client (client-http/merge-with-global-http-client {})}
+                    headers (assoc :headers headers)
+                    query-params (assoc :query-params query-params)
+                    body (assoc :body body)
+                    (some? json) (-> (assoc :body (json/generate-string json))
+                                     (assoc-in [:headers "Content-Type"] "application/json"))
+                    oauth-token (assoc :oauth-token oauth-token)
+                    basic-auth (assoc :basic-auth {:user (first basic-auth) :pass (second basic-auth)})))
+        response-body (:body response)]
+    {:status (:status response)
+     :headers (:headers response)
+     :body (if (and (= :json as) (string? response-body) (not (string/blank? response-body)))
+             (json/parse-string response-body true)
+             response-body)}))
+
 ;; --- Results
 
-(defn text
-  "A tool result holding the text `s`."
-  [s]
-  {:error false
-   :contents [{:type :text :text (str s)}]})
-
 (defn error
-  "A tool result that reports an error, with the text `s`."
+  "A tool result that reports an error, with the text `s`; a tool returns a
+   string for a text result."
   [s]
   {:error true
    :contents [{:type :text :text (str s)}]})

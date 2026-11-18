@@ -4,7 +4,6 @@
    Supports context overflow, rate limiting, authentication, and overload detection
    across multiple providers (Anthropic, OpenAI, Google, Ollama, etc.)."
   (:require
-   [cheshire.core :as json]
    [clojure.string :as string]
    [eca.llm-util :as llm-util]))
 
@@ -278,6 +277,15 @@
   (when-let [recover! (provider-errors-fn :recover! ctx)]
     (recover! ctx)))
 
+(defn provider-retry-after-ms
+  "When, in epoch millis, the provider says a rate-limited request can be
+   retried, from its error response (e.g. ChatGPT Codex's usage limit): its
+   `:errors :retry-after-ms` (see `provider-errors-fn`). It gets {:provider
+   :provider-base :error-data :config}. Without one: nil."
+  [ctx]
+  (when-let [f (provider-errors-fn :retry-after-ms ctx)]
+    (f ctx)))
+
 (defn context-overflow?
   "Returns true if the error is a context window overflow."
   [error-data]
@@ -295,7 +303,7 @@
    (contains? retryable-error-types
               (:error/type (classify-error error-data retry-rules)))))
 
-(defn ^:private header-str
+(defn header-str
   "Header value as trimmed non-blank string, unwrapping multi-value collections."
   [headers k]
   (let [v (get headers k)
@@ -308,7 +316,7 @@
   (when (and s (re-matches #"\d+" s))
     (parse-long s)))
 
-(defn ^:private epoch-str->ms
+(defn epoch-str->ms
   "Unix epoch string to millis; values already in millis are kept as-is."
   [s]
   (when-let [n (parse-long-str s)]
@@ -349,27 +357,6 @@
              (reduce +)
              long)))
 
-(defn ^:private response-field [m field]
-  (when (map? m)
-    (or (get m field)
-        (get m (keyword field)))))
-
-(defn ^:private codex-usage-limit-reset-ms
-  "ChatGPT Codex OAuth usage-limit reset from the 429 JSON response body."
-  [body]
-  (let [body (cond
-               (map? body) body
-               (string? body) (try
-                                (json/parse-string body)
-                                (catch Exception _ nil))
-               :else nil)
-        error (response-field body "error")
-        error-type (response-field error "type")
-        reset-at (response-field error "resets_at")]
-    (when (and (= "usage_limit_reached" error-type)
-               (integer? reset-at))
-      (* (long reset-at) 1000))))
-
 (defn ^:private future-reset-ms [reset-ms now-ms]
   (when (and reset-ms (> (long reset-ms) (long now-ms)))
     (long reset-ms)))
@@ -393,16 +380,15 @@
         headers))
 
 (defn rate-limit-wait
-  "Computes when a rate-limited request can be retried.
-
-   The two-argument arity reads HTTP response headers. The three-argument arity
-   additionally reads the response body used by ChatGPT Codex OAuth errors.
+  "Computes when a rate-limited request can be retried, from its response
+   headers and `provider-reset-ms`, when the provider says it can (see
+   `provider-retry-after-ms`).
 
    Precedence:
    1. `retry-after` (delta seconds or HTTP-date)
-   2. ChatGPT Codex `usage_limit_reached` body `error.resets_at` (epoch seconds)
-   3. `anthropic-ratelimit-unified-reset` (epoch seconds; subscription session limits)
-   4. rate-limit reset buckets (Anthropic `*ratelimit*-reset` RFC 3339/epoch,
+   2. `provider-reset-ms`, e.g. ChatGPT Codex's usage-limit reset or Anthropic's
+      subscription session reset
+   3. rate-limit reset buckets (Anthropic `*ratelimit*-reset` RFC 3339/epoch,
       OpenAI `*ratelimit*-reset-<bucket>` Go-style durations): latest exhausted
       bucket (remaining = 0), else earliest future reset.
 
@@ -412,7 +398,7 @@
    is present (callers should fall back to exponential backoff)."
   ([headers now-ms]
    (rate-limit-wait headers nil now-ms))
-  ([headers body now-ms]
+  ([headers provider-reset-ms now-ms]
    (let [headers (if (map? headers) headers {})
          buckets (filter #(> (long (:reset-ms %)) (long now-ms)) (bucket-resets headers now-ms))
          exhausted (filter #(some-> (:remaining %) (<= 0)) buckets)
@@ -420,8 +406,7 @@
                           (some->> (seq buckets) (map :reset-ms) (apply min)))
          resets-at (some #(future-reset-ms % now-ms)
                          [(retry-after-ms headers now-ms)
-                          (codex-usage-limit-reset-ms body)
-                          (epoch-str->ms (header-str headers "anthropic-ratelimit-unified-reset"))
+                          provider-reset-ms
                           bucket-reset])]
      (when resets-at
        {:delay-ms (- resets-at (long now-ms))

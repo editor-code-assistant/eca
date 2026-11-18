@@ -8,12 +8,12 @@
    [clojure.string :as string]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.features.login :as f.login]
-   [eca.features.providers :as f.providers]
-   [eca.features.quota :as f.quota]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.modules.llm-providers.login :as m.llm-providers.login]
+   [eca.modules.llm-providers.providers :as m.llm-providers.providers]
+   [eca.modules.llm-providers.quota :as m.llm-providers.quota]
    [eca.modules.providers.variants :as m.variants]
    [eca.oauth :as oauth]
    [eca.shared :refer [assoc-some join-api-url multi-str]]
@@ -52,7 +52,7 @@
 ;; for some models. All Codex specifics live in the `codex-` fns below.
 
 ;; Keep >= the newest model's `minimal_client_version`; the live gate is stricter than the catalog, so pin a recent released Codex version.
-(def ^:private codex-compatibility-version "0.160.0")
+(def ^:private codex-compatibility-version "0.170.0")
 
 (def ^:private codex-responses-url "https://chatgpt.com/backend-api/codex/responses")
 
@@ -311,6 +311,60 @@
 
 (def ^:private codex-usage-url "https://chatgpt.com/backend-api/wham/usage")
 
+(defn ^:private empty-codex-slot?
+  "Whether a ChatGPT window slot carries no data: unused and without a
+   duration, like the secondary slot of plans without a 5h limit, which report
+   their weekly window in the primary slot. The Codex CLI skips those too."
+  [used-percent minutes]
+  (and (zero? used-percent)
+       (not (pos? (or minutes 0)))))
+
+(defn ^:private quota-windows
+  "ChatGPT subscription windows from `x-codex-{primary,secondary}-*` headers.
+   Other limit families use their own `x-<family>-` prefix. The declaration's
+   `:quota :headers`."
+  [headers]
+  (keep (fn [[k v]]
+          (when-let [[_ family slot] (re-matches #"x-([a-z0-9-]+)-(primary|secondary)-used-percent" k)]
+            (when-let [used-percent (m.llm-providers.quota/parse-number v)]
+              (let [prefix (str "x-" family "-" slot "-")
+                    minutes (some-> (get headers (str prefix "window-minutes")) m.llm-providers.quota/parse-number long)
+                    resets-at (or (some-> (get headers (str prefix "reset-at")) m.llm-providers.quota/parse-number long)
+                                  (some->> (get headers (str prefix "reset-after-seconds"))
+                                           m.llm-providers.quota/parse-number
+                                           long
+                                           (+ (m.llm-providers.quota/now-seconds))))
+                    default-family? (= "codex" family)
+                    label (or (m.llm-providers.quota/minutes->label minutes) slot)]
+                (when-not (empty-codex-slot? used-percent minutes)
+                  (assoc-some
+                   {:id (if default-family? slot (str family "-" slot))
+                    :label (if default-family? label (str family " " label))
+                    :used-percent (m.llm-providers.quota/round1 used-percent)}
+                   :resets-at resets-at
+                   :window-minutes minutes))))))
+        headers))
+
+(defn ^:private usage->snapshot
+  "Snapshot from ChatGPT's `backend-api/wham/usage` response, keeping the
+   `primary`/`secondary` window ids used by the Codex response headers."
+  [body]
+  (let [windows (keep (fn [[slot k]]
+                        (when-let [{:keys [used_percent limit_window_seconds reset_at reset_after_seconds]}
+                                   (get-in body [:rate_limit k])]
+                          (when-let [used-percent (m.llm-providers.quota/parse-number used_percent)]
+                            (let [minutes (some-> limit_window_seconds m.llm-providers.quota/parse-number long (quot 60))]
+                              (when-not (empty-codex-slot? used-percent minutes)
+                                (assoc-some
+                                 {:id slot
+                                  :label (or (m.llm-providers.quota/minutes->label minutes) slot)
+                                  :used-percent (m.llm-providers.quota/round1 used-percent)}
+                                 :resets-at (or (m.llm-providers.quota/->epoch-seconds reset_at)
+                                                (some->> reset_after_seconds m.llm-providers.quota/parse-number long (+ (m.llm-providers.quota/now-seconds))))
+                                 :window-minutes minutes))))))
+                      [["primary" :primary_window] ["secondary" :secondary_window]])]
+    (m.llm-providers.quota/snapshot windows)))
+
 (defn ^:private fetch-quota
   "`:quota :fetch`: the ChatGPT subscription's usage."
   [{:keys [provider-auth]}]
@@ -326,7 +380,7 @@
                                          :http-client (client/merge-with-global-http-client {})
                                          :timeout codex-models-timeout-ms})]
     (if (= 200 status)
-      (f.quota/codex-usage->snapshot body)
+      (usage->snapshot body)
       (throw (ex-info (format "ChatGPT usage endpoint returned status %s" status) {:status status})))))
 
 (defn ^:private response-body->result [body]
@@ -967,7 +1021,7 @@
                                 :api-key access-token
                                 :account-id account-id
                                 :expires-at expires-at})
-                        (f.providers/sync-and-notify! provider db* messenger metrics))
+                        (m.llm-providers.providers/sync-and-notify! provider db* messenger metrics))
                       (catch Exception e
                         (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
                       (finally
@@ -1012,7 +1066,7 @@
                                                                      :account-id account-id
                                                                      :expires-at expires-at})
                         (send-msg! "")
-                        (f.login/login-done! ctx))
+                        (m.llm-providers.login/login-done! ctx))
                       (future
                         (Thread/sleep 2000) ;; wait to render success page
                         (oauth/stop-oauth-server! local-server-port)))
@@ -1032,10 +1086,10 @@
     (do (config/update-global-config! {:providers {provider {:key input}}})
         (swap! db* assoc-in [:auth provider] {:step :login/done :type :auth/token})
         (send-msg! (str "API key saved in " (.getCanonicalPath (config/global-config-file))))
-        (f.login/login-done! ctx))
+        (m.llm-providers.login/login-done! ctx))
     (send-msg! "Invalid API key, it should start with 'sk-'")))
 
-(defn ^:private renew-token-step [{:keys [db* provider] :as ctx}]
+(defn ^:private renew-token-step [{:keys [db* provider]}]
   (let [current-auth (get-in @db* [:auth provider])
         existing-account-id (:account-id current-auth)
         {:keys [refresh-token access-token expires-at]} (oauth-refresh (:refresh-token current-auth))
@@ -1046,14 +1100,126 @@
                                                  :refresh-token refresh-token
                                                  :api-key access-token
                                                  :account-id new-account-id
-                                                 :expires-at expires-at})
-    (f.login/login-done! ctx :silent? true :skip-models-sync? true)))
+                                                 :expires-at expires-at})))
 
 (def api-module
   {:id :eca/api-openai-responses
    :description "The OpenAI Responses API."
    :apis {"openai-responses" {:handler (fn [_ctx request callbacks] (create-response! request callbacks))}}
    :config-defaults {:variantsByModel (merge m.variants/openai-responses m.variants/any-api)}})
+
+(defn ^:private request-opts
+  "A request's options (the declaration's `:request-opts`): the Responses
+   API's, with parallel tool calls on and what Codex logins need (account,
+   auth type, cache key)."
+  [_opts {:keys [model flat-instructions user-messages max-output-tokens reason? supports-image? past-messages
+                 tools web-search image-generation extra-payload extra-headers reasoning-history api-url api-key
+                 provider-base auth-type model-capabilities provider-auth prompt-cache-key cancelled?
+                 stream-idle-timeout-seconds]}]
+  {:model model
+   :instructions flat-instructions
+   :user-messages user-messages
+   :max-output-tokens max-output-tokens
+   :reason? reason?
+   :supports-image? supports-image?
+   :past-messages past-messages
+   :tools tools
+   :web-search web-search
+   :image-generation image-generation
+   :extra-payload (merge {:parallel_tool_calls true} extra-payload)
+   :extra-headers extra-headers
+   :reasoning-history reasoning-history
+   :api-url api-url
+   :api-key api-key
+   :provider provider-base
+   :auth-type auth-type
+   :provider-data (:provider-data model-capabilities)
+   :account-id (:account-id provider-auth)
+   :prompt-cache-key prompt-cache-key
+   :cancelled? cancelled?
+   :stream-idle-timeout-seconds stream-idle-timeout-seconds})
+
+(defn ^:private default-model
+  "With an OpenAI key, GPT-5.2 (the declaration's `:default-model`)."
+  [{:keys [db config]}]
+  (when (llm-util/provider-api-key "openai" (get-in db [:auth "openai"]) config)
+    "openai/gpt-5.2"))
+
+(defn ^:private response-field [m field]
+  (when (map? m)
+    (or (get m field)
+        (get m (keyword field)))))
+
+(defn ^:private usage-limit-reset-ms
+  "`:errors :retry-after-ms`: a ChatGPT login's usage-limit reset, from the
+   429's JSON body (`error.resets_at`, epoch seconds)."
+  [{:keys [error-data]}]
+  (let [body (:body error-data)
+        body (cond
+               (map? body) body
+               (string? body) (try
+                                (json/parse-string body)
+                                (catch Exception _ nil))
+               :else nil)
+        error (response-field body "error")
+        error-type (response-field error "type")
+        reset-at (response-field error "resets_at")]
+    (when (and (= "usage_limit_reached" error-type)
+               (integer? reset-at))
+      (* (long reset-at) 1000))))
+
+(def ^:private image-generation-models
+  "Mainline OpenAI chat models that support the built-in `image_generation`
+   tool on the Responses API (the declaration's `:capabilities`). Sourced from
+   OpenAI's image-generation tool guide (explicit list: gpt-4.1, gpt-4.1-mini,
+   gpt-4.1-nano, gpt-4o-mini, gpt-5, gpt-5.5, o3) plus the published guide
+   rule: \"gpt-5 and newer models should support the image generation tool\".
+   Codex variants are deliberately excluded — OpenAI restricts them to
+   function calling, structured outputs, streaming, and prompt caching."
+  #{"gpt-4.1"
+    "gpt-4.1-mini"
+    "gpt-4.1-nano"
+    "gpt-4o-mini"
+    "gpt-5"
+    "gpt-5-mini"
+    "gpt-5-nano"
+    "gpt-5.1"
+    "gpt-5.2"
+    "gpt-5.4"
+    "gpt-5.5"
+    "gpt-5.6-luna"
+    "gpt-5.6-terra"
+    "gpt-5.6-sol"
+    "gpt-6-astra"
+    "o3"})
+
+(def ^:private web-search-models
+  "OpenAI models that support the built-in web-search tool (the declaration's
+   `:capabilities`), sourced from the web-search tool guide; its explicit
+   denylist names only `gpt-4.1-nano` and `gpt-5 with minimal reasoning` (the
+   latter is a runtime config, not a model id, so `gpt-5` itself stays in the
+   set). Codex variants are deliberately excluded."
+  #{"gpt-4.1"
+    "gpt-4.1-mini"
+    "gpt-4o"
+    "gpt-4o-mini"
+    "gpt-5"
+    "gpt-5-mini"
+    "gpt-5-nano"
+    "gpt-5.1"
+    "gpt-5.2"
+    "gpt-5.4"
+    "gpt-5.5"
+    "gpt-5.6-luna"
+    "gpt-5.6-terra"
+    "gpt-5.6-sol"
+    "gpt-6-astra"
+    "gpt-6.1-sol"
+    "gpt-6-sol"
+    "gpt-6-luna"
+    "o3"
+    "o3-mini"
+    "o4-mini"})
 
 (def module
   {:id :eca/openai
@@ -1067,8 +1233,14 @@
                                          :login/waiting-login-method #'waiting-login-method-step
                                          :login/waiting-api-key #'waiting-api-key-step
                                          :login/renew-token #'renew-token-step}}
-                         :quota {:fetch #'fetch-quota}
-                         :models-override-fn #'models-override}}
+                         :quota {:fetch #'fetch-quota :headers #'quota-windows}
+                         :request-opts #'request-opts
+                         :api-fn (constantly :openai-responses)
+                         :default-model {:rank 2 :fn #'default-model}
+                         :models-override-fn #'models-override
+                         :capabilities {:web-search web-search-models
+                                        :image-generation? image-generation-models}
+                         :errors {:retry-after-ms #'usage-limit-reset-ms}}}
    :config-defaults {:providers {"openai" {:api "openai-responses"
                                            :url "${env:OPENAI_API_URL:https://api.openai.com}"
                                            :key "${env:OPENAI_API_KEY}"

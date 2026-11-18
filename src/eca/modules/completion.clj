@@ -2,9 +2,9 @@
   "The `:eca/completion` module: inline code completion, `completion/inline`."
   (:require
    [clojure.string :as string]
-   [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.llm-api :as llm-api]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.logger :as logger]
    [eca.metrics :as metrics]
    [eca.shared :as shared]))
@@ -48,7 +48,7 @@
 (defn complete [{:keys [doc-text doc-version position]} db* config messenger metrics]
   (let [full-model (get-in config [:completion :model])
         [provider model] (shared/full-model->provider+model full-model)
-        _ (f.login/maybe-renew-auth-token!
+        _ (llm-api.auth/maybe-renew-auth-token!
            {:provider provider
             :on-renewing (fn [] nil)
             :on-error (fn [error-msg] (logger/error logger-tag (format "Auth token renew failed: %s" error-msg)))}
@@ -107,5 +107,6 @@
 (def module
   {:id :eca/completion
    :description "Inline code completion."
-   ;; its config defaults (completion.model, prompts.completion) are core's for now
+   :config-spec {:completion {:model {:type :string :default "openai/gpt-4.1"}}
+                 :prompts {:completion {:type :string :default "${classpath:prompts/inline_completion.md}"}}}
    :rpc {"completion/inline" {:kind :request :handler #'completion-inline}}})

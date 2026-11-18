@@ -18,6 +18,7 @@
    [eca.modules.core :as m.core]
    [eca.modules.custom-commands :as m.custom-commands]
    [eca.modules.hooks :as m.hooks]
+   [eca.modules.llm-providers :as m.llm-providers]
    [eca.modules.manage :as m.manage]
    [eca.modules.mcp :as m.mcp]
    [eca.modules.otel :as m.otel]
@@ -99,7 +100,8 @@
    m.ollama/api-module
    m.openai/api-module
    m.openai-chat/api-module
-   ;; providers
+   ;; providers, and their logins and quotas
+   m.llm-providers/module
    m.anthropic/module
    m.azure/module
    m.bedrock/module

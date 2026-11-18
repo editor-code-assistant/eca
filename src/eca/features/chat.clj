@@ -124,7 +124,9 @@
       ;; e.g. why an MCP prompt failed; unlike :chat-messages, the post-request hooks run
       :system-text (do (f.chat.lifecycle/send-content! chat-ctx :system {:type :text :text (:text result)})
                        (f.chat.lifecycle/finish-chat-prompt! :idle chat-ctx))
-      nil)))
+      ;; e.g. a module's command returned a type no command returns: the turn ends
+      (do (logger/warn logger-tag "Ignoring a command result of unknown type" {:command command :type type})
+          (f.chat.lifecycle/finish-chat-prompt! :idle (assoc chat-ctx :skip-post-request-hooks? true))))))
 
 (defn ^:private send-mcp-prompt!
   "Runs the MCP prompt typed as `/server:prompt args`. Unlike a command's,

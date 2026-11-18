@@ -139,11 +139,15 @@
 
 (defn ^:private skill-body
   "A skill's Markdown body. When a module's skill has a function as `:body`,
-   it's called with the tool's `ctx` plus `:skills`, as that module."
-  [{:keys [body module]} ctx all-skills]
+   it's called with the tool's `ctx` plus `:skills`, as that module; an
+   external module's errors fail the tool call."
+  [{:keys [body module] skill-name :name} ctx all-skills]
   (if (modules/fn-like? body)
-    (body (modules/module-ctx (assoc ctx :skills all-skills)
-                              (modules/active-entry (:config ctx) module)))
+    (let [entry (modules/active-entry (:config ctx) module)
+          module-ctx (modules/module-ctx (assoc ctx :skills all-skills) entry)]
+      (if (:built-in? entry)
+        (body module-ctx)
+        (modules/invoke module-ctx entry (str "skill " skill-name) {} body module-ctx)))
     body))
 
 (defn ^:private skill

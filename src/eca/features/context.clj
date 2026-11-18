@@ -24,18 +24,25 @@
   (try (fs/canonicalize path)
        (catch Exception _ (fs/path path))))
 
+(defn ^:private call-module
+  "Calls a module's `:contexts` function `f` with its ctx and `args`, an
+   external module's guarded (nil when it fails)."
+  [entry db config what f & args]
+  (let [module-ctx (modules/module-ctx {:db db :config config} entry)]
+    (apply modules/guarded-call module-ctx entry what f module-ctx args)))
+
 (defn always-contexts
   "The contexts the active modules give every chat, first (`:contexts`'
-   `:always`, built-in only), e.g. eca/agents-md's AGENTS.md files."
+   `:always`), e.g. eca/agents-md's AGENTS.md files."
   [db config]
   (mapcat (fn [[entry {:keys [always]}]]
             (when always
-              (always (modules/module-ctx {:db db :config config} entry))))
+              (call-module entry db config "contexts" always)))
           (modules/contributions config :contexts)))
 
 (defn ^:private module-context-type
   "The active module that gives context type `type-name` (`:contexts`'
-   `:types`, built-in only): `[entry definition]`, or nil."
+   `:types`): `[entry definition]`, or nil."
   [config type-name]
   (some (fn [[entry {:keys [types]}]]
           (when-let [definition (get types type-name)]
@@ -46,9 +53,9 @@
   "The `@` completion items of the context types modules give."
   [db config]
   (for [[entry {:keys [types]}] (modules/contributions config :contexts)
-        [_type-name {list-items :list}] types
+        [type-name {list-items :list}] types
         :when list-items
-        item (list-items (modules/module-ctx {:db db :config config} entry))]
+        item (call-module entry db config (str "context type " type-name) list-items)]
     item))
 
 (defn ^:private file->refined-context [path lines-range]
@@ -98,7 +105,7 @@
               (let [config (config/all db)]
                 (if-let [[entry {:keys [refine]}] (module-context-type config (name type))]
                   (when refine
-                    (refine (modules/module-ctx {:db db :config config} entry) raw-context))
+                    (call-module entry db config (str "context type " (name type)) refine raw-context))
                   ;; e.g. an old client's repoMap
                   (logger/debug logger-tag "Ignoring a context of unknown type" (name type))))))
           contexts))

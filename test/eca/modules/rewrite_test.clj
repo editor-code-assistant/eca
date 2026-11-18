@@ -2,8 +2,8 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
-   [eca.features.login :as f.login]
    [eca.llm-api :as llm-api]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.modules.rewrite :as m.rewrite]
    [eca.test-helper :as h]
    [matcher-combinators.test :refer [match?]]))
@@ -25,7 +25,7 @@
                                (on-message-received {:type :text :text ", world!"})
                                (on-message-received {:type :finish}))
                              m.rewrite/build-rewrite-instructions (constantly "INSTR")
-                             f.login/maybe-renew-auth-token! (fn [& _] nil)
+                             llm-api.auth/maybe-renew-auth-token! (fn [& _] nil)
                              llm-api/refine-file-context (constantly "FULL-CONTENT")
                              llm-api/default-model (constantly "openai/gpt-4.1")]
                  (h/config! {:env "test"})
@@ -64,7 +64,7 @@
                         (fn [text path full-text range _all-tools cfg _db]
                           (reset! captured-instr-args* {:text text :path path :full-text full-text :range range :config cfg})
                           "MY-INSTR")
-                        f.login/maybe-renew-auth-token! (fn [& _] nil)
+                        llm-api.auth/maybe-renew-auth-token! (fn [& _] nil)
                         llm-api/refine-file-context (fn [path _] (str "CTX:" path))]
             (h/config! {:env "test" :rewrite {:model "openai/gpt-test"}})
             (m.rewrite/prompt {:id "rw-2"
@@ -102,7 +102,7 @@
                     (on-message-received {:type :text :text "\n```"})
                     (on-message-received {:type :finish}))
                   m.rewrite/build-rewrite-instructions (constantly "INSTR")
-                  f.login/maybe-renew-auth-token! (fn [& _] nil)
+                  llm-api.auth/maybe-renew-auth-token! (fn [& _] nil)
                   llm-api/default-model (constantly "openai/gpt-4.1")]
       (h/config! {:env "test"})
       (m.rewrite/prompt {:id "rw-fence"
@@ -130,7 +130,7 @@
                     (on-message-received {:type :text :text "(+ 1 2)"})
                     (on-message-received {:type :finish}))
                   m.rewrite/build-rewrite-instructions (constantly "INSTR")
-                  f.login/maybe-renew-auth-token! (fn [& _] nil)
+                  llm-api.auth/maybe-renew-auth-token! (fn [& _] nil)
                   llm-api/default-model (constantly "openai/gpt-4.1")]
       (h/config! {:env "test"})
       (m.rewrite/prompt {:id "rw-no-fence"
@@ -161,7 +161,7 @@
                     (fn [_text _path full-text _range _all-tools _cfg _db]
                       (reset! captured-args* {:full-text full-text})
                       "INSTR")
-                    f.login/maybe-renew-auth-token! (fn [& _] nil)
+                    llm-api.auth/maybe-renew-auth-token! (fn [& _] nil)
                     llm-api/refine-file-context (fn [_ _] file-content)
                     llm-api/default-model (constantly "openai/gpt-4.1")]
         (h/config! {:env "test" :rewrite {:fullFileMaxLines max-lines}})
@@ -197,7 +197,7 @@
                     (fn [_text _path full-text _range _all-tools _cfg _db]
                       (reset! captured-args* {:full-text full-text})
                       "INSTR")
-                    f.login/maybe-renew-auth-token! (fn [& _] nil)
+                    llm-api.auth/maybe-renew-auth-token! (fn [& _] nil)
                     llm-api/refine-file-context (fn [_ _] file-content)
                     llm-api/default-model (constantly "openai/gpt-4.1")]
         (h/config! {:env "test" :rewrite {:fullFileMaxLines max-lines}})
@@ -227,7 +227,7 @@
                           ((:on-first-response-received opts) {:type :text})
                           ((:on-message-received opts) {:type :finish}))
                         m.rewrite/build-rewrite-instructions (constantly "INSTR")
-                        f.login/maybe-renew-auth-token!
+                        llm-api.auth/maybe-renew-auth-token!
                         (fn [{:keys [provider]} _ctx]
                           (reset! renew-called* provider))
                         llm-api/default-model (constantly "google/gemini-dev")]

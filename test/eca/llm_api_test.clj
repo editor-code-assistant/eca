@@ -6,6 +6,8 @@
    [eca.client-test-helpers :refer [with-client-proxied *http-client-captures*]]
    [eca.config :as config]
    [eca.llm-api :as llm-api]
+   [eca.llm-util :as llm-util]
+   [eca.modules :as modules]
    [eca.modules.providers.anthropic :as m.anthropic]
    [eca.modules.providers.ollama :as m.ollama]
    [eca.modules.providers.openai :as m.openai]
@@ -122,6 +124,23 @@
              (->> messages (filter #(= "reason" (:role %))) (map #(get-in % [:content :id])))))
       (is (not (contains? (last messages) :created-at))))))
 
+(deftest external-provider-test
+  (modules/add-external! "/tmp/acme-provider.clj"
+                         {:id :acme/provider
+                          :providers {"acme" {:api-fn (fn [_] :openai-chat)
+                                              :errors {:enrich (fn [_] (throw (ex-info "boom" {})))}
+                                              :default-model {:rank 0 :fn (fn [_] (throw (ex-info "no model" {})))}}}})
+  (let [{:keys [api-fn errors]} (llm-util/provider-declaration {} "acme")]
+    (testing "an external module's provider functions work as a built-in's"
+      (is (= :openai-chat (api-fn {}))))
+    (testing "and are guarded: their errors reach the caller, as the module's failures"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" ((:enrich errors) {})))
+      (is (match? [{:what "provider acme :errors :enrich" :message "boom"}] (modules/errors :acme/provider)))))
+  (testing "a default model that fails gives none: the next provider's is taken"
+    (with-redefs [config/get-env (constantly nil)
+                  secrets/credential-file-paths (constantly [])]
+      (is (= "ollama/foo" (llm-api/default-model {:models {"ollama/foo" {}}} {}))))))
+
 (deftest default-model-test
   (testing "Custom provider defaultModel present"
     (with-redefs [config/get-env (constantly nil)
@@ -227,6 +246,25 @@
             config {:providers {"anthropic" {:key "something"}}}]
         (is (= "custom/zeta" (llm-api/default-model db config)))))))
 
+(deftest provider->api-handler-by-name-test
+  (testing "a provider's :api names any module's API"
+    (modules/add-external! "/tmp/acme-api.clj"
+                           {:id :acme/api
+                            :apis {"acme-chat" {:handler (fn [ctx request _callbacks]
+                                                           {:module (:module-id ctx) :model (:model request)})}}})
+    (let [{:keys [api handler]} (llm-api/provider->api-handler "acme" "m1" {:providers {"acme" {:api "acme-chat"}}})]
+      (is (= :acme-chat api))
+      (is (= {:module :acme/api :model "m1"} (handler {:model "m1"} {})))))
+  (testing "ECA's APIs, openai being openai-responses"
+    (doseq [[config-api api] {"openai" :openai-responses "openai-responses" :openai-responses
+                              "anthropic" :anthropic "openai-chat" :openai-chat "ollama" :ollama}]
+      (is (= api (:api (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api config-api}}})))
+          config-api)))
+  (testing "an API no module has, or none, gives no handler"
+    (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api "nope"}}})))
+    (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api 42}}})))
+    (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {}}})))))
+
 (deftest provider->api-handler-copilot-metadata-test
   (let [config {:providers {"github-copilot" {:api "openai-chat"}}}]
     (testing "Discovered endpoint overrides the old model-name fallback"
@@ -278,6 +316,40 @@
         :config {:providers {"ollama" {:url "http://localhost:11434"}}}
         :sync? true}))
     (is (= 512 (:max-output-tokens @captured*)))))
+
+(deftest prompt-google-request-options-test
+  (testing "Gemini gets its thought tags, its thoughts when reasoning and no parallel tool calls, through Chat Completions"
+    (let [captured* (atom nil)]
+      (with-redefs [m.openai-chat/chat-completion!
+                    (fn [opts _callbacks]
+                      (reset! captured* opts)
+                      {:output-text "ok"})]
+        (#'eca.llm-api/prompt!
+         {:provider "google"
+          :model "gemini-x"
+          :model-capabilities {:tools false
+                               :reason? true
+                               :model-name "gemini-x"}
+          :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
+          :past-messages []
+          :config {:providers {"google" {:url "https://generativelanguage.googleapis.com/v1beta/openai"
+                                         :key "k"
+                                         :models {"gemini-x" {:extraPayload {:temperature 0.2}}}}}}
+          :sync? true}))
+      (is (= #{:model :instructions :user-messages :max-output-tokens :reason? :supports-image? :past-messages
+               :tools :think-tag-start :think-tag-end :reasoning-history :extra-payload :extra-headers :api-url
+               :api-key :cancelled? :stream-idle-timeout-seconds}
+             (set (keys @captured*))))
+      (is (match? {:model "gemini-x"
+                   :reason? true
+                   :think-tag-start "<thought>"
+                   :think-tag-end "</thought>"
+                   :extra-payload {:parallel_tool_calls false
+                                   :extra_body {:google {:thinking_config {:include_thoughts true}}}
+                                   :temperature 0.2}
+                   :api-url "https://generativelanguage.googleapis.com/v1beta/openai"
+                   :api-key "k"}
+                  @captured*)))))
 
 (deftest prompt-test
   (testing "Custom OpenAI provider behavior and proper passing of httpClient options to the Hato client"
@@ -1210,6 +1282,11 @@
         (llm-api/sync-or-async-prompt!
          (make-prompt-opts
           {:stream false
+           :provider "openai"
+           :model "gpt-5.2"
+           :config {:providers {"openai" {:key "test-key"
+                                          :url "http://test"
+                                          :models {"gpt-5.2" {:extraPayload {:stream false}}}}}}
            :on-error (fn [error] (reset! error* error))
            :on-message-received identity})))
       (is (= 1 @attempt*))

@@ -6,11 +6,9 @@
    [eca.db.migration :as db.migration]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
-   [eca.features.login :as f.login]
    [eca.features.modules :as f.modules]
-   [eca.features.providers :as f.providers]
-   [eca.features.quota :as f.quota]
    [eca.features.tools :as f.tools]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
@@ -169,15 +167,15 @@
                 ;; Refresh near-expiry OAuth tokens before fetching catalogs, so
                 ;; this non-interactive path doesn't hit /models with a stale
                 ;; short-lived token (e.g. Copilot) and 401.
-                (f.login/renew-expiring-auth-tokens!
+                (llm-api.auth/renew-expiring-auth-tokens!
                  {:db* db* :messenger messenger :config config :metrics metrics})
                 ;; The callback re-reads config, so plugin agents are included
                 ;; when plugin resolution finishes before model sync.
                 (models/sync-models! db* config (fn [_models]
                                                   (notify-chat-config-state! db* messenger)))
-                ;; Show subscription quotas before the first request; tokens were just renewed.
-                (doseq [provider (f.quota/subscription-providers @db* config)]
-                  (f.providers/refresh-quota! provider db* config messenger)))))]
+                ;; e.g. eca/llm-providers shows the subscription quotas before the first request
+                (events/emit! {:db* db* :messenger messenger :metrics metrics :config config}
+                              :models/synced {}))))]
       (swap! db* assoc-in [:config-updated-fns :sync-models]
              (fn [_prev-config new-config] (sync-models-and-notify! new-config)))
       ;; eca/mcp's servers follow the change here, as before modules
@@ -322,19 +320,61 @@
         (logger/error "[MODULES]" "Could not stop modules:" e)))
     nil))
 
+(defn ^:private chat-status-prompt
+  "The handler of the prompts of a chat in `status`, when a module owns that
+   status (`:chat-statuses`), e.g. `:login`: `(fn [params])`. Only a status a
+   built-in or loaded external module declares resolves the config. With no
+   active module owning it any more (disabled since), the chat goes back to
+   idle and the prompt, meant for that module (e.g. a pasted API key), isn't
+   sent to the model."
+  [{:keys [db* messenger] :as components} status config-fn]
+  (when (and status (some #(get-in % [:chat-statuses status])
+                          (concat (modules/built-in-modules) (keep :module (vals (modules/external-modules))))))
+    (let [config (config-fn)]
+      (or (some (fn [[entry statuses]]
+                  (when-let [handler (get statuses status)]
+                    (fn [params]
+                      (let [module-ctx (modules/module-ctx (assoc components :config config) entry)]
+                        (if (:built-in? entry)
+                          (handler module-ctx params)
+                          (modules/invoke module-ctx entry (str "chat status " (name status)) {}
+                                          handler module-ctx params))))))
+                (modules/contributions config :chat-statuses))
+          (fn [{:keys [chat-id]}]
+            (swap! db* assoc-in [:chats chat-id :status] :idle)
+            (messenger/chat-content-received
+             messenger
+             {:chat-id chat-id
+              :role "system"
+              :content {:type :text
+                        :text (format (str "Your message wasn't sent: this chat was in `%s` mode, which no active "
+                                           "module handles now. The chat is back to normal.")
+                                      (name status))}})
+            (messenger/chat-content-received
+             messenger
+             {:chat-id chat-id
+              :role "system"
+              :content {:type :progress
+                        :state :finished}})
+            (messenger/chat-status-changed messenger {:chat-id chat-id :status :idle})
+            {:chat-id chat-id
+             :status :idle})))))
+
 (defn chat-prompt
   "Config is resolved lazily by f.chat/prompt (not by the server layer) so it
    can echo the user prompt before paying the config resolution cost."
-  [{:keys [messenger db* metrics]} params]
+  [{:keys [messenger db* metrics] :as components} params]
   (metrics/task metrics :eca/chat-prompt
-    (case (get-in @db* [:chats (:chat-id params) :status])
-      :login (f.login/handle-step params db* messenger (config/all @db*) metrics)
+    (if-let [handle (chat-status-prompt components (get-in @db* [:chats (:chat-id params) :status])
+                                        #(config/all @db*))]
+      (handle params)
       (f.chat/prompt params db* messenger #(config/all @db*) metrics))))
 
-(defn chat-inline-prompt [{:keys [messenger db* config metrics]} params]
+(defn chat-inline-prompt [{:keys [messenger db* config metrics] :as components} params]
   (metrics/task metrics :eca/chat-inline-prompt
-    (case (get-in @db* [:chats (:chat-id params) :status])
-      :login (f.login/handle-step params db* messenger config metrics)
+    (if-let [handle (chat-status-prompt components (get-in @db* [:chats (:chat-id params) :status])
+                                        (constantly config))]
+      (handle params)
       (f.chat/inline-prompt params db* messenger config metrics))))
 
 (defn chat-query-context [{:keys [db* config metrics]} params]
@@ -563,31 +603,3 @@
             (swap! db* assoc-in [:last-config-notified :chat :select-variant] variant))
           (config/notify-fields-changed-only! payload messenger db*))))))
 
-(defmacro handle-expected-errors
-  "Executes body, catching any ExceptionInfo with :error-response.
-  If caught, return {:error error-response}"
-  [& body]
-  `(try
-     ~@body
-     (catch clojure.lang.ExceptionInfo e#
-       (if-let [error-response# (:error-response (ex-data e#))]
-         {:error error-response#}
-         (throw e#)))))
-
-(defn providers-list [{:keys [db* config metrics]} _params]
-  (metrics/task metrics :eca/providers-list
-    (f.providers/providers-list db* config)))
-
-(defn providers-login [{:keys [db* config messenger metrics]} params]
-  (metrics/task metrics :eca/providers-login
-    (handle-expected-errors
-     (f.providers/provider-login (:provider params) (:method params) db* config messenger metrics))))
-
-(defn providers-login-input [{:keys [db* config messenger metrics]} params]
-  (metrics/task metrics :eca/providers-login-input
-    (handle-expected-errors
-     (f.providers/provider-login-input (:provider params) (:data params) db* config messenger metrics))))
-
-(defn providers-logout [{:keys [db* config messenger metrics]} params]
-  (metrics/task metrics :eca/providers-logout
-    (f.providers/provider-logout (:provider params) db* config messenger metrics)))

@@ -282,11 +282,12 @@
 
 (defn section-signatures
   "What the cache signature follows of the built-in static sections that
-   give a `:signature` (built-in only): `[key signature resync?]` of each,
-   keyed by its id's name (`:rules`, `:skills`), in prompt order. Computed
-   whether their module is active or not, as core followed their data before
-   modules. `resync?` is false for a section with `:resync? false`: its
-   changes alone never re-sync a chat's pinned prompt (skills)."
+   give a `:signature` (other sections' `:signature` and `:resync?` are
+   ignored): `[key signature resync?]` of each, keyed by its id's name
+   (`:rules`, `:skills`), in prompt order. Computed whether their module is
+   active or not, as core followed their data before modules. `resync?` is
+   false for a section with `:resync? false`: its changes alone never re-sync
+   a chat's pinned prompt (skills)."
   [prompt-ctx]
   (let [by-id (into {} (for [module (modules/built-in-modules)
                              section (:system-prompts module)

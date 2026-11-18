@@ -158,30 +158,22 @@
    "chat/selectedAgentChanged"           {:kind :notification :thread? true :handler #'handlers/chat-selected-agent-changed}
    ;; legacy: the old name of chat/selectedAgentChanged
    "chat/selectedBehaviorChanged"        {:kind :notification :thread? true :handler #'handlers/chat-selected-agent-changed}
-   "chat/selectedModelChanged"           {:kind :notification :thread? true :handler #'handlers/chat-selected-model-changed}
-   "providers/list"                      {:kind :request :thread? true :handler #'handlers/providers-list}
-   "providers/login"                     {:kind :request :thread? true :handler #'handlers/providers-login}
-   "providers/loginInput"                {:kind :request :thread? true :handler #'handlers/providers-login-input}
-   "providers/logout"                    {:kind :request :thread? true :handler #'handlers/providers-logout}})
+   "chat/selectedModelChanged"           {:kind :notification :thread? true :handler #'handlers/chat-selected-model-changed}})
 
 (defn ^:private module-method
-  "The method a module serves as `method` (`:rpc`), when it's of `kind`: the
-   first active module's, else a built-in module's whatever its state, as
-   core served these methods before modules. It runs on a thread of its own."
+  "The method an active module serves as `method` (`:rpc`), when it's of
+   `kind`: the first one's. A disabled module's methods are gone, built-in or
+   not; an active one's answer before it starts. It runs on a thread of its
+   own."
   [config kind method]
-  (let [[found & others] (for [[entry rpc] (modules/contributions config :rpc)
-                               :let [rpc-method (get rpc method)]
-                               :when rpc-method]
-                           [entry rpc-method])
+  (let [[[entry rpc-method :as found] & others] (for [[entry rpc] (modules/contributions config :rpc)
+                                                      :let [rpc-method (get rpc method)]
+                                                      :when rpc-method]
+                                                  [entry rpc-method])
         _ (doseq [[other] others]
             (logger/warn-once [::duplicate-method (:id other) method]
                               "[server]" (format "Module %s has a method %s, like module %s; ignoring it"
-                                                 (:id other) method (:id (first found)))))
-        [entry rpc-method] (or found
-                               (some (fn [module]
-                                       (when-let [rpc-method (get-in module [:rpc method])]
-                                         [{:id (:id module) :module module :built-in? true} rpc-method]))
-                                     (modules/built-in-modules)))]
+                                                 (:id other) method (:id (first found)))))]
     (when (= kind (:kind rpc-method))
       {:kind kind
        :thread? true

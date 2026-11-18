@@ -3,10 +3,10 @@
    `rewrite/prompt`, streaming the text back in `rewrite/contentReceived`."
   (:require
    [clojure.string :as string]
-   [eca.features.login :as f.login]
    [eca.features.prompt :as f.prompt]
    [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
+   [eca.llm-api.auth :as llm-api.auth]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.metrics :as metrics]
@@ -95,7 +95,7 @@
              :messenger messenger
              :metrics metrics
              :rewrite-id id}
-        _ (f.login/maybe-renew-auth-token!
+        _ (llm-api.auth/maybe-renew-auth-token!
            {:provider provider
             :on-error (fn [error-msg]
                         (logger/error logger-tag (format "Auth token renew failed: %s" error-msg))
@@ -153,5 +153,6 @@
 (def module
   {:id :eca/rewrite
    :description "Rewrite the selected code with the model."
-   ;; its config defaults (rewrite.fullFileMaxLines, prompts.rewrite) are core's for now
+   :config-spec {:rewrite {:fullFileMaxLines {:type :number :default 2000}}
+                 :prompts {:rewrite {:type :string :default "${classpath:prompts/rewrite.md}"}}}
    :rpc {"rewrite/prompt" {:kind :request :handler #'rewrite-prompt}}})

@@ -1,14 +1,12 @@
 (ns eca.api-runtime-test
   "eca.api's runtime: background jobs, data folders, shell commands, LLM calls
-   and their metering, and the curated libraries."
+   and their metering, and HTTP requests."
   (:require
    [babashka.fs :as fs]
+   [cheshire.core :as json]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.api :as eca]
-   [eca.api.fs :as api.fs]
-   [eca.api.http :as api.http]
-   [eca.api.json :as api.json]
    [eca.db.chats :as db.chats]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.modules :as f.modules]
@@ -157,47 +155,26 @@
   (swap! (h/db*) assoc :models {"anthropic/claude-haiku-4-5" {:tools true}})
   (is (= {"anthropic/claude-haiku-4-5" {:tools true}} (eca/models (ctx)))))
 
-(deftest json-test
-  (is (= {:a [1 {:b "c"}]} (api.json/parse "{\"a\": [1, {\"b\": \"c\"}]}")))
-  (is (= {"a" 1} (api.json/parse "{\"a\": 1}" {:keywords? false})))
-  (is (= "{\"a\":1}" (api.json/generate {:a 1})))
-  (is (string/includes? (api.json/generate {:a 1} {:pretty? true}) "\n")))
-
-(deftest fs-test
-  (let [dir (str (fs/canonicalize (fs/create-temp-dir)))]
-    (try
-      (let [file (api.fs/path dir "notes" "a.md")]
-        (api.fs/write-file! file "one")
-        (api.fs/write-file! file "+two" {:append? true})
-        (is (= "one+two" (api.fs/read-file file)))
-        (is (api.fs/exists? file))
-        (is (api.fs/directory? (api.fs/parent file)))
-        (is (= "a.md" (api.fs/file-name file)))
-        (is (= [file] (api.fs/list-dir (api.fs/parent file))))
-        (is (= [file] (api.fs/glob dir "**.md")))
-        (is (pos? (api.fs/last-modified-ms file)))
-        (api.fs/delete! (api.fs/parent file))
-        (is (not (api.fs/exists? file))))
-      (finally (fs/delete-tree dir)))))
-
 (deftest http-test
   (let [server (http-server/run-server
                 (fn [{:keys [request-method uri query-string headers body]}]
                   {:status (if (= "/missing" uri) 404 200)
                    :headers {"Content-Type" "application/json"}
-                   :body (api.json/generate {:method (name request-method)
-                                             :uri uri
-                                             :query query-string
-                                             :auth (get headers "authorization")
-                                             :body (some-> body slurp)})})
+                   :body (json/generate-string {:method (name request-method)
+                                                :uri uri
+                                                :query query-string
+                                                :auth (get headers "authorization")
+                                                :body (some-> body slurp)})})
                 {:port 0 :legacy-return-value? false})
         url (str "http://localhost:" (http-server/server-port server))]
     (try
       (is (match? {:status 200 :body {:method "get" :uri "/issue" :query "key=ECA-1" :auth "Bearer t0k"}}
-                  (api.http/get (str url "/issue") {:query-params {:key "ECA-1"} :oauth-token "t0k" :as :json})))
+                  (eca/http {:url (str url "/issue") :query-params {:key "ECA-1"} :oauth-token "t0k" :as :json})))
       (is (match? {:status 200 :body {:method "post" :body "{\"a\":1}"}}
-                  (api.http/post url {:json {:a 1} :as :json})))
+                  (eca/http {:method :post :url url :json {:a 1} :as :json})))
+      (testing "the body is text by default"
+        (is (string? (:body (eca/http {:url url})))))
       (testing "error statuses don't throw"
-        (is (= 404 (:status (api.http/get (str url "/missing"))))))
+        (is (= 404 (:status (eca/http {:url (str url "/missing")})))))
       (finally
         (http-server/server-stop! server)))))

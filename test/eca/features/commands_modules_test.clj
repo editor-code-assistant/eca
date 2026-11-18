@@ -118,14 +118,32 @@
         (is (match? {:name "tidy" :type :native} (f.commands/find-command "eca:tidy" (h/db) config)))
         (is (nil? (f.commands/find-command "eca:review" (h/db) config)))))))
 
+(deftest external-typed-results-test
+  (testing "an external module's command may return a typed result, as ECA's own commands do"
+    (modules/add-external! "/tmp/mods/typed.clj"
+                           {:id :acme/typed
+                            :commands {"wipe" {:handler (fn [_ _] {:type :delete-chat :target-chat-id "c2" :text "Bye"})}
+                                       "go" {:handler (fn [_ _]
+                                                        {:type :send-prompt
+                                                         :prompt "Go"
+                                                         :on-finished-side-effect (fn [] (throw (ex-info "boom" {})))})}}})
+    (let [ctx {:chat-id "c1" :config {} :db* (h/db*)}]
+      (is (= {:type :delete-chat :target-chat-id "c2" :text "Bye"} (f.commands/handle-command! "wipe" [] ctx)))
+      (testing "its functions are guarded: their errors count as the module's failures"
+        (let [{:keys [on-finished-side-effect] :as result} (f.commands/handle-command! "go" [] ctx)]
+          (is (match? {:type :send-prompt :prompt "Go"} result))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom" (on-finished-side-effect)))
+          (is (match? [{:what "result of command go :on-finished-side-effect" :message "boom"}]
+                      (modules/errors :acme/typed))))))))
+
 (deftest external-client-type-test
-  (testing "an external module's :client-type is ignored: the command is its own"
+  (testing "an external module's :client-type works as a built-in's: the command is listed as that source"
     (modules/add-external! "/tmp/mods/ext.clj"
                            {:id :acme/ext
                             :commands {"ext" {:client-type :skill :handler (fn [_ _] "ext")}}}
                            {:kind :global :rank 3})
     (try
-      (is (match? [{:name "ext" :type :module}]
+      (is (match? [{:name "ext" :type :skill}]
                   (filter #(= "ext" (:name %)) (f.commands/all-commands (h/db) {:pureConfig true}))))
       (finally
         (modules/reset-registry!)))))
