@@ -52,7 +52,7 @@
 ;; for some models. All Codex specifics live in the `codex-` fns below.
 
 ;; Keep >= the newest model's `minimal_client_version`; the live gate is stricter than the catalog, so pin a recent released Codex version.
-(def ^:private codex-compatibility-version "0.160.0")
+(def ^:private codex-compatibility-version "0.170.0")
 
 (def ^:private codex-responses-url "https://chatgpt.com/backend-api/codex/responses")
 
@@ -1191,6 +1191,8 @@
     "gpt-5.6-terra"
     "gpt-5.6-sol"
     "gpt-6-astra"
+    "gpt-6.2-astra"
+    "gpt-6.2-sol"
     "o3"})
 
 (def ^:private web-search-models
@@ -1217,6 +1219,8 @@
     "gpt-6.1-sol"
     "gpt-6-sol"
     "gpt-6-luna"
+    "gpt-6.2-astra"
+    "gpt-6.2-sol"
     "o3"
     "o3-mini"
     "o4-mini"})

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Discover `gpt-6.2-astra` and `gpt-6.2-sol` via OpenAI OAuth. Enable native web search and image generation for both on the OpenAI API.
 - Add modular ECA: its features are now modules, which you can list, enable or disable, and extend with your own modules. #699
   - `/modules` lists them and enables or disables one for the session; `modules.<id>.enabled` does it in the config.
   - Write your own in Clojure, run with SCI, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
