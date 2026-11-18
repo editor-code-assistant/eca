@@ -222,18 +222,8 @@
    ;; cacheable; bump `chats-version` when changing :chats shape, `version`
    ;; when changing :auth/:mcp-auth shape
    :chats {}
-   :auth {"anthropic" {}
-          "azure" {}
-          "deepseek" {}
-          "github-copilot" {}
-          "google" {}
-          "litellm" {}
-          "lmstudio" {}
-          "mistral" {}
-          "moonshot" {}
-          "openai" {}
-          "openrouter" {}
-          "z-ai" {}}
+   ;; provider → its login state, e.g. tokens
+   :auth {}
    :mcp-auth {}})
 
 (defonce db* (atom initial-db))

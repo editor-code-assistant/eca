@@ -265,6 +265,29 @@
     (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {:api 42}}})))
     (is (nil? (llm-api/provider->api-handler "custom" "m1" {:providers {"custom" {}}})))))
 
+(deftest api-entry-keys-test
+  (modules/add-external! "/tmp/acme-api-keys.clj"
+                         {:id :acme/api-keys
+                          :apis {"acme-chat" {:handler (fn [_ctx request _callbacks] (:model request))
+                                              :aliases ["acme"]
+                                              :reasoning-keys [:acme_thinking]}}})
+  (testing "a provider's :api may name an API by one of its :aliases"
+    (is (= :acme-chat (:api (llm-api/provider->api-handler "p" "m1" {:providers {"p" {:api "acme"}}})))))
+  (testing "a model that doesn't reason gets the extra payload without the API's :reasoning-keys"
+    (let [api-handler (llm-api/provider->api-handler "p" "m1" {:providers {"p" {:api "acme-chat"}}})
+          payload #(#'eca.llm-api/extra-payload-considering-variant
+                    {:extraPayload {:acme_thinking {:on true} :temperature 1}} nil api-handler %)]
+      (is (= {:acme_thinking {:on true} :temperature 1} (payload true)))
+      (is (= {:temperature 1} (payload false)))))
+  (testing "the keys' values are checked"
+    (is (= [":apis \"bad\": :aliases must be a vector of API names"
+            ":apis \"bad\": :reasoning-keys must be a vector of keywords"
+            ":apis \"bad\": :list-models must be a function"]
+           (:errors (modules/problems {:id :acme/bad
+                                       :apis {"bad" {:handler (fn [_ _ _]) :aliases "x"
+                                                     :reasoning-keys ["thinking"] :list-models 1}}}
+                                      {}))))))
+
 (deftest provider->api-handler-copilot-metadata-test
   (let [config {:providers {"github-copilot" {:api "openai-chat"}}}]
     (testing "Discovered endpoint overrides the old model-name fallback"
@@ -573,22 +596,7 @@
                   (prompt-with "la-plateforme" "mistral-large-4"))))
 
     (testing "Mistral models on gateways keep the default reasoning_content replay"
-      (is (match? {:dialect nil}
-                  (prompt-with "openrouter" "mistralai/mistral-large-4"))))))
-
-(deftest chat-dialect-test
-  (testing "built-in provider base"
-    (is (= :mistral (#'eca.llm-api/chat-dialect "mistral" "https://my-proxy.example.com/v1"))))
-  (testing "mistral.ai hosts"
-    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai/v1")))
-    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://codestral.mistral.ai/v1")))
-    (is (= :mistral (#'eca.llm-api/chat-dialect "custom" "https://API.Mistral.AI"))))
-  (testing "other hosts, look-alike hosts and bad URLs"
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://openrouter.ai/api/v1")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://notmistral.ai/v1")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "https://api.mistral.ai.evil.com/v1")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" "not a url")))
-    (is (nil? (#'eca.llm-api/chat-dialect "custom" nil)))))
+      (is (nil? (:dialect (prompt-with "openrouter" "mistralai/mistral-large-4")))))))
 
 (deftest prompt-passes-image-generation-to-openai-handler-test
   (testing "openai branch forwards :image-generation true to create-response! when capability is on"
@@ -1693,6 +1701,7 @@
                                               (on-error {:code "server_error"
                                                          :message "Request failed"
                                                          :error/source :openai-responses
+                                                         :error/api-type :overloaded
                                                          :response-id "resp_123"
                                                          :request-id "req_123"})
                                               (do
@@ -1723,6 +1732,7 @@
                                             {:error {:code "server_error"
                                                      :message "Request failed"
                                                      :error/source :openai-responses
+                                                     :error/api-type :overloaded
                                                      :response-id "resp_sync"
                                                      :request-id "req_sync"}}
                                             {:output-text "success"
@@ -1766,7 +1776,8 @@
                                             (emit-output callbacks)
                                             (on-error {:code "server_error"
                                                        :message "Request failed"
-                                                       :error/source :openai-responses}))
+                                                       :error/source :openai-responses
+                                                       :error/api-type :overloaded}))
                       eca.llm-api/sleep-with-cancel (fn [_ _]
                                                      (swap! sleep-calls* inc)
                                                      true)]
@@ -1778,7 +1789,8 @@
         (is (zero? @sleep-calls*))
         (is (= [{:code "server_error"
                  :message "Request failed"
-                 :error/source :openai-responses}]
+                 :error/source :openai-responses
+                 :error/api-type :overloaded}]
                @errors*))))))
 
 (deftest async-request-scoped-retry-test
@@ -1795,7 +1807,8 @@
                                           (retry-request
                                            {:error-data {:code "server_is_overloaded"
                                                          :message "Request failed"
-                                                         :error/source :openai-responses}
+                                                         :error/source :openai-responses
+                                                         :error/api-type :overloaded}
                                             :attempt 0
                                             :replay-safe? true
                                             :on-give-up on-error
@@ -1826,7 +1839,8 @@
                                           (retry-request
                                            {:error-data {:code "server_error"
                                                          :message "Request failed"
-                                                         :error/source :openai-responses}
+                                                         :error/source :openai-responses
+                                                         :error/api-type :overloaded}
                                             :attempt 0
                                             :replay-safe? false
                                             :on-give-up on-error
@@ -1851,7 +1865,8 @@
                                           (retry-request
                                            {:error-data {:code "server_error"
                                                          :message "Request failed"
-                                                         :error/source :openai-responses}
+                                                         :error/source :openai-responses
+                                                         :error/api-type :overloaded}
                                             :attempt 1
                                             :replay-safe? true
                                             :on-give-up on-error
@@ -1877,7 +1892,8 @@
                                           (retry-request
                                            {:error-data {:code "server_error"
                                                          :message "Request failed"
-                                                         :error/source :openai-responses}
+                                                         :error/source :openai-responses
+                                                         :error/api-type :overloaded}
                                             :attempt 0
                                             :replay-safe? true
                                             :on-give-up on-error

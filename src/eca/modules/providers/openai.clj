@@ -11,6 +11,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.models :as models]
    [eca.modules.llm-providers.login :as m.llm-providers.login]
    [eca.modules.llm-providers.providers :as m.llm-providers.providers]
    [eca.modules.llm-providers.quota :as m.llm-providers.quota]
@@ -408,6 +409,28 @@
               (non-blank-str value))))
         headers))
 
+(def ^:private transient-message-pattern
+  #"(?i)an error occurred while processing your request\.\s+you can retry your request\b")
+
+(defn ^:private error-api-type
+  "What a Responses API error is, from its structured `code` or `type`
+   (authoritative, also when unknown), else from its generic transient
+   message; nil to let ECA classify it."
+  [{:keys [code type message]}]
+  (cond
+    (some #{"server_error" "server_is_overloaded"} [code type]) :overloaded
+    (some #{"usage_limit_reached" "insufficient_quota" "billing_hard_limit_reached"} [code type]) :quota-exhausted
+    (some #{"rate_limit_exceeded"} [code type]) :rate-limited
+    (or (some? code) (some? type)) :unknown
+    (and (string? message) (re-find transient-message-pattern message)) :overloaded
+    :else nil))
+
+(defn ^:private with-error-api-type
+  "`error-data` with the API's classification (`:error/api-type`), which
+   ECA takes after the user's `retryRules`."
+  [error-data]
+  (assoc-some error-data :error/api-type (error-api-type error-data)))
+
 (defn ^:private response-failed->error-data [data response-headers]
   (let [response (:response data)
         error (:error response)
@@ -417,12 +440,13 @@
                           (:request-id response)
                           (:request_id response)
                           (response-header response-headers "x-request-id")])]
-    (assoc-some (or error {})
-                :message (or (:message error) "OpenAI response failed")
-                :error/source :openai-responses
-                :response-id (:id response)
-                :request-id request-id
-                :headers response-headers)))
+    (with-error-api-type
+      (assoc-some (or error {})
+                  :message (or (:message error) "OpenAI response failed")
+                  :error/source :openai-responses
+                  :response-id (:id response)
+                  :request-id request-id
+                  :headers response-headers))))
 
 (defn ^:private response-incomplete->error-data [data response-headers]
   (let [response (:response data)
@@ -450,11 +474,12 @@
                          [(:request-id error)
                           (:request_id error)
                           (response-header response-headers "x-request-id")])]
-    (assoc-some error
-                :message (or (:message error) "OpenAI response stream failed")
-                :error/source :openai-responses
-                :request-id request-id
-                :headers response-headers)))
+    (with-error-api-type
+      (assoc-some error
+                  :message (or (:message error) "OpenAI response stream failed")
+                  :error/source :openai-responses
+                  :request-id request-id
+                  :headers response-headers))))
 
 (defn ^:private base-responses-request!
   [{:keys [rid body api-url codex? url-relative-path api-key account-id
@@ -1108,10 +1133,23 @@
                                                  :account-id new-account-id
                                                  :expires-at expires-at})))
 
+(defn ^:private list-models
+  "The models of `/v1/models` (the API's `:list-models`)."
+  [_ctx {:keys [provider api-url api-key extra-headers]}]
+  (models/fetch-models-endpoint provider
+                                (join-api-url api-url "/v1/models")
+                                (models/native-models-headers api-key extra-headers)
+                                (fn [models-data]
+                                  (not-empty (into {} (keep models/parse-native-model-entry models-data))))))
+
 (def api-module
   {:id :eca/api-openai-responses
    :description "The OpenAI Responses API."
-   :apis {"openai-responses" {:handler (fn [_ctx request callbacks] (create-response! request callbacks))}}
+   :apis {"openai-responses" {:handler (fn [_ctx request callbacks] (create-response! request callbacks))
+                              ;; a provider's `api: "openai"` is this API
+                              :aliases ["openai"]
+                              :reasoning-keys [:reasoning]
+                              :list-models #'list-models}}
    :config-defaults {:variantsByModel (merge m.variants/openai-responses m.variants/any-api)}})
 
 (defn ^:private request-opts

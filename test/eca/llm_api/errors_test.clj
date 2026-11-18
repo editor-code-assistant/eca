@@ -190,14 +190,6 @@
              (llm-providers.errors/classify-error error-data)))
       (is (false? (llm-providers.errors/retryable? error-data)))))
 
-  (testing "OpenAI Responses quota code is not retried"
-    (let [error-data {:error/source :openai-responses
-                      :code "usage_limit_reached"
-                      :message "Request failed"}]
-      (is (= {:error/type :quota-exhausted}
-             (llm-providers.errors/classify-error error-data)))
-      (is (false? (llm-providers.errors/retryable? error-data)))))
-
   (testing "ordinary rate_limit_exceeded remains retryable"
     (let [error-data {:status 429
                       :body {:error {:type "rate_limit_exceeded"}}
@@ -307,75 +299,6 @@
             {:exception (java.net.UnknownHostException. "litellm.company.com")
              :message "DNS resolution failed: litellm.company.com"}
             [{:errorPattern "DNS resolution failed" :label "VPN down"}])))))
-
-(deftest classify-openai-response-failed-test
-  (let [generic-message (str "An error occurred while processing your request. "
-                             "You can retry your request, or contact support if the error persists.")
-        responses-error {:error/source :openai-responses}]
-    (testing "structured server_error code is overloaded"
-      (is (= {:error/type :overloaded}
-             (llm-providers.errors/classify-error
-              (assoc responses-error
-                     :code "server_error"
-                     :message "Request failed")))))
-
-    (testing "structured server_error type is overloaded"
-      (is (= {:error/type :overloaded}
-             (llm-providers.errors/classify-error
-              (assoc responses-error
-                     :type "server_error"
-                     :message "Request failed")))))
-
-    (testing "structured server_is_overloaded code is overloaded"
-      (is (= {:error/type :overloaded}
-             (llm-providers.errors/classify-error
-              (assoc responses-error
-                     :code "server_is_overloaded"
-                     :message "Our servers are currently overloaded. Please try again later.")))))
-
-    (testing "structured rate_limit_exceeded code is rate limited"
-      (is (= {:error/type :rate-limited}
-             (llm-providers.errors/classify-error
-              (assoc responses-error
-                     :code "rate_limit_exceeded"
-                     :message "Request failed")))))
-
-    (testing "generic transient message is a fallback without structured fields"
-      (is (= {:error/type :overloaded}
-             (llm-providers.errors/classify-error
-              (assoc responses-error :message generic-message)))))
-
-    (testing "stream closed before completion is a premature stop"
-      (is (= {:error/type :premature-stop}
-             (llm-providers.errors/classify-error
-              (assoc responses-error
-                     :message "stream disconnected before completion: stream closed before response.completed")))))
-
-    (testing "generic transient message is not applied to unmarked errors"
-      (is (= {:error/type :unknown}
-             (llm-providers.errors/classify-error
-              {:message generic-message}))))
-
-    (testing "unknown structured fields are authoritative over retry-looking messages"
-      (doseq [error-data [{:code "invalid_prompt" :message generic-message}
-                          {:code "invalid_prompt" :message "Internal server error"}
-                          {:type "invalid_request_error" :message "Rate limit exceeded"}
-                          {:code "invalid_prompt"
-                           :message "Request failed"
-                           :exception (Exception. "Connection error")}]]
-        (is (= {:error/type :unknown}
-               (llm-providers.errors/classify-error
-                (merge responses-error error-data))))))
-
-    (testing "custom retry rules still take priority over structured fields"
-      (is (= {:error/type :retryable-custom
-              :error/label "Temporary proxy failure"}
-             (llm-providers.errors/classify-error
-              (assoc responses-error
-                     :code "invalid_prompt"
-                     :message generic-message)
-              [{:errorPattern "processing your request"
-                :label "Temporary proxy failure"}]))))))
 
 (deftest classify-error-unknown-test
   (testing "500 is classified as overloaded"

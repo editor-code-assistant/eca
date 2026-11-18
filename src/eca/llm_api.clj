@@ -142,40 +142,33 @@
   (or (:model-name model-capabilities) model))
 
 (defn ^:private api->handler
-  "The handler of an API, e.g. `openai-chat`, from the active modules' `:apis`,
-   as `{:api :openai-chat :handler (fn [request callbacks])}`; nil when no
+  "The handler of an API, e.g. `openai-chat`, from the active modules' `:apis`
+   (by name or alias, see `llm-util/api-entry`), as `{:api :openai-chat
+   :handler (fn [request callbacks]) :reasoning-keys [..]}`; nil when no
    active module has it."
   [api config]
-  (when-let [api-name (when (or (string? api) (keyword? api)) (name api))]
-    (when-let [[entry {:keys [handler]}] (modules/find-contribution config :apis api-name)]
-      {:api (keyword api-name)
-       :handler (fn [request callbacks]
-                  (let [ctx (modules/module-ctx {:config config} entry)]
-                    (if (:built-in? entry)
-                      (handler ctx request callbacks)
-                      (modules/invoke ctx entry (str "API " api-name) {} handler ctx request callbacks))))})))
+  (when-let [[entry api-name {:keys [handler reasoning-keys]}] (llm-util/api-entry config api)]
+    {:api (keyword api-name)
+     :handler (fn [request callbacks]
+                (let [ctx (modules/module-ctx {:config config} entry)]
+                  (if (:built-in? entry)
+                    (handler ctx request callbacks)
+                    (modules/invoke ctx entry (str "API " api-name) {} handler ctx request callbacks))))
+     :reasoning-keys reasoning-keys}))
 
 (defn provider->api-handler
   "The API handler of a request to `provider`'s `model`: the API its
    capabilities name (e.g. discovered from Copilot's catalog), else the one
    the provider's base picks (its declaration's `:api-fn`, which gets
    `{:provider :model :config}`), else the one its config's `:api` names,
-   any module's (`:apis`); `openai` is `openai-responses`."
+   any module's (`:apis`)."
   ([provider model config]
    (provider->api-handler provider model nil config))
   ([provider model model-capabilities config]
    (or (api->handler (:api model-capabilities) config)
        (if-let [api-fn (:api-fn (llm-util/provider-declaration config (config/provider-base provider config)))]
          (api->handler (api-fn {:provider provider :model model :config config}) config)
-         (let [api (get-in config [:providers provider :api])]
-           (api->handler (if (= "openai" api) "openai-responses" api) config))))))
-
-(def ^:private reasoning-keys-by-api
-  {:anthropic [:thinking]
-   :bedrock [:thinking :output_config]
-   :openai-responses [:reasoning]
-   :openai-chat [:reasoning]
-   :ollama [:think]})
+         (api->handler (get-in config [:providers provider :api]) config)))))
 
 (def ^:private roles-with-provider-specific-ids
   "Roles whose :content carries opaque provider-specific identifiers
@@ -209,26 +202,13 @@
      :dropped-count (count dropped)
      :dropped-apis (into #{} (keep #(get-in % [:content :api])) dropped)}))
 
-(defn ^:private chat-dialect
-  "The chat-completions dialect of the endpoint that receives the request (see
-   `eca.modules.providers.openai-chat/transform-message`), or nil for the common one.
-   :mistral for Mistral's own API: the built-in provider (or one inheriting it),
-   or any provider whose URL host is a subdomain of mistral.ai (api.mistral.ai,
-   codestral.mistral.ai). Gateways serving Mistral models (OpenRouter, LiteLLM, ...)
-   use their own message format, so model names are not used."
-  [base-provider api-url]
-  (let [host (try (some-> api-url java.net.URI. .getHost string/lower-case)
-                  (catch Exception _))]
-    (when (or (= "mistral" base-provider)
-              (string/ends-with? (str host) ".mistral.ai"))
-      :mistral)))
-
 (defn ^:private extra-payload-considering-variant
   "Resolves the effective extra-payload by merging extraPayload with variant payload.
    Variant values take priority over extraPayload on clashing keys.
-   When reason? is false, strips provider-specific reasoning keys from the result.
-   Falls back to a \"default\" variant when no explicit variant is selected."
-  [model-config variant {:keys [api]} reason?]
+   When reason? is false, strips the API's reasoning keys (its `:reasoning-keys`)
+   from the result. Falls back to a \"default\" variant when no explicit variant
+   is selected."
+  [model-config variant {:keys [reasoning-keys]} reason?]
   (let [variant-payload (or (get-in model-config [:variants variant])
                             (when (nil? variant)
                               (get-in model-config [:variants "default"])))
@@ -237,8 +217,7 @@
                  (shared/deep-merge extra-payload variant-payload)
                  extra-payload)]
     (if (and merged (not reason?))
-      (let [keys-to-strip (get reasoning-keys-by-api api)]
-        (apply dissoc merged keys-to-strip))
+      (apply dissoc merged reasoning-keys)
       merged)))
 
 (defn ^:private tools-for-request
@@ -261,7 +240,6 @@
         reason? (:reason? model-capabilities)
         supports-image? (:image-input? model-capabilities)
         web-search (:web-search model-capabilities)
-        mid-conversation-system? (:mid-conversation-system? model-capabilities)
         image-generation (:image-generation? model-capabilities)
         max-output-tokens (:max-output-tokens model-capabilities)
         provider-config (get-in config [:providers provider])
@@ -288,24 +266,6 @@
         api-url (llm-util/provider-api-url provider config)
         ;; Flatten {:static :dynamic} instructions map into a single string for non-Anthropic providers
         flat-instructions (if (map? instructions) (f.prompt/instructions->str instructions) instructions)
-        anthropic-opts {:model real-model
-                        :instructions instructions
-                        :user-messages user-messages
-                        :max-output-tokens max-output-tokens
-                        :reason? reason?
-                        :supports-image? supports-image?
-                        :past-messages past-messages
-                        :tools tools
-                        :web-search web-search
-                        :mid-conversation-system? mid-conversation-system?
-                        :extra-payload extra-payload
-                        :extra-headers extra-headers
-                        :api-url api-url
-                        :api-key api-key
-                        :auth-type auth-type
-                        :cancelled? cancelled?
-                        :cache-retention (:cacheRetention provider-config)
-                        :stream-idle-timeout-seconds stream-idle-timeout-seconds}
         ;; the options of the providers without their own `:request-opts`
         opts {:model real-model
               :instructions flat-instructions
@@ -323,7 +283,7 @@
               :think-tag-start (:thinkTagStart provider-config)
               :think-tag-end (:thinkTagEnd provider-config)
               :reasoning-history reasoning-history
-              :dialect (chat-dialect base-provider api-url)
+              :provider-base base-provider
               :http-client (:httpClient provider-config)
               :api-url api-url
               :api-key api-key
@@ -373,8 +333,7 @@
                                      :subagent? subagent?
                                      :prompt-cache-key prompt-cache-key
                                      :cancelled? cancelled?
-                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds
-                                     :anthropic-opts anthropic-opts})
+                                     :stream-idle-timeout-seconds stream-idle-timeout-seconds})
                  callbacks)
 
         (and (or model-config

@@ -13,6 +13,7 @@
    [eca.modules.llm-providers.login :as m.llm-providers.login]
    [eca.modules.llm-providers.providers :as m.llm-providers.providers]
    [eca.modules.llm-providers.quota :as m.llm-providers.quota]
+   [eca.modules.providers.anthropic :as m.anthropic]
    [eca.shared :as shared :refer [assoc-some join-api-url multi-str]]
    [hato.client :as http])
   (:import
@@ -679,7 +680,8 @@
   [_opts {:keys [model flat-instructions user-messages max-output-tokens reason? supports-image? past-messages
                  tools web-search image-generation extra-payload extra-headers reasoning-history api-url api-key
                  provider-auth model-capabilities api subagent? prompt-cache-key cancelled?
-                 stream-idle-timeout-seconds anthropic-opts]}]
+                 stream-idle-timeout-seconds]
+          :as request}]
   (when (nil? (:api model-capabilities))
     ;; the tag of the request's other logs
     (logger/info "[LLM-API]"
@@ -726,7 +728,7 @@
                               (copilot-headers (user-initiator? body :input) false)))
 
       :anthropic
-      (assoc anthropic-opts
+      (assoc (m.anthropic/messages-request request)
              :api-url api-url
              :extra-headers (fn [{:keys [body]}]
                               (copilot-headers (user-initiator? body :messages) true)))
@@ -739,8 +741,8 @@
 (def module
   {:id :eca/copilot
    :description "GitHub Copilot models, with the account's own model list and quota."
-   ;; picks the Responses or the Chat Completions API by model
-   :requires #{:eca/api-openai-responses :eca/api-openai-chat}
+   ;; picks the Responses, the Chat Completions or, for Claude models, the Messages API by model
+   :requires #{:eca/api-openai-responses :eca/api-openai-chat :eca/api-anthropic}
    :providers {"github-copilot" {:label "GitHub Copilot"
                                  :login {:methods [{:key "device" :label "GitHub device flow" :start #'start-device-login!}]
                                          ;; the chat's /login

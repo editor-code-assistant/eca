@@ -234,6 +234,21 @@
           {}
           (modules/contributions config :providers)))
 
+(defn api-entry
+  "The LLM API (`:apis`) named `api-name`, from the first active module that
+   has one, else the first that has the name in an API's `:aliases`:
+   `[entry name api]`, `name` the API's own name. nil when none."
+  [config api-name]
+  (when-let [api-name (when (or (string? api-name) (keyword? api-name)) (name api-name))]
+    (or (when-let [[entry api] (modules/find-contribution config :apis api-name)]
+          [entry api-name api])
+        (some (fn [[entry apis]]
+                (some (fn [[n api]]
+                        (when (some #{api-name} (:aliases api))
+                          [entry n api]))
+                      apis))
+              (modules/contributions config :apis)))))
+
 (def no-native-models
   "What a provider's `:models-override-fn` returns when it has no models and
    the generic native /models fetch mustn't be tried either, e.g. because it

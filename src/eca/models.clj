@@ -9,6 +9,7 @@
    [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
+   [eca.modules :as modules]
    [eca.modules.events :as events]
    [eca.shared :refer [assoc-some] :as shared]
    [hato.client :as http])
@@ -37,32 +38,16 @@
       (str (subs s 0 max-error-body-log-length) "...(truncated)")
       s)))
 
-;; Provider API types that support native /models endpoint fetching
-(def ^:private native-models-endpoint-providers
-  #{"anthropic" "openai" "openai-chat" "openai-responses"})
-
-(defn ^:private provider-models-endpoint-path
-  "Returns the appropriate /models endpoint path for a given provider API type."
-  [api-type]
-  (case api-type
-    "anthropic" "/v1/models"
-    ("openai" "openai-responses") "/v1/models"
-    "openai-chat" "/models"
-    nil))
-
-(defn ^:private models-endpoint-headers
-  [auth-type api-type api-key extra-headers]
-  (let [oauth? (= :auth/oauth auth-type)
-        anthropic? (= "anthropic" api-type)]
-    (client/merge-llm-headers
-     (merge
-      (assoc-some
-       {"Content-Type" "application/json"}
-       "anthropic-version" (when anthropic? "2023-06-01")
-       "x-api-key" (when (and api-key anthropic? (not oauth?)) api-key)
-       "Authorization" (when (and api-key (or oauth? (not anthropic?))) (str "Bearer " api-key))
-       "anthropic-beta" (when (and anthropic? oauth?) "oauth-2025-04-20"))
-      extra-headers))))
+(defn native-models-headers
+  "The headers of an OpenAI-style /models request: JSON, `api-key` as a
+   bearer token, then `extra-headers`."
+  [api-key extra-headers]
+  (client/merge-llm-headers
+   (merge
+    (assoc-some
+     {"Content-Type" "application/json"}
+     "Authorization" (when api-key (str "Bearer " api-key)))
+    extra-headers)))
 
 (defn ^:private models-dev-api-url
   "The models.dev catalog URL, overridable with the `ECA_MODELS_DEV_URL` env var
@@ -327,47 +312,26 @@
                (format "Provider '%s': Ignoring models.dev model entry '%s' with invalid key/model fields"
                        provider model-key)))
 
-(def ^:private effort-list-paths
-  [[:reasoning :supported_efforts]     ; OpenRouter
-   [:reasoning_parameters :efforts]])  ; Synthetic
-
-(defn ^:private native-reasoning-effort-variants
-  "Builds openai-chat variants from a /models entry's advertised reasoning
-   efforts. Nil for other APIs or when no efforts are advertised."
-  [api-type entry]
-  (when (= "openai-chat" api-type)
-    (let [advertised (some (fn [path]
-                             (let [efforts (get-in entry path)]
-                               (when (sequential? efforts) efforts)))
-                           effort-list-paths)]
-      (not-empty
-       (into {}
-             (keep (fn [effort]
-                     (when (string? effort)
-                       [effort {:reasoning_effort effort}]))
-             advertised))))))
-
-(defn ^:private parse-native-model-entry
-  "Parses a generic /models entry. OpenRouter-shaped entries expose
-   `context_length` and `top_provider.max_completion_tokens`; llama.cpp /
-   llama-swap-shaped entries expose the served and trained context windows
-   under `meta.n_ctx` / `meta.n_ctx_train`. Keep them as discovered limits so
-   provider-reported data wins over models.dev catalogs. Entries without that
-   metadata (e.g. plain OpenAI/Anthropic) keep an empty config, preserving the
-   previous id-only behavior."
-  [{:keys [id context_length top_provider] entry-meta :meta :as entry} api-type]
+(defn parse-native-model-entry
+  "Parses a generic /models entry: `[id model-config]`, nil without an id.
+   OpenRouter-shaped entries expose `context_length` and
+   `top_provider.max_completion_tokens`; llama.cpp / llama-swap-shaped
+   entries expose the served and trained context windows under `meta.n_ctx`
+   / `meta.n_ctx_train`. Keep them as discovered limits so provider-reported
+   data wins over models.dev catalogs. Entries without that metadata (e.g.
+   plain OpenAI/Anthropic) keep an empty config, preserving the previous
+   id-only behavior."
+  [{:keys [id context_length top_provider] entry-meta :meta}]
   (when (and (string? id) (not (string/blank? id)))
     (let [context (or (pos-num context_length)
                       (pos-num (:n_ctx entry-meta))
                       (pos-num (:n_ctx_train entry-meta)))
-          output (sane-output-limit context (pos-num (:max_completion_tokens top_provider)))
-          effort-variants (native-reasoning-effort-variants api-type entry)]
+          output (sane-output-limit context (pos-num (:max_completion_tokens top_provider)))]
       [id (assoc-some {}
                       :discovered-limit (not-empty
                                          (assoc-some {}
                                                      :context context
-                                                     :output output))
-                      :discovered-effort-variants effort-variants)])))
+                                                     :output output)))])))
 
 (defn fetch-models-endpoint
   "GETs `provider`'s /models `url` with `headers`: what `parse` makes of its
@@ -404,57 +368,58 @@
                      (format "Provider '%s': Failed to fetch models from %s: %s"
                              provider url e))))))
 
-(defn ^:private fetch-provider-native-models
-  "Fetches models from provider's native /models endpoint.
-   Returns a map of model-id -> discovered model config on success, nil on failure."
-  [{:keys [api-url auth-type api-key api-type provider extra-headers]}]
-  (when-let [models-path (provider-models-endpoint-path api-type)]
-    (fetch-models-endpoint provider
-                           (shared/join-api-url api-url models-path)
-                           (models-endpoint-headers auth-type api-type api-key extra-headers)
-                           (fn [models-data]
-                             (not-empty (into {} (keep #(parse-native-model-entry % api-type) models-data)))))))
+(defn ^:private list-api-models
+  "The models the API `entry` lists (its `:list-models`) for `request`;
+   nil when it fails."
+  [config entry list-models request]
+  (let [ctx (modules/module-ctx {:config config} entry)]
+    (if (:built-in? entry)
+      (list-models ctx request)
+      (modules/invoke-safe ctx entry "API models"
+                           {:timeout-ms (modules/timeout-for entry nil modules/default-handler-timeout-ms)}
+                           list-models ctx request))))
 
 (defn ^:private fetch-provider-native-models-with-fallback
-  "Tries to fetch models from provider's native endpoint first.
-   Returns a map of model-id -> model-config map, or nil."
+  "Tries to fetch models from provider's native endpoint first, when the API
+   its config names lists models (its `:list-models`, see
+   `llm-util/api-entry`). Returns a map of model-id -> model-config map, or
+   nil."
   [provider provider-config config db]
-  (when (contains? native-models-endpoint-providers (:api provider-config))
-    (let [api-url (or (get-in db [:auth provider :api-url])
-                      (llm-util/provider-api-url provider config))
-          provider-auth (get-in db [:auth provider])
-          [auth-type api-key] (llm-util/provider-api-key provider
-                                                         provider-auth
-                                                         config)
-          api-type (:api provider-config)
-          provider-base (config/provider-base provider config)]
-      ;; Provider+auth specific source first (e.g. OpenAI OAuth -> ChatGPT Codex
-      ;; /models, Copilot's catalog; see `llm-util/provider-models-override`),
-      ;; then the generic native /models endpoint.
-      (when-let [models (let [override (llm-util/provider-models-override
-                                        {:provider provider
-                                         :provider-base provider-base
-                                         :config config
-                                         :api-url api-url
-                                         :auth-type auth-type
-                                         :api-key api-key
-                                         :account-id (:account-id provider-auth)
-                                         :extra-headers (:extraHeaders provider-config)
-                                         :static-models (:models provider-config)})]
-                          (cond
-                            (= llm-util/no-native-models override) nil
-                            override override
-                            api-url (fetch-provider-native-models
-                                     {:provider provider
-                                      :api-url api-url
-                                      :auth-type auth-type
-                                      :api-key api-key
-                                      :api-type api-type
-                                      :extra-headers (:extraHeaders provider-config)})))]
-        (logger/debug logger-tag
-                      (format "Provider '%s': Discovered %d models"
-                              provider (count models)))
-        models))))
+  (when-let [[api-entry _ {:keys [list-models]}] (llm-util/api-entry config (:api provider-config))]
+    (when list-models
+      (let [api-url (or (get-in db [:auth provider :api-url])
+                        (llm-util/provider-api-url provider config))
+            provider-auth (get-in db [:auth provider])
+            [auth-type api-key] (llm-util/provider-api-key provider
+                                                           provider-auth
+                                                           config)
+            provider-base (config/provider-base provider config)]
+        ;; Provider+auth specific source first (e.g. OpenAI OAuth -> ChatGPT Codex
+        ;; /models, Copilot's catalog; see `llm-util/provider-models-override`),
+        ;; then the API's native /models endpoint.
+        (when-let [models (let [override (llm-util/provider-models-override
+                                          {:provider provider
+                                           :provider-base provider-base
+                                           :config config
+                                           :api-url api-url
+                                           :auth-type auth-type
+                                           :api-key api-key
+                                           :account-id (:account-id provider-auth)
+                                           :extra-headers (:extraHeaders provider-config)
+                                           :static-models (:models provider-config)})]
+                            (cond
+                              (= llm-util/no-native-models override) nil
+                              override override
+                              api-url (list-api-models config api-entry list-models
+                                                       {:provider provider
+                                                        :api-url api-url
+                                                        :auth-type auth-type
+                                                        :api-key api-key
+                                                        :extra-headers (:extraHeaders provider-config)})))]
+          (logger/debug logger-tag
+                        (format "Provider '%s': Discovered %d models"
+                                provider (count models)))
+          models)))))
 
 (defn ^:private parse-models-dev-provider-models
   "Builds provider model config map from models.dev payload.

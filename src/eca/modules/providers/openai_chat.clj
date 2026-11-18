@@ -9,6 +9,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.models :as models]
    [eca.modules.providers.variants :as m.variants]
    [eca.shared :refer [assoc-some deep-merge join-api-url]]
    [hato.client :as http]))
@@ -841,8 +842,67 @@
       :on-stream (when stream?
                    (fn [event data] (handle-response event data tool-calls*)))})))
 
+(def ^:private effort-list-paths
+  [[:reasoning :supported_efforts]     ; OpenRouter
+   [:reasoning_parameters :efforts]])  ; Synthetic
+
+(defn ^:private reasoning-effort-variants
+  "Variants from a /models entry's advertised reasoning efforts, nil when it
+   advertises none."
+  [entry]
+  (let [advertised (some (fn [path]
+                           (let [efforts (get-in entry path)]
+                             (when (sequential? efforts) efforts)))
+                         effort-list-paths)]
+    (not-empty
+     (into {}
+           (keep (fn [effort]
+                   (when (string? effort)
+                     [effort {:reasoning_effort effort}]))
+                 advertised)))))
+
+(defn ^:private list-models
+  "The models of `/models` (the API's `:list-models`), with the reasoning
+   efforts an entry advertises as its variants."
+  [_ctx {:keys [provider api-url api-key extra-headers]}]
+  (models/fetch-models-endpoint
+   provider
+   (join-api-url api-url "/models")
+   (models/native-models-headers api-key extra-headers)
+   (fn [models-data]
+     (not-empty
+      (into {}
+            (keep (fn [entry]
+                    (when-let [[id model-config] (models/parse-native-model-entry entry)]
+                      [id (assoc-some model-config
+                                      :discovered-effort-variants (reasoning-effort-variants entry))])))
+            models-data)))))
+
+(defn ^:private chat-dialect
+  "The chat-completions dialect of the endpoint that receives the request (see
+   `transform-message`), or nil for the common one.
+   :mistral for Mistral's own API: the built-in provider (or one inheriting it),
+   or any provider whose URL host is a subdomain of mistral.ai (api.mistral.ai,
+   codestral.mistral.ai). Gateways serving Mistral models (OpenRouter, LiteLLM, ...)
+   use their own message format, so model names are not used."
+  [base-provider api-url]
+  (let [host (try (some-> api-url java.net.URI. .getHost string/lower-case)
+                  (catch Exception _))]
+    (when (or (= "mistral" base-provider)
+              (string/ends-with? (str host) ".mistral.ai"))
+      :mistral)))
+
+(defn ^:private chat!
+  "The API's `:handler`: a chat completion, in the dialect of the endpoint
+   (see `chat-dialect`), from the request's `:provider-base` and `:api-url`."
+  [_ctx request callbacks]
+  (chat-completion! (assoc-some request :dialect (chat-dialect (:provider-base request) (:api-url request)))
+                    callbacks))
+
 (def api-module
   {:id :eca/api-openai-chat
    :description "The OpenAI Chat Completions API, which OpenAI-compatible providers speak."
-   :apis {"openai-chat" {:handler (fn [_ctx request callbacks] (chat-completion! request callbacks))}}
+   :apis {"openai-chat" {:handler #'chat!
+                         :reasoning-keys [:reasoning]
+                         :list-models #'list-models}}
    :config-defaults {:variantsByModel (merge m.variants/openai-chat m.variants/any-api)}})

@@ -278,7 +278,8 @@
 (def api-module
   {:id :eca/api-ollama
    :description "The Ollama chat API."
-   :apis {"ollama" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :apis {"ollama" {:handler (fn [_ctx request callbacks] (chat! request callbacks))
+                    :reasoning-keys [:think]}}
    :config-defaults {:variantsByModel m.variants/any-api}})
 
 (defn ^:private request-opts

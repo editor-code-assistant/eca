@@ -7,8 +7,10 @@
    [eca.features.tools.util :as tools.util]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
    [eca.modules.providers.openai-chat :as m.openai-chat]
    [hato.client :as http]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (def thinking-start-tag "<think>")
@@ -1648,3 +1650,121 @@
             {:role "tool"}]
            (#'m.openai-chat/normalize-messages
             history true thinking-start-tag thinking-end-tag))))))
+
+;; /models (the API's :list-models)
+
+(deftest list-models-logs-body-on-error-test
+  (testing "Logs the response body when the /models endpoint returns a non-200"
+    (let [warnings* (atom [])]
+      (with-redefs [http/get (fn [_url _opts]
+                               {:status 400
+                                :body "{\"error\":\"model_not_supported\"}"})
+                    logger/warn (fn [& args] (swap! warnings* conj (apply str args)) nil)]
+        (is (nil? (#'m.openai-chat/list-models
+                   nil
+                   {:provider "github-copilot"
+                    :api-url "https://api.githubcopilot.com"
+                    :auth-type :auth/oauth
+                    :api-key "tok"})))
+        (is (some #(re-find #"status 400" %) @warnings*))
+        (is (some #(re-find #"model_not_supported" %) @warnings*))))))
+
+(deftest list-models-openrouter-limits-test
+  (testing "OpenRouter-shaped entries keep context_length and top_provider max_completion_tokens as discovered limits"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data [{:id "x-ai/grok-4.5"
+                                             :context_length 500000
+                                             :top_provider {:max_completion_tokens nil}}
+                                            {:id "qwen/qwen3-coder"
+                                             :context_length 262144
+                                             :top_provider {:max_completion_tokens 32768}}
+                                            {:id "weird/model"
+                                             :context_length 100000
+                                             :top_provider {:max_completion_tokens 100000}}
+                                            {:id "plain-model"}]}})]
+      (is (match?
+           (m/equals
+            {"x-ai/grok-4.5" (m/equals {:discovered-limit {:context 500000}})
+             "qwen/qwen3-coder" (m/equals {:discovered-limit {:context 262144 :output 32768}})
+             ;; max_completion_tokens >= context_length is as impossible as in catalogs
+             "weird/model" (m/equals {:discovered-limit {:context 100000}})
+             "plain-model" (m/equals {})})
+           (#'m.openai-chat/list-models
+            nil
+            {:provider "openrouter"
+             :api-url "https://openrouter.ai/api/v1"
+             :auth-type nil
+             :api-key "k"}))))))
+
+(deftest list-models-effort-variants-test
+  (testing "OpenRouter and Synthetic shaped efforts become discovered effort variants"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data
+                                     [{:id "tencent/hy4-preview"
+                                       :reasoning {:supported_efforts ["high" "low" 1]}}
+                                      {:id "syn:small:text"
+                                       :reasoning_parameters {:efforts ["none" "low"]}}
+                                      {:id "bad-efforts"
+                                       :reasoning {:supported_efforts 1}}
+                                      {:id "plain-model"}]}})]
+      (is (match?
+           (m/equals
+            {"tencent/hy4-preview"
+             (m/equals {:discovered-effort-variants
+                        {"high" {:reasoning_effort "high"}
+                         "low" {:reasoning_effort "low"}}})
+             "syn:small:text"
+             (m/equals {:discovered-effort-variants
+                        {"none" {:reasoning_effort "none"}
+                         "low" {:reasoning_effort "low"}}})
+             "bad-efforts" (m/equals {})
+             "plain-model" (m/equals {})})
+           (#'m.openai-chat/list-models
+            nil
+            {:provider "openrouter"
+             :api-url "https://openrouter.ai/api/v1"
+             :auth-type nil
+             :api-key "k"}))))))
+
+(deftest list-models-llamacpp-limits-test
+  (testing "llama.cpp/llama-swap-shaped entries keep meta n_ctx (falling back to n_ctx_train) as discovered context limit"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data [{:id "gemma-4-26b"
+                                             :meta {:n_ctx 65536
+                                                    :n_ctx_train 131072}}
+                                            {:id "trained-only"
+                                             :meta {:n_ctx_train 131072}}
+                                            {:id "openrouter-shaped-wins"
+                                             :context_length 200000
+                                             :meta {:n_ctx 65536}}
+                                            {:id "no-limits"
+                                             :meta {}}]}})]
+      (is (match?
+           (m/equals
+            {"gemma-4-26b" (m/equals {:discovered-limit {:context 65536}})
+             "trained-only" (m/equals {:discovered-limit {:context 131072}})
+             "openrouter-shaped-wins" (m/equals {:discovered-limit {:context 200000}})
+             "no-limits" (m/equals {})})
+           (#'m.openai-chat/list-models
+            nil
+            {:provider "llama-swap"
+             :api-url "http://localhost:9292/v1"
+             :auth-type nil
+             :api-key "k"}))))))
+
+(deftest chat-dialect-test
+  (testing "built-in provider base"
+    (is (= :mistral (#'m.openai-chat/chat-dialect "mistral" "https://my-proxy.example.com/v1"))))
+  (testing "mistral.ai hosts"
+    (is (= :mistral (#'m.openai-chat/chat-dialect "custom" "https://api.mistral.ai/v1")))
+    (is (= :mistral (#'m.openai-chat/chat-dialect "custom" "https://codestral.mistral.ai/v1")))
+    (is (= :mistral (#'m.openai-chat/chat-dialect "custom" "https://API.Mistral.AI"))))
+  (testing "other hosts, look-alike hosts and bad URLs"
+    (is (nil? (#'m.openai-chat/chat-dialect "custom" "https://openrouter.ai/api/v1")))
+    (is (nil? (#'m.openai-chat/chat-dialect "custom" "https://notmistral.ai/v1")))
+    (is (nil? (#'m.openai-chat/chat-dialect "custom" "https://api.mistral.ai.evil.com/v1")))
+    (is (nil? (#'m.openai-chat/chat-dialect "custom" "not a url")))
+    (is (nil? (#'m.openai-chat/chat-dialect "custom" nil)))))

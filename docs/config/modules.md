@@ -351,7 +351,7 @@ An unknown key is ignored, with a warning in `/modules`.
 | `:label` | Its name for users, e.g. in the providers panel. |
 | `:login` | How users log in: `{:ask [:api-key :url :models]}` asks for those fields; `{:methods [{:key :label :start}] :complete-oauth-code .. :steps {..}}` runs its own flows, as `eca/anthropic`, `eca/openai` and `eca/copilot` do. |
 | `:models-fn` | `(fn [{:keys [api-url]}])`. The models it lists itself, `[{:model :tools :reason?}]`, like a running Ollama's. |
-| `:models-override-fn` | `(fn [ctx])`. Its models from its own catalog instead of the generic `/models` fetch. |
+| `:models-override-fn` | `(fn [ctx])`. Its models from its own catalog instead of its API's `/models` (`:list-models`). |
 | `:default-model` | `{:rank n :fn (fn [{:keys [db config]}])}`, or a vector of them: the default model it suggests when its login or key is there, lower ranks first. |
 | `:api-fn` | `(fn [{:keys [provider model config]}])`. The API of a request, e.g. by model; else the `:api` of the provider's config. |
 | `:request-opts` | `(fn [opts request])`. Its own options of a request to its API. |
@@ -359,7 +359,14 @@ An unknown key is ignored, with a warning in `/modules`.
 | `:quota` | `{:fetch (fn [ctx]) :headers (fn [headers])}`: a subscription login's quota. |
 | `:errors` | `{:enrich :recoverable? :recover! :retry-after-ms}`, each `(fn [ctx])`: its error messages, recoveries and retry times. |
 
-`:apis` maps an API name, like `"openai-chat"`, to `{:handler (fn [ctx request callbacks])}`. A provider's config names it with `:api`, any module's API: `"openai-chat"`, `"openai-responses"` (also `"openai"`), `"anthropic"`, `"ollama"` and `"bedrock"` are ECA's. The request and callbacks follow ECA's own code: see [ECA's APIs](https://github.com/editor-code-assistant/eca/tree/master/src/eca/modules/providers), e.g. `openai_chat.clj`.
+`:apis` maps an API name, like `"openai-chat"`, to its entry. A provider's config names it with `:api`, any module's API: `"openai-chat"`, `"openai-responses"` (also `"openai"`), `"anthropic"`, `"ollama"` and `"bedrock"` are ECA's. The request and callbacks follow ECA's own code: see [ECA's APIs](https://github.com/editor-code-assistant/eca/tree/master/src/eca/modules/providers), e.g. `openai_chat.clj`.
+
+| Key | |
+|-----|--|
+| `:handler` | `(fn [ctx request callbacks])`: sends the request. An error it gives may say what it is as `:error/api-type`, e.g. `:overloaded` or `:rate-limited`; ECA takes it after the user's `retryRules`. |
+| `:aliases` | Optional. Other names a provider's `:api` may give it, like `"openai"` for `"openai-responses"`. |
+| `:reasoning-keys` | Optional. The keys of a request's extra payload that ask for reasoning, dropped for a model that doesn't reason, like `[:reasoning]`. |
+| `:list-models` | Optional. `(fn [ctx {:keys [provider api-url auth-type api-key extra-headers]}])`: a provider's models from the API's `/models`, as `{model-id model-config}`, when the provider has no `:models-override-fn`. |
 
 ### Keys only one ECA feature uses
 

@@ -535,7 +535,8 @@
 (def api-module
   {:id :eca/api-bedrock
    :description "The AWS Bedrock Converse API."
-   :apis {"bedrock" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :apis {"bedrock" {:handler (fn [_ctx request callbacks] (chat! request callbacks))
+                     :reasoning-keys [:thinking :output_config]}}
    :config-defaults {:variantsByModel (merge m.variants/anthropic-messages m.variants/any-api)}})
 
 (def module

@@ -1301,3 +1301,18 @@
               ;; Unblocks the reader if the watchdog never fired.
               (reset! closed?* true)
               (deref result 10000 nil))))))))
+
+(deftest list-models-builds-no-effort-variants-test
+  (testing "other APIs build no effort variants from the same metadata"
+    (with-redefs [http/get (fn [_url _opts]
+                             {:status 200
+                              :body {:data [{:id "claude-x"
+                                             :reasoning {:supported_efforts ["low" "high"]}}]}})]
+      (is (match?
+           {"claude-x" {}}
+           (#'m.anthropic/list-models
+            nil
+            {:provider "my-proxy"
+             :api-url "https://api.anthropic.com"
+             :auth-type nil
+             :api-key "k"}))))))

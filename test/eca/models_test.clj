@@ -4,13 +4,13 @@
    [clojure.java.io :as io]
    [clojure.test :refer [deftest is testing]]
    [hato.client :as http]
-   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
-   [eca.models :as models]))
+   [eca.models :as models]
+   [eca.modules :as modules]))
 
 (set! *warn-on-reflection* true)
 
@@ -210,95 +210,6 @@
                 models-dev-data)))
           (is (= 1 @native-calls*)))))))
 
-(deftest fetch-provider-native-models-logs-body-on-error-test
-  (testing "Logs the response body when the /models endpoint returns a non-200"
-    (let [warnings* (atom [])]
-      (with-redefs [http/get (fn [_url _opts]
-                               {:status 400
-                                :body "{\"error\":\"model_not_supported\"}"})
-                    logger/warn (fn [& args] (swap! warnings* conj (apply str args)) nil)]
-        (is (nil? (#'models/fetch-provider-native-models
-                   {:provider "github-copilot"
-                    :api-url "https://api.githubcopilot.com"
-                    :auth-type :auth/oauth
-                    :api-key "tok"
-                    :api-type "openai-chat"})))
-        (is (some #(re-find #"status 400" %) @warnings*))
-        (is (some #(re-find #"model_not_supported" %) @warnings*))))))
-
-(deftest fetch-provider-native-openrouter-models-limits-test
-  (testing "OpenRouter-shaped entries keep context_length and top_provider max_completion_tokens as discovered limits"
-    (with-redefs [http/get (fn [_url _opts]
-                             {:status 200
-                              :body {:data [{:id "x-ai/grok-4.5"
-                                             :context_length 500000
-                                             :top_provider {:max_completion_tokens nil}}
-                                            {:id "qwen/qwen3-coder"
-                                             :context_length 262144
-                                             :top_provider {:max_completion_tokens 32768}}
-                                            {:id "weird/model"
-                                             :context_length 100000
-                                             :top_provider {:max_completion_tokens 100000}}
-                                            {:id "plain-model"}]}})]
-      (is (match?
-           (m/equals
-            {"x-ai/grok-4.5" (m/equals {:discovered-limit {:context 500000}})
-             "qwen/qwen3-coder" (m/equals {:discovered-limit {:context 262144 :output 32768}})
-             ;; max_completion_tokens >= context_length is as impossible as in catalogs
-             "weird/model" (m/equals {:discovered-limit {:context 100000}})
-             "plain-model" (m/equals {})})
-           (#'models/fetch-provider-native-models
-            {:provider "openrouter"
-             :api-url "https://openrouter.ai/api/v1"
-             :auth-type nil
-             :api-key "k"
-             :api-type "openai-chat"}))))))
-
-(deftest fetch-provider-native-models-effort-variants-test
-  (testing "OpenRouter and Synthetic shaped efforts become discovered effort variants"
-    (with-redefs [http/get (fn [_url _opts]
-                             {:status 200
-                              :body {:data
-                                     [{:id "tencent/hy4-preview"
-                                       :reasoning {:supported_efforts ["high" "low" 1]}}
-                                      {:id "syn:small:text"
-                                       :reasoning_parameters {:efforts ["none" "low"]}}
-                                      {:id "bad-efforts"
-                                       :reasoning {:supported_efforts 1}}
-                                      {:id "plain-model"}]}})]
-      (is (match?
-           (m/equals
-            {"tencent/hy4-preview"
-             (m/equals {:discovered-effort-variants
-                        {"high" {:reasoning_effort "high"}
-                         "low" {:reasoning_effort "low"}}})
-             "syn:small:text"
-             (m/equals {:discovered-effort-variants
-                        {"none" {:reasoning_effort "none"}
-                         "low" {:reasoning_effort "low"}}})
-             "bad-efforts" (m/equals {})
-             "plain-model" (m/equals {})})
-           (#'models/fetch-provider-native-models
-            {:provider "openrouter"
-             :api-url "https://openrouter.ai/api/v1"
-             :auth-type nil
-             :api-key "k"
-             :api-type "openai-chat"})))))
-
-  (testing "other APIs build no effort variants from the same metadata"
-    (with-redefs [http/get (fn [_url _opts]
-                             {:status 200
-                              :body {:data [{:id "claude-x"
-                                             :reasoning {:supported_efforts ["low" "high"]}}]}})]
-      (is (match?
-           {"claude-x" {}}
-           (#'models/fetch-provider-native-models
-            {:provider "my-proxy"
-             :api-url "https://api.anthropic.com"
-             :auth-type nil
-             :api-key "k"
-             :api-type "anthropic"}))))))
-
 (deftest synthetic-provider-effort-variants-build-model-capabilities-test
   (testing "Effort variants from a synthetic /v1/models flow into model capabilities"
     (let [config {:providers {"synthetic" {:api "openai-chat"
@@ -313,33 +224,6 @@
                 "low" {:reasoning_effort "low"}}
                (get-in (build-supported-models config {} {})
                        ["synthetic/hf:Qwen/Qwen3-235B" :effort-variants])))))))
-
-(deftest fetch-provider-native-llamacpp-models-limits-test
-  (testing "llama.cpp/llama-swap-shaped entries keep meta n_ctx (falling back to n_ctx_train) as discovered context limit"
-    (with-redefs [http/get (fn [_url _opts]
-                             {:status 200
-                              :body {:data [{:id "gemma-4-26b"
-                                             :meta {:n_ctx 65536
-                                                    :n_ctx_train 131072}}
-                                            {:id "trained-only"
-                                             :meta {:n_ctx_train 131072}}
-                                            {:id "openrouter-shaped-wins"
-                                             :context_length 200000
-                                             :meta {:n_ctx 65536}}
-                                            {:id "no-limits"
-                                             :meta {}}]}})]
-      (is (match?
-           (m/equals
-            {"gemma-4-26b" (m/equals {:discovered-limit {:context 65536}})
-             "trained-only" (m/equals {:discovered-limit {:context 131072}})
-             "openrouter-shaped-wins" (m/equals {:discovered-limit {:context 200000}})
-             "no-limits" (m/equals {})})
-           (#'models/fetch-provider-native-models
-            {:provider "llama-swap"
-             :api-url "http://localhost:9292/v1"
-             :auth-type nil
-             :api-key "k"
-             :api-type "openai-chat"}))))))
 
 (deftest merge-provider-models-test
   (testing "Static models override dynamic ones"
@@ -1100,3 +984,25 @@
       (is (nil? (models/full-model-for db nil "explorer-small")))
       (is (= "anthropic/claude-sonnet-4-6"
              (models/full-model-for db nil "anthropic/claude-sonnet-4-6"))))))
+
+(deftest api-list-models-test
+  (testing "a provider's models come from its API's :list-models, any module's"
+    (let [requests* (atom [])
+          source "/tmp/acme-models.clj"]
+      (try
+        (modules/add-external! source
+                               {:id :acme/models
+                                :apis {"acme-chat" {:handler (fn [_ _ _])
+                                                    :list-models (fn [ctx request]
+                                                                   (swap! requests* conj [(:module-id ctx) (select-keys request [:provider :api-url :api-key])])
+                                                                   {"m1" {}})}}})
+        (let [provider-config {:api "acme-chat" :url "https://acme.test/v1" :key "k"}]
+          (is (= {"m1" {}} (#'models/fetch-provider-native-models-with-fallback
+                            "acme" provider-config {:providers {"acme" provider-config}} {})))
+          (is (= [[:acme/models {:provider "acme" :api-url "https://acme.test/v1" :api-key "k"}]] @requests*)))
+        (finally
+          (modules/remove-external! source)))))
+  (testing "an API without :list-models lists nothing from /models"
+    (let [provider-config {:api "ollama" :url "http://localhost:11434"}]
+      (is (nil? (#'models/fetch-provider-native-models-with-fallback
+                 "o" provider-config {:providers {"o" provider-config}} {}))))))

@@ -3,6 +3,7 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
+   [eca.llm-api.errors :as llm-api.errors]
    [eca.modules.providers.openai :as m.openai]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
@@ -685,6 +686,7 @@
                         :message "An error occurred while processing your request. You can retry your request."
                         :provider-detail "preserved"
                         :error/source :openai-responses
+                        :error/api-type :overloaded
                         :response-id "resp_123"
                         :request-id "req_123"
                         :headers response-headers}]
@@ -776,6 +778,7 @@
                           :message "Our servers are currently overloaded. Please try again later."
                           :sequence_number 0
                           :error/source :openai-responses
+                          :error/api-type :overloaded
                           :request-id "req_overloaded"
                           :headers response-headers}
           closed?* (atom false)
@@ -1596,3 +1599,86 @@
   (testing "model matching is case-insensitive"
     (is (true? (get-in (#'m.openai/codex-model-fallback-discovery "GPT-5.6-SOL")
                        [:discovered-provider-data :responses-lite?])))))
+
+;; The Responses API's errors, as ECA classifies them
+
+(deftest classify-openai-response-failed-test
+  (let [generic-message (str "An error occurred while processing your request. "
+                             "You can retry your request, or contact support if the error persists.")
+        responses-error {:error/source :openai-responses}
+        ;; as the module builds its errors: stamped with its classification
+        classify (fn [error-data & [retry-rules]]
+                   (llm-api.errors/classify-error (#'m.openai/with-error-api-type error-data) retry-rules))]
+    (testing "structured server_error code is overloaded"
+      (is (= {:error/type :overloaded}
+             (classify
+              (assoc responses-error
+                     :code "server_error"
+                     :message "Request failed")))))
+
+    (testing "structured server_error type is overloaded"
+      (is (= {:error/type :overloaded}
+             (classify
+              (assoc responses-error
+                     :type "server_error"
+                     :message "Request failed")))))
+
+    (testing "structured server_is_overloaded code is overloaded"
+      (is (= {:error/type :overloaded}
+             (classify
+              (assoc responses-error
+                     :code "server_is_overloaded"
+                     :message "Our servers are currently overloaded. Please try again later.")))))
+
+    (testing "structured rate_limit_exceeded code is rate limited"
+      (is (= {:error/type :rate-limited}
+             (classify
+              (assoc responses-error
+                     :code "rate_limit_exceeded"
+                     :message "Request failed")))))
+
+    (testing "generic transient message is a fallback without structured fields"
+      (is (= {:error/type :overloaded}
+             (classify
+              (assoc responses-error :message generic-message)))))
+
+    (testing "stream closed before completion is a premature stop"
+      (is (= {:error/type :premature-stop}
+             (classify
+              (assoc responses-error
+                     :message "stream disconnected before completion: stream closed before response.completed")))))
+
+    (testing "generic transient message is not applied to unmarked errors"
+      (is (= {:error/type :unknown}
+             (llm-api.errors/classify-error
+              {:message generic-message}))))
+
+    (testing "unknown structured fields are authoritative over retry-looking messages"
+      (doseq [error-data [{:code "invalid_prompt" :message generic-message}
+                          {:code "invalid_prompt" :message "Internal server error"}
+                          {:type "invalid_request_error" :message "Rate limit exceeded"}
+                          {:code "invalid_prompt"
+                           :message "Request failed"
+                           :exception (Exception. "Connection error")}]]
+        (is (= {:error/type :unknown}
+               (classify
+                (merge responses-error error-data))))))
+
+    (testing "custom retry rules still take priority over structured fields"
+      (is (= {:error/type :retryable-custom
+              :error/label "Temporary proxy failure"}
+             (classify
+              (assoc responses-error
+                     :code "invalid_prompt"
+                     :message generic-message)
+              [{:errorPattern "processing your request"
+                :label "Temporary proxy failure"}]))))))
+
+(deftest responses-quota-error-not-retried-test
+  (testing "OpenAI Responses quota code is not retried"
+    (let [error-data (#'m.openai/with-error-api-type {:error/source :openai-responses
+                                                      :code "usage_limit_reached"
+                                                      :message "Request failed"})]
+      (is (= {:error/type :quota-exhausted}
+             (llm-api.errors/classify-error error-data)))
+      (is (false? (llm-api.errors/retryable? error-data))))))

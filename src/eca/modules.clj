@@ -220,6 +220,21 @@
                              (conj (format ":system-prompts %s: :order must be a number" (:id section))))))
                        sections))))
 
+(defn ^:private api-problems
+  "What's wrong with an `:apis` entry, as strings."
+  [api]
+  (if-not (and (map? api) (fn-like? (:handler api)))
+    ["must be a map with a :handler function"]
+    (cond-> []
+      (not (nil-or #(and (sequential? %) (every? string? %)) (:aliases api)))
+      (conj ":aliases must be a vector of API names")
+
+      (not (nil-or #(and (sequential? %) (every? keyword? %)) (:reasoning-keys api)))
+      (conj ":reasoning-keys must be a vector of keywords")
+
+      (not (nil-or fn-like? (:list-models api)))
+      (conj ":list-models must be a function"))))
+
 (defn problems
   "What's wrong with `module`: `{:errors [..] :warnings [..]}`. A module with
    errors is refused."
@@ -261,8 +276,7 @@
                   (section-problems (:system-prompts module))
                   (map-of-problems ":providers" providers string? "a string"
                                    #(if (map? %) [] ["must be a map"]))
-                  (map-of-problems ":apis" apis string? "a string"
-                                   #(if (and (map? %) (fn-like? (:handler %))) [] ["must be a map with a :handler function"]))
+                  (map-of-problems ":apis" apis string? "a string" api-problems)
                   (map-of-problems ":rpc" (:rpc module) string? "a string"
                                    #(if (and (map? %) (#{:request :notification} (:kind %)) (fn-like? (:handler %)))
                                       []

@@ -399,7 +399,8 @@
                 (if (= 1 attempt)
                   (on-error {:code "server_is_overloaded"
                              :message "Our servers are currently overloaded. Please try again later."
-                             :error/source :openai-responses})
+                             :error/source :openai-responses
+                             :error/api-type :overloaded})
                   (do
                     (on-first-response-received {:type :text :text "Recovered"})
                     (on-message-received {:type :text :text "Recovered"})

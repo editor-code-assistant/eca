@@ -62,9 +62,6 @@
   [#"(?i)stream disconnected before completion"
    #"(?i)stream closed before response\.completed"])
 
-(def ^:private openai-transient-message-pattern
-  #"(?i)an error occurred while processing your request\.\s+you can retry your request\b")
-
 (defn ^:private matches-any-pattern? [text patterns]
   (when-let [text (cond
                     (string? text) text
@@ -111,28 +108,6 @@
     {:error/type :overloaded}
 
     :else nil))
-
-(defn ^:private classify-openai-responses-error
-  [{:keys [code type message] source :error/source}]
-  (when (= :openai-responses source)
-    (cond
-      (some #{"server_error" "server_is_overloaded"} [code type])
-      {:error/type :overloaded}
-
-      (some #{"usage_limit_reached" "insufficient_quota" "billing_hard_limit_reached"} [code type])
-      {:error/type :quota-exhausted}
-
-      (some #{"rate_limit_exceeded"} [code type])
-      {:error/type :rate-limited}
-
-      (or (some? code) (some? type))
-      {:error/type :unknown}
-
-      (and (string? message)
-           (re-find openai-transient-message-pattern message))
-      {:error/type :overloaded}
-
-      :else nil)))
 
 (defn ^:private classify-by-message
   "Fallback classification from unstructured error message strings
@@ -208,7 +183,9 @@
   "Classifies an error map into a semantic error type.
 
    Accepts the standard on-error map shape: {:message :status :body :exception},
-   plus optional structured provider fields such as :code, :type, and :error/source.
+   plus optional structured provider fields such as :code and :type. A preset
+   :error/type wins; an API's own classification (:error/api-type) counts right
+   after the user's rules.
    Optional `retry-rules` seq of user-configured rules checked before built-in classification.
    Returns a map with :error/type — one of:
      :retryable-custom  — matched a user-configured retry rule (with optional :error/label)
@@ -225,7 +202,9 @@
    (or (when-let [pre-type (:error/type error-data)]
          {:error/type pre-type})
        (classify-by-custom-rules error-data retry-rules)
-       (classify-openai-responses-error error-data)
+       ;; the API's own classification, e.g. OpenAI Responses' error codes
+       (when-let [api-type (:error/api-type error-data)]
+         {:error/type api-type})
        (when status
          (classify-by-status-and-body error-data))
        (when exception

@@ -12,6 +12,7 @@
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
+   [eca.models :as models]
    [eca.modules.llm-providers.login :as m.llm-providers.login]
    [eca.modules.llm-providers.providers :as m.llm-providers.providers]
    [eca.modules.llm-providers.quota :as m.llm-providers.quota]
@@ -1060,17 +1061,66 @@
   (llm-api.errors/epoch-str->ms
    (llm-api.errors/header-str (:headers error-data) "anthropic-ratelimit-unified-reset")))
 
+(defn ^:private list-models
+  "The models of `/v1/models` (the API's `:list-models`): an API key goes as
+   `x-api-key`, an OAuth token as a bearer token, with the OAuth beta."
+  [_ctx {:keys [provider api-url auth-type api-key extra-headers]}]
+  (let [oauth? (= :auth/oauth auth-type)]
+    (models/fetch-models-endpoint
+     provider
+     (join-api-url api-url "/v1/models")
+     (client/merge-llm-headers
+      (merge
+       (assoc-some
+        {"Content-Type" "application/json"}
+        "anthropic-version" "2023-06-01"
+        "x-api-key" (when (and api-key (not oauth?)) api-key)
+        "Authorization" (when (and api-key oauth?) (str "Bearer " api-key))
+        "anthropic-beta" (when oauth? "oauth-2025-04-20"))
+       extra-headers))
+     (fn [models-data]
+       (not-empty (into {} (keep models/parse-native-model-entry models-data)))))))
+
 (def api-module
   {:id :eca/api-anthropic
    :description "The Anthropic Messages API."
-   :apis {"anthropic" {:handler (fn [_ctx request callbacks] (chat! request callbacks))}}
+   :apis {"anthropic" {:handler (fn [_ctx request callbacks] (chat! request callbacks))
+                       :reasoning-keys [:thinking]
+                       :list-models #'list-models}}
    :config-defaults {:variantsByModel (merge m.variants/anthropic-messages m.variants/any-api)}})
+
+(defn messages-request
+  "The Messages API's options of a request, from a provider declaration's
+   `:request-opts` second argument, with the structured instructions its
+   prompt cache uses: eca/anthropic's, and those of providers that send some
+   models through this API, like Copilot."
+  [{:keys [model instructions user-messages max-output-tokens reason? supports-image? past-messages tools
+           web-search model-capabilities extra-payload extra-headers api-url api-key auth-type cancelled?
+           provider-config stream-idle-timeout-seconds]}]
+  {:model model
+   :instructions instructions
+   :user-messages user-messages
+   :max-output-tokens max-output-tokens
+   :reason? reason?
+   :supports-image? supports-image?
+   :past-messages past-messages
+   :tools tools
+   :web-search web-search
+   :mid-conversation-system? (:mid-conversation-system? model-capabilities)
+   :extra-payload extra-payload
+   :extra-headers extra-headers
+   :api-url api-url
+   :api-key api-key
+   :auth-type auth-type
+   :cancelled? cancelled?
+   :cache-retention (:cacheRetention provider-config)
+   :stream-idle-timeout-seconds stream-idle-timeout-seconds})
 
 (defn ^:private request-opts
   "A request's options (the declaration's `:request-opts`): the Messages
-   API's, with the structured instructions its prompt cache uses."
-  [_opts {:keys [anthropic-opts]}]
-  anthropic-opts)
+   API's (see `messages-request`)."
+  [_opts request]
+  (messages-request request))
 
 (defn ^:private default-model
   "With an Anthropic key, Claude Sonnet (the declaration's `:default-model`)."
