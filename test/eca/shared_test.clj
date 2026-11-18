@@ -280,15 +280,6 @@
     (is (= {:modules {:acme/hello-world {:enabled true}} "some-key" 1}
            (shared/map->camel-cased-map {:modules {:acme/hello-world {:enabled true}} "some-key" 1})))))
 
-(deftest map->snake-cased-map-test
-  (testing "converts top-level keyword keys only"
-    (is (= {:hook_name "x"
-            "toolName" "y"
-            :tool_input {:file-path "z"}}
-           (shared/map->snake-cased-map {:hook-name "x"
-                                         "toolName" "y"
-                                         :tool-input {:file-path "z"}})))))
-
 (deftest obfuscate-test
   (testing "nil and empty inputs"
     (is (nil? (shared/obfuscate nil)))

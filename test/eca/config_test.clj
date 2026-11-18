@@ -1343,3 +1343,51 @@
       (is (not (contains? names "a-list-subagent-only")))))
   (testing "empty agent map returns empty"
     (is (empty? (config/primary-agent-names {:agent {}})))))
+
+(def ^:private lsp-module
+  {:id :acme/lsp
+   :config-spec {:lspServers {:type :map :default {:clojure {:command ["clojure-lsp"]}}}
+                 :lspUrl {:type :string}}})
+
+(deftest external-map-keys-test
+  (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/hooks))]
+    (modules/add-external! "/tmp/lsp.clj" lsp-module)
+    (reset! config/initialization-config* {:pureConfig true
+                                           :lspServers {:python {:command ["pyright"]}}
+                                           :hooks {:myHook {:type "preToolCall"}}})
+    (config/clear-cache!)
+    (let [config (config/all (h/db))]
+      (testing "an external module's :map key keeps string entry names, its default's and the user's"
+        (is (= {"clojure" {:command ["clojure-lsp"]} "python" {:command ["pyright"]}}
+               (:lspServers config))))
+      (testing "built-in keys keep today's keys"
+        (is (= {:myHook {:type "preToolCall"}} (:hooks config)))))))
+
+(deftest unknown-config-keys-test
+  (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with :eca/hooks))]
+    (testing "ECA's own keys and the modules' are known; others aren't"
+      (is (= [:fooBar :lspUrl] (config/unknown-config-keys {:fooBar 1 :lspUrl "x" :hooks {} :pureConfig true
+                                                            :providers {} :defaultModel "a/b" :env "test"}))))
+    (testing "a loaded module's keys become known, even while it's off"
+      (modules/add-external! "/tmp/lsp.clj" lsp-module)
+      (modules/set-enabled! :acme/lsp false)
+      (is (= [:fooBar] (config/unknown-config-keys {:fooBar 1 :lspUrl "x"}))))
+    (testing "the message names them"
+      (is (= "Unknown config keys: `fooBar`, `lspUrl`. Check them for typos; a module's keys are known once the module is loaded."
+             (config/unknown-config-keys-text [:fooBar :lspUrl])))))
+  (testing "ECA's whole default config has no unknown key"
+    (reset! config/initialization-config* {:pureConfig true})
+    (config/clear-cache!)
+    (is (= [] (config/unknown-config-keys (config/all (h/db))))))
+  (testing "the client's own initializationOptions aren't flagged, e.g. eca-emacs's and IntelliJ's"
+    (reset! config/initialization-config* {:pureConfig true
+                                           :chatAgent nil
+                                           :serverPath "/opt/eca"
+                                           :serverArgs "--log-level debug"
+                                           :usageStringFormat "{session}"})
+    (config/clear-cache!)
+    (let [config (config/all (h/db))]
+      (is (contains? config :chatAgent))
+      (is (= [] (config/unknown-config-keys config)))
+      (testing "while the user's own keys still are"
+        (is (= [:chatAgnt] (config/unknown-config-keys (assoc config :chatAgnt "code"))))))))

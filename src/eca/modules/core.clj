@@ -4,15 +4,21 @@
    prompt sections and commands are listed like any other module's. It can't
    be disabled."
   (:require
+   [babashka.fs :as fs]
+   [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
    [eca.config :as config]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
-   [eca.features.modules :as f.modules]
    [eca.features.prompt :as f.prompt]
+   [eca.features.tools :as f.tools]
    [eca.llm-api :as llm-api]
    [eca.llm-util :as llm-util]
+   [eca.logger :as logger]
+   [eca.modules :as modules]
+   [eca.modules.config-spec :as config-spec]
+   [eca.modules.loader :as loader]
    [eca.secrets :as secrets]
    [eca.shared :as shared :refer [multi-str]])
   (:import
@@ -21,6 +27,217 @@
    [java.time.format DateTimeFormatter]))
 
 (set! *warn-on-reflection* true)
+
+;; /modules: list the modules, and enable, disable or reload one for the session.
+
+(def ^:private status-icon
+  {:active "✅"
+   :disabled "⏸️"
+   :inactive "⚠️"
+   :failed "❌"
+   :refused "⛔"})
+
+(defn ^:private parse-id
+  "A module id as users type it: `eca/mcp` or `:eca/mcp`."
+  [s]
+  (when-let [s (some-> s string/trim not-empty)]
+    (let [s (string/replace-first s #"^:" "")]
+      (when (string/includes? s "/")
+        (keyword s)))))
+
+(defn ^:private code-list [xs]
+  (string/join ", " (map #(str "`" % "`") xs)))
+
+(defn ^:private module-fn-value
+  "What a module's `:tools` or `:commands` function `f` gives outside of a
+   chat, or nil when it fails."
+  [entry ctx what f]
+  (let [module-ctx (modules/module-ctx ctx entry)]
+    (try
+      (modules/guarded-call module-ctx entry what f module-ctx)
+      (catch Exception e
+        (logger/warn "[modules]" (format "Could not list the %s of %s:" what (:id entry)) e)
+        nil))))
+
+(defn ^:private pairs
+  "The `[name value]` pairs of a module's `:tools` or `:commands`."
+  [m]
+  (when (coll? m)
+    (filter #(and (vector? %) (= 2 (count %))) m)))
+
+(defn ^:private tool-names
+  "The full names of a module's tools: `<prefix>__<name>`, or the name a tool
+   `:replaces`. For `:tools` functions, the ones they give outside of a chat."
+  [{:keys [module] :as entry} ctx]
+  (let [prefix (modules/prefix entry)
+        tools (:tools module)
+        tools (if (modules/fn-like? tools) (module-fn-value entry ctx "tools" tools) tools)]
+    (sort (for [[tool-name tool] (pairs tools)]
+            (or (:replaces tool) (str prefix "__" tool-name))))))
+
+(defn ^:private command-names
+  "The names of a module's own commands. For `:commands` functions, the ones
+   they give outside of a chat, without the ones it gives for MCP prompts,
+   skills and custom commands (`:client-type`)."
+  [{:keys [module] :as entry} ctx]
+  (let [commands (:commands module)
+        commands (if (modules/fn-like? commands) (module-fn-value entry ctx "commands" commands) commands)]
+    (sort (distinct (for [[command-name command] (pairs commands)
+                          :when (not (:client-type command))]
+                      command-name)))))
+
+(defn ^:private contributions [{:keys [module] :as entry} ctx]
+  (let [{:keys [system-prompts providers apis event-handlers config-spec rpc]} module
+        tools (tool-names entry ctx)
+        commands (command-names entry ctx)]
+    (remove nil?
+            [(when (seq tools)
+               (str "tools " (code-list tools)))
+             (when (seq commands)
+               (str "commands " (code-list (map #(str "/" %) commands))))
+             (when (seq system-prompts)
+               (str "prompt sections " (code-list (map :id system-prompts))))
+             (when (seq providers)
+               (str "providers " (code-list (sort (keys providers)))))
+             (when (seq apis)
+               (str "APIs " (code-list (sort (keys apis)))))
+             (when (seq rpc)
+               (str "protocol methods " (code-list (sort (keys rpc)))))
+             (when (seq event-handlers)
+               (str "handles " (code-list (sort (keys event-handlers)))))
+             (when-let [paths (seq (keys (config-spec/leaves config-spec)))]
+               (str "config " (code-list (sort (map config-spec/path-str paths)))))])))
+
+(defn ^:private llm-usage-text
+  "The module's LLM calls this session (`eca.api/complete!`), or nil."
+  [{:keys [db]} id]
+  (when-let [{:keys [calls cost]} (get-in db [:module-usage id])]
+    (str calls (if (= 1 calls) " LLM call" " LLM calls")
+         (when cost (str " ($" (shared/format-cost cost) ")")))))
+
+(defn ^:private module-text [{:keys [id module status reason source built-in? priority running?
+                                     warnings failures errors]
+                              :as entry}
+                             ctx]
+  (let [{:keys [description version]} module]
+    (multi-str
+     ;; a module that failed to load may have no id yet
+     (str (status-icon status "•") " `" (or id (str (fs/file-name source))) "`"
+          (when version (str " " version))
+          (when description (str " — " description)))
+     (str "  " (string/join " · " (remove nil? [(if built-in? "built-in" (str "from `" source "`"))
+                                                (when priority (str "priority " priority))
+                                                (when running? "running")
+                                                (llm-usage-text ctx id)
+                                                (when (pos? (or failures 0)) (str failures " failures in a row"))])))
+     (when (and reason (not= :active status))
+       (str "  " (name status) ": " reason))
+     (when (= :active status)
+       (for [line (contributions entry ctx)]
+         (str "  " line)))
+     (for [warning warnings]
+       (str "  warning: " warning))
+     (when-let [{:keys [what message]} (last errors)]
+       (str "  last error, in " what ": " message)))))
+
+(defn ^:private modules-text
+  "The `/modules` listing."
+  [config db]
+  (let [{:keys [active] :as by-status} (group-by #(if (= :active (:status %)) :active :other)
+                                                 (modules/statuses config))]
+    (multi-str
+     (format "## Modules (%d active)" (count active))
+     ""
+     (for [entry (concat active (:other by-status))]
+       (module-text entry {:config config :db db}))
+     ""
+     "`/modules enable <id>`, `/modules disable <id>` and `/modules reload <id>` take effect now, for this session."
+     "To keep a choice, set `modules.<id>.enabled` in your config.")))
+
+(defn ^:private known-ids [config]
+  (set (map :id (modules/statuses config))))
+
+(defn ^:private dependents-text [id before after]
+  (let [stopped (sort (remove (conj after id) before))]
+    (when (seq stopped)
+      (str "Also inactive now: " (code-list stopped) "."))))
+
+(defn ^:private handle!
+  "Runs `/modules [enable|disable|reload <id>]`, returning the text to show."
+  [args {:keys [db* messenger metrics config]}]
+  (let [[action id-str] args
+        components {:db* db* :messenger messenger :metrics metrics}
+        fresh-config #(config/all @db*)
+        id (parse-id id-str)]
+    (cond
+      (nil? action)
+      (modules-text config @db*)
+
+      (not (#{"enable" "disable" "reload"} action))
+      (str "Unknown action `" action "`. Use `/modules`, `/modules enable <id>`, `/modules disable <id>`"
+           " or `/modules reload <id>`.")
+
+      (nil? id)
+      (str "Which module? E.g. `/modules " action " eca/mcp`.")
+
+      (not (contains? (known-ids config) id))
+      (str "No module `" id "`. `/modules` lists them.")
+
+      (and (= "disable" action) (= :eca/core id))
+      "`:eca/core` can't be disabled."
+
+      :else
+      (let [before (:active-ids (modules/resolution config))]
+        (case action
+          "enable" (modules/set-enabled! id true)
+          "disable" (modules/set-enabled! id false)
+          ;; an external module is evaluated again from its source first
+          "reload" (do (loader/reload! id config @db*)
+                       (modules/restart! components (fresh-config) id)))
+        (let [config (fresh-config)
+              _ (modules/reconcile-if-started! components config)
+              ;; the module may add, replace or remove tools
+              _ (when messenger
+                  (f.tools/refresh-module-tool-servers! db* messenger config))
+              after (:active-ids (modules/resolution config))
+              status (some #(when (= id (:id %)) %) (modules/statuses config))]
+          (multi-str
+           (case action
+             "enable" (if (= :active (:status status))
+                        (str "Enabled `" id "` for this session.")
+                        (str "`" id "` is enabled but not active: " (:reason status)))
+             "disable" (str "Disabled `" id "` for this session.")
+             "reload" (if (= :active (:status status))
+                        (str "Reloaded `" id "`.")
+                        (str "`" id "` didn't come back: " (:reason status))))
+           (dependents-text id before after)))))))
+
+(defn ^:private active-ids-text
+  "One line naming the active modules, for `/doctor`."
+  [config]
+  (code-list (sort (map str (:active-ids (modules/resolution config))))))
+
+(defn ^:private value-kind [value]
+  (cond
+    (string? value) "a string"
+    (number? value) "a number"
+    (boolean? value) "a boolean"
+    (map? value) "an object"
+    (sequential? value) "an array"
+    :else (str "a " (type value))))
+
+(defn ^:private config-problems
+  "Configured values that don't fit the type a module declares for them.
+   Values aren't shown: they may be secrets."
+  [config]
+  (for [{:keys [path value type]} (config-spec/type-problems (modules/declared-keys config) config)]
+    (format "`%s` should be %s, got %s" (config-spec/path-str path)
+            (case type
+              :enum "one of the allowed values"
+              :map "an object"
+              :array "an array"
+              (str "a " (name type)))
+            (value-kind value))))
 
 (defn module-usage-lines
   "`/costs` lines for the LLM calls modules made (`eca.api/complete!`), by
@@ -108,10 +325,10 @@
                        existing-files))
                  "Credential files: None found")
                ""
-               (str "Active modules: " (f.modules/active-ids-text config))
-               (when-let [unknown (seq (f.modules/unknown-config-keys config))]
-                 (f.modules/unknown-config-keys-text unknown))
-               (when-let [problems (seq (f.modules/config-problems config))]
+               (str "Active modules: " (active-ids-text config))
+               (when-let [unknown (seq (config/unknown-config-keys config))]
+                 (config/unknown-config-keys-text unknown))
+               (when-let [problems (seq (config-problems config))]
                  (str "Config problems:\n" (string/join "\n" (map #(str "  " %) problems)))))))
 
 (defn ^:private fmt-tokens
@@ -454,9 +671,61 @@
 
 (defn ^:private modules-command
   [{:keys [chat-id] :as chat-ctx} {args :argv}]
-  (let [msg (f.modules/handle! args chat-ctx)]
+  (let [msg (handle! args chat-ctx)]
     {:type :chat-messages
      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text msg}]}]}}}))
+
+;; System prompt sections: each gets the prompt ctx, what the chat's system prompt is built from.
+
+(defn ^:private workspace-roots-section [db]
+  (when-let [roots (seq (:workspace-folders db))]
+    (multi-str
+     "## Workspace Roots"
+     ""
+     (format "<workspace-roots%s>" (f.prompt/attr-str {:description "Workspace roots used for path resolution and tool scoping."}))
+     (->> roots
+          (map (fn [{:keys [uri]}]
+                 (format "<workspace-root%s/>"
+                         (f.prompt/attr-str {:path (shared/uri->filename uri)}))))
+          (string/join "\n"))
+     "</workspace-roots>"
+     "")))
+
+(def ^:private path-resolution-section
+  (multi-str
+   "## Path Resolution"
+   ""
+   "Use workspace roots as the base for resolving relative paths. Tool paths must be absolute unless the tool says otherwise."))
+
+(def ^:private additional-system-info
+  (delay (slurp (io/resource "prompts/additional_system_info.md"))))
+
+(defn ^:private additional-info-section
+  "`:eca/additional-info`: OS, shell and other session facts."
+  [{:keys [selmer-ctx]}]
+  (shared/safe-selmer-render @additional-system-info selmer-ctx "additional-system-info"))
+
+(defn ^:private workspace-roots-prompt-section
+  "`:eca/workspace-roots`."
+  [{:keys [db]}]
+  (workspace-roots-section db))
+
+(defn ^:private path-resolution-prompt-section
+  "`:eca/path-resolution`."
+  [_ctx]
+  path-resolution-section)
+
+(defn ^:private context-section
+  "`:eca/context`: AGENTS.md files, attached stable contexts and the chat's
+   startup context."
+  [{:keys [refined-contexts chat-id db]}]
+  (let [stable-contexts (filter f.prompt/static-prompt-context? refined-contexts)
+        startup-ctx (get-in db [:chats chat-id :startup-context])]
+    (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
+      [""
+       "## Context"
+       ""
+       (f.prompt/contexts-str stable-contexts startup-ctx)])))
 
 (defn ^:private commands
   "The module's commands, `{name {:description :arguments :handler}}`, from
@@ -472,10 +741,10 @@
                            :doc "Per module id: enabled, source and priority."}
                  :disabledTools {:type :array :default []}
                  :toolCall {:outputTruncation {:type :map :default {:lines 2000 :sizeKb 50}}}}
-   :system-prompts [{:id :eca/additional-info :content #'f.prompt/additional-info-section}
-                    {:id :eca/workspace-roots :content #'f.prompt/workspace-roots-prompt-section}
-                    {:id :eca/path-resolution :content #'f.prompt/path-resolution-prompt-section}
-                    {:id :eca/context :content #'f.prompt/context-section}]  ; AGENTS.md, startup context
+   :system-prompts [{:id :eca/additional-info :content #'additional-info-section}
+                    {:id :eca/workspace-roots :content #'workspace-roots-prompt-section}
+                    {:id :eca/path-resolution :content #'path-resolution-prompt-section}
+                    {:id :eca/context :content #'context-section}]  ; AGENTS.md, startup context
    :commands (commands
               {"compact" #'compact-command "model" #'model-command "costs" #'costs-command "sync-system-prompt" #'sync-system-prompt-command "context" #'context-command "remote" #'remote-command "config" #'config-command "doctor" #'doctor-command "prompt-show" #'prompt-show-command "modules" #'modules-command}
               [["model" "Select model for current chat (Ex: /model anthropic/claude-sonnet-4-6)" [{:name "full-model"}]]

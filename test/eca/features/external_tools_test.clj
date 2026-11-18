@@ -7,10 +7,10 @@
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.features.commands :as f.commands]
-   [eca.features.modules :as f.modules]
    [eca.features.tools :as f.tools]
    [eca.features.tools.util :as tools.util]
    [eca.modules :as modules]
+   [eca.modules.core :as m.core]
    [eca.test-helper :as h]
    [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
@@ -246,7 +246,7 @@
       (is (= {:type :send-prompt :prompt "Take a note"}
              (f.commands/handle-command! "note" [] {:chat-id "chat-1" :config {} :db* (h/db*)}))))
     (testing "/modules lists its own commands"
-      (is (string/includes? (f.modules/modules-text {} (h/db)) "commands `/hello`")))))
+      (is (string/includes? (#'m.core/modules-text {} (h/db)) "commands `/hello`")))))
 
 (deftest module-tool-servers-test
   (with-modules [jira]
@@ -272,7 +272,7 @@
   (with-modules [jira {:id :acme/remote-fs
                        :tools {"read_file" {:replaces "eca__read_file" :description "Remote."
                                             :parameters {:type "object"} :handler (fn [_ _] "x")}}}]
-    (let [text (f.modules/modules-text {} (h/db))]
+    (let [text (#'m.core/modules-text {} (h/db))]
       (is (string/includes? text "tools `jira__issue`"))
       (is (string/includes? text "tools `eca__read_file`")))))
 

@@ -588,12 +588,6 @@
                        x))
                    m)))
 
-(defn map->snake-cased-map
-  "Converts top-level keyword keys to snake_case keywords, leaving other keys
- and nested maps as-is. Used for hook script inputs to follow shell/bash conventions."
-  [m]
-  (update-keys m #(if (keyword? %) (csk/->snake_case %) %)))
-
 (defn obfuscate
   "Obfuscate all but first `preserve-num` and last `preserve-num` characters of a string.
    If the string is 4 characters or less, obfuscate all characters.
@@ -672,23 +666,6 @@
                          (deliver p# e#))))))]
          (.start t#)
          p#))))
-
-(defn get-workspaces
-  "Returns a vector of all workspace folder paths.
-   Returns nil if no workspace folders are configured."
-  [db]
-  (when-let [folders (seq (:workspace-folders db))]
-    (mapv (comp uri->filename :uri) folders)))
-
-(defn db-cache-path
-  "Returns the absolute path to the workspace-specific chat DB cache as a
-   string. Since the per-chat layout (#557) this is the workspace cache
-   directory (holding `chats/index.transit.json` and `chats/<id>.transit.json`)
-   instead of the legacy `db.transit.json` file. Used by hooks to access the
-   cached database, typically via `eca read-chat --db-cache-path`."
-  [db]
-  (str (cache/workspace-cache-dir (or (:initial-workspace-folders db)
-                                      (:workspace-folders db)) uri->filename)))
 
 (defn messages-after-last-compact-marker
   "Returns messages after the last compact_marker, or all messages if none exists.

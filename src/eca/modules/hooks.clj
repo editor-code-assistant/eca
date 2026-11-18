@@ -6,8 +6,10 @@
   (:require
    [babashka.fs :as fs]
    [babashka.process :as p]
+   [camel-snake-kebab.core :as csk]
    [cheshire.core :as json]
    [clojure.string :as string]
+   [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
@@ -26,6 +28,29 @@
 
 (def ^:const default-hook-timeout-ms 30000)
 
+(defn ^:private get-workspaces
+  "Returns a vector of all workspace folder paths.
+   Returns nil if no workspace folders are configured."
+  [db]
+  (when-let [folders (seq (:workspace-folders db))]
+    (mapv (comp shared/uri->filename :uri) folders)))
+
+(defn ^:private workspace-cache-path
+  "Returns the absolute path to the workspace-specific chat DB cache as a
+   string. Since the per-chat layout (#557) this is the workspace cache
+   directory (holding `chats/index.transit.json` and `chats/<id>.transit.json`)
+   instead of the legacy `db.transit.json` file. Used by hooks to access the
+   cached database, typically via `eca read-chat --db-cache-path`."
+  [db]
+  (str (cache/workspace-cache-dir (or (:initial-workspace-folders db)
+                                      (:workspace-folders db)) shared/uri->filename)))
+
+(defn ^:private map->snake-cased-map
+  "Converts top-level keyword keys to snake_case keywords, leaving other keys
+ and nested maps as-is. Used for hook script inputs to follow shell/bash conventions."
+  [m]
+  (update-keys m #(if (keyword? %) (csk/->snake_case %) %)))
+
 (defn ^:private session-id-from-db-cache-path
   "Session key derived from `db-cache-path`: the workspace cache dir name.
    The path is that dir itself since the per-chat layout (#557); a legacy
@@ -43,8 +68,8 @@
   "Returns common fields for ALL hooks: :workspaces, :cwd, :db-cache-path,
    :session-id, :eca-executable, and :eca-version."
   [db]
-  (let [workspaces (shared/get-workspaces db)
-        db-cache-path (shared/db-cache-path db)]
+  (let [workspaces (get-workspaces db)
+        db-cache-path (workspace-cache-path db)]
     {:workspaces workspaces
      :cwd (first workspaces)
      :db-cache-path db-cache-path
@@ -242,7 +267,7 @@
                   file (:file action)
                   ;; Convert to snake_case for bash/shell conventions
                   ;; Nested keys (e.g. tool_input/tool_response): kebab-case (matches LLM format)
-                  input (json/generate-string (shared/map->snake-cased-map
+                  input (json/generate-string (map->snake-cased-map
                                                (merge {:hook-name name :hook-type hook-type} data)))
                   ;; modules may change the command first (:shell/before-exec)
                   run-command! (fn [opts]

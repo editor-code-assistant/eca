@@ -161,6 +161,19 @@
     (ask-login-step! ctx declaration)
     (login-step ctx)))
 
+(defn ^:private key-auth-override-warning
+  "The warning to show during `/login` when a configured or env API key takes
+   precedence over login auth for `provider-name` (see
+   `llm-api.auth/api-key-overrides-login?`), else nil."
+  [provider-name config]
+  (when (llm-api.auth/api-key-overrides-login? provider-name config)
+    (let [env-var-name (llm-api.auth/->env-var-name provider-name)]
+      (format (str "⚠️ An API key is already configured for `%s` (e.g. the `%s` environment variable "
+                   "or a `key` in your ECA config). Configured API keys take precedence over login auth, "
+                   "so ECA may keep using the API key — which can incur paid API usage — even after you log in. "
+                   "Unset `%s` (or remove the provider `key`) to use your login instead.")
+              provider-name env-var-name env-var-name))))
+
 ;; No provider selected
 (defn ^:private pick-provider! [{:keys [db* chat-id input config send-msg! ask!] :as ctx}]
   (let [provider (string/trim input)
@@ -168,7 +181,7 @@
     (if (some #{provider} providers)
       (do (swap! db* assoc-in [:chats chat-id :login-provider] provider)
           (swap! db* assoc-in [:auth provider] {:step :login/start})
-          (when-let [warning (llm-api.auth/key-auth-override-warning provider config)]
+          (when-let [warning (key-auth-override-warning provider config)]
             (send-msg! warning))
           (run-login-step! (assoc ctx :provider provider)))
       (if ask!

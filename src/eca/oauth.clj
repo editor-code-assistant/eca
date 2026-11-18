@@ -1,16 +1,13 @@
 (ns eca.oauth
   (:require
-   [cheshire.core :as json]
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.digest :as digest]
    [eca.logger :as logger]
    [selmer.parser :as selmer]
-   [hato.client :as http]
    [ring.adapter.jetty :as jetty]
    [ring.middleware.keyword-params :refer [wrap-keyword-params]]
    [ring.middleware.params :refer [wrap-params]]
-   [ring.util.codec :as ring.util]
    [ring.util.response :as response])
   (:import
    [java.security KeyStore SecureRandom]
@@ -23,14 +20,6 @@
 (def ^:private logger-tag "[OAUTH]")
 
 (defonce ^:private oauth-server-by-port* (atom {}))
-
-(def eca-client-id "Ov23liT613uPA2ydLTa8")
-
-(def cimd-client-id
-  "ECA's OAuth Client ID Metadata Document (CIMD) URL, published from
-   docs/oauth/client-metadata.json. Authorization servers fetch it to identify
-   ECA, replacing Dynamic Client Registration."
-  "https://eca.dev/oauth/client-metadata.json")
 
 (def ^:private logo-svg
   (delay
@@ -49,42 +38,11 @@
                        :error-uri error-uri
                        :logo-svg @logo-svg}))
 
-(defn ^:private url->base-url
-  "Extract the base URL (scheme + host + port) from a full URL.
-   E.g., 'https://api.example.com/v1/mcp' -> 'https://api.example.com'"
-  [^String url]
-  (let [uri (java.net.URI. url)]
-    (str (.getScheme uri) "://" (.getHost uri)
-         (when (pos? (.getPort uri))
-           (str ":" (.getPort uri))))))
-
-(defn url-without-query
-  "Strip query string and fragment from a URL, preserving scheme, authority and path.
-   E.g., 'https://api.example.com/v1/mcp?token=x#frag' -> 'https://api.example.com/v1/mcp'
-   Returns nil for nil input."
-  [^String url]
-  (when url
-    (let [uri (java.net.URI. url)]
-      (str (.getScheme uri) "://" (.getAuthority uri) (.getPath uri)))))
-
 (defn get-free-port []
   (let [socket (java.net.ServerSocket. 0)
         port (.getLocalPort socket)]
     (.close socket)
     port))
-
-(defn ^:private parse-www-authenticate
-  "Parse WWW-Authenticate header to extract OAuth parameters.
-   Returns a map with :realm, :error, :error_description, :resource_metadata if present."
-  [header-value]
-  (when (and header-value (string/starts-with? (string/lower-case header-value) "bearer"))
-    (let [params-str (string/trim (subs header-value (count "Bearer")))
-          ;; Parse key="value" pairs, handling commas within values
-          param-pattern #"(\w+)=\"([^\"]*)\""
-          matches (re-seq param-pattern params-str)]
-      (into {:type :bearer}
-            (for [[_ k v] matches]
-              [(keyword k) v])))))
 
 (defn ^:private rand-bytes
   "Returns a random byte array of the specified size."
@@ -134,222 +92,6 @@
                                                    :error-description error_description
                                                    :error-uri error_uri}))
             (response/content-type "text/html"))))))
-
-(defn ^:private successful-json-body
-  "Extracts :body from an HTTP response only when status is 2xx and body is a map.
-   Hato with {:as :json :coerce :unexceptional} leaves :body as a raw String for
-   non-2xx responses, which would break callers expecting a map."
-  [response]
-  (when (and response (<= 200 (:status response) 299))
-    (let [body (:body response)]
-      (when (map? body) body))))
-
-(defn ^:private valid-auth-challenge?
-  "A 401 is only a valid OAuth challenge if it includes a www-authenticate header.
-   Some proxies (e.g. istio-envoy) return 401 for unsupported methods like HEAD
-   without actually requiring authentication."
-  [response]
-  (and (= 401 (:status response))
-       (some? (get (:headers response) "www-authenticate"))))
-
-(def ^:private probe-ping-body
-  "JSON-RPC ping body used to probe for OAuth challenges. Some servers
-   (e.g. Figma) only return 401 + www-authenticate when the request body is
-   a recognizable MCP message; a bare '{}' is treated as malformed and yields
-   a generic JSON-RPC error instead of an auth challenge.
-   `ping` is used (rather than `initialize`) so the probe is never confused
-   with the real MCP handshake by servers that maintain per-connection state
-   or by test mocks that count requests by method name."
-  (json/generate-string
-   {:jsonrpc "2.0"
-    :id 0
-    :method "ping"}))
-
-(defn ^:private probe-auth
-  "Probe the MCP server for a 401 auth challenge with www-authenticate header.
-   Tries HEAD first; falls back to POST with a JSON-RPC ping body if HEAD
-   doesn't return a valid challenge (some servers like Glean don't support HEAD,
-   some proxies like istio-envoy return 401 on HEAD without actually requiring
-   auth, and some servers like Figma only emit the auth challenge in response to
-   a recognizable MCP request)."
-  [^String url]
-  (let [head-response (http/head url {:timeout 10000
-                                      :throw-exceptions? false})]
-    (if (valid-auth-challenge? head-response)
-      head-response
-      (let [post-response (http/post url {:timeout 10000
-                                          :throw-exceptions? false
-                                          :headers {"Content-Type" "application/json"
-                                                    "Accept" "application/json, text/event-stream"}
-                                          :body probe-ping-body})]
-        (when (valid-auth-challenge? post-response)
-          post-response)))))
-
-(defn ^:private fetch-json
-  "GET a URL and return parsed JSON body only on 2xx, nil otherwise."
-  [^String url]
-  (successful-json-body
-   (http/get url {:timeout 10000
-                  :throw-exceptions? false
-                  :as :json})))
-
-(defn ^:private discover-resource-metadata
-  "Discover Protected Resource Metadata (RFC 9728) following MCP spec priority:
-   1. resource_metadata URL from WWW-Authenticate header
-   2. /.well-known/oauth-protected-resource on the base URL
-   3. /.well-known/oauth-authorization-server on the base URL (legacy)
-   4. /.well-known/openid-configuration on the base URL (OIDC)
-   5. /oidc/.well-known/openid-configuration (common provider convention)"
-  [www-authenticate ^String base-url]
-  (or (when-let [rm-url (:resource_metadata www-authenticate)]
-        (fetch-json rm-url))
-      (fetch-json (str base-url "/.well-known/oauth-protected-resource"))
-      (fetch-json (str base-url "/.well-known/oauth-authorization-server"))
-      (fetch-json (str base-url "/.well-known/openid-configuration"))
-      (fetch-json (str base-url "/oidc/.well-known/openid-configuration"))))
-
-(defn ^:private discover-auth-server-metadata
-  "Discover Authorization Server Metadata following MCP spec:
-   Try RFC 8414 (/.well-known/oauth-authorization-server) first,
-   then OIDC Discovery 1.0 (/.well-known/openid-configuration)."
-  [^String auth-server]
-  (let [uri (java.net.URI. auth-server)
-        base (str (.getScheme uri) "://" (.getAuthority uri))
-        path (.getPath uri)
-        path (if (= "/" path) "" path)]
-    (or (fetch-json (str base "/.well-known/oauth-authorization-server" path))
-        (fetch-json (str base "/.well-known/openid-configuration")))))
-
-(defn oauth-info
-  "Perform OAuth discovery for the given MCP server URL.
-   The client follows the MCP spec priority: pre-registered `configured-client-id`,
-   then ECA's Client ID Metadata Document (CIMD) when the authorization server
-   advertises `client_id_metadata_document_supported` and no other client setting
-   (secret, oauth port, name) is configured, then Dynamic Client Registration (DCR).
-   Optional `configured-client-secret` enables confidential OAuth (e.g. Slack MCP).
-   When DCR is performed, a `client_secret` returned by the registration endpoint
-   is also captured and used in the subsequent token exchange (some servers like
-   Figma issue a secret even when the client requests `token_endpoint_auth_method: none`).
-   Optional `configured-oauth-port` uses a fixed port for the OAuth callback (required
-   by providers like Slack that mandate pre-registered redirect URIs).
-   Optional `configured-client-name` overrides the `client_name` sent during DCR
-   (some servers like Figma allowlist clients by name)."
-  ([^String url] (oauth-info url nil))
-  ([^String url configured-client-id] (oauth-info url configured-client-id nil))
-  ([^String url configured-client-id configured-client-secret]
-   (oauth-info url configured-client-id configured-client-secret nil))
-  ([^String url configured-client-id configured-client-secret configured-oauth-port]
-   (oauth-info url configured-client-id configured-client-secret configured-oauth-port nil))
-  ([^String url configured-client-id configured-client-secret configured-oauth-port configured-client-name]
-   (let [base-url (url->base-url url)
-         auth-response (probe-auth url)]
-     (when-let [headers (:headers auth-response)]
-       (let [ssl? (some? configured-oauth-port)
-             callback-port (if configured-oauth-port
-                             (int configured-oauth-port)
-                             (get-free-port))
-             scheme (if ssl? "https" "http")
-             redirect-uri (format "%s://localhost:%s/auth/callback" scheme callback-port)
-             www-authenticate (some-> (get headers "www-authenticate") parse-www-authenticate)
-             ;; Step 1: Discover resource/auth metadata (PRM per RFC 9728, then legacy fallback)
-             first-meta (discover-resource-metadata www-authenticate base-url)
-             auth-server (first (:authorization_servers first-meta))
-             ;; Step 2: If PRM returned authorization_servers but no token_endpoint,
-             ;; fetch AS metadata via RFC 8414 or OIDC Discovery 1.0
-             auth-server-meta (when (and auth-server (not (:token_endpoint first-meta)))
-                                (discover-auth-server-metadata auth-server))
-             ;; Merge: auth server metadata takes precedence, PRM as fallback
-             meta (merge first-meta auth-server-meta)]
-         ;; Only proceed if we discovered a usable authorization_endpoint
-         (when (:authorization_endpoint meta)
-           (let [base-auth-endpoint (:authorization_endpoint meta)
-                 cimd? (and (true? (:client_id_metadata_document_supported meta))
-                            (not (or configured-client-id
-                                     configured-client-secret
-                                     configured-client-name
-                                     configured-oauth-port)))
-                 _ (when cimd?
-                     (logger/info logger-tag (format "Using Client ID Metadata Document %s as client_id" cimd-client-id)))
-                 ;; Skip DCR when a client-id is pre-configured or CIMD is used
-                 new-client-info (when-not (or configured-client-id cimd?)
-                                   (when-let [reg-endpoint (:registration_endpoint meta)]
-                                     (let [auth-method (if configured-client-secret
-                                                         "client_secret_post"
-                                                         "none")
-                                           client-name (or configured-client-name "ECA (Editor Code Assistant)")
-                                           _ (logger/info logger-tag
-                                                          (format "Attempting DCR at %s with client_name=%s"
-                                                                  reg-endpoint client-name))
-                                           res (http/post
-                                                reg-endpoint
-                                                {:timeout 10000
-                                                 :as :json
-                                                 :throw-exceptions? false
-                                                 :headers {"Content-Type" "application/json"}
-                                                 :body (json/generate-string
-                                                        {:redirect_uris [redirect-uri]
-                                                         :token_endpoint_auth_method auth-method
-                                                         :grant_types ["authorization_code" "refresh_token"]
-                                                         :response_types ["code"]
-                                                         :client_name client-name
-                                                         :client_uri "http://github.com/editor-code-assistant/eca"
-                                                         :client_id eca-client-id
-                                                         :client_id_issued_at (.getEpochSecond (java.time.Instant/now))})})]
-                                       (if (<= 200 (:status res) 299)
-                                         (let [body (:body res)
-                                               cid (:client_id body)
-                                               cs (:client_secret body)]
-                                           (logger/info logger-tag
-                                                        (format "DCR succeeded at %s, client_id=%s%s"
-                                                                reg-endpoint
-                                                                cid
-                                                                (if cs
-                                                                  " (confidential, received client_secret)"
-                                                                  "")))
-                                           {:client-id cid :client-secret cs})
-                                         (do (logger/warn logger-tag
-                                                          (format "DCR rejected by %s status=%s body=%s"
-                                                                  reg-endpoint
-                                                                  (:status res)
-                                                                  (let [b (str (:body res))]
-                                                                    (if (> (count b) 200)
-                                                                      (str (subs b 0 200) "...")
-                                                                      b))))
-                                             nil)))))
-                 {:keys [challenge verifier]} (generate-pkce)
-                 client-id (or configured-client-id
-                               (when cimd? cimd-client-id)
-                               (:client-id new-client-info)
-                               eca-client-id)
-                 client-secret (or configured-client-secret (:client-secret new-client-info))
-                 scope (when-let [scopes (:scopes_supported meta)]
-                         (if (coll? scopes)
-                           (string/join " " scopes)
-                           scopes))
-                 query-params (ring.util/form-encode
-                               (cond-> {:response_type "code"
-                                        :client_id client-id
-                                        :code_challenge_method "S256"
-                                        :code_challenge challenge
-                                        :state verifier
-                                        :redirect_uri redirect-uri
-                                        :resource url}
-                                 scope (assoc :scope scope)))]
-             (cond-> {:callback-port callback-port
-                      :token-endpoint (or (:token_endpoint meta)
-                                          (str auth-server "/access_token"))
-                      :verifier verifier
-                      :client-id client-id
-                      :redirect-uri redirect-uri
-                      :resource url
-                      :authorization-endpoint (str base-auth-endpoint "?" query-params)}
-               ssl? (assoc :ssl? true)
-               client-secret (assoc :client-secret client-secret)))))))))
-
-(comment
-  (oauth-info "https://mcp.atlassian.com/v1/sse")
-  (oauth-info "https://mcp.miro.com/")
-  (oauth-info "https://api.githubcopilot.com/mcp/"))
 
 (defn ^:private build-ssl-context
   "Loads the bundled localhost PKCS12 keystore from classpath and builds
@@ -408,104 +150,3 @@
     (.stop server)
     (swap! oauth-server-by-port* dissoc port)
     (logger/info logger-tag "OAuth server stopped")))
-
-(defn ^:private parse-body
-  "Attempt to parse body as JSON, then URL-encoded, falling back to raw string."
-  [^String body-str]
-  (cond
-    (nil? body-str) nil
-    (string/blank? body-str) nil
-    :else
-    (or
-     ;; Try JSON first (starts with { or [)
-     (when (or (string/starts-with? (string/trim body-str) "{")
-               (string/starts-with? (string/trim body-str) "["))
-       (try
-         (json/parse-string body-str true)
-         (catch Exception _ nil)))
-     ;; Try URL-encoded format (key=value&key2=value2)
-     (when (and (string/includes? body-str "=")
-                (not (string/includes? body-str "\n")))
-       (try
-         (-> (ring.util/form-decode body-str)
-             (update-keys keyword))
-         (catch Exception _ nil)))
-     ;; Fallback to raw error
-     {:raw_error body-str})))
-
-(defn authorize-token! [{:keys [token-endpoint verifier client-id client-secret redirect-uri resource]} code]
-  (let [{:keys [status body]} (http/post
-                               token-endpoint
-                               {:headers {"Content-Type" "application/x-www-form-urlencoded"
-                                          "Accept" "application/json"}
-                                :body (ring.util/form-encode
-                                       (cond-> {:grant_type "authorization_code"
-                                                :client_id client-id
-                                                :code code
-                                                :code_verifier verifier
-                                                :redirect_uri redirect-uri}
-                                         client-secret (assoc :client_secret client-secret)
-                                         resource (assoc :resource resource)))
-                                :throw-exceptions? false
-                                :as :stream})
-        body-str (when body (slurp body))
-        parsed-body (parse-body body-str)]
-    (logger/debug logger-tag (format "Token response status=%d body=%s" status (pr-str parsed-body)))
-    (cond
-      ;; Success case
-      (and (= 200 status) (:access_token parsed-body))
-      {:refresh-token (:refresh_token parsed-body)
-       :access-token (:access_token parsed-body)
-       :expires-at (+ (quot (System/currentTimeMillis) 1000)
-                      (or (:expires_in parsed-body) 3600))}
-
-      ;; Error in response body (some OAuth servers return 200 with error in body)
-      (:error parsed-body)
-      (throw (ex-info (format "OAuth error: %s - %s"
-                              (:error parsed-body)
-                              (or (:error_description parsed-body) "No description"))
-                      {:status status
-                       :error (:error parsed-body)
-                       :error-description (:error_description parsed-body)
-                       :body parsed-body}))
-
-      ;; Non-200 status
-      (not= 200 status)
-      (throw (ex-info (format "OAuth token exchange failed (HTTP %d): %s" status (or body-str "No response body"))
-                      {:status status
-                       :body parsed-body}))
-
-      ;; 200 but no access_token
-      :else
-      (throw (ex-info (format "OAuth response missing access_token: %s" (pr-str parsed-body))
-                      {:status status
-                       :body parsed-body})))))
-
-(defn refresh-token!
-  "Refresh an OAuth access token using a refresh token.
-   Returns {:access-token :refresh-token :expires-at} on success, nil if refresh fails."
-  [token-endpoint client-id refresh-token & {:keys [client-secret resource]}]
-  (try
-    (let [{:keys [status body]} (http/post
-                                 token-endpoint
-                                 {:headers {"Content-Type" "application/x-www-form-urlencoded"
-                                            "Accept" "application/json"}
-                                  :body (ring.util/form-encode
-                                         (cond-> {:grant_type "refresh_token"
-                                                  :client_id client-id
-                                                  :refresh_token refresh-token}
-                                           client-secret (assoc :client_secret client-secret)
-                                           resource (assoc :resource resource)))
-                                  :throw-exceptions? false
-                                  :as :stream})
-          body-str (when body (slurp body))
-          parsed-body (parse-body body-str)]
-      (logger/debug logger-tag (format "Refresh token response status=%d body=%s" status (pr-str parsed-body)))
-      (when (and (= 200 status) (:access_token parsed-body))
-        {:refresh-token (or (:refresh_token parsed-body) refresh-token)
-         :access-token (:access_token parsed-body)
-         :expires-at (+ (quot (System/currentTimeMillis) 1000)
-                        (or (:expires_in parsed-body) 3600))}))
-    (catch Exception e
-      (logger/warn logger-tag (format "Failed to refresh token: %s" (.getMessage e)))
-      nil)))

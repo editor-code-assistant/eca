@@ -6,7 +6,6 @@
    [eca.db.migration :as db.migration]
    [eca.features.chat :as f.chat]
    [eca.features.chat.ops :as f.chat.ops]
-   [eca.features.modules :as f.modules]
    [eca.features.tools :as f.tools]
    [eca.llm-api.auth :as llm-api.auth]
    [eca.logger :as logger]
@@ -139,10 +138,10 @@
    key, for modules' keys, so ECA flags typos itself."
   [db* messenger config]
   (try
-    (let [unknown (f.modules/unknown-config-keys config)
+    (let [unknown (config/unknown-config-keys config)
           previous (set (:unknown-config-keys @db*))]
       (when (seq (remove previous unknown))
-        (let [text (f.modules/unknown-config-keys-text unknown)]
+        (let [text (config/unknown-config-keys-text unknown)]
           (logger/warn "[CONFIG]" text)
           (messenger/showMessage messenger {:type :warning :message text})))
       (swap! db* assoc :unknown-config-keys unknown))

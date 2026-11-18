@@ -9,12 +9,15 @@
    [eca.db.global-cache :as db.global-cache]
    [eca.modules.mcp :as m.mcp]
    [eca.network :as network]
-   [eca.oauth :as oauth]
+   [hato.client :as http]
+   [matcher-combinators.matchers :as m]
+   [matcher-combinators.test :refer [match?]]
    [plumcp.core.api.mcp-client :as pmc]
    [plumcp.core.client.client-support :as pcs]
    [plumcp.core.client.http-client-transport :as phct]
    [plumcp.core.protocol :as pp]
-   [plumcp.core.support.http-client :as phc]))
+   [plumcp.core.support.http-client :as phc]
+   [ring.util.codec :as ring.util]))
 
 (deftest tool-servers-test
   (let [tool-servers #(#'m.mcp/tool-servers {:db %1 :config (or %2 {})})]
@@ -558,13 +561,13 @@
                                      :client-id "client-abc"
                                      :client-secret "secret-xyz"}}})
           oauth-info-args* (atom nil)]
-      (with-redefs [oauth/oauth-info (fn [url cid csecret _port _cname]
-                                       (reset! oauth-info-args* {:url url :client-id cid :client-secret csecret})
-                                       {:token-endpoint "https://example.com/token"
-                                        :client-id cid
-                                        :client-secret csecret
-                                        :resource url})
-                    oauth/refresh-token! (fn [_te _cid _rt & _opts]
+      (with-redefs [m.mcp/discover-oauth-info (fn [url cid csecret _port _cname]
+                                                (reset! oauth-info-args* {:url url :client-id cid :client-secret csecret})
+                                                {:token-endpoint "https://example.com/token"
+                                                 :client-id cid
+                                                 :client-secret csecret
+                                                 :resource url})
+                    m.mcp/refresh-token! (fn [_te _cid _rt & _opts]
                                            {:access-token "new-access"
                                             :refresh-token "refresh-2"
                                             :expires-at 9999})
@@ -592,11 +595,11 @@
                                      :client-id "persisted-id"
                                      :client-secret "persisted-secret"}}})
           oauth-info-args* (atom nil)]
-      (with-redefs [oauth/oauth-info (fn [url cid csecret _port _cname]
-                                       (reset! oauth-info-args* {:client-id cid :client-secret csecret})
-                                       {:token-endpoint "https://example.com/token"
-                                        :client-id cid :client-secret csecret :resource url})
-                    oauth/refresh-token! (fn [_te _cid _rt & _opts]
+      (with-redefs [m.mcp/discover-oauth-info (fn [url cid csecret _port _cname]
+                                                (reset! oauth-info-args* {:client-id cid :client-secret csecret})
+                                                {:token-endpoint "https://example.com/token"
+                                                 :client-id cid :client-secret csecret :resource url})
+                    m.mcp/refresh-token! (fn [_te _cid _rt & _opts]
                                            {:access-token "a" :refresh-token "r" :expires-at 2})
                     db.global-cache/update-global-cache! (fn [_db _metrics] nil)]
         (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil
@@ -606,7 +609,7 @@
   (testing "no-op (no DCR) when there is no stored refresh token"
     (let [db* (atom {:mcp-auth {"s" {:type :auth/oauth :access-token "a"}}})
           oauth-called?* (atom false)]
-      (with-redefs [oauth/oauth-info (fn [& _] (reset! oauth-called?* true) nil)]
+      (with-redefs [m.mcp/discover-oauth-info (fn [& _] (reset! oauth-called?* true) nil)]
         (is (nil? (#'m.mcp/try-refresh-token! "s" db* "https://example.com/mcp" nil {})))
         (is (false? @oauth-called?*) "oauth-info must not run without a refresh token")))))
 
@@ -859,3 +862,449 @@
       (run! deref (mapv #(future (pp/send-message-to-server wrapped %)) messages))
       (is (= (set messages) (set (string/split-lines (str out)))))
       (is (= {:id :stdio} (pp/client-transport-info wrapped))))))
+
+;; OAuth
+
+(defn- make-auth-response [www-authenticate-header]
+  {:status 401
+   :headers {"www-authenticate" www-authenticate-header}})
+
+(defn- make-json-response [status body]
+  {:status status
+   :body body})
+
+(deftest oauth-info-prm-discovery-test
+  (testing "discovers metadata via resource_metadata from WWW-Authenticate header"
+    (let [get-urls (atom [])]
+      (with-redefs [http/head (fn [_ _] {:status 200})
+                    http/post (fn [url _]
+                                (if (string/includes? url "register")
+                                  {:status 404}
+                                  (make-auth-response
+                                   "Bearer realm=\"test\", resource_metadata=\"https://example.com/prm\"")))
+                    http/get (fn [url _opts]
+                               (swap! get-urls conj url)
+                               (cond
+                                 (= url "https://example.com/prm")
+                                 (make-json-response 200
+                                                     {:authorization_servers ["https://auth.example.com"]
+                                                      :scopes_supported ["read" "write"]})
+
+                                 (string/includes? url "oauth-authorization-server")
+                                 (make-json-response 200
+                                                     {:authorization_endpoint "https://auth.example.com/authorize"
+                                                      :token_endpoint "https://auth.example.com/token"})
+                                 :else
+                                 {:status 404}))]
+        (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+          (is (some? info))
+          (is (= "https://auth.example.com/token" (:token-endpoint info)))
+          (is (= "https://example.com/mcp" (:resource info)))
+          (is (string/includes? (:authorization-endpoint info) "scope=read+write"))
+          (is (not (string/includes? (:authorization-endpoint info) "scopes=")))
+          (is (string/includes? (:authorization-endpoint info)
+                                "resource=https%3A%2F%2Fexample.com%2Fmcp"))
+          (is (= "https://example.com/prm" (first @get-urls))
+              "should fetch resource_metadata URL first")))))
+
+  (testing "falls back to /.well-known/oauth-protected-resource when no resource_metadata in header"
+    (let [get-urls (atom [])]
+      (with-redefs [http/head (fn [_ _] {:status 200})
+                    http/post (fn [url _]
+                                (if (string/includes? url "register")
+                                  {:status 404}
+                                  (make-auth-response "Bearer realm=\"test\"")))
+                    http/get (fn [url _]
+                               (swap! get-urls conj url)
+                               (cond
+                                 (= url "https://example.com/.well-known/oauth-protected-resource")
+                                 (make-json-response 200
+                                                     {:authorization_servers ["https://auth.example.com"]
+                                                      :scopes_supported ["all"]})
+
+                                 (string/includes? url "oauth-authorization-server")
+                                 (make-json-response 200
+                                                     {:authorization_endpoint "https://auth.example.com/authorize"
+                                                      :token_endpoint "https://auth.example.com/token"})
+                                 :else
+                                 {:status 404}))]
+        (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+          (is (some? info))
+          (is (= "https://auth.example.com/token" (:token-endpoint info)))
+          (is (= "https://example.com/.well-known/oauth-protected-resource"
+                 (first @get-urls))
+              "should try PRM well-known path first")))))
+
+  (testing "falls back to /.well-known/oauth-authorization-server when PRM not available"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 404}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (cond
+                               (string/includes? url "oauth-protected-resource")
+                               {:status 404}
+
+                               (= url "https://example.com/.well-known/oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://example.com/authorize"
+                                                    :token_endpoint "https://example.com/token"
+                                                    :scopes_supported ["api"]})
+                               :else
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+        (is (some? info))
+        (is (= "https://example.com/token" (:token-endpoint info)))))))
+
+(deftest oauth-info-oidc-discovery-test
+  (testing "falls back to OIDC discovery when RFC 8414 metadata not available"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 404}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (cond
+                               (string/includes? url "oauth-protected-resource")
+                               (make-json-response 200
+                                                   {:authorization_servers ["https://auth.example.com/oidc"]})
+
+                               (string/includes? url "oauth-authorization-server")
+                               {:status 404}
+
+                               (= url "https://auth.example.com/.well-known/openid-configuration")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://auth.example.com/oidc/authorize"
+                                                    :token_endpoint "https://auth.example.com/oidc/token"
+                                                    :scopes_supported ["openid" "sql"]})
+                               :else
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+        (is (some? info))
+        (is (= "https://auth.example.com/oidc/token" (:token-endpoint info)))
+        (is (string/includes? (:authorization-endpoint info) "scope=openid+sql"))))))
+
+(deftest oauth-info-scope-formatting-test
+  (testing "formats scopes as space-separated string using 'scope' param"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 404}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://example.com/authorize"
+                                                    :token_endpoint "https://example.com/token"
+                                                    :scopes_supported ["read" "write" "admin"]})
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")
+            auth-url (:authorization-endpoint info)]
+        (is (string/includes? auth-url "scope=read+write+admin"))
+        (is (not (string/includes? auth-url "scopes="))))))
+
+  (testing "omits scope param when scopes_supported is nil"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 404}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://example.com/authorize"
+                                                    :token_endpoint "https://example.com/token"})
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")
+            auth-url (:authorization-endpoint info)]
+        (is (not (string/includes? auth-url "scope=")))))))
+
+(deftest oauth-info-resource-parameter-test
+  (testing "includes resource parameter in authorization URL"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 404}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://example.com/authorize"
+                                                    :token_endpoint "https://example.com/token"})
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/api/mcp")]
+        (is (= "https://example.com/api/mcp" (:resource info)))
+        (is (string/includes? (:authorization-endpoint info)
+                              "resource=https%3A%2F%2Fexample.com%2Fapi%2Fmcp")))))
+
+  (testing "passes resource in authorize-token!"
+    (let [posted-body (atom nil)]
+      (with-redefs [http/post (fn [_ opts]
+                                (reset! posted-body (:body opts))
+                                {:status 200
+                                 :body (java.io.ByteArrayInputStream.
+                                        (.getBytes "{\"access_token\":\"tok\",\"expires_in\":3600}"))})]
+        (#'m.mcp/authorize-token! {:token-endpoint "https://example.com/token"
+                                   :verifier "test-verifier"
+                                   :client-id "test-client"
+                                   :redirect-uri "http://localhost:9999/auth/callback"
+                                   :resource "https://example.com/api/mcp"}
+                                  "auth-code")
+        (let [decoded (ring.util/form-decode @posted-body)]
+          (is (= "https://example.com/api/mcp" (get decoded "resource")))))))
+
+  (testing "passes resource in refresh-token!"
+    (let [posted-body (atom nil)]
+      (with-redefs [http/post (fn [_ opts]
+                                (reset! posted-body (:body opts))
+                                {:status 200
+                                 :body (java.io.ByteArrayInputStream.
+                                        (.getBytes "{\"access_token\":\"new-tok\",\"expires_in\":3600}"))})]
+        (#'m.mcp/refresh-token! "https://example.com/token"
+                                "test-client"
+                                "old-refresh-token"
+                                :resource "https://example.com/api/mcp")
+        (let [decoded (ring.util/form-decode @posted-body)]
+          (is (= "https://example.com/api/mcp" (get decoded "resource")))))))
+
+  (testing "omits resource from token request when nil"
+    (let [posted-body (atom nil)]
+      (with-redefs [http/post (fn [_ opts]
+                                (reset! posted-body (:body opts))
+                                {:status 200
+                                 :body (java.io.ByteArrayInputStream.
+                                        (.getBytes "{\"access_token\":\"tok\",\"expires_in\":3600}"))})]
+        (#'m.mcp/authorize-token! {:token-endpoint "https://example.com/token"
+                                   :verifier "test-verifier"
+                                   :client-id "test-client"
+                                   :redirect-uri "http://localhost:9999/auth/callback"}
+                                  "auth-code")
+        (let [decoded (ring.util/form-decode @posted-body)]
+          (is (nil? (get decoded "resource"))))))))
+
+(deftest oauth-info-oidc-fallback-in-resource-discovery-test
+  (testing "discovers metadata via OIDC when PRM and RFC 8414 both fail on base URL"
+    (let [get-urls (atom [])]
+      (with-redefs [http/head (fn [_ _] {:status 200})
+                    http/post (fn [url _]
+                                (if (string/includes? url "register")
+                                  {:status 404}
+                                  (make-auth-response "Bearer realm=\"test\"")))
+                    http/get (fn [url _]
+                               (swap! get-urls conj url)
+                               (cond
+                                 (= url "https://example.com/.well-known/openid-configuration")
+                                 (make-json-response 200
+                                                     {:authorization_endpoint "https://example.com/oidc/authorize"
+                                                      :token_endpoint "https://example.com/oidc/token"
+                                                      :scopes_supported ["openid" "sql"]})
+                                 :else
+                                 {:status 404}))]
+        (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+          (is (some? info))
+          (is (= "https://example.com/oidc/token" (:token-endpoint info)))
+          (is (string/includes? (:authorization-endpoint info) "scope=openid+sql"))
+          (is (some #(= "https://example.com/.well-known/oauth-protected-resource" %) @get-urls)
+              "should have tried PRM first")
+          (is (some #(= "https://example.com/.well-known/oauth-authorization-server" %) @get-urls)
+              "should have tried RFC 8414 second")
+          (is (some #(= "https://example.com/.well-known/openid-configuration" %) @get-urls)
+              "should have tried OIDC last"))))))
+
+(deftest oauth-info-trailing-slash-auth-server-test
+  (testing "discovers auth server metadata when authorization_server URL has trailing slash"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 200 :body {:client_id "miro-client"}}
+                                (make-auth-response
+                                 "Bearer resource_metadata=\"https://mcp.miro.com/.well-known/oauth-protected-resource\"")))
+                  http/get (fn [url _]
+                             (cond
+                               (= url "https://mcp.miro.com/.well-known/oauth-protected-resource")
+                               (make-json-response 200
+                                                   {:resource "https://mcp.miro.com/"
+                                                    :authorization_servers ["https://mcp.miro.com/"]
+                                                    :scopes_supported ["boards:read" "boards:write"]})
+
+                               (= url "https://mcp.miro.com/.well-known/oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://mcp.miro.com/authorize"
+                                                    :token_endpoint "https://mcp.miro.com/token"
+                                                    :registration_endpoint "https://mcp.miro.com/register"})
+
+                               ;; The trailing-slash variant should NOT be hit
+                               (= url "https://mcp.miro.com/.well-known/oauth-authorization-server/")
+                               {:status 401}
+
+                               :else
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://mcp.miro.com/")]
+        (is (some? info) "should discover OAuth info for trailing-slash auth server")
+        (is (= "https://mcp.miro.com/token" (:token-endpoint info)))
+        (is (string/includes? (:authorization-endpoint info) "mcp.miro.com/authorize"))))))
+
+(deftest oauth-info-returns-nil-when-no-auth-challenge-test
+  (testing "returns nil when server does not return 401"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [_ _] {:status 200})]
+      (is (nil? (#'m.mcp/discover-oauth-info "https://example.com/mcp"))))))
+
+(deftest oauth-info-returns-nil-when-no-metadata-found-test
+  (testing "returns nil when 401 is received but no metadata endpoints respond"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [_ _]
+                              (make-auth-response "Bearer realm=\"test\""))
+                  http/get (fn [_ _] {:status 404})]
+      (is (nil? (#'m.mcp/discover-oauth-info "https://example.com/mcp"))))))
+
+(deftest oauth-info-configured-client-id-test
+  (testing "uses configured client-id and skips DCR"
+    (let [dcr-called? (atom false)]
+      (with-redefs [http/head (fn [_ _] {:status 200})
+                    http/post (fn [url _]
+                                (when (string/includes? url "register")
+                                  (reset! dcr-called? true))
+                                (if (string/includes? url "register")
+                                  {:status 200 :body {:client_id "dcr-client"}}
+                                  (make-auth-response "Bearer realm=\"test\"")))
+                    http/get (fn [url _]
+                               (if (string/includes? url "oauth-authorization-server")
+                                 (make-json-response 200
+                                                     {:authorization_endpoint "https://example.com/authorize"
+                                                      :token_endpoint "https://example.com/token"
+                                                      :registration_endpoint "https://example.com/register"})
+                                 {:status 404}))]
+        (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp" "my-databricks-client")]
+          (is (some? info))
+          (is (= "my-databricks-client" (:client-id info)))
+          (is (false? @dcr-called?) "DCR should not be attempted when client-id is configured")
+          (is (string/includes? (:authorization-endpoint info)
+                                "client_id=my-databricks-client"))))))
+
+  (testing "falls back to DCR then hardcoded when no configured client-id"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 200 :body {:client_id "dcr-obtained-id"}}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://example.com/authorize"
+                                                    :token_endpoint "https://example.com/token"
+                                                    :registration_endpoint "https://example.com/register"})
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+        (is (= "dcr-obtained-id" (:client-id info))))))
+
+  (testing "nil configured client-id behaves as unset"
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                {:status 404}
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   {:authorization_endpoint "https://example.com/authorize"
+                                                    :token_endpoint "https://example.com/token"})
+                               {:status 404}))]
+      (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp" nil)]
+        (is (= @#'m.mcp/eca-client-id (:client-id info)))))))
+
+(defn ^:private with-auth-server
+  "Stubs an OAuth-protected MCP server whose authorization server supports DCR
+   and publishes `extra-meta`. Calls `f` with an atom counting DCR attempts."
+  [extra-meta f]
+  (let [dcr-calls (atom 0)]
+    (with-redefs [http/head (fn [_ _] {:status 200})
+                  http/post (fn [url _]
+                              (if (string/includes? url "register")
+                                (do (swap! dcr-calls inc)
+                                    {:status 200 :body {:client_id "dcr-obtained-id"}})
+                                (make-auth-response "Bearer realm=\"test\"")))
+                  http/get (fn [url _]
+                             (if (string/includes? url "oauth-authorization-server")
+                               (make-json-response 200
+                                                   (merge {:authorization_endpoint "https://example.com/authorize"
+                                                           :token_endpoint "https://example.com/token"
+                                                           :registration_endpoint "https://example.com/register"}
+                                                          extra-meta))
+                               {:status 404}))]
+      (f dcr-calls))))
+
+(defn ^:private auth-url-params [info]
+  (ring.util/form-decode (second (string/split (:authorization-endpoint info) #"\?" 2))))
+
+(deftest oauth-info-cimd-test
+  (testing "uses ECA's CIMD URL as client_id instead of DCR when the auth server supports it"
+    (with-auth-server
+      {:client_id_metadata_document_supported true}
+      (fn [dcr-calls]
+        (let [info (#'m.mcp/discover-oauth-info "https://example.com/mcp")]
+          (is (= @#'m.mcp/cimd-client-id (:client-id info)))
+          (is (= @#'m.mcp/cimd-client-id (get (auth-url-params info) "client_id")))
+          (is (nil? (:client-secret info)) "CIMD client is public")
+          (is (re-matches #"http://localhost:\d+/auth/callback" (:redirect-uri info)))
+          (is (zero? @dcr-calls) "DCR should not be attempted")))))
+
+  (testing "keeps DCR when the auth server does not support CIMD"
+    (with-auth-server
+      {:client_id_metadata_document_supported false}
+      (fn [dcr-calls]
+        (is (= "dcr-obtained-id" (:client-id (#'m.mcp/discover-oauth-info "https://example.com/mcp"))))
+        (is (= 1 @dcr-calls)))))
+
+  (testing "any configured client setting keeps the pre-registered client or DCR"
+    (doseq [[setting args expected-client-id] [["clientId" ["my-client"] "my-client"]
+                                               ["clientSecret" [nil "my-secret"] "dcr-obtained-id"]
+                                               ["oauthPort" [nil nil 19284] "dcr-obtained-id"]
+                                               ["clientName" [nil nil nil "Claude Code"] "dcr-obtained-id"]]]
+      (with-auth-server
+        {:client_id_metadata_document_supported true}
+        (fn [_]
+          (is (= expected-client-id
+                 (:client-id (apply #'m.mcp/discover-oauth-info "https://example.com/mcp" args)))
+              setting))))))
+
+(deftest published-client-metadata-document-test
+  (testing "docs/oauth/client-metadata.json (served at the CIMD URL) matches ECA's OAuth client"
+    (is (match? {:client_id @#'m.mcp/cimd-client-id
+                 :redirect_uris (m/embeds ["http://localhost/auth/callback"])
+                 :grant_types (m/embeds ["authorization_code" "refresh_token"])
+                 :token_endpoint_auth_method "none"}
+                (json/parse-string (slurp (io/file "docs" "oauth" "client-metadata.json")) true)))))
+
+(deftest url-without-query-test
+  (testing "strips query string"
+    (is (= "https://mcp.example.com/v1"
+           (#'m.mcp/url-without-query "https://mcp.example.com/v1?token=x&debug=true"))))
+
+  (testing "strips fragment"
+    (is (= "https://mcp.example.com/v1"
+           (#'m.mcp/url-without-query "https://mcp.example.com/v1#section"))))
+
+  (testing "strips both query and fragment"
+    (is (= "https://mcp.example.com/v1"
+           (#'m.mcp/url-without-query "https://mcp.example.com/v1?a=1#frag"))))
+
+  (testing "returns URL unchanged when no query or fragment"
+    (is (= "https://mcp.example.com/v1/mcp"
+           (#'m.mcp/url-without-query "https://mcp.example.com/v1/mcp"))))
+
+  (testing "preserves port"
+    (is (= "https://mcp.example.com:8443/v1"
+           (#'m.mcp/url-without-query "https://mcp.example.com:8443/v1?key=val"))))
+
+  (testing "different paths are distinct"
+    (is (not= (#'m.mcp/url-without-query "https://mcp.example.com/v1")
+              (#'m.mcp/url-without-query "https://mcp.example.com/v2"))))
+
+  (testing "different hosts are distinct"
+    (is (not= (#'m.mcp/url-without-query "https://a.example.com/v1")
+              (#'m.mcp/url-without-query "https://b.example.com/v1"))))
+
+  (testing "returns nil for nil input"
+    (is (nil? (#'m.mcp/url-without-query nil)))))

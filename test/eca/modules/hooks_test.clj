@@ -27,6 +27,15 @@
   (fn [p]
     (reset! a* p)))
 
+(deftest map->snake-cased-map-test
+  (testing "converts top-level keyword keys only"
+    (is (= {:hook_name "x"
+            "toolName" "y"
+            :tool_input {:file-path "z"}}
+           (#'m.hooks/map->snake-cased-map {:hook-name "x"
+                                            "toolName" "y"
+                                            :tool-input {:file-path "z"}})))))
+
 ;;; Basic trigger and matching tests
 
 (deftest trigger-if-matches!-test

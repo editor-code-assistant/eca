@@ -9,7 +9,6 @@
    [eca.api :as eca]
    [eca.db.chats :as db.chats]
    [eca.features.chat.ops :as f.chat.ops]
-   [eca.features.modules :as f.modules]
    [eca.llm-api :as llm-api]
    [eca.modules :as modules]
    [eca.modules.core :as m.core]
@@ -140,7 +139,7 @@
       (testing "/modules shows the session's calls"
         (with-redefs [modules/built-in-modules (constantly (h/built-in-modules-with))]
           (modules/add-external! "/tmp/worker.clj" worker)
-          (is (string/includes? (f.modules/modules-text {} (h/db)) "2 LLM calls ($0.004)"))))
+          (is (string/includes? (#'m.core/modules-text {} (h/db)) "2 LLM calls ($0.004)"))))
       (testing "mistakes"
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown model \"acme/nope\""
                               (eca/complete! (ctx) {:model "acme/nope" :prompt "x"})))

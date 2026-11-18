@@ -148,26 +148,6 @@
      {}
      all-tools))))
 
-(defn ^:private workspace-roots-section [db]
-  (when-let [roots (seq (:workspace-folders db))]
-    (multi-str
-     "## Workspace Roots"
-     ""
-     (format "<workspace-roots%s>" (attr-str {:description "Workspace roots used for path resolution and tool scoping."}))
-     (->> roots
-          (map (fn [{:keys [uri]}]
-                 (format "<workspace-root%s/>"
-                         (attr-str {:path (shared/uri->filename uri)}))))
-          (string/join "\n"))
-     "</workspace-roots>"
-     "")))
-
-(def ^:private path-resolution-section
-  (multi-str
-   "## Path Resolution"
-   ""
-   "Use workspace roots as the base for resolving relative paths. Tool paths must be absolute unless the tool says otherwise."))
-
 (def ^:private editor-state-context-types
   "Volatile editor-state contexts (e.g. cursor) delivered per-turn in the user message."
   #{:cursor})
@@ -182,37 +162,6 @@
   "True when ctx renders into the cached static prompt block."
   [ctx]
   (boolean (static-prompt-context-types (:type ctx))))
-
-;; System prompt sections. Each one belongs to a module (`:system-prompts`)
-;; and gets the prompt ctx: what the chat's system prompt is built from.
-
-(defn additional-info-section
-  "`:eca/additional-info`: OS, shell and other session facts."
-  [{:keys [selmer-ctx]}]
-  (shared/safe-selmer-render (load-builtin-prompt "additional_system_info.md")
-                             selmer-ctx "additional-system-info"))
-
-(defn workspace-roots-prompt-section
-  "`:eca/workspace-roots`."
-  [{:keys [db]}]
-  (workspace-roots-section db))
-
-(defn path-resolution-prompt-section
-  "`:eca/path-resolution`."
-  [_ctx]
-  path-resolution-section)
-
-(defn context-section
-  "`:eca/context`: AGENTS.md files, attached stable contexts and the chat's
-   startup context."
-  [{:keys [refined-contexts chat-id db]}]
-  (let [stable-contexts (filter static-prompt-context? refined-contexts)
-        startup-ctx (get-in db [:chats chat-id :startup-context])]
-    (when (or (seq stable-contexts) (not (string/blank? startup-ctx)))
-      [""
-       "## Context"
-       ""
-       (contexts-str stable-contexts startup-ctx)])))
 
 (def ^:private built-in-static-sections
   "The order of the built-in static sections."

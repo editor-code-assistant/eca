@@ -6,7 +6,6 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [eca.client-http :as client]
-   [eca.config :as config]
    [eca.llm-util :as llm-util]
    [eca.logger :as logger]
    [eca.message-sanitize :as message-sanitize]
@@ -21,6 +20,8 @@
 (def ^:private chat-path "/api/chat")
 (def ^:private list-models-path "/api/tags")
 (def ^:private show-model-path "/api/show")
+
+(def ^:private model-prefix "ollama/")
 
 (defn list-models [{:keys [api-url]}]
   (try
@@ -302,7 +303,7 @@
 (defn ^:private default-model
   "The first model of a running Ollama (the declaration's `:default-model`)."
   [{:keys [db]}]
-  (first (filter #(string/starts-with? % config/ollama-model-prefix) (keys (:models db)))))
+  (first (filter #(string/starts-with? % model-prefix) (keys (:models db)))))
 
 (def module
   {:id :eca/ollama

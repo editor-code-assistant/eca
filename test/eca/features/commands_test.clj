@@ -5,8 +5,6 @@
    [clojure.test :refer [deftest is testing]]
    [eca.db :as db]
    [eca.db.chats :as db.chats]
-   [eca.db.workspaces :as db.workspaces]
-   [eca.features.chat.export :as f.chat.export]
    [eca.features.chat.ops :as f.chat.ops]
    [eca.features.commands :as f.commands]
    [eca.modules.chat-management :as m.chat-management]
@@ -618,7 +616,7 @@
                          :trust true
                          :messages []}]
       (with-redefs [db.chats/save-chat! (fn [& _])
-                    f.chat.export/import-chat! (fn [_] {:chat imported-chat})]
+                    m.chat-management/import-chat! (fn [_] {:chat imported-chat})]
         (f.commands/handle-command! "import" ["/tmp/chat.edn"] (command-context "chat-b")))
       (is (= [{:chat-id "chat-a"
                :chat {:select-model "anthropic/claude-sonnet-4-5"
@@ -919,7 +917,7 @@
         run-cmd (fn [args]
                   (h/reset-components!)
                   (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
-                  (with-redefs [db.workspaces/list-all-workspaces-chats (fn [_ _] groups)]
+                  (with-redefs [m.chat-management/list-all-workspaces-chats (fn [_ _] groups)]
                     (f.commands/handle-command! "chats" args (command-context "chat-b"))))
         text-of (fn [result] (get-in result [:chats "chat-b" :messages 0 :content 0 :text]))]
     (testing "lists all chats grouped by workspace"
@@ -944,6 +942,6 @@
     (testing "no chats at all"
       (h/reset-components!)
       (swap! (h/db*) assoc :chats {"chat-b" {:id "chat-b" :messages []}})
-      (with-redefs [db.workspaces/list-all-workspaces-chats (fn [_ _] [])]
+      (with-redefs [m.chat-management/list-all-workspaces-chats (fn [_ _] [])]
         (is (string/includes? (text-of (f.commands/handle-command! "chats" [] (command-context "chat-b")))
                               "No chats found in any workspace."))))))

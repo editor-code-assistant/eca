@@ -21,22 +21,14 @@
            string/upper-case)
        "_API_KEY"))
 
-(defn key-auth-override-warning
-  "When a configured/env API key would take precedence over login auth for
-   `provider-name`, returns a warning string to show the user during `/login`,
-   else nil. Mirrors the precedence in `llm-util/provider-api-key`, where a
-   configured `:key` (including the `${env:..._API_KEY}` defaults) and a bare
+(defn api-key-overrides-login?
+  "Whether a configured or env API key takes precedence over login auth for
+   `provider-name`. Mirrors the precedence in `llm-util/provider-api-key`, where
+   a configured `:key` (including the `${env:..._API_KEY}` defaults) and a bare
    `<PROVIDER>_API_KEY` env var both win over OAuth/login auth."
   [provider-name config]
-  (let [config-key (not-empty (get-in config [:providers provider-name :key]))
-        env-var-name (->env-var-name provider-name)
-        env-key (config/get-env env-var-name)]
-    (when (or config-key env-key)
-      (format (str "⚠️ An API key is already configured for `%s` (e.g. the `%s` environment variable "
-                   "or a `key` in your ECA config). Configured API keys take precedence over login auth, "
-                   "so ECA may keep using the API key — which can incur paid API usage — even after you log in. "
-                   "Unset `%s` (or remove the provider `key`) to use your login instead.")
-              provider-name env-var-name env-var-name))))
+  (boolean (or (not-empty (get-in config [:providers provider-name :key]))
+               (config/get-env (->env-var-name provider-name)))))
 
 (defn ^:private renew-token!
   "Runs the `:login/renew-token` step of the provider `provider` follows (see
@@ -77,7 +69,7 @@
       (on-error (.getMessage e)))))
 
 (defn maybe-renew-auth-token! [{:keys [provider on-renewing on-error]} ctx]
-  (when-not (key-auth-override-warning provider (:config ctx))
+  (when-not (api-key-overrides-login? provider (:config ctx))
     (when-let [expires-at (get-in @(:db* ctx) [:auth provider :expires-at])]
       ;; Renew 60s before expiration to avoid race between check and request
       (when (<= (long expires-at) (+ 60 (quot (System/currentTimeMillis) 1000)))

@@ -24,7 +24,7 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    `src/eca/server.clj`        | stdio **entry point**; wires everything together via `jsonrpc4clj`: the protocol methods core serves, then the modules' (`:rpc`).
    `src/eca/handlers.clj`      | Entrypoint for all features; every JSON-RPC request/notification lands here.
    `src/eca/messenger.clj`     | Protocol to send requests/notifications back to the client (stdio or remote).
-   `src/eca/db.clj` + `db/`    | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here. `db/` saves and loads it: the cache files (`io`), chat files (`chats`), the global cache (`global_cache`), loading and migrating (`migration`), other workspaces' chats (`workspaces`).
+   `src/eca/db.clj` + `db/`    | In-memory state atom (`db*`); sessions, chats, tool servers — all state lives here. `db/` saves and loads it: the cache files (`io`), chat files (`chats`), the global cache (`global_cache`), loading and migrating (`migration`).
    `src/eca/config.clj`        | Centralized place to get ECA configs from multiple places (global, local, env, initializationOptions).
    `src/eca/logger.clj`        | Logger interface, logs to stderr (stdout is reserved for JSON-RPC).
    `src/eca/shared.clj`        | Shared utility fns for the whole project.
@@ -36,15 +36,14 @@ The ECA codebase follows a pragmatic **layered layout** that separates concerns 
    ├─ `context.clj`            | Contexts attached to prompts: files, folders, the cursor, and the ones modules give.
    ├─ `prompt.clj`             | System prompt templates and variable interpolation.
    ├─ `index.clj`              | Workspace files, as `index.ignoreFiles` allows.
-   ├─ `modules.clj`            | The `/modules` command.
    └─ `tools.clj` + `tools/`   | Tool pipeline: tool servers, calls, approval rules; `tools/util.clj` helpers.
    `src/eca/modules/`          | **Modules**: the runtime (`modules.clj`, `events.clj`, `loader.clj`, ...) and the built-in modules, one namespace each, listed in `built_in.clj`, which `eca.main` hands to the runtime
-   ├─ `core.clj`               | ECA's own commands (`/model`, `/compact`, `/context`, ...); the chat ones (`/fork`, `/resume`, `/export`, ...) are in `chat_management.clj`.
+   ├─ `core.clj`               | ECA's own commands (`/model`, `/compact`, `/context`, `/modules`, ...) and prompt sections; the chat ones (`/fork`, `/resume`, `/export`, `/debug-chat`, ...) are in `chat_management.clj`.
    ├─ `tools/`                 | Built-in tools: `filesystem.clj`, `shell.clj`, `git.clj`, `editor.clj`, `task.clj`, ...
    ├─ `providers/`             | LLM providers, each with its API when it has its own (`anthropic.clj`, `openai.clj`, `openai_chat.clj`, ...), declaring what's theirs: logins, quotas, request options, models, errors.
    ├─ `llm_providers.clj` + `llm_providers/` | Logging into providers (`/login`, the providers panel's `providers/*` methods) and their subscription quotas (`/quota`).
    ├─ `agents.clj` + `agents/` | Agents from config and Markdown files, and the agents ECA ships; `subagents.clj` + `subagents/` likewise.
-   ├─ `mcp.clj`                | MCP (Model Context Protocol) servers integration.
+   ├─ `mcp.clj`                | MCP (Model Context Protocol) servers integration, with their OAuth.
    ├─ `hooks.clj`              | User-configured hooks triggered on server events.
    ├─ `skills.clj`, `rules.clj`| Skills and rules: discovery, loading, their tools and prompt sections.
    ├─ `remote.clj` + `remote/` | Optional remote HTTP/SSE server exposing chats to non-stdio clients.

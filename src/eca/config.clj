@@ -23,6 +23,7 @@
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [eca.modules :as modules]
+   [eca.modules.config-spec :as config-spec]
    [eca.modules.events :as events]
    [eca.shared :as shared :refer [multi-str]]
    [rewrite-json.core :as rj])
@@ -415,8 +416,6 @@
   (string/trim (slurp (io/resource "ECA_VERSION"))))
 
 (def eca-version (memoize eca-version*))
-
-(def ollama-model-prefix "ollama/")
 
 (defn ^:private normalize-fields
   "Converts a deep nested map where keys are strings to keywords.
@@ -909,3 +908,20 @@
     (io/make-parents file)
     (spit file (rj/to-string root))
     (clear-cache!)))
+
+(defn unknown-config-keys
+  "Root keys of `config` that neither ECA nor any module knows: typos, or keys
+   of a module that isn't loaded. Sorted. The keys the client sends in
+   `initializationOptions` don't count: clients put their own settings there,
+   e.g. eca-emacs's `chatAgent` or IntelliJ's `serverPath`, which users can't
+   fix."
+  [config]
+  (let [known (into core-root-keys (modules/known-root-keys))
+        from-client (set (keys @initialization-config*))]
+    (vec (sort-by str (remove #(or (known %) (from-client %)) (filter keyword? (keys config)))))))
+
+(defn unknown-config-keys-text
+  "The warning about `unknown` root config keys."
+  [unknown]
+  (str "Unknown config keys: " (string/join ", " (map #(str "`" (config-spec/path-str [%]) "`") unknown))
+       ". Check them for typos; a module's keys are known once the module is loaded."))
