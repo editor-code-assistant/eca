@@ -286,6 +286,55 @@
                                         :roots [(p ["root"])]
                                         :extras [(p ["extra"])]})))))))
 
+(deftest base-configs-test
+  (let [flow (fn [base-layers layers]
+               (reset! config/base-config-layers* base-layers)
+               (try
+                 (:all (plugin-config-flow layers))
+                 (finally
+                   (reset! config/base-config-layers* []))))]
+    (testing "base configs merge right above the defaults: every other source overrides them"
+      (let [result (flow [{"defaultModel" "base/model"
+                           "defaultAgent" "base-agent"
+                           "welcomeMessage" "from base"
+                           "chatRetentionDays" 7
+                           "chat" {"defaultTrust" true}
+                           "mcpServers" {"glean" {"url" "https://glean.example/mcp"}}}]
+                         {:init {:welcomeMessage "from init"}
+                          :global {:defaultModel "global/model"}
+                          :roots [{:defaultAgent "local-agent"}]
+                          :extras [{:chatRetentionDays 1}]})]
+        (is (= "from init" (:welcomeMessage result)))
+        (is (= "global/model" (:defaultModel result)))
+        (is (= "local-agent" (:defaultAgent result)))
+        (is (= 1 (:chatRetentionDays result)))
+        (testing "they override the defaults"
+          (is (true? (get-in result [:chat :defaultTrust]))))
+        (testing "they add what no other source sets"
+          (is (= {:url "https://glean.example/mcp"} (get-in result [:mcpServers "glean"]))))))
+    (testing "later base configs win over earlier ones"
+      (is (= "second" (:defaultModel (flow [{"defaultModel" "first"} {"defaultModel" "second"}] {})))))
+    (testing "base configs don't chain: their own baseConfigs are ignored"
+      (is (= ["https://a.example/base.json"]
+             (:baseConfigs (flow [{"baseConfigs" ["https://nested.example/base.json"]}]
+                                 {:global {:baseConfigs ["https://a.example/base.json"]}})))))
+    (testing "they're interpolated like the global config file"
+      (with-redefs [interpolation/get-env (fn [env-var] (when (= "BASE_TOKEN" env-var) "t0k3n"))]
+        (is (= "t0k3n" (get-in (flow [{"providers" {"acme" {"key" "${env:BASE_TOKEN}"}}}] {})
+                               [:providers "acme" :key])))))
+    (testing "pureConfig still applies them, like extraConfigs"
+      (is (= "base/model" (:defaultModel (flow [{"defaultModel" "base/model"}] {:pure? true})))))
+    (testing "baseConfigs lists add up across layers, so a project's don't drop the user's"
+      (is (= ["https://init.example/a.json" "https://global.example/b.json" "https://root.example/c.json"]
+             (:baseConfigs (flow [] {:init {:baseConfigs ["https://init.example/a.json"]}
+                                     :global {:baseConfigs ["https://global.example/b.json"
+                                                            "https://init.example/a.json"]}
+                                     :roots [{:baseConfigs ["https://root.example/c.json"]}]})))))
+    (testing "an entry's header names stay as written"
+      (is (= [{:url "https://a.example/base.json" :headers {"X-Api-Key" "k"}}]
+             (:baseConfigs (flow [] {:global {:baseConfigs [{:url "https://a.example/base.json"
+                                                             :headers {"X-Api-Key" "k"}}]}})))))))
+
 (deftest deep-merge-test
   (testing "basic merge"
     (is (match?

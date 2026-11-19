@@ -26,6 +26,19 @@
   []
   @models-dev-requests*)
 
+(def base-config-url
+  "A base config servers under test can list in `baseConfigs`."
+  (str "http://localhost:" port "/base-config/eca.json"))
+
+(def ^:private base-config-json (delay (slurp (io/resource "llm_mock/base_config.json"))))
+
+(defonce ^:private base-config-requests* (atom 0))
+
+(defn base-config-requests
+  "How many times servers under test fetched the base config."
+  []
+  @base-config-requests*)
+
 (defonce ^:private server* (atom nil))
 
 (defn ^:private app
@@ -78,6 +91,13 @@
             {:status 200
              :headers {"Content-Type" "application/json"}
              :body @models-dev-json})
+
+        (and (= :get request-method)
+             (= uri "/base-config/eca.json"))
+        (do (swap! base-config-requests* inc)
+            {:status 200
+             :headers {"Content-Type" "application/json"}
+             :body @base-config-json})
 
         :else {:status 404 :headers {} :body "not found"}))))
 

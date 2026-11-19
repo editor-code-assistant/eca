@@ -1,0 +1,14 @@
+{
+  // A company's shared config, as `baseConfigs` points to: what
+  // integration.base-configs-test checks the servers apply.
+  "providers": {
+    "base-provider": {
+      "api": "openai-chat",
+      "url": "http://localhost:5550/openai-chat",
+      "key": "base-key",
+      "fetchModels": false,
+      "models": {"base-model": {}}
+    }
+  },
+  "defaultModel": "base-provider/base-model"
+}

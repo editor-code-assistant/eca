@@ -2,6 +2,7 @@
   (:require
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
+   [eca.base-configs :as base-configs]
    [eca.config :as config]
    [eca.db.migration :as db.migration]
    [eca.features.chat :as f.chat]
@@ -61,7 +62,16 @@
     (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
       (is (match? {:global-config-path (str (config/global-config-file))}
                   (handlers/initialize (h/components)
-                                       {:initialization-options {:pureConfig true}}))))))
+                                       {:initialization-options {:pureConfig true}})))))
+
+  (testing "starts with the base configs' last good copies, from disk"
+    (h/reset-components!)
+    (#'base-configs/save-copy! "https://base.example/eca.json" {"defaultModel" "base/model"} 1000)
+    (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
+      (handlers/initialize (h/components)
+                           {:initialization-options {:pureConfig true
+                                                     :baseConfigs ["https://base.example/eca.json"]}})
+      (is (= "base/model" (:defaultModel (config/all (h/db))))))))
 
 (deftest warn-unknown-config-keys-test
   (let [warn! #(#'handlers/warn-unknown-config-keys! (h/db*) (h/messenger) %)

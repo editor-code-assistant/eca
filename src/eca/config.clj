@@ -1,14 +1,18 @@
 (ns eca.config
-  "Waterfall of ways to get eca config, deep merging from top to bottom:
+  "Waterfall of ways to get eca config, deep merging from lowest to highest priority:
 
-  1. base: fixed config var `eca.config/initial-config`.
-  2. env var: searching for a `ECA_CONFIG` env var which should contains a valid json config.
-  3. local config-file: searching from a local `.eca/config.json` file.
-  4. `initializatonOptions` sent in `initialize` request.
+  1. defaults: the active modules' defaults under `initial-config*`.
+  2. base configs: the shared configs `:baseConfigs` lists, fetched by
+     `eca.base-configs`, so every source below overrides them.
+  3. `initializationOptions` sent in the `initialize` request.
+  4. env var: a `ECA_CONFIG` env var containing a valid json config.
+  5. global config file: `~/.config/eca/config.json`.
+  6. local config files: each workspace root's `.eca/config.json`.
+  7. plugins' config.
+  8. files listed in `:extraConfigs`, overriding all of the above.
 
-  Finally, any files listed in `:extraConfigs` are deep merged last, overriding all of the above.
-
-  When `:config-file` from cli option is passed, it uses that instead of searching default locations."
+  When `:config-file` from cli option is passed, it is used instead of the
+  global and local files. Modules may then change the result (`:config/resolve`)."
   (:require
    [babashka.fs :as fs]
    [camel-snake-kebab.core :as csk]
@@ -53,6 +57,7 @@
           :autoSyncSystemPrompt false}
    :chatInline {}
    :chatRetentionDays 30
+   :baseConfigs []
    :extraConfigs []
    :streamIdleTimeoutSeconds 300
    :connectTimeoutSeconds 15
@@ -247,12 +252,18 @@
 
 (def ^:private ttl-cache-config-ms 5000)
 
+(defn read-json-config
+  "Parses a config JSON string as config files are read: comments allowed,
+   string keys. Throws when it isn't valid JSON."
+  [raw-string]
+  (binding [json.factory/*json-factory* (json.factory/make-json-factory
+                                         {:allow-comments true})]
+    (json/parse-string raw-string)))
+
 (defn ^:private safe-read-json-string [raw-string config-dyn-var]
   (try
     (alter-var-root config-dyn-var (constantly false))
-    (binding [json.factory/*json-factory* (json.factory/make-json-factory
-                                           {:allow-comments true})]
-      (json/parse-string raw-string))
+    (read-json-config raw-string)
     (catch Exception e
       (alter-var-root config-dyn-var (constantly true))
       (logger/warn logger-tag "Error parsing config json:" (.getMessage e)))))
@@ -311,6 +322,19 @@
 (def initialization-config* (atom {}))
 
 (def plugin-components* (atom nil))
+
+(def base-config-layers*
+  "The base configs to merge right above the defaults, in merge order: the
+   raw (string keys, not interpolated) configs `eca.base-configs` fetched for
+   the `:baseConfigs` entries. Writers must call `clear-cache!`."
+  (atom []))
+
+(defn ^:private config-from-base-configs
+  "The base configs, interpolated like the global config file. Each one
+   without its own `baseConfigs`: base configs don't chain."
+  []
+  (mapv #(parse-dynamic-string-values (dissoc % "baseConfigs") (shared/global-config-dir))
+        @base-config-layers*))
 
 (def ^:private plugins-resolved* (promise))
 
@@ -530,7 +554,9 @@
     [:behavior :ANY :toolCall :approval :deny]
     [:behavior :ANY :toolCall :approval :deny :ANY :argsMatchers]
     [:otlp]
-    [:plugins]]})
+    [:plugins]
+    ;; header names stay as written
+    [:baseConfigs :headers]]})
 
 (def ^:private ^:dynamic *module-string-key-paths*
   "Paths of external modules' `:map` keys (`eca.modules/external-map-paths`),
@@ -601,6 +627,8 @@
         plugin-rules (:rules plugin-data)]
     (-> (as-> {} $
           (merge-config $ (initial-config {:modules modules-config} db))
+          ;; base configs right above the defaults: every other source overrides them
+          (merge-config-layers deep-merge $ (config-from-base-configs))
           (merge-config $ initialization-config)
           (merge-config $ (when-not pure-config?
                             (config-from-envvar)))
@@ -610,7 +638,7 @@
               (if pure-config?
                 config
                 (config-from-local-file (:workspace-folders db) config))))
-          ;; Plugin config merges after all file configs (user local config wins via later merge)
+          ;; Plugin config merges after all file configs, overriding them
           (merge-config $ plugin-config)
           ;; extraConfigs merge last, overriding all previous sources
           (config-from-extra-configs (:extraConfigs $) (:workspace-folders db) $))
@@ -667,7 +695,8 @@
    instead of the whole db, otherwise any unrelated db change would miss it
    and re-run every config source, including `${cmd:...}` commands.
    Writers of the other inputs `all*` reads (config files,
-   `initialization-config*`, `plugin-components*`) must call `clear-cache!`;
+   `initialization-config*`, `plugin-components*`, `base-config-layers*`)
+   must call `clear-cache!`;
    module changes bump `eca.modules/version`, part of the cache key."
   [db]
   (all-memo (:workspace-folders db) (modules/version)))

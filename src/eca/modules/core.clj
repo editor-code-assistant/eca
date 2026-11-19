@@ -8,6 +8,7 @@
    [clojure.java.io :as io]
    [clojure.pprint :as pprint]
    [clojure.string :as string]
+   [eca.base-configs :as base-configs]
    [eca.config :as config]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
@@ -325,6 +326,8 @@
                        existing-files))
                  "Credential files: None found")
                ""
+               (when-let [base-configs (base-configs/status-text config)]
+                 (str base-configs "\n"))
                (str "Active modules: " (active-ids-text config))
                (when-let [unknown (seq (config/unknown-config-keys config))]
                  (config/unknown-config-keys-text unknown))

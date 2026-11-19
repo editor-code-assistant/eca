@@ -29,7 +29,8 @@
     integration.chat.rollback-test
     integration.chat.inline-prompt-test
     integration.rewrite.openai-test
-    integration.modules-test])
+    integration.modules-test
+    integration.base-configs-test])
 
 (defn timeout [timeout-ms callback]
   (let [fut (future (callback))

@@ -99,6 +99,16 @@
       (finally
         (fs/delete-tree dir)))))
 
+(deftest doctor-base-configs-test
+  (let [doctor #(#'m.core/doctor-msg (h/db) (config/all (h/db)))]
+    (testing "the base configs show only when some are configured"
+      (reset! config/initialization-config* {:pureConfig true})
+      (config/clear-cache!)
+      (is (not (string/includes? (doctor) "Base configs:")))
+      (reset! config/initialization-config* {:pureConfig true :baseConfigs ["https://base.example/eca.json"]})
+      (config/clear-cache!)
+      (is (string/includes? (doctor) "Base configs:\n  https://base.example/eca.json: not fetched yet")))))
+
 (deftest config-problems-test
   (with-redefs [modules/built-in-modules (constantly test-modules)]
     (is (= [] (#'m.core/config-problems {:sampleUrl "http://x"})))

@@ -13,6 +13,55 @@
       "description": "JSON Schema reference for editor validation support.",
       "markdownDescription": "JSON Schema reference for editor validation support."
     },
+    "baseConfigs": {
+      "type": "array",
+      "description": "Shared configs, e.g. a company's providers and MCP servers, fetched from HTTPS URLs (plain HTTP only from localhost) and deep merged right above the built-in defaults, so every other config source overrides them. Each one's last good copy is used when a fetch fails, and it's fetched again hourly. Lists from several sources add up.",
+      "markdownDescription": "Shared configs, e.g. a company's providers and MCP servers, fetched from HTTPS URLs (plain HTTP only from `localhost`) and deep merged right above the built-in defaults, so every other config source overrides them.\n\nEach one's last good copy is used when a fetch fails (e.g. off VPN), and it's fetched again hourly. Lists from several sources add up; a base config's own `baseConfigs` is ignored. Only list configs you trust: they can add MCP servers, hooks and `${cmd:...}` commands.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "The base config's URL."
+          },
+          {
+            "type": "object",
+            "description": "A base config's URL, with the headers to fetch it with.",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "The base config's URL."
+              },
+              "headers": {
+                "type": "object",
+                "description": "Headers to fetch it with, e.g. an Authorization token. Values support dynamic strings like ${cmd:...}.",
+                "markdownDescription": "Headers to fetch it with, e.g. an `Authorization` token. Values support dynamic strings like `${cmd:...}`.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "examples": [
+        [
+          "https://config.example.com/eca/base.json"
+        ],
+        [
+          {
+            "url": "https://api.github.com/repos/my-org/eca-config/contents/base.json",
+            "headers": {
+              "Authorization": "Bearer ${cmd:gh auth token}",
+              "Accept": "application/vnd.github.raw+json"
+            }
+          }
+        ]
+      ]
+    },
     "extraConfigs": {
       "type": "array",
       "description": "Additional config file paths (relative to workspace root or absolute, ~ supported) deep merged last, overriding all other config sources. Missing paths are logged and skipped.",

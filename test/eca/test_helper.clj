@@ -4,6 +4,7 @@
    [clojure.java.io :as io]
    [clojure.string :as string]
    [clojure.test :refer [use-fixtures]]
+   [eca.base-configs :as base-configs]
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db :as db]
@@ -132,6 +133,7 @@
 (defn reset-components! []
   (reset! config/initialization-config* {})
   (reset! config/plugin-components* nil)
+  (base-configs/reset-state!)
   (modules/reset-registry!)
   (loader/reset-state!)
   (config/clear-cache!)

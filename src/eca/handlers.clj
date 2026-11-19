@@ -1,5 +1,6 @@
 (ns eca.handlers
   (:require
+   [eca.base-configs :as base-configs]
    [eca.cache :as cache]
    [eca.config :as config]
    [eca.db.chats :as db.chats]
@@ -91,6 +92,9 @@
              :workspace-folders (:workspace-folders params)
              :initial-workspace-folders (:workspace-folders params)
              :client-capabilities (:capabilities params))
+      ;; the base configs' last good copies, from disk only: the session
+      ;; starts with them, `initialized` fetches them
+      (base-configs/load-cached! (config/all @db*))
       (metrics/set-extra-metrics! db*)
       (when-not (:pureConfig config)
         (db.migration/load-db-from-cache! db* config metrics))
@@ -184,6 +188,10 @@
                    (f.tools/refresh-module-tool-servers! db* messenger config))
                  (when (modules/started?)
                    (warn-unknown-config-keys! db* messenger config)))))
+      ;; a base config added (or removed) while ECA runs applies right away
+      (swap! db* assoc-in [:config-updated-fns :base-configs]
+             (fn [prev-config new-config]
+               (base-configs/on-config-changed! prev-config new-config messenger)))
       (swap! db* assoc-in [:config-updated-fns :tool-refresh]
              (fn [prev-config new-config]
                (when (and prev-config
@@ -212,9 +220,22 @@
                                   error)}}))
       (config/listen-for-changes! db* messenger))
     (future
+      ;; Base configs first: what they define (plugins, MCP servers, otlp...)
+      ;; applies from the first session. Waits for the fetch only when one
+      ;; has no copy yet.
+      (let [fetching? (seq (base-configs/sources config))]
+        (when fetching?
+          (send-progress! db* messenger {:type "start" :taskId "base-configs" :title "Fetching base configs"}))
+        (try
+          (base-configs/start! db* messenger)
+          (catch Exception e
+            (logger/warn "[BASE-CONFIGS]" "Could not start the base configs:" (ex-message e))))
+        (when fetching?
+          (send-progress! db* messenger {:type "finish" :taskId "base-configs" :title "Fetching base configs"})))
       (send-progress! db* messenger {:type "start" :taskId "plugins" :title "Resolving plugins"})
       (try
-        (let [plugins-config (:plugins config)]
+        ;; read again: a base config just fetched may add plugins
+        (let [plugins-config (:plugins (config/all @db*))]
           (when (seq plugins-config)
             (reset! config/plugin-components* (m.plugins/resolve-all! plugins-config))
             (config/clear-cache!)))

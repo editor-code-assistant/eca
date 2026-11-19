@@ -64,18 +64,51 @@ There are multiples ways to configure ECA:
 
     Relative paths resolve against the workspace root; `~` and absolute paths are supported. Missing files are logged and skipped.
 
+=== "Base configs"
+
+    Share a base config across a team or company: ECA fetches each URL listed in `baseConfigs` and merges it right above its built-in defaults, so every other source, your own config files included, overrides it:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "baseConfigs": ["https://config.example.com/eca/base.json"]
+    }
+    ```
+
+    A base config is a regular config JSON (comments allowed), e.g. a company's providers, models, MCP servers and plugins. Its [dynamic strings](#dynamic-string-contents) resolve on each machine, so it can use each user's secrets, like `${env:MY_TOKEN}` or `${cmd:...}`, without containing them.
+
+    ECA only fetches `https://` URLs (plain `http://` only from `localhost`): keep the URL inside your company's network or VPN, or pass headers to hosts that need a login, e.g. a file in a private GitHub repository:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "baseConfigs": [{"url": "https://api.github.com/repos/my-org/eca-config/contents/base.json",
+                       "headers": {"Authorization": "Bearer ${cmd:gh auth token}",
+                                   "Accept": "application/vnd.github.raw+json"}}]
+    }
+    ```
+
+    - ECA keeps each base config's last good copy in `~/.cache/eca`: a session starts with the copy, fetches the config again, then every hour. A failed fetch (offline, off VPN, invalid JSON) keeps the copy and warns once. ECA only waits for a fetch when there's no copy yet, on a base config's first use.
+    - Later entries win over earlier ones, `baseConfigs` lists from several sources add up, and a base config's own `baseConfigs` is ignored.
+    - Adding or removing an entry applies without restarting ECA; `/doctor` shows how each base config stands.
+    - `network` settings and `connectTimeoutSeconds` apply before a session starts, so base configs can't set them.
+
+    !!! warning "Only list base configs you trust"
+
+        A base config is as powerful as your own config: it can add MCP servers, hooks and `${cmd:...}` commands that run on your machine.
+
 ### Merge order
 
 Config sources are deep merged from lowest to highest priority (later sources win on conflicts):
 
 1. Built-in defaults
-2. `initializationOptions` (from the editor's `initialize` request)
-3. `ECA_CONFIG` env var
-4. Global config file `~/.config/eca/config.json` (or the `--config-file` path, which replaces the global/local lookup)
-5. Local project config `.eca/config.json` (per workspace root)
-6. Files listed in `extraConfigs`, in their listed order
+2. Base configs listed in `baseConfigs`, in their listed order
+3. `initializationOptions` (from the editor's `initialize` request)
+4. `ECA_CONFIG` env var
+5. Global config file `~/.config/eca/config.json` (or the `--config-file` path, which replaces the global/local lookup)
+6. Local project config `.eca/config.json` (per workspace root)
+7. Installed [plugins](./plugins.md)' config
+8. Files listed in `extraConfigs`, in their listed order
 
-Deep merge means nested maps are merged recursively, while scalars and arrays from a higher-priority source replace (not concatenate) the lower-priority value.
+Deep merge means nested maps are merged recursively, while scalars and arrays from a higher-priority source replace (not concatenate) the lower-priority value; a few lists add up instead, like `baseConfigs`.
 
 ### Dynamic string contents
 

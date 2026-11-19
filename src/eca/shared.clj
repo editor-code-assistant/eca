@@ -725,7 +725,9 @@
    a later list adds its entries to the earlier one instead of replacing
    it. `:ANY` stands for any key, e.g. an agent's name."
   [[:toolCall :approval :insideWorkspace]
-   [:agent :ANY :toolCall :approval :insideWorkspace]])
+   [:agent :ANY :toolCall :approval :insideWorkspace]
+   ;; a project's base configs don't drop the user's
+   [:baseConfigs]])
 
 (defn ^:private additive-list-paths
   "The paths of `m` to lists of `additive-config-lists`. With `strings?`, the
