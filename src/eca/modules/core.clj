@@ -652,9 +652,11 @@
      :chats {chat-id {:messages [{:role "system" :content [{:type :text :text text}]}]}}}))
 
 (defn ^:private config-command
+  "Shows the config, with the values of the keys modules declare `:secret?` masked."
   [{:keys [chat-id config]} _args]
-  {:type :chat-messages
-   :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint config))}]}]}}})
+  (let [shown (config-spec/masked (modules/declared-keys config) config)]
+    {:type :chat-messages
+     :chats {chat-id {:messages [{:role "system" :content [{:type :text :text (with-out-str (pprint/pprint shown))}]}]}}}))
 
 (defn ^:private doctor-command
   [{:keys [db* chat-id config]} _args]

@@ -1,6 +1,7 @@
 (ns eca.modules.core-test
   (:require
    [babashka.fs :as fs]
+   [clojure.pprint :as pprint]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
@@ -102,6 +103,20 @@
   (with-redefs [modules/built-in-modules (constantly test-modules)]
     (is (= [] (#'m.core/config-problems {:sampleUrl "http://x"})))
     (is (= ["`sampleUrl` should be a string, got a number"] (#'m.core/config-problems {:sampleUrl 1})))))
+
+(deftest config-command-test
+  (with-redefs [modules/built-in-modules (constantly (conj test-modules
+                                                           {:id :eca/secretive
+                                                            :config-spec {:sampleToken {:type :string :secret? true}}}))]
+    (let [shown (fn [config]
+                  (get-in (#'m.core/config-command {:chat-id "c1" :config config} [])
+                          [:chats "c1" :messages 0 :content 0 :text]))]
+      (testing "the values of keys a module declares secret are masked"
+        (is (= (with-out-str (pprint/pprint {:sampleUrl "http://x" :sampleToken "****"}))
+               (shown {:sampleUrl "http://x" :sampleToken "s3cret"}))))
+      (testing "the rest shows as it is"
+        (is (= (with-out-str (pprint/pprint {:sampleUrl "http://x"}))
+               (shown {:sampleUrl "http://x"})))))))
 
 (deftest command-sources-text-test
   (reset! config/initialization-config* {:pureConfig true})
