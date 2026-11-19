@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Clarify that subagents cannot see the parent chat and need relevant context in the `spawn_agent` task.
+
 ## 0.172.0
 
 - Encourage models to combine nearby edits instead of splitting them unnecessarily.
