@@ -2,6 +2,7 @@
   "A chat's history as the client shows it: the contents of its messages,
    sent again when a chat is opened, forked or rolled back."
   (:require
+   [camel-snake-kebab.core :as csk]
    [clojure.string :as string]
    [eca.features.chat.history :as f.chat.history]
    [eca.message-sanitize :as message-sanitize]
@@ -49,60 +50,74 @@
                             :details (:details message-content)
                             :arguments-text ""
                             :id (:id message-content)}}]
-    ;; Mirror the live path in tool-calls.clj :send-toolCalled: split image
+    ;; A call that didn't run (`:rejection-reason`): its run and its rejection,
+    ;; as live (tool-calls.clj :send-toolCallRejected). Otherwise mirror the
+    ;; live path in tool-calls.clj :send-toolCalled: split image
     ;; outputs out of the toolCalled :outputs (which is text-only per
     ;; protocol) and re-emit them as standalone ChatImageContent entries so
     ;; reopened/resumed chats render MCP-produced images at the same point
     ;; they appeared live.
-    "tool_call_output" (let [contents (let [contents (:contents (:output message-content))]
-                                        (if (sequential? contents)
-                                          (into [] (remove message-sanitize/module-context?) contents)
-                                          contents))
-                             image? #(and (map? %) (= :image (:type %)))
-                             ;; Only partition when contents is a sequence of content
-                             ;; maps that includes images; otherwise pass through.
-                             image-outputs (when (sequential? contents) (filter image? contents))
-                             text-outputs (if (seq image-outputs)
-                                            (vec (remove image? contents))
-                                            contents)]
-                         (into [{:role :assistant
-                                 :content (assoc-some
-                                           {:type :toolCallRun
-                                            :id (:id message-content)
-                                            :name (:name message-content)
-                                            :server (:server message-content)
-                                            :origin (:origin message-content)
-                                            :arguments (:arguments message-content)}
-                                           :details (:details message-content)
-                                           :summary (:summary message-content))}
-                                {:role :assistant
-                                 :content (assoc-some
-                                           {:type :toolCallRunning
-                                            :id (:id message-content)
-                                            :name (:name message-content)
-                                            :server (:server message-content)
-                                            :origin (:origin message-content)
-                                            :arguments (:arguments message-content)}
-                                           :details (:details message-content)
-                                           :summary (:summary message-content))}
-                                {:role :assistant
-                                 :content {:type :toolCalled
-                                           :origin (:origin message-content)
-                                           :name (:name message-content)
-                                           :server (:server message-content)
-                                           :arguments (:arguments message-content)
-                                           :total-time-ms (:total-time-ms message-content)
-                                           :summary (:summary message-content)
-                                           :details (:details message-content)
-                                           :error (:error message-content)
-                                           :id (:id message-content)
-                                           :outputs text-outputs}}]
-                               (map (fn [img]
-                                      {:role :assistant
-                                       :content {:type :image
-                                                 :media-type (:media-type img)
-                                                 :base64 (:base64 img)}}))
-                               image-outputs))
+    "tool_call_output" (if-let [reason (:rejection-reason message-content)]
+                         (let [call (assoc-some {:id (:id message-content)
+                                                 :name (:name message-content)
+                                                 :server (:server message-content)
+                                                 :origin (:origin message-content)
+                                                 :arguments (:arguments message-content)}
+                                                :details (:details message-content)
+                                                :summary (:summary message-content))]
+                           [{:role :assistant :content (assoc call :type :toolCallRun)}
+                            {:role :assistant :content (assoc call
+                                                              :type :toolCallRejected
+                                                              :reason (csk/->camelCaseKeyword reason))}])
+                         (let [contents (let [contents (:contents (:output message-content))]
+                                          (if (sequential? contents)
+                                            (into [] (remove message-sanitize/module-context?) contents)
+                                            contents))
+                               image? #(and (map? %) (= :image (:type %)))
+                               ;; Only partition when contents is a sequence of content
+                               ;; maps that includes images; otherwise pass through.
+                               image-outputs (when (sequential? contents) (filter image? contents))
+                               text-outputs (if (seq image-outputs)
+                                              (vec (remove image? contents))
+                                              contents)]
+                           (into [{:role :assistant
+                                   :content (assoc-some
+                                             {:type :toolCallRun
+                                              :id (:id message-content)
+                                              :name (:name message-content)
+                                              :server (:server message-content)
+                                              :origin (:origin message-content)
+                                              :arguments (:arguments message-content)}
+                                             :details (:details message-content)
+                                             :summary (:summary message-content))}
+                                  {:role :assistant
+                                   :content (assoc-some
+                                             {:type :toolCallRunning
+                                              :id (:id message-content)
+                                              :name (:name message-content)
+                                              :server (:server message-content)
+                                              :origin (:origin message-content)
+                                              :arguments (:arguments message-content)}
+                                             :details (:details message-content)
+                                             :summary (:summary message-content))}
+                                  {:role :assistant
+                                   :content {:type :toolCalled
+                                             :origin (:origin message-content)
+                                             :name (:name message-content)
+                                             :server (:server message-content)
+                                             :arguments (:arguments message-content)
+                                             :total-time-ms (:total-time-ms message-content)
+                                             :summary (:summary message-content)
+                                             :details (:details message-content)
+                                             :error (:error message-content)
+                                             :id (:id message-content)
+                                             :outputs text-outputs}}]
+                                 (map (fn [img]
+                                        {:role :assistant
+                                         :content {:type :image
+                                                   :media-type (:media-type img)
+                                                   :base64 (:base64 img)}}))
+                                 image-outputs)))
     "image_generation_call" [{:role :assistant
                               :content {:type :image
                                         :media-type (:media-type message-content)

@@ -5,6 +5,7 @@
 - Clarify that subagents cannot see the parent chat and need relevant context in the `spawn_agent` task.
 - Fix the remote server (web.eca.dev) logging a stack trace on every request and dropping the connection after each response.
 - Serve the remote routes web.eca.dev calls for steering, flags, forks, background jobs and "Accept and remember", which answered 404.
+- Fix a reopened chat showing its rejected tool calls as successful calls without their summary.
 
 ## 0.172.0
 

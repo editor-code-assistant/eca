@@ -4,6 +4,7 @@
    [clojure.test :refer [are deftest is testing]]
    [eca.config :as config]
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
+   [eca.features.chat.replay :as f.chat.replay]
    [eca.features.chat.tool-batch :as f.chat.tool-batch]
    [eca.features.chat.tool-calls :as f.chat.tool-calls]
    [eca.features.tools :as f.tools]
@@ -1083,7 +1084,19 @@
     (run-tool-rounds! {:approval :deny :rounds [[(valid-call "call-1")]]})
     (is (match? (m/embeds [{:role :assistant
                             :content {:type :toolCallRejected :id "call-1" :reason :userConfigDeny}}])
-                (:chat-content-received (h/messages))))))
+                (:chat-content-received (h/messages)))))
+
+  (testing "a reopened chat shows it rejected too, with what clients showed of it live"
+    (run-tool-rounds! {:approval :deny :rounds [[(valid-call "call-1")]]})
+    (let [shown {:id "call-1" :name "test_tool" :server "eca" :origin :eca :summary "Test tool"}
+          messages (get-in (h/db) [:chats "test-chat" :messages])]
+      (is (match? (m/prefix [{:role "tool_call" :content shown}
+                             {:role "tool_call_output" :content (assoc shown :rejection-reason :user-config-deny)}])
+                  messages))
+      (is (match? (m/prefix [(assoc shown :type :toolCallPrepare)
+                             (assoc shown :type :toolCallRun)
+                             (assoc shown :type :toolCallRejected :reason :userConfigDeny)])
+                  (mapv :content (f.chat.replay/messages->contents messages {:chat-id "test-chat" :db (h/db)})))))))
 
 (deftest invalid-arguments-tool-call-output-contents-test
   (let [text (-> (#'f.chat.tool-batch/invalid-arguments-tool-call-output-contents invalid-arguments-error) first :text)]

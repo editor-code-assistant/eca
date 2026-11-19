@@ -454,15 +454,25 @@
                                                                             :progress-text  (or (:progress-text resolved-tool)
                                                                                                 "Calling tool")})))
                                (let [tool-call-state (f.chat.tool-calls/get-tool-call-state @db* chat-id id)
-                                     {:keys [code text]} (:decision-reason tool-call-state)]
-                                 (add-to-history! {:role "tool_call" :content tool-call})
+                                     {:keys [code text]} (:decision-reason tool-call-state)
+                                     ;; what clients show, as for a call that ran, and why it
+                                     ;; didn't run: a reopened chat shows it rejected, as live
+                                     shown-call (assoc tool-call
+                                                       :name name
+                                                       :details details
+                                                       :summary summary
+                                                       :origin origin
+                                                       :server server-name)]
+                                 (add-to-history! {:role "tool_call" :content shown-call})
                                  (add-to-history! {:role    "tool_call_output"
-                                                   :content (assoc tool-call :output (with-module-contexts
-                                                                                      {:error true
-                                                                                       :contents (if (= :invalid-arguments code)
-                                                                                                   (invalid-arguments-tool-call-output-contents text)
-                                                                                                   (rejected-tool-call-output-contents text))}
-                                                                                      before-contexts))})
+                                                   :content (assoc shown-call
+                                                                   :rejection-reason (or code :user)
+                                                                   :output (with-module-contexts
+                                                                             {:error true
+                                                                              :contents (if (= :invalid-arguments code)
+                                                                                          (invalid-arguments-tool-call-output-contents text)
+                                                                                          (rejected-tool-call-output-contents text))}
+                                                                             before-contexts))})
                                  ;; Keyed by batch position: calls run out of order, but the
                                  ;; last rejected call in the batch still decides the outcome.
                                  (swap! blocked-tool-call-infos* assoc idx
