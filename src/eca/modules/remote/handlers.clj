@@ -244,12 +244,17 @@
       (do (call! components :notification "chat/promptStop" {:chat-id chat-id})
           (no-content)))))
 
-(defn handle-approve [{:keys [db*] :as components} _request chat-id tool-call-id]
+(defn handle-approve
+  "Body, optional: {:save \"session\"} to remember the approval, as editors'
+   \"Accept and remember\"."
+  [{:keys [db*] :as components} request chat-id tool-call-id]
   (if-not (chat-or-404 db* chat-id)
     (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
     (if-not (get-in @db* [:chats chat-id :tool-calls tool-call-id])
       (error-response 404 "tool_call_not_found" (str "Tool call " tool-call-id " does not exist"))
-      (do (call! components :notification "chat/toolCallApprove" {:chat-id chat-id :tool-call-id tool-call-id})
+      (do (call! components :notification "chat/toolCallApprove"
+                 (shared/assoc-some {:chat-id chat-id :tool-call-id tool-call-id}
+                                    :save (:save (parse-body request))))
           (no-content)))))
 
 (defn handle-reject [{:keys [db*] :as components} _request chat-id tool-call-id]
@@ -326,6 +331,62 @@
     (let [body (parse-body request)]
       (call! components :request "chat/update" {:chat-id chat-id :title (:title body) :trust (:trust body)})
       (no-content))))
+
+(defn handle-steer
+  "Body: {:message String}, for the running prompt's next turn (or a command
+   that runs at once), as `chat/promptSteer`."
+  [{:keys [db*] :as components} request chat-id]
+  (if-not (chat-or-404 db* chat-id)
+    (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
+    (let [body (parse-body request)]
+      (if-not (:message body)
+        (error-response 400 "invalid_request" "Missing required field: message")
+        (do (call! components :notification "chat/promptSteer" {:chat-id chat-id :message (:message body)})
+            (no-content))))))
+
+(defn handle-remove-steer
+  "Drops the steer message the running prompt hasn't taken yet, as
+   `chat/promptSteerRemove`."
+  [{:keys [db*] :as components} _request chat-id]
+  (if-not (chat-or-404 db* chat-id)
+    (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
+    (do (call! components :notification "chat/promptSteerRemove" {:chat-id chat-id})
+        (no-content))))
+
+(defn handle-add-flag
+  "Body: {:contentId String :text String}: a flag after that message, as
+   `chat/addFlag`."
+  [{:keys [db*] :as components} request chat-id]
+  (if-not (chat-or-404 db* chat-id)
+    (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
+    (let [{:keys [contentId text]} (parse-body request)]
+      (cond
+        (not contentId) (error-response 400 "invalid_request" "Missing required field: contentId")
+        (not text) (error-response 400 "invalid_request" "Missing required field: text")
+        :else (do (call! components :request "chat/addFlag" {:chat-id chat-id :content-id contentId :text text})
+                  (no-content))))))
+
+(defn handle-remove-flag [{:keys [db*] :as components} _request chat-id content-id]
+  (if-not (chat-or-404 db* chat-id)
+    (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
+    (do (call! components :request "chat/removeFlag" {:chat-id chat-id :content-id content-id})
+        (no-content))))
+
+(defn handle-fork
+  "Body: {:contentId String}: a new chat with the messages up to that one, as
+   `chat/fork`; the new chat reaches clients as `chat:opened` and its
+   contents. Answers {:chatId ..}, or 404 when no message has that id."
+  [{:keys [db*] :as components} request chat-id]
+  (if-not (chat-or-404 db* chat-id)
+    (error-response 404 "chat_not_found" (str "Chat " chat-id " does not exist"))
+    (let [{:keys [contentId]} (parse-body request)]
+      (if-not contentId
+        (error-response 400 "invalid_request" "Missing required field: contentId")
+        (let [result (call! components :request "chat/fork" {:chat-id chat-id :content-id contentId})]
+          (if (:chat-id result)
+            (json-response (camel-keys result))
+            (error-response 404 "content_not_found"
+                            (str "No message with contentId " contentId " in chat " chat-id))))))))
 
 (defn handle-set-trust [{:keys [db*]} request {:keys [sse-connections*]}]
   (let [body (parse-body request)
@@ -410,6 +471,24 @@
 
       :else
       (no-content))))
+
+(defn ^:private json-method
+  "Runs request `method` with `params` and answers its result, as editors get
+   it, or 404 when no active module serves it."
+  [components method params]
+  (let [result (call! components :request method params)]
+    (if (= method-not-found result)
+      (method-not-found-response method)
+      (json-response (camel-keys result)))))
+
+(defn handle-jobs-list [components _request]
+  (json-method components "jobs/list" {}))
+
+(defn handle-job-output [components _request job-id]
+  (json-method components "jobs/readOutput" {:job-id job-id}))
+
+(defn handle-job-kill [components _request job-id]
+  (json-method components "jobs/kill" {:job-id job-id}))
 
 (deftype SSEBody [db* sse-connections*]
   ring.protocols/StreamableResponseBody

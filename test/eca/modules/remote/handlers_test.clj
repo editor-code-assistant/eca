@@ -3,6 +3,7 @@
    [cheshire.core :as json]
    [clojure.test :refer [deftest is testing]]
    [eca.config :as config]
+   [eca.features.chat :as f.chat]
    [eca.features.chat.history :as f.chat.history]
    [eca.messenger :as messenger]
    [eca.modules.mcp :as m.mcp]
@@ -517,3 +518,97 @@
           (is (= {:answer "ok" :cancelled false} @p)))))
 
     (m.remote.sse/close-all! sse-connections*)))
+
+(defn- json-request [body]
+  {:body (java.io.ByteArrayInputStream. (.getBytes ^String (json/generate-string body) "UTF-8"))})
+
+(defn- seed-chat! []
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :status :idle
+          :messages [{:role "user" :content [{:type :text :text "hi"}] :content-id "u1"}
+                     {:role "assistant" :content [{:type :text :text "hello"}]}]}))
+
+(deftest handle-approve-test
+  (let [approved* (atom [])]
+    (with-redefs [f.chat/tool-call-approve (fn [params & _] (swap! approved* conj params))]
+      (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :running
+                                             :tool-calls {"tc1" {:status :waiting-approval}}})
+      (testing "approves the tool call"
+        (is (= 204 (:status (m.remote.handlers/handle-approve (components) nil "c1" "tc1"))))
+        (is (= [{:chat-id "c1" :tool-call-id "tc1"}] @approved*)))
+      (testing "remembers the approval for the session when asked, as editors' \"Accept and remember\""
+        (reset! approved* [])
+        (is (= 204 (:status (m.remote.handlers/handle-approve (components) (json-request {:save "session"}) "c1" "tc1"))))
+        (is (= [{:chat-id "c1" :tool-call-id "tc1" :save "session"}] @approved*)))
+      (testing "404 for an unknown tool call"
+        (is (= 404 (:status (m.remote.handlers/handle-approve (components) nil "c1" "nope"))))))))
+
+(deftest handle-steer-test
+  (testing "404 for a missing chat"
+    (is (= 404 (:status (m.remote.handlers/handle-steer (components) (json-request {:message "x"}) "ghost")))))
+  (testing "400 without a message"
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :running})
+    (is (= 400 (:status (m.remote.handlers/handle-steer (components) (json-request {}) "c1")))))
+  (testing "queues the message for the running prompt's next turn, as chat/promptSteer"
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :running})
+    (is (= 204 (:status (m.remote.handlers/handle-steer (components) (json-request {:message "check the tests too"}) "c1"))))
+    (is (= "check the tests too" (get-in (h/db) [:chats "c1" :steer-message]))))
+  (testing "drops the message the prompt hasn't taken yet, as chat/promptSteerRemove"
+    (is (= 204 (:status (m.remote.handlers/handle-remove-steer (components) nil "c1"))))
+    (is (nil? (get-in (h/db) [:chats "c1" :steer-message])))
+    (is (= 404 (:status (m.remote.handlers/handle-remove-steer (components) nil "ghost"))))))
+
+(deftest handle-flags-test
+  (let [flags #(filterv (fn [m] (= "flag" (:role m))) (get-in (h/db) [:chats "c1" :messages]))]
+    (testing "404 for a missing chat"
+      (is (= 404 (:status (m.remote.handlers/handle-add-flag (components) (json-request {:contentId "u1" :text "f"}) "ghost"))))
+      (is (= 404 (:status (m.remote.handlers/handle-remove-flag (components) nil "ghost" "f1")))))
+    (testing "400 without contentId or text"
+      (seed-chat!)
+      (is (= 400 (:status (m.remote.handlers/handle-add-flag (components) (json-request {:text "f"}) "c1"))))
+      (is (= 400 (:status (m.remote.handlers/handle-add-flag (components) (json-request {:contentId "u1"}) "c1")))))
+    (testing "adds a flag after the message, as chat/addFlag"
+      (seed-chat!)
+      (is (= 204 (:status (m.remote.handlers/handle-add-flag (components) (json-request {:contentId "u1" :text "checkpoint"}) "c1"))))
+      (is (= ["user" "flag" "assistant"] (mapv :role (get-in (h/db) [:chats "c1" :messages]))))
+      (is (= [{:text "checkpoint"}] (mapv :content (flags)))))
+    (testing "removes it, as chat/removeFlag"
+      (let [flag-id (:content-id (first (flags)))]
+        (is (= 204 (:status (m.remote.handlers/handle-remove-flag (components) nil "c1" flag-id))))
+        (is (= [] (flags)))))))
+
+(deftest handle-fork-test
+  (let [error-code #(get-in (json/parse-string (:body %) true) [:error :code])]
+    (testing "404 for a missing chat"
+      (is (= 404 (:status (m.remote.handlers/handle-fork (components) (json-request {:contentId "u1"}) "ghost")))))
+    (testing "400 without contentId"
+      (seed-chat!)
+      (is (= 400 (:status (m.remote.handlers/handle-fork (components) (json-request {}) "c1")))))
+    (testing "404 when no message has the contentId"
+      (seed-chat!)
+      (is (= "content_not_found" (error-code (m.remote.handlers/handle-fork (components) (json-request {:contentId "nope"}) "c1")))))
+    (testing "a new chat with the messages up to the given one, as chat/fork"
+      (seed-chat!)
+      (let [response (m.remote.handlers/handle-fork (components) (json-request {:contentId "u1"}) "c1")
+            new-id (:chatId (json/parse-string (:body response) true))]
+        (is (= 200 (:status response)))
+        (is (not= "c1" new-id))
+        (is (= ["hi"] (mapv #(get-in % [:content 0 :text]) (get-in (h/db) [:chats new-id :messages]))))))))
+
+(deftest handle-jobs-test
+  (let [body #(json/parse-string (:body %) true)]
+    (testing "lists the background jobs, as jobs/list"
+      (let [response (m.remote.handlers/handle-jobs-list (components) nil)]
+        (is (= 200 (:status response)))
+        (is (vector? (:jobs (body response))))))
+    (testing "an unknown job has no output and can't be killed"
+      (is (= {:lines [] :status nil :exitCode nil}
+             (body (m.remote.handlers/handle-job-output (components) nil "job-404"))))
+      (is (= {:killed false} (body (m.remote.handlers/handle-job-kill (components) nil "job-404")))))
+    (testing "with eca/shell off, its methods are gone for web clients too"
+      (reset! config/initialization-config* {:pureConfig true :modules {:eca/shell {:enabled false}}})
+      (config/clear-cache!)
+      (let [response (m.remote.handlers/handle-jobs-list (components) nil)]
+        (is (= 404 (:status response)))
+        (is (= "method_not_found" (get-in (body response) [:error :code])))))))

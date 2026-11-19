@@ -53,6 +53,10 @@
       (when (= :post method)
         [m.remote.handlers/handle-mcp-add components request])
 
+      ["api" "v1" "jobs"]
+      (when (= :get method)
+        [m.remote.handlers/handle-jobs-list components request])
+
       ;; Dynamic routes with path params
       (when (and (>= (count segments) 4)
                  (= "api" (nth segments 0))
@@ -67,24 +71,30 @@
                     :delete [m.remote.handlers/handle-delete-chat components request chat-id]
                     nil)
                 5 (let [action (nth segments 4)]
-                    (when (= :post method)
-                      (case action
-                        "prompt"  [m.remote.handlers/handle-prompt components request chat-id]
-                        "stop"    [m.remote.handlers/handle-stop components request chat-id]
-                        "rollback" [m.remote.handlers/handle-rollback components request chat-id]
-                        "clear"   [m.remote.handlers/handle-clear components request chat-id]
-                        "model"   [m.remote.handlers/handle-change-model components request chat-id]
-                        "agent"   [m.remote.handlers/handle-change-agent components request chat-id]
-                        "variant" [m.remote.handlers/handle-change-variant components request chat-id]
-                        "update"  [m.remote.handlers/handle-update-chat components request chat-id]
-                        nil)))
+                    (if (= :delete method)
+                      (when (= "steer" action)
+                        [m.remote.handlers/handle-remove-steer components request chat-id])
+                      (when (= :post method)
+                        (case action
+                          "prompt"  [m.remote.handlers/handle-prompt components request chat-id]
+                          "stop"    [m.remote.handlers/handle-stop components request chat-id]
+                          "rollback" [m.remote.handlers/handle-rollback components request chat-id]
+                          "clear"   [m.remote.handlers/handle-clear components request chat-id]
+                          "model"   [m.remote.handlers/handle-change-model components request chat-id]
+                          "agent"   [m.remote.handlers/handle-change-agent components request chat-id]
+                          "variant" [m.remote.handlers/handle-change-variant components request chat-id]
+                          "update"  [m.remote.handlers/handle-update-chat components request chat-id]
+                          "steer"   [m.remote.handlers/handle-steer components request chat-id]
+                          "flag"    [m.remote.handlers/handle-add-flag components request chat-id]
+                          "fork"    [m.remote.handlers/handle-fork components request chat-id]
+                          nil))))
                 6 (let [action (nth segments 4)
-                        tcid (nth segments 5)]
-                    (when (= :post method)
-                      (case action
-                        "approve" [m.remote.handlers/handle-approve components request chat-id tcid]
-                        "reject"  [m.remote.handlers/handle-reject components request chat-id tcid]
-                        nil)))
+                        id (nth segments 5)]
+                    (case [method action]
+                      [:post "approve"] [m.remote.handlers/handle-approve components request chat-id id]
+                      [:post "reject"]  [m.remote.handlers/handle-reject components request chat-id id]
+                      [:delete "flag"]  [m.remote.handlers/handle-remove-flag components request chat-id id]
+                      nil))
                 nil))
 
             "mcp"
@@ -106,6 +116,14 @@
                   nil))
 
               :else nil)
+
+            "jobs"
+            (when (= 5 (count segments))
+              (let [job-id (nth segments 3)]
+                (case [method (nth segments 4)]
+                  [:get "output"] [m.remote.handlers/handle-job-output components request job-id]
+                  [:post "kill"]  [m.remote.handlers/handle-job-kill components request job-id]
+                  nil)))
 
             nil))))))
 
