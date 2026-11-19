@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Clarify that subagents cannot see the parent chat and need relevant context in the `spawn_agent` task.
+- Fix the remote server (web.eca.dev) logging a stack trace on every request and dropping the connection after each response.
 
 ## 0.172.0
 

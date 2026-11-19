@@ -18,5 +18,7 @@
   {"name": "clojure.lang.LineNumberingPushbackReader", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
   {"name": "sci.lang.IVar", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
   {"name": "sci.lang.Type", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
-  {"name": "sci.lang.Var", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true}
+  {"name": "sci.lang.Var", "allPublicMethods": true, "allPublicConstructors": true, "allPublicFields": true},
+  {"name": "org.eclipse.jetty.ee9.nested.Response", "allPublicMethods": true},
+  {"name": "org.eclipse.jetty.ee9.nested.HttpOutput", "allPublicMethods": true}
 ]
