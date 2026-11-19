@@ -13,7 +13,6 @@
 (deftest all-test
   (testing "local skills"
     (with-redefs [config/get-env (constantly nil)
-                  config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? #(= (h/file-path "/my/project/.eca/skills") (str %))
                   fs/directory? #(= (h/file-path "/my/project/.eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/my/project/.eca/skills/my-skill/SKILL.md"))])
@@ -119,7 +118,6 @@
 
   (testing "skills with quoted YAML values"
     (with-redefs [config/get-env (constantly nil)
-                  config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? #(= (h/file-path "/my/project/.eca/skills") (str %))
                   fs/directory? #(= (h/file-path "/my/project/.eca/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/my/project/.eca/skills/quoted-skill/SKILL.md"))])
@@ -135,7 +133,6 @@
 
   (testing "plugin skills are prefixed with plugin name"
     (with-redefs [config/get-env (constantly nil)
-                  config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? (fn [p] (= (h/file-path "/plugins/ui/skills") (str p)))
                   fs/directory? #(= (h/file-path "/plugins/ui/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/plugins/ui/skills/button/SKILL.md"))])
@@ -152,7 +149,6 @@
 
   (testing "plugin skill with same name as plugin drops the prefix"
     (with-redefs [config/get-env (constantly nil)
-                  config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? (fn [p] (= (h/file-path "/plugins/tdd/skills") (str p)))
                   fs/directory? #(= (h/file-path "/plugins/tdd/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/plugins/tdd/skills/tdd/SKILL.md"))])
@@ -169,7 +165,6 @@
 
   (testing "plugin skill dirs given as bare strings stay unprefixed (legacy)"
     (with-redefs [config/get-env (constantly nil)
-                  config/get-property (constantly (h/file-path "/home/someuser"))
                   fs/exists? (fn [p] (= (h/file-path "/plugins/legacy/skills") (str p)))
                   fs/directory? #(= (h/file-path "/plugins/legacy/skills") (str %))
                   fs/glob (constantly [(fs/path (h/file-path "/plugins/legacy/skills/old/SKILL.md"))])

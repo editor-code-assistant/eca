@@ -75,12 +75,6 @@
                                                      :toolCall {:readFile {:maxLines "3"}}
                                                      :unii {:mode "c"}})))))
 
-(deftest unknown-root-keys-test
-  (is (= #{:jiraUrll}
-         (config-spec/unknown-root-keys {[:jiraUrl] {:spec {:type :string}}
-                                         [:toolCall :readFile :maxLines] {:spec {:type :number}}}
-                                        {:jiraUrll "x" :toolCall {}}))))
-
 (deftest masked-test
   (is (= {:jiraUrl "x" :jiraToken "****"}
          (config-spec/masked {[:jiraUrl] {:spec {:type :string}}

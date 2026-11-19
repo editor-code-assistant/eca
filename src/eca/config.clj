@@ -45,7 +45,6 @@
 (def custom-config-file-path* (atom nil))
 
 (defn get-env [env] (System/getenv env))
-(defn get-property [property] (System/getProperty property))
 (defn user-home [] (cache/user-home))
 
 (def ^:private initial-config*

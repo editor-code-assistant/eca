@@ -1681,4 +1681,4 @@
                                                       :message "Request failed"})]
       (is (= {:error/type :quota-exhausted}
              (llm-api.errors/classify-error error-data)))
-      (is (false? (llm-api.errors/retryable? error-data))))))
+      (is (not (contains? llm-api.errors/retryable-error-types :quota-exhausted))))))

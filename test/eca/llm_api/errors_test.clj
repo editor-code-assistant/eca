@@ -3,6 +3,13 @@
    [clojure.test :refer [deftest is testing]]
    [eca.llm-api.errors :as llm-providers.errors]))
 
+(defn- retryable?
+  "Whether the error's type, as `classify-error` gives it, is one ECA retries."
+  ([error-data] (retryable? error-data nil))
+  ([error-data retry-rules]
+   (contains? llm-providers.errors/retryable-error-types
+              (:error/type (llm-providers.errors/classify-error error-data retry-rules)))))
+
 (deftest provider-error-extension-defaults-test
   (testing "providers without extensions keep errors untouched and non-recoverable"
     (let [error-data {:message "boom" :status 500}]
@@ -57,6 +64,12 @@
             {:status 400
              :body "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"prompt is too long: 273112 tokens > 200000 maximum\"}}"
              :message "Anthropic response status: 400 body: ..."}))))
+
+  (testing "Anthropic prompt too long, in a plain-text body"
+    (is (= {:error/type :context-overflow}
+           (llm-providers.errors/classify-error
+            {:status 400
+             :body "prompt is too long: 273112 tokens > 200000 maximum"}))))
 
   (testing "OpenAI context length exceeded"
     (is (= {:error/type :context-overflow}
@@ -143,7 +156,7 @@
              :message "LLM response status: 400 body: ..."}))))
 
   (testing "not retryable (recovery happens via history sanitization instead)"
-    (is (not (llm-providers.errors/retryable?
+    (is (not (retryable?
               {:status 400
                :body "Image has 100 total pixels (10x10), which is below the minimum of 512 pixels."})))))
 
@@ -188,7 +201,7 @@
     (let [error-data {:message "OpenAI error: insufficient_quota"}]
       (is (= {:error/type :quota-exhausted}
              (llm-providers.errors/classify-error error-data)))
-      (is (false? (llm-providers.errors/retryable? error-data)))))
+      (is (false? (retryable? error-data)))))
 
   (testing "ordinary rate_limit_exceeded remains retryable"
     (let [error-data {:status 429
@@ -196,7 +209,7 @@
                       :message "OpenAI response status: 429"}]
       (is (= {:error/type :rate-limited}
              (llm-providers.errors/classify-error error-data)))
-      (is (true? (llm-providers.errors/retryable? error-data))))))
+      (is (true? (retryable? error-data))))))
 
 (deftest classify-error-auth-test
   (testing "401 unauthorized"
@@ -275,9 +288,9 @@
                                               (java.net.UnknownHostException. "litellm.company.com"))}))))
 
   (testing "network errors are retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:exception (java.net.UnknownHostException. "litellm.company.com")})))
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:exception (java.net.http.HttpConnectTimeoutException. "HTTP connect timed out")}))))
 
   (testing "TLS record-layer failures are network and retryable"
@@ -285,13 +298,13 @@
                                  "(bad_record_mac) Received fatal alert: bad_record_mac")}]
       (is (= {:error/type :network}
              (llm-providers.errors/classify-error error-data)))
-      (is (true? (llm-providers.errors/retryable? error-data)))))
+      (is (true? (retryable? error-data)))))
 
   (testing "TLS trust failures are not network nor retryable"
     (let [pkix {:exception (javax.net.ssl.SSLHandshakeException.
                             "PKIX path building failed: unable to find valid certification path")}]
       (is (= {:error/type :unknown} (llm-providers.errors/classify-error pkix)))
-      (is (false? (llm-providers.errors/retryable? pkix)))))
+      (is (false? (retryable? pkix)))))
 
   (testing "custom retry rules take priority over network classification"
     (is (= {:error/type :retryable-custom :error/label "VPN down"}
@@ -349,30 +362,19 @@
             {:message "Connection error: Connection refused"}))))
 
   (testing "connection error is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:message "Connection error: java.nio.channels.UnresolvedAddressException"}))))
 
   (testing "dropped connection message (#547) is overloaded and retryable"
     (let [error-data {:message "Connection closed unexpectedly: closed. The server, a proxy or the network dropped the connection mid-request (common behind corporate proxies/VPNs with idle or streaming timeouts)."}]
       (is (= {:error/type :overloaded}
              (llm-providers.errors/classify-error error-data)))
-      (is (true? (llm-providers.errors/retryable? error-data)))))
+      (is (true? (retryable? error-data)))))
 
   (testing "EOF reached message is overloaded"
     (is (= {:error/type :overloaded}
            (llm-providers.errors/classify-error
             {:message "EOF reached while reading"})))))
-
-(deftest context-overflow?-test
-  (testing "returns true for overflow errors"
-    (is (true? (llm-providers.errors/context-overflow?
-                {:status 400
-                 :body "prompt is too long: 273112 tokens > 200000 maximum"}))))
-
-  (testing "returns false for non-overflow errors"
-    (is (false? (llm-providers.errors/context-overflow?
-                 {:status 429
-                  :body "Rate limit exceeded"})))))
 
 (deftest classify-error-custom-retry-rules-test
   (testing "matches by status code only"
@@ -486,82 +488,82 @@
 
 (deftest retryable?-test
   (testing "429 rate-limited is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:status 429
                  :body "{\"error\":{\"message\":\"Rate limit exceeded\"}}"
                  :message "LLM response status: 429 body: ..."}))))
 
   (testing "503 overloaded is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:status 503
                  :body "Service temporarily unavailable"
                  :message "Anthropic response status: 503 body: Service temporarily unavailable"}))))
 
   (testing "529 overloaded is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:status 529
                  :body ""
                  :message "Anthropic response status: 529 body: "}))))
 
   (testing "502 bad gateway is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:status 502
                  :body "Bad Gateway"
                  :message "LLM response status: 502 body: Bad Gateway"}))))
 
   (testing "OpenRouter relaying an upstream provider's 520 is retryable"
     (let [body "{\"error\":{\"message\":\"Provider returned error\",\"code\":520,\"metadata\":{\"raw\":\"error code: 520\\n\",\"provider_name\":\"Z.AI\",\"is_byok\":false}}}"]
-      (is (true? (llm-providers.errors/retryable?
+      (is (true? (retryable?
                   {:status 520
                    :body body
                    :message (str "LLM response status: 520 body: " body)})))))
 
   (testing "other 4xx are not retryable"
-    (is (false? (llm-providers.errors/retryable?
+    (is (false? (retryable?
                  {:status 404
                   :body "Not Found"
                   :message "LLM response status: 404 body: Not Found"}))))
 
   (testing "503 with overloaded_error pattern (rate-limited) is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:status 503
                  :body "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
                  :message "Anthropic response status: 503 body: ..."}))))
 
   (testing "message-only rate limit is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:message "rate limit exceeded, please retry"}))))
 
   (testing "context-overflow is not retryable"
-    (is (false? (llm-providers.errors/retryable?
+    (is (false? (retryable?
                  {:status 400
                   :body "prompt is too long: 273112 tokens > 200000 maximum"}))))
 
   (testing "auth error is not retryable"
-    (is (false? (llm-providers.errors/retryable?
+    (is (false? (retryable?
                  {:status 401
                   :body "Unauthorized"}))))
 
   (testing "unknown error is not retryable"
-    (is (false? (llm-providers.errors/retryable?
+    (is (false? (retryable?
                  {:message "Something went wrong"}))))
 
   (testing "custom retry rule makes error retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:status 418 :body "I'm a teapot"}
                 [{:status 418 :label "Teapot"}]))))
 
   (testing "non-matching custom rule does not affect retryability"
-    (is (false? (llm-providers.errors/retryable?
+    (is (false? (retryable?
                  {:message "Something went wrong"}
                  [{:status 418 :label "Teapot"}]))))
 
   (testing "handshake termination is retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:message "Remote host terminated the handshake"}))))
 
   (testing "custom error pattern rule makes error retryable"
-    (is (true? (llm-providers.errors/retryable?
+    (is (true? (retryable?
                 {:message "Remote host terminated the handshake"}
                 [{:errorPattern "terminated.*handshake" :label "TLS error"}])))))
 

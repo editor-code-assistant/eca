@@ -265,22 +265,9 @@
   (when-let [f (provider-errors-fn :retry-after-ms ctx)]
     (f ctx)))
 
-(defn context-overflow?
-  "Returns true if the error is a context window overflow."
-  [error-data]
-  (= :context-overflow (:error/type (classify-error error-data))))
-
 (def retryable-error-types
   "Error types considered transient and safe to retry."
   #{:rate-limited :overloaded :retryable-custom :premature-stop :network})
-
-(defn retryable?
-  "Returns true if the error is transient and the request can be retried
-   (rate-limited, provider overloaded, network failure, or matched a custom retry rule)."
-  ([error-data] (retryable? error-data nil))
-  ([error-data retry-rules]
-   (contains? retryable-error-types
-              (:error/type (classify-error error-data retry-rules)))))
 
 (defn header-str
   "Header value as trimmed non-blank string, unwrapping multi-value collections."

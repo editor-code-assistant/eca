@@ -145,12 +145,6 @@
          :when (not (valid-value? spec value))]
      {:path path :value value :type (:type spec)})))
 
-(defn unknown-root-keys
-  "Root keys of `config` that no declared path starts with."
-  [declared config]
-  (let [roots (into #{} (map first) (keys declared))]
-    (into (sorted-set) (remove roots) (when (map? config) (keys config)))))
-
 (defn masked
   "The config with the values of `:secret?` keys masked."
   [declared config]
