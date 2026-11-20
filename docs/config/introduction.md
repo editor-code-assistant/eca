@@ -66,7 +66,7 @@ There are multiples ways to configure ECA:
 
 === "Base configs"
 
-    Share a base config across a team or company: ECA fetches each URL listed in `baseConfigs` and merges it right above its built-in defaults, so every other source, your own config files included, overrides it:
+    Share a base config across a team or company: ECA fetches each config listed in `baseConfigs`, a URL or a file in a git repository, and merges it right above its built-in defaults, so every other source, your own config files included, overrides it:
 
     ```javascript title="~/.config/eca/config.json"
     {
@@ -86,7 +86,17 @@ There are multiples ways to configure ECA:
     }
     ```
 
-    - ECA keeps each base config's last good copy in `~/.cache/eca`: a session starts with the copy, fetches the config again, then every hour. A failed fetch (offline, off VPN, invalid JSON) keeps the copy and warns once. ECA only waits for a fetch when there's no copy yet, on a base config's first use.
+    Or point at the file in its git repository: `git` is the repository as you'd clone it, `path` the file in it, and `ref` an optional branch or tag, the default branch otherwise:
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "baseConfigs": [{"git": "git@github.com:my-org/eca-config.git", "path": "eca/base.json"}]
+    }
+    ```
+
+    ECA runs `git` with your machine's credentials, e.g. your SSH keys or a git credential helper, so the config needs no token; they must work without prompting, e.g. a key loaded in your SSH agent. A fetch first asks for the ref's commit and stops there when it hasn't changed; otherwise it clones just that commit, leaving the other files out when the server allows it, as GitHub does. Repositories over `ssh`, `https` or local paths are supported, not unencrypted `http://` or `git://`.
+
+    - ECA keeps each base config's last good copy in `~/.cache/eca`: a session starts with the copy, fetches the config again, then every hour. A failed fetch (offline, off VPN, invalid JSON, no access) keeps the copy and warns once. ECA only waits for a fetch when there's no copy yet, on a base config's first use.
     - Later entries win over earlier ones, `baseConfigs` lists from several sources add up, and a base config's own `baseConfigs` is ignored.
     - Adding or removing an entry applies without restarting ECA; `/doctor` shows how each base config stands.
     - `network` settings and `connectTimeoutSeconds` apply before a session starts, so base configs can't set them.

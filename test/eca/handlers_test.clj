@@ -66,7 +66,8 @@
 
   (testing "starts with the base configs' last good copies, from disk"
     (h/reset-components!)
-    (#'base-configs/save-copy! "https://base.example/eca.json" {"defaultModel" "base/model"} 1000)
+    (#'base-configs/save-copy! {:id "https://base.example/eca.json" :display "https://base.example/eca.json"}
+                               {"defaultModel" "base/model"} 1000 nil)
     (with-redefs [db.migration/load-db-from-cache! (constantly nil)]
       (handlers/initialize (h/components)
                            {:initialization-options {:pureConfig true

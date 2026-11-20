@@ -1,5 +1,7 @@
 (ns eca.base-configs-test
   (:require
+   [babashka.fs :as fs]
+   [babashka.process :as p]
    [clojure.string :as string]
    [clojure.test :refer [deftest is testing]]
    [eca.base-configs :as base-configs]
@@ -35,17 +37,90 @@
   (reset! config/initialization-config* {:pureConfig true :baseConfigs base-config-entries})
   (config/clear-cache!))
 
+(defn ^:private git!
+  "Runs git in `dir`, without signing, as a fixed author. Throws when it fails."
+  [dir & args]
+  (:out (apply p/shell {:dir (str dir) :out :string :err :string}
+               "git" "-c" "commit.gpgsign=false" "-c" "tag.gpgsign=false"
+               "-c" "user.name=ECA" "-c" "user.email=eca@example.com" args)))
+
+(defn ^:private commit!
+  "Commits `files` (path → content, nil deletes it) in the `work` clone and
+   pushes them to its origin's `branch`."
+  ([work files] (commit! work "main" files))
+  ([work branch files]
+   (doseq [[path content] files
+           :let [file (fs/file work path)]]
+     (if content
+       (do (fs/create-dirs (fs/parent file))
+           (spit file content))
+       (fs/delete file)))
+   (git! work "add" "--all")
+   (git! work "commit" "--quiet" "--message" "change")
+   (git! work "push" "--quiet" "origin" (str "HEAD:" branch))))
+
+(defn ^:private with-git-repo
+  "Calls `f` with a repository with `files` on `main`, served as GitHub does:
+   a clone can leave files out, fetching each one when read. `f` gets its
+   `file://` `:url` and a `:work` repository to commit to."
+  [files f]
+  (let [dir (fs/create-temp-dir {:prefix "eca-base-config-repo"})
+        origin (fs/file dir "origin.git")
+        work (fs/file dir "work")]
+    (try
+      (git! dir "init" "--quiet" "--bare" "--initial-branch=main" (str origin))
+      (git! origin "config" "uploadpack.allowFilter" "true")
+      (git! origin "config" "uploadpack.allowAnySHA1InWant" "true")
+      (git! dir "init" "--quiet" "--initial-branch=main" (str work))
+      (git! work "remote" "add" "origin" (str origin))
+      (commit! work files)
+      (f {:url (str (.toUri (fs/path origin))) :work work})
+      (finally
+        (fs/delete-tree dir {:force true})))))
+
+(defn ^:private head [work]
+  (string/trim (git! work "rev-parse" "HEAD")))
+
+(defn ^:private git-commands
+  "The git subcommands base configs ran while calling `f`."
+  [f]
+  (let [commands* (atom [])
+        run-git! @#'base-configs/run-git!]
+    (with-redefs-fn {#'base-configs/run-git! (fn [dir & args]
+                                               (swap! commands* conj (first args))
+                                               (apply run-git! dir args))}
+      f)
+    @commands*))
+
 (deftest sources-test
   (testing "URLs and {url, headers} maps, in order, trimmed, without repeats"
     (is (= [{:url "https://a.example/base.json"}
             {:url "https://b.example/base.json" :headers {"Authorization" "Bearer t0k" "X-Count" "1"}}]
-           (base-configs/sources {:baseConfigs [" https://a.example/base.json "
-                                                {:url "https://b.example/base.json"
-                                                 :headers {"Authorization" "Bearer t0k" :X-Count 1}}
-                                                "https://a.example/base.json"]}))))
+           (map #(select-keys % [:url :headers])
+                (base-configs/sources {:baseConfigs [" https://a.example/base.json "
+                                                     {:url "https://b.example/base.json"
+                                                      :headers {"Authorization" "Bearer t0k" :X-Count 1}}
+                                                     "https://a.example/base.json"]})))))
   (testing "a single URL"
-    (is (= [{:url "https://a.example/base.json"}]
-           (base-configs/sources {:baseConfigs "https://a.example/base.json"}))))
+    (is (= ["https://a.example/base.json"]
+           (map :url (base-configs/sources {:baseConfigs "https://a.example/base.json"})))))
+  (testing "files in git repositories, with an optional ref, without repeats"
+    (is (= [{:git "git@github.com:nubank/nudev.git" :path "ides/eca/config.json"
+             :display "ides/eca/config.json from git@github.com:nubank/nudev.git"}
+            {:git "https://x:ghp_s3cr3t@github.com/acme/eca.git" :path "base.json" :ref "v1"
+             :display "base.json from https://github.com/acme/eca.git at v1"}]
+           (map #(dissoc % :id)
+                (base-configs/sources {:baseConfigs [{:git "git@github.com:nubank/nudev.git" :path "/ides/eca/config.json"}
+                                                     {:git "git@github.com:nubank/nudev.git" :path "ides/eca/config.json"}
+                                                     {:git "https://x:ghp_s3cr3t@github.com/acme/eca.git" :path "base.json" :ref "v1"}]})))))
+  (testing "git entries that can't be fetched are left out"
+    (is (= [] (base-configs/sources {:baseConfigs [{:git "http://example.com/eca.git" :path "base.json"}
+                                                   {:git "git://example.com/eca.git" :path "base.json"}
+                                                   {:git "ext::sh -c touch% /tmp/pwned" :path "base.json"}
+                                                   {:git "--upload-pack=touch /tmp/pwned" :path "base.json"}
+                                                   {:git "git@github.com:acme/eca.git" :path "base.json" :ref "--output=x"}
+                                                   {:git "git@github.com:acme/eca.git"}
+                                                   {:git " " :path "base.json"}]}))))
   (testing "plain HTTP only for localhost"
     (is (= ["http://localhost:5550/base.json" "http://127.0.0.1/base.json"]
            (map :url (base-configs/sources {:baseConfigs ["http://localhost:5550/base.json"
@@ -130,6 +205,102 @@
            (warnings)))
     (is (= [] @config/base-config-layers*))))
 
+(deftest git-refresh-test
+  (with-git-repo
+    {"eca/config.json" "{\n  // shared defaults\n  \"defaultModel\": \"base/v1\"\n}"}
+    (fn [{:keys [url work]}]
+      (let [config {:baseConfigs [{:git url :path "eca/config.json"}]}
+            display (str "eca/config.json from " url)]
+        (testing "the file at the default branch is merged, comments allowed"
+          (is (= ["clone" "cat-file" "rev-parse"]
+                 (git-commands #(base-configs/refresh! config (h/messenger)))))
+          (is (= [{"defaultModel" "base/v1"}] @config/base-config-layers*))
+          (is (re-find (re-pattern (str "\\Q" display ": fetched at \\E.+\\Q, commit " (subs (head work) 0 7) "\\E"))
+                       (base-configs/status-text config)))
+          (is (= [] (warnings))))
+        (testing "while the branch stays at that commit, nothing is cloned"
+          (is (= ["ls-remote"] (git-commands #(base-configs/refresh! config (h/messenger)))))
+          (is (= [{"defaultModel" "base/v1"}] @config/base-config-layers*)))
+        (testing "a new commit is fetched"
+          (commit! work {"eca/config.json" "{\"defaultModel\": \"base/v2\"}"})
+          (is (= ["ls-remote" "clone" "cat-file" "rev-parse"]
+                 (git-commands #(base-configs/refresh! config (h/messenger)))))
+          (is (= [{"defaultModel" "base/v2"}] @config/base-config-layers*)))
+        (testing "a new session starts with the copy, which knows its commit"
+          (base-configs/reset-state!)
+          (is (= [] (git-commands #(base-configs/load-cached! config))))
+          (is (= [{"defaultModel" "base/v2"}] @config/base-config-layers*))
+          (is (= ["ls-remote"] (git-commands #(base-configs/refresh! config (h/messenger))))))
+        (testing "once the file is gone, the copy stays, warning once"
+          (commit! work {"eca/config.json" nil "README.md" "moved"})
+          (base-configs/refresh! config (h/messenger))
+          (base-configs/refresh! config (h/messenger))
+          (is (= [{"defaultModel" "base/v2"}] @config/base-config-layers*))
+          (is (match? [(re-pattern (str "^\\QCould not refresh the base config " display
+                                        " (git cat-file failed: path 'eca/config.json' does not exist in 'HEAD'), using its copy from \\E"))]
+                      (warnings)))
+          (is (string/includes? (base-configs/status-text config)
+                                "the last fetch failed: git cat-file failed: path 'eca/config.json' does not exist in 'HEAD'")))))))
+
+(deftest git-ref-test
+  (with-git-repo
+    {"base.json" "{\"defaultModel\": \"main/model\"}"}
+    (fn [{:keys [url work]}]
+      (commit! work "release" {"base.json" "{\"defaultModel\": \"release/model\"}"})
+      ;; `git ls-remote <url> release` lists it first, before refs/heads/release
+      (commit! work "a/release" {"base.json" "{\"defaultModel\": \"other/model\"}"})
+      (commit! work "tagged" {"base.json" "{\"defaultModel\": \"tag/model\"}"})
+      (git! work "tag" "--annotate" "--message" "v1" "v1")
+      (git! work "push" "--quiet" "origin" "v1")
+      (let [config {:baseConfigs [{:git url :path "base.json" :ref "release"}
+                                  {:git url :path "base.json" :ref "v1"}]}]
+        (testing "the file at a branch and at an annotated tag"
+          (base-configs/refresh! config (h/messenger))
+          (is (= [{"defaultModel" "release/model"} {"defaultModel" "tag/model"}]
+                 @config/base-config-layers*))
+          (is (= [] (warnings))))
+        (testing "while they stay at those commits, nothing is cloned"
+          (is (= ["ls-remote" "ls-remote"]
+                 (git-commands #(base-configs/refresh! config (h/messenger)))))))
+      (testing "a ref that doesn't exist"
+        (base-configs/refresh! {:baseConfigs [{:git url :path "base.json" :ref "nope"}]} (h/messenger))
+        (is (= [] @config/base-config-layers*))
+        (is (= [(str "Could not load the base config base.json from " url " at nope"
+                     " (git clone failed: Remote branch nope not found in upstream origin),"
+                     " ECA goes on without it: check your connection and your access to it.")]
+               (warnings)))))))
+
+(deftest git-unreachable-test
+  (testing "a repository that can't be cloned, without a copy, warns ECA goes on without it"
+    (let [url (str (.toUri (fs/path (fs/temp-dir) (str "eca-no-such-repo-" (random-uuid) ".git"))))]
+      (base-configs/refresh! {:baseConfigs [{:git url :path "base.json"}]} (h/messenger))
+      (is (= [] @config/base-config-layers*))
+      (is (match? [#"^Could not load the base config base\.json from file:.+ \(git clone failed: '.+' does not appear to be a git repository\), ECA goes on without it: check your connection and your access to it\.$"]
+                  (warnings))))))
+
+(deftest git-env-test
+  (testing "git gets ECA's environment without what points it elsewhere or prompts in a window, prompts off"
+    (is (= {"PATH" "/usr/bin" "GIT_SSH_COMMAND" "ssh -i ~/.ssh/work"
+            "GIT_TERMINAL_PROMPT" "0" "SSH_ASKPASS_REQUIRE" "never" "GCM_INTERACTIVE" "never"
+            "GIT_OPTIONAL_LOCKS" "0"}
+           (#'base-configs/git-env {"PATH" "/usr/bin" "GIT_SSH_COMMAND" "ssh -i ~/.ssh/work"
+                                    "GIT_DIR" "/elsewhere/.git" "GIT_CONFIG_PARAMETERS" "'core.pager'='less'"
+                                    "GIT_ASKPASS" "/usr/bin/ksshaskpass" "SSH_ASKPASS" "/usr/bin/ksshaskpass"})))))
+
+(deftest invalid-git-entries-test
+  (testing "a git entry that can't be fetched is skipped without running git, warning once"
+    (let [config {:baseConfigs [{:git "http://example.com/eca.git" :path "base.json"}
+                                {:git "ext::sh -c touch% /tmp/pwned" :path "base.json"}
+                                {:git "--upload-pack=touch /tmp/pwned" :path "base.json"}
+                                {:git "git@github.com:acme/eca.git"}]}]
+      (is (= [] (git-commands #(dotimes [_ 2] (base-configs/refresh! config (h/messenger))))))
+      (is (= ["Skipping the baseConfigs entry base.json from http://example.com/eca.git: only ssh, https or local git repositories are supported."
+              "Skipping the baseConfigs entry base.json from ext::sh -c touch% /tmp/pwned: git remote helpers aren't supported."
+              "Skipping the baseConfigs entry base.json from --upload-pack=touch /tmp/pwned: it's not a valid git repository or ref."
+              "Skipping the baseConfigs entry git@github.com:acme/eca.git: it has no path."]
+             (warnings)))
+      (is (= [] @config/base-config-layers*)))))
+
 (deftest on-config-changed-test
   (let [responses* (atom {"/base.json" {:status 200 :body "{\"defaultModel\": \"base/model\"}"}})
         requests* (atom [])]
@@ -161,7 +332,7 @@
             (let [base-url (str url "/base.json")]
               (session-config! [base-url])
               (testing "with a copy loaded, the session goes on while the fetch updates it"
-                (#'base-configs/save-copy! base-url {"defaultModel" "base/cached"} 1000)
+                (#'base-configs/save-copy! {:id base-url :display base-url} {"defaultModel" "base/cached"} 1000 nil)
                 (base-configs/load-cached! (config/all (h/db)))
                 (base-configs/start! (h/db*) (h/messenger))
                 (is (= "base/cached" (:defaultModel (config/all (h/db)))))

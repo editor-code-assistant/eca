@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `baseConfigs` entries can be a file in a git repo, `{"git", "path", "ref"}`, fetched with the machine's git credentials (e.g. SSH keys), so no token is needed.
+
 ## 0.173.0
 
 - Add `baseConfigs`: shared configs fetched from HTTPS URLs and merged right above defaults so users override them; cached as last-known-good, refreshed hourly.
