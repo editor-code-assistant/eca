@@ -15,8 +15,8 @@
     },
     "baseConfigs": {
       "type": "array",
-      "description": "Shared configs, e.g. a company's providers and MCP servers, fetched from HTTPS URLs (plain HTTP only from localhost) and deep merged right above the built-in defaults, so every other config source overrides them. Each one's last good copy is used when a fetch fails, and it's fetched again hourly. Lists from several sources add up.",
-      "markdownDescription": "Shared configs, e.g. a company's providers and MCP servers, fetched from HTTPS URLs (plain HTTP only from `localhost`) and deep merged right above the built-in defaults, so every other config source overrides them.\n\nEach one's last good copy is used when a fetch fails (e.g. off VPN), and it's fetched again hourly. Lists from several sources add up; a base config's own `baseConfigs` is ignored. Only list configs you trust: they can add MCP servers, hooks and `${cmd:...}` commands.",
+      "description": "Shared configs, e.g. a company's providers and MCP servers, fetched from HTTPS URLs (plain HTTP only from localhost) or files in git repositories and deep merged right above the built-in defaults, so every other config source overrides them. Each one's last good copy is used when a fetch fails, and it's fetched again hourly. Lists from several sources add up.",
+      "markdownDescription": "Shared configs, e.g. a company's providers and MCP servers, fetched from HTTPS URLs (plain HTTP only from `localhost`) or files in git repositories and deep merged right above the built-in defaults, so every other config source overrides them.\n\nEach one's last good copy is used when a fetch fails (e.g. off VPN), and it's fetched again hourly. Lists from several sources add up; a base config's own `baseConfigs` is ignored. Only list configs you trust: they can add MCP servers, hooks and `${cmd:...}` commands.",
       "items": {
         "oneOf": [
           {
@@ -44,12 +44,42 @@
               "url"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "description": "A base config in a git repository, fetched with git and the machine's credentials, e.g. its SSH keys.",
+            "properties": {
+              "git": {
+                "type": "string",
+                "description": "The git repository, as you'd clone it: over ssh, https or a local path, e.g. git@github.com:my-org/eca-config.git.",
+                "markdownDescription": "The git repository, as you'd clone it: over ssh, https or a local path, e.g. `git@github.com:my-org/eca-config.git`."
+              },
+              "path": {
+                "type": "string",
+                "description": "The base config's path in the repository."
+              },
+              "ref": {
+                "type": "string",
+                "description": "The branch or tag to fetch it from. Defaults to the repository's default branch."
+              }
+            },
+            "required": [
+              "git",
+              "path"
+            ],
+            "additionalProperties": false
           }
         ]
       },
       "examples": [
         [
           "https://config.example.com/eca/base.json"
+        ],
+        [
+          {
+            "git": "git@github.com:my-org/eca-config.git",
+            "path": "eca/base.json"
+          }
         ],
         [
           {

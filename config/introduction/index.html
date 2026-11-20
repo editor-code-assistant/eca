@@ -1545,7 +1545,7 @@
 <p>Relative paths resolve against the workspace root; <code>~</code> and absolute paths are supported. Missing files are logged and skipped.</p>
 </div>
 <div class="tabbed-block">
-<p>Share a base config across a team or company: ECA fetches each URL listed in <code>baseConfigs</code> and merges it right above its built-in defaults, so every other source, your own config files included, overrides it:</p>
+<p>Share a base config across a team or company: ECA fetches each config listed in <code>baseConfigs</code>, a URL or a file in a git repository, and merges it right above its built-in defaults, so every other source, your own config files included, overrides it:</p>
 <div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;baseConfigs&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;https://config.example.com/eca/base.json&quot;</span><span class="p">]</span>
 <span class="p">}</span>
@@ -1558,8 +1558,14 @@
 <span class="w">                               </span><span class="s2">&quot;Accept&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;application/vnd.github.raw+json&quot;</span><span class="p">}}]</span>
 <span class="p">}</span>
 </code></pre></div>
+<p>Or point at the file in its git repository: <code>git</code> is the repository as you'd clone it, <code>path</code> the file in it, and <code>ref</code> an optional branch or tag, the default branch otherwise:</p>
+<div class="highlight"><span class="filename">~/.config/eca/config.json</span><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="s2">&quot;baseConfigs&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">[{</span><span class="s2">&quot;git&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;git@github.com:my-org/eca-config.git&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;path&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;eca/base.json&quot;</span><span class="p">}]</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>ECA runs <code>git</code> with your machine's credentials, e.g. your SSH keys or a git credential helper, so the config needs no token; they must work without prompting, e.g. a key loaded in your SSH agent. A fetch first asks for the ref's commit and stops there when it hasn't changed; otherwise it clones just that commit, leaving the other files out when the server allows it, as GitHub does. Repositories over <code>ssh</code>, <code>https</code> or local paths are supported, not unencrypted <code>http://</code> or <code>git://</code>.</p>
 <ul>
-<li>ECA keeps each base config's last good copy in <code>~/.cache/eca</code>: a session starts with the copy, fetches the config again, then every hour. A failed fetch (offline, off VPN, invalid JSON) keeps the copy and warns once. ECA only waits for a fetch when there's no copy yet, on a base config's first use.</li>
+<li>ECA keeps each base config's last good copy in <code>~/.cache/eca</code>: a session starts with the copy, fetches the config again, then every hour. A failed fetch (offline, off VPN, invalid JSON, no access) keeps the copy and warns once. ECA only waits for a fetch when there's no copy yet, on a base config's first use.</li>
 <li>Later entries win over earlier ones, <code>baseConfigs</code> lists from several sources add up, and a base config's own <code>baseConfigs</code> is ignored.</li>
 <li>Adding or removing an entry applies without restarting ECA; <code>/doctor</code> shows how each base config stands.</li>
 <li><code>network</code> settings and <code>connectTimeoutSeconds</code> apply before a session starts, so base configs can't set them.</li>
@@ -1755,7 +1761,7 @@ Current workspace roots: {{ workspaceRoots }}
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 19, 2026 18:21:08 UTC">November 19, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 20, 2026 12:58:23 UTC">November 20, 2026</span>
   </span>
 
     
