@@ -66,7 +66,9 @@
             doCheck = true;
             # The sandbox has a POSIX locale, which makes the JVM's
             # sun.jnu.encoding ASCII and garbles non-ASCII paths in tests.
-            checkPhase = "LC_ALL=C.UTF-8 clojure -M:test";
+            # Its `git` is clj-nix's fake one, for git deps, so the ^:git
+            # tests, which run the real git, run in the unit-test CI jobs.
+            checkPhase = "LC_ALL=C.UTF-8 clojure -M:test --skip-meta :git";
           };
 
           eca = cljpkgs.mkGraalBin {

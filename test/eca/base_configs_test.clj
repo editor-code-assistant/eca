@@ -205,7 +205,8 @@
            (warnings)))
     (is (= [] @config/base-config-layers*))))
 
-(deftest git-refresh-test
+;; ^:git tests run the real git, which the Nix build's sandbox lacks
+(deftest ^:git git-refresh-test
   (with-git-repo
     {"eca/config.json" "{\n  // shared defaults\n  \"defaultModel\": \"base/v1\"\n}"}
     (fn [{:keys [url work]}]
@@ -242,7 +243,7 @@
           (is (string/includes? (base-configs/status-text config)
                                 "the last fetch failed: git cat-file failed: path 'eca/config.json' does not exist in 'HEAD'")))))))
 
-(deftest git-ref-test
+(deftest ^:git git-ref-test
   (with-git-repo
     {"base.json" "{\"defaultModel\": \"main/model\"}"}
     (fn [{:keys [url work]}]
@@ -270,7 +271,7 @@
                      " ECA goes on without it: check your connection and your access to it.")]
                (warnings)))))))
 
-(deftest git-unreachable-test
+(deftest ^:git git-unreachable-test
   (testing "a repository that can't be cloned, without a copy, warns ECA goes on without it"
     (let [url (str (.toUri (fs/path (fs/temp-dir) (str "eca-no-such-repo-" (random-uuid) ".git"))))]
       (base-configs/refresh! {:baseConfigs [{:git url :path "base.json"}]} (h/messenger))
