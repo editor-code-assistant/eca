@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.173.1
+
 - `baseConfigs` entries can be a file in a git repo, `{"git", "path", "ref"}`, fetched with the machine's git credentials (e.g. SSH keys), so no token is needed.
 
 ## 0.173.0
