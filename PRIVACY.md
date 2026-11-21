@@ -14,7 +14,19 @@ When you use ECA, the following data is sent directly to your configured LLM pro
 - **Conversation messages** — Your prompts, assistant responses, and tool call inputs/outputs (which may include file contents, shell command output, and search results).
 - **Tool definitions** — Names and descriptions of available tools (including MCP server tools).
 
-**You control what gets sent.** ECA only includes file contents you explicitly reference or that the assistant reads via tools during the session. No files are sent without being part of the active conversation flow.
+**You control what gets sent.** ECA includes file contents you attach or reference, contents the assistant reads via tools, and the automatic memory data described below when you turn memory on.
+
+### Durable memory
+
+Memory, the `eca/memory` module, is off by default. When you turn it on, ECA automatically includes memory directory paths in the system instructions and a size-limited index or a list of changes in conversation messages. These blocks can contain note names, types, descriptions, tags, and dates of last change. They go to your configured model provider without a separate file reference or tool read for each note.
+
+The automatic index and change list do not include note bodies. A body can reach the provider through ordinary file reads, searches, or other tool results. The `/memory-consolidate` command includes a note's full body if it is at most 2,500 characters after trimming surrounding whitespace. For longer bodies the snapshot includes the path and size but no body text; reading the file for review can still send its contents to the provider. Sent blocks and tool results remain part of the conversation history. Storing memory locally does not mean its contents stay outside provider requests.
+
+## Remote clients
+
+If you enable ECA's remote server, clients with valid credentials can receive chat content, tool arguments, and tool results, including local file paths. They are trusted control interfaces, not restricted views of the session.
+
+Chat-history responses of the remote server include the automatic memory blocks as stored, with the note state the module keeps with them (note paths, names, directory labels and hashes). Ordinary tool results, the output of the `/memories` command (note names, types, descriptions, tags, and file paths, but not note bodies), and consolidation prompts can contain memory content too.
 
 ## What data is stored locally
 
@@ -27,8 +39,9 @@ ECA stores the following on your machine:
 | `~/.cache/eca/<workspace>/db.transit.json` | Conversation history for each project | Auto-deleted after 7 days |
 | `~/.cache/eca/toolCallOutputs/` | Truncated tool call outputs | Auto-deleted after 7 days |
 | `~/.cache/eca/plugins/` | Cloned plugin repositories | Until you delete them |
+| `~/.local/share/eca/memory/` | Durable memory files, the notes `/memory-consolidate` deleted (`trash/`), and the usage ledger (`eca/memory` module) | Until you delete it |
 
-Paths respect `$XDG_CONFIG_HOME` and `$XDG_CACHE_HOME` if set. No data is stored remotely by ECA.
+Paths respect `$XDG_CONFIG_HOME`, `$XDG_DATA_HOME` and `$XDG_CACHE_HOME` if set. No data is stored remotely by ECA.
 
 ## MCP servers
 
@@ -89,7 +102,7 @@ You can also configure custom providers. In that case, refer to that provider's 
 
 - **Choose your provider** — use a local model via Ollama for fully offline, private operation.
 - **Review before sending** — ECA shows you the conversation as it happens; you see what's being sent.
-- **Delete local data** — remove `~/.cache/eca/` and `~/.config/eca/` to erase all ECA data from your machine.
+- **Delete local data** — remove `~/.cache/eca/`, `~/.config/eca/` and `~/.local/share/eca/` to erase all ECA data from your machine.
 - **API key management** — store keys in environment variables or `.netrc` instead of config files if preferred.
 
 ## Questions

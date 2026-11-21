@@ -250,6 +250,37 @@
     "toolCall": {
       "$ref": "#/definitions/toolCallConfig"
     },
+    "memory": {
+      "type": "object",
+      "description": "Settings of the eca/memory module: durable memory in plain markdown files with YAML frontmatter, in two tiers (global and per-project personal). The module is off by default: turn it on with modules.eca/memory.enabled or '/modules enable eca/memory'. Do not store secrets, credentials, or authentication data. See https://eca.dev/config/memory",
+      "markdownDescription": "Settings of the `eca/memory` module: durable memory in plain markdown files with YAML frontmatter, in two tiers (global and per-project personal). The module is off by default: turn it on with `modules.eca/memory.enabled` or `/modules enable eca/memory`. Do not store secrets, credentials, or authentication data. See [Durable memory](https://eca.dev/config/memory).",
+      "additionalProperties": false,
+      "properties": {
+        "writeMode": {
+          "type": "string",
+          "enum": ["agent", "explicit"],
+          "default": "agent",
+          "description": "Write policy of the model: agent permits automatic writes of well-supported technical findings and of dated observations about how the user works (never written as rules). In both modes, saving user preferences or instructions as lasting rules requires clear permission for future chats. Explicit instructs the model to write, update, or delete memory only when the user asks. These are model instructions, not file-write restrictions: tool approval decides for memory files as for workspace files. Invalid values use explicit mode."
+        },
+        "index": {
+          "type": "object",
+          "description": "Memory index sent in a user message when the chat needs the current store.",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum number of memory entries rendered in the index; the rest is browsed with the agent's normal file tools."
+            },
+            "maxTokens": {
+              "type": "integer",
+              "default": 2000,
+              "description": "Estimated token budget for the whole memory index block: ECA counts 4 characters as one token, as for the context window. The global tier may use up to 30% and the project tier the rest; a tier that needs less leaves the difference to the other. Inside a tier, entries with the best usage score are kept. Zero sends no index and no change lists; the memory guidance stays."
+            }
+          }
+        }
+      }
+    },
     "mcpTimeoutSeconds": {
       "type": "integer",
       "description": "Timeout in seconds for MCP server operations.",
@@ -1680,6 +1711,11 @@
           "type": "string",
           "description": "Prompt for the /init command.",
           "markdownDescription": "Prompt for the /init command."
+        },
+        "memoryConsolidate": {
+          "type": "string",
+          "description": "Prompt for the /memory-consolidate command of the eca/memory module.",
+          "markdownDescription": "Prompt for the `/memory-consolidate` command of the `eca/memory` module."
         },
         "skillCreate": {
           "type": "string",

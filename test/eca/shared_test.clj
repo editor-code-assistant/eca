@@ -518,4 +518,20 @@
       (is (nil? context-limit))))
   (testing "drops empty categories"
     (let [{:keys [categories]} (shared/context-breakdown {:system-prompt "abcd"})]
-      (is (= ["System prompt"] (mapv :name categories))))))
+      (is (= ["System prompt"] (mapv :name categories)))))
+  (testing "excludes private module context :data while still counting visible module text"
+    (let [visible-block {:type :text :text "<additionalContext>\n<memory-index>hello</memory-index>\n</additionalContext>"}
+          big-notes (into {} (map (fn [i] [(str "/home/user/memory/note-" i ".md")
+                                           {:hash (apply str (repeat 64 "a")) :name (str "Note " i) :label "global"}]))
+                          (range 50))
+          plain (shared/context-breakdown
+                 {:messages [{:role "user" :content [{:type :text :text "hi"} visible-block]}]})
+          with-bookkeeping (shared/context-breakdown
+                            {:messages [{:role "user" :content [{:type :text :text "hi"}
+                                                                (assoc visible-block :module :eca/memory :data {:notes big-notes})]}]})
+          without-visible (shared/context-breakdown
+                           {:messages [{:role "user" :content [{:type :text :text "hi"}]}]})]
+      (is (= plain with-bookkeeping)
+          "private :module/:data does not inflate estimates")
+      (is (> (:used-tokens plain) (:used-tokens without-visible))
+          "visible module text still counts toward Conversation"))))

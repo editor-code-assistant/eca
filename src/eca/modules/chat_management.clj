@@ -520,7 +520,9 @@
           {:error (str "File not found: " path)}
           (let [data (edn/read-string (slurp path))]
             (if (valid-export? data)
-              {:chat (:chat data)}
+              {:chat (cond-> (:chat data)
+                       (sequential? (get-in data [:chat :messages]))
+                       (update :messages #(mapv message-sanitize/without-module-contexts %)))}
               {:error "Not a valid ECA chat export file."})))))
     (catch Exception e
       {:error (.getMessage e)})))

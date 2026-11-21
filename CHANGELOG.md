@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add the optional `eca/memory` module to keep notes across chats.
+- Add `eca/date` to tell the model today's date by default.
+
 ## 0.173.1
 
 - `baseConfigs` entries can be a file in a git repo, `{"git", "path", "ref"}`, fetched with the machine's git credentials (e.g. SSH keys), so no token is needed.
@@ -24,7 +27,6 @@
   - Write your own in Clojure, run with SCI, loaded from `~/.config/eca/modules/`, `.eca/modules/`, plugins or the config.
   - A module adds tools, tool servers, commands, protocol methods, prompt sections, skills, contexts, providers, LLM APIs and event handlers, and calls ECA through `eca.api`.
   - Optional modules, off by default: `eca/repl` (`--repl`), `eca/remote` and `eca/otel`; `remote.enabled` and `otlp` still enable these two.
-  - `eca/date` tells the model today's date by default.
   - New `eca-manage` skill, to change ECA itself, from its config to modules, following the docs at eca.dev.
 - Add `toolCall.approval.insideWorkspace`: folders outside the workspace that file and shell tools treat as inside it, so your approval rules decide for them.
 - Remove the `repoMap` context and `/repo-map-show`, deprecated since 0.59.0: `eca__directory_tree` replaces them.

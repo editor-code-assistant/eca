@@ -25,6 +25,10 @@
 (def ^:dynamic *exit-on-server-error?*
   "Whether a server exiting with an error aborts the whole run."
   true)
+(def ^:dynamic *extra-env*
+  "Extra environment variables merged into the spawned server process env,
+   e.g. {\"XDG_DATA_HOME\" <tmp>} to isolate the memory root."
+  {})
 
 (defn ^:private clojure-user-config-dir
   "The Clojure CLI's user config dir, resolved the way the CLI does."
@@ -46,7 +50,8 @@
                      ;; ...but keep child `clojure` processes (e.g. the sample
                      ;; MCP server) on the developer's Clojure config.
                      "CLJ_CONFIG" (clojure-user-config-dir)
-                     "XDG_CACHE_HOME" (str (fs/path *eca-out-dir* "cache"))))
+                     "XDG_CACHE_HOME" (str (fs/path *eca-out-dir* "cache"))
+                     "XDG_DATA_HOME" (str (fs/path *eca-out-dir* "data"))))
     *http-proxy* (assoc "HTTP_PROXY" *http-proxy*)
     *models-dev-url* (assoc "ECA_MODELS_DEV_URL" *models-dev-url*)))
 
@@ -101,7 +106,7 @@ when set."
     (println :--eca.integration.start-server/starting :cmd cmd-full :log-path log-path :http-proxy *http-proxy*)
     (p/process cmd-full
                {:err  log-path
-                :env (server-env)
+                :env (merge (server-env) *extra-env*)
                 :exit-fn (fn [{:keys [cmd exit]}]
                            (when (not= exit 0)
                              (println :--eca.integration.start-server/exited :cmd cmd :exit-status exit)
