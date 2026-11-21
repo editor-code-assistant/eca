@@ -5,6 +5,7 @@
    [clojure.java.io :as io]
    [eca.cache :as cache]
    [eca.db.io :as db.io]
+   [eca.file-io :as file-io]
    [eca.logger :as logger]))
 
 (set! *warn-on-reflection* true)
@@ -38,7 +39,7 @@
   [f]
   (if (.get global-cache-lock-held)
     (f)
-    (db.io/with-os-file-lock-fn
+    (file-io/with-os-file-lock-fn
       (global-cache-lock-file)
       (fn []
         (.set global-cache-lock-held true)

@@ -9,6 +9,7 @@
    [eca.cache :as cache]
    [eca.db.chats :as db.chats]
    [eca.db.io :as db.io]
+   [eca.file-io :as file-io]
    [eca.logger :as logger]
    [eca.shared :as shared]))
 
@@ -90,7 +91,7 @@
           legacy-files (filterv fs/exists? (cons canonical redundant))]
       (when (seq legacy-files)
         (let [index-file (db.io/chats-index-file workspaces)]
-          (db.io/with-os-file-lock-fn
+          (file-io/with-os-file-lock-fn
             (db.io/workspace-cache-lock-file index-file)
             (fn []
               (let [legacy-chats (db.io/merge-chats (keep #(read-legacy-workspace-cache % metrics) legacy-files))]
@@ -115,7 +116,7 @@
                   (db.io/upsert-cache! {:version db.io/chats-version :workspaces workspace-paths :chats entries} index-file metrics)
                   (db.io/record-workspace-write-attrs! index-file))
                 (when (fs/exists? canonical)
-                  (db.io/atomic-move! canonical (io/file (str (.getPath canonical) ".bak"))))
+                  (file-io/atomic-move! canonical (io/file (str (.getPath canonical) ".bak"))))
                 (doseq [^java.io.File f redundant]
                   (try
                     (fs/delete-tree (.getParentFile f))

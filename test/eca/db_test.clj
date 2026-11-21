@@ -10,6 +10,8 @@
    [eca.db.global-cache :as db.global-cache]
    [eca.db.io :as db.io]
    [eca.db.migration :as db.migration]
+   [eca.file-io :as file-io]
+   [eca.logger :as logger]
    [eca.shared :as shared]
    [eca.test-helper :as h])
   (:import
@@ -614,6 +616,22 @@
         (is (= db.io/version (:version (read-transit-file cache-file)))
             "written payload should round-trip")
         (finally (fs/delete-tree tmpdir))))))
+
+(deftest failed-cache-replacement-preserves-original-test
+  (let [root (fs/create-temp-dir)
+        dest (io/file (str root) "db.transit.json")
+        upsert! @#'db.io/upsert-cache!
+        original {:version db.io/version :auth {"provider" {:token "old"}}}
+        errors (atom [])]
+    (try
+      (upsert! original dest nil)
+      (with-redefs [file-io/atomic-move! (fn [& _] (throw (ex-info "Move failed" {})))
+                    logger/error (fn [& args] (swap! errors conj args))]
+        (upsert! {:version db.io/version :auth {}} dest nil))
+      (is (seq @errors) "cache failures remain fail soft and logged")
+      (is (= original (read-transit-file dest)))
+      (is (empty? (fs/glob root "*.tmp")))
+      (finally (fs/delete-tree root)))))
 
 (deftest stale-tmp-does-not-corrupt-next-write-test
   (testing "a leftover .tmp file from a previous crashed save is replaced cleanly by the next save"
