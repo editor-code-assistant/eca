@@ -5,6 +5,7 @@
    [babashka.fs :as fs]
    [eca.cache :as cache]
    [eca.db.io :as db.io]
+   [eca.file-io :as file-io]
    [eca.logger :as logger]
    [eca.modules.data :as modules.data]
    [eca.shared :as shared])
@@ -109,7 +110,7 @@
                  (db.io/upsert-cache! {:version db.io/chats-version :workspaces workspace-paths :chats entries} dest metrics)
                  (db.io/record-workspace-write-attrs! dest))]
     (try
-      (db.io/with-os-file-lock-fn
+      (file-io/with-os-file-lock-fn
         (db.io/workspace-cache-lock-file dest)
         (fn []
           (let [disk-entries (when (db.io/workspace-cache-changed-on-disk? dest)

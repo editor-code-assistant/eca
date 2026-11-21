@@ -16,8 +16,8 @@
    [eca.cache :as cache]
    [eca.client-http :as client]
    [eca.config :as config]
-   [eca.db.io :as db.io]
    [eca.digest :as digest]
+   [eca.file-io :as file-io]
    [eca.logger :as logger]
    [eca.messenger :as messenger]
    [hato.client :as http])
@@ -210,20 +210,15 @@
    copy names its source by the id's hash: a URL may hold a token.
    Best-effort: failures only log."
   [{:keys [id display]} base-config fetched-at commit]
-  (let [file (cache-file id)
-        tmp (io/file (str file "." (random-uuid) ".tmp"))]
-    (try
-      (io/make-parents file)
-      (spit tmp (json/generate-string (cond-> {"source" (digest/sha-256-hex id)
-                                               "fetchedAt" fetched-at
-                                               "config" base-config}
-                                        commit (assoc "commit" commit))))
-      (db.io/atomic-move! tmp file)
-      (catch Exception e
-        (logger/warn logger-tag "Could not save the copy of" display (ex-message e)))
-      (finally
-        (when (.exists tmp)
-          (.delete tmp))))))
+  (try
+    (file-io/replace-file!
+     (cache-file id)
+     #(spit % (json/generate-string (cond-> {"source" (digest/sha-256-hex id)
+                                             "fetchedAt" fetched-at
+                                             "config" base-config}
+                                      commit (assoc "commit" commit)))))
+    (catch Exception e
+      (logger/warn logger-tag "Could not save the copy of" display (ex-message e)))))
 
 (defn ^:private read-copy
   "The source's last good copy saved on disk, as `{:config :fetched-at

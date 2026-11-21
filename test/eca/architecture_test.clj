@@ -10,7 +10,7 @@
 (def ^:private layers
   "Core namespaces by layer, lowest first: a namespace requires only its own layer and lower ones."
   [[:libs '#{eca.logger eca.cache eca.digest eca.diff eca.secrets eca.interpolation eca.oauth eca.messenger
-             eca.message-sanitize eca.shared}]
+             eca.message-sanitize eca.shared eca.file-io}]
    [:runtime '#{eca.modules eca.modules.events eca.modules.config-spec eca.modules.data eca.shell}]
    [:state #(or (contains? '#{eca.config eca.db eca.metrics eca.network eca.client-http eca.llm-util eca.models
                               eca.base-configs} %)
