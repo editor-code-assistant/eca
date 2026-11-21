@@ -15,6 +15,7 @@
    [eca.modules.built-in :as built-in]
    [eca.modules.date :as m.date]
    [eca.modules.loader :as loader]
+   [eca.modules.memory.store :as m.memory.store]
    [eca.shared :as shared]))
 
 (def ^:private isolated-cache-dir
@@ -25,6 +26,32 @@
   (io/file (str (fs/create-temp-dir {:prefix "eca-test-cache"}))))
 
 (alter-var-root #'cache/global-dir (constantly (constantly isolated-cache-dir)))
+
+(def ^:private isolated-data-home
+  "Memory lives under XDG_DATA_HOME. Without isolation, a test that enables
+   the `eca/memory` module scans the developer's real ~/.local/share/eca/memory
+   and writes its usage ledger. Redirect it to a per-run temp dir for the
+   whole test JVM."
+  (str (fs/create-temp-dir {:prefix "eca-test-data"})))
+
+(alter-var-root #'config/get-env
+                (fn [get-env]
+                  (fn [env]
+                    (if (= "XDG_DATA_HOME" env)
+                      isolated-data-home
+                      (get-env env)))))
+
+(defn with-memory-root
+  "Calls `f` with a fresh memory root (a canonical `java.io.File`) and deletes
+   it afterwards. Canonical, because memory paths are compared in their
+   resolved form and the temp dir can be a link or a short Windows name."
+  [f]
+  (let [root (fs/file (fs/canonicalize (fs/create-temp-dir {:prefix "eca-test-memory"})))]
+    (try
+      (with-redefs [m.memory.store/memory-root-dir (constantly root)]
+        (f root))
+      (finally
+        (fs/delete-tree root)))))
 
 ;; what eca.main does at startup: the module runtime needs the built-in list
 (modules/set-built-ins! built-in/modules)

@@ -250,6 +250,37 @@
     "toolCall": {
       "$ref": "#/definitions/toolCallConfig"
     },
+    "memory": {
+      "type": "object",
+      "description": "Settings of the eca/memory module: notes the model saves and reads across chats, in Markdown files. The module is off by default: turn it on with modules.eca/memory.enabled or '/modules enable eca/memory'. See https://eca.dev/config/memory",
+      "markdownDescription": "Settings of the `eca/memory` module: notes the model saves and reads across chats, in Markdown files. The module is off by default: turn it on with `modules.eca/memory.enabled` or `/modules enable eca/memory`. See [Durable memory](https://eca.dev/config/memory).",
+      "additionalProperties": false,
+      "properties": {
+        "writeMode": {
+          "type": "string",
+          "enum": ["agent", "explicit"],
+          "default": "agent",
+          "description": "agent: the model saves useful findings and lasting preferences on its own; explicit: only when you ask. These are model instructions: tool approval decides what gets written. Invalid values use explicit."
+        },
+        "index": {
+          "type": "object",
+          "description": "List of saved notes sent to the chat. Project notes get 70% of each limit and global notes 30%; a tier that needs less leaves the rest to the other.",
+          "additionalProperties": false,
+          "properties": {
+            "maxEntries": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum number of notes the index lists."
+            },
+            "maxTokens": {
+              "type": "integer",
+              "default": 2000,
+              "description": "Token budget of the whole index, estimated as 4 characters per token. 0 sends no index and no change lists."
+            }
+          }
+        }
+      }
+    },
     "mcpTimeoutSeconds": {
       "type": "integer",
       "description": "Timeout in seconds for MCP server operations.",
@@ -1680,6 +1711,11 @@
           "type": "string",
           "description": "Prompt for the /init command.",
           "markdownDescription": "Prompt for the /init command."
+        },
+        "memoryConsolidate": {
+          "type": "string",
+          "description": "Prompt for the /memory-consolidate command of the eca/memory module.",
+          "markdownDescription": "Prompt for the `/memory-consolidate` command of the `eca/memory` module."
         },
         "skillCreate": {
           "type": "string",

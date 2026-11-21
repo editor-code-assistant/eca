@@ -114,21 +114,23 @@
     nil))
 
 (defn contexts-str
-  "The `<contexts>` block of `refined-contexts`. A context may also be its
-   text already, as a module renders the contexts of its own types."
+  "The `<contexts>` block of `refined-contexts`, or nil when nothing in it
+   renders (e.g. only images). A context may also be its text already, as a
+   module renders the contexts of its own types."
   ([refined-contexts startup-ctx]
    (contexts-str refined-contexts startup-ctx {}))
   ([refined-contexts startup-ctx {:keys [tag description]
                                   :or {tag "contexts"
                                        description "User-provided context. Treat as current and accurate."}}]
-   (let [body (cond-> (vec (keep #(if (string? %) % (render-context %)) refined-contexts))
-                startup-ctx (conj (multi-str "<additional-context>"
-                                             startup-ctx
-                                             "</additional-context>")))]
+   (when-let [body (->> (cond-> (mapv #(if (string? %) % (render-context %)) refined-contexts)
+                          startup-ctx (conj (multi-str "<additional-context>"
+                                                       startup-ctx
+                                                       "</additional-context>")))
+                        (remove string/blank?)
+                        seq)]
      (multi-str
       (format "<%s%s>" tag (attr-str {:description description}))
-      (when (seq body)
-        (string/join "\n\n" body))
+      (string/join "\n\n" body)
       (format "</%s>" tag)))))
 
 (defn ->base-selmer-ctx

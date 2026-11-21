@@ -29,7 +29,7 @@ Never guess a config key, a file location, a format or an API: read its page in 
 - Hooks: https://eca.dev/config/hooks/
 - Plugins: https://eca.dev/config/plugins/
 - Modules, and the `eca.api` functions they call: https://eca.dev/config/modules/
-- Also `variants`, `context-management`, `completion`, `rewrite`, `chat-inline`, `metrics`, `remote`, `network`, `sandboxing` and `examples`, at `https://eca.dev/config/<page>/`.
+- Also `variants`, `context-management`, `memory`, `completion`, `rewrite`, `chat-inline`, `metrics`, `remote`, `network`, `sandboxing` and `examples`, at `https://eca.dev/config/<page>/`.
 
 Read a page with a tool that reads web pages if you have one, or with `curl -sL <url>`. The same page as Markdown, much shorter than its HTML, is at `https://raw.githubusercontent.com/editor-code-assistant/eca/master/docs/config/<page>.md`.
 

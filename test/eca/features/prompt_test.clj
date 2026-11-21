@@ -35,6 +35,18 @@
       (is (string/includes? result "path='/tmp/has\"quote.clj'"))
       (is (string/includes? result "path=\"/tmp/has&quot;both'quotes.clj\"")))))
 
+(deftest contexts-str-empty-body-test
+  (testing "no block when nothing renders, e.g. only an image from @path"
+    (is (nil? (prompt/contexts-str [{:type :image :media-type "image/png" :base64 "AAAA"}] nil)))
+    (is (nil? (prompt/contexts-str ["" "  "] nil))))
+  (testing "renders the contexts that do render, skipping the others"
+    (let [result (prompt/contexts-str [{:type :image :media-type "image/png" :base64 "AAAA"}
+                                       {:type :file :path "/tmp/a.clj" :content "(ns a)"}]
+                                      nil)]
+      (is (string/starts-with? result "<contexts"))
+      (is (string/includes? result "<file path=\"/tmp/a.clj\">(ns a)</file>"))
+      (is (not (string/includes? result "AAAA"))))))
+
 (deftest deferred-tools-section-test
   (let [static-for (fn [all-tools]
                      (:static (build-instructions [] [] [] [] "code" {} nil all-tools (h/db))))]

@@ -81,6 +81,7 @@ You can turn any module off, and write your own in Clojure. ECA runs them with [
     | [`eca/remote`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/remote.clj) | The [remote](remote.md) server, for web clients like web.eca.dev. `remote.enabled` turns it on. |
     | [`eca/otel`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/otel.clj) | Exports ECA's [metrics](metrics.md) with OpenTelemetry. An `otlp` config turns it on. |
     | [`eca/repl`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/repl.clj) | An nREPL inside ECA. See [A REPL on ECA](#a-repl-on-eca). |
+    | [`eca/memory`](https://github.com/editor-code-assistant/eca/blob/master/src/eca/modules/memory.clj) | Notes the model saves and reads across chats, in Markdown files. See [Durable memory](memory.md). |
 
 ## Managing modules
 

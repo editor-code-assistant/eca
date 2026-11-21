@@ -180,7 +180,25 @@
                                                                                    {:type :text :text "Lint." :module :acme/lint}]}}}]}}}]
       (is (= [{:role "user" :content [{:type :text :text "hi"} hook-context]}
               {:role "tool_call_output" :content {:id "t1" :output {:error false :contents [{:type :text :text "ok"}]}}}]
-             (get-in (#'m.chat-management/build-export db "chat-1") [:chat :messages]))))))
+             (get-in (#'m.chat-management/build-export db "chat-1") [:chat :messages])))))
+  (testing "import-chat! also strips module contexts from hand-crafted exports"
+    (let [tmp (str (fs/path (fs/temp-dir) (str "eca-import-sanitize-" (random-uuid) ".edn")))
+          raw {:eca/export-version 1
+               :chat {:id "chat-1"
+                      :messages [{:role "user" :content [{:type :text :text "hi"}
+                                                         {:type :text :text "ctx" :module :acme/notes :data {:v 1}}]}
+                                 {:role "tool_call_output"
+                                  :content {:id "t1" :output {:error false
+                                                              :contents [{:type :text :text "ok"}
+                                                                         {:type :text :text "Lint." :module :acme/lint}]}}}]}}]
+      (try
+        (spit tmp (pr-str raw))
+        (let [{:keys [chat error]} (#'m.chat-management/import-chat! {:filepath tmp})]
+          (is (nil? error))
+          (is (= [{:role "user" :content [{:type :text :text "hi"}]}
+                  {:role "tool_call_output" :content {:id "t1" :output {:error false :contents [{:type :text :text "ok"}]}}}]
+                 (:messages chat))))
+        (finally (fs/delete-if-exists tmp))))))
 
 (deftest export->edn-round-trips-test
   (testing "the export serializes and reads back equal (incl. #uuid prompt-id)"

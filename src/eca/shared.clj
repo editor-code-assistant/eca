@@ -8,6 +8,7 @@
    [clojure.walk :as walk]
    [eca.cache :as cache]
    [eca.logger :as logger]
+   [eca.message-sanitize :as message-sanitize]
    [selmer.parser :as selmer])
   (:import
    [java.lang ProcessHandle]
@@ -49,16 +50,14 @@
                 (string/join " " (take (+ jar-idx 2) parts)))))
           command))))
 
-(defn parse-md
-  "Parses YAML frontmatter and body from a markdown string.
-   Frontmatter must be delimited by --- at the start and end.
-   Uses SnakeYAML to handle nested structures (maps, lists).
-   Returns a map with parsed YAML keys (as keywords) and :body (content after frontmatter).
-   Throws when frontmatter is unclosed, invalid YAML, or not a YAML mapping."
+(defn ^:private split-frontmatter
+  "`[yaml-str body-str]` of a markdown string that starts with a `---` line:
+   the lines up to the closing `---` line, and the lines after it. nil when
+   there is no frontmatter. Throws when the frontmatter is unclosed."
   [content]
   (let [lines (string/split-lines content)]
-    (if (and (seq lines)
-             (= "---" (string/trim (first lines))))
+    (when (and (seq lines)
+               (= "---" (string/trim (first lines))))
       (let [after-opening (rest lines)
             closing-idx (some (fn [[idx line]]
                                 (when (= "---" (string/trim line))
@@ -66,20 +65,27 @@
                               (map-indexed vector after-opening))]
         (when-not (some? closing-idx)
           (throw (ex-info "Unclosed YAML frontmatter" {})))
-        (let [metadata-lines (take closing-idx after-opening)
-              body-lines (drop (inc closing-idx) after-opening)
-              yaml-str (string/join "\n" metadata-lines)
-              yaml (Yaml.)
-              parsed (.load yaml ^String yaml-str)
-              metadata (cond
-                         (nil? parsed) {}
-                         (instance? java.util.Map parsed)
-                         (into {} (map (fn [[k v]] [(keyword k) (java->clj v)]))
-                               parsed)
-                         :else
-                         (throw (ex-info "YAML frontmatter must be a mapping" {:parsed-type (type parsed)})))]
-          (assoc metadata :body (string/trim (string/join "\n" body-lines)))))
-      {:body (string/trim content)})))
+        [(string/join "\n" (take closing-idx after-opening))
+         (string/join "\n" (drop (inc closing-idx) after-opening))]))))
+
+(defn parse-md
+  "Parses YAML frontmatter and body from a markdown string.
+   Frontmatter must be delimited by --- at the start and end.
+   Uses SnakeYAML to handle nested structures (maps, lists).
+   Returns a map with parsed YAML keys (as keywords) and :body (content after frontmatter).
+   Throws when frontmatter is unclosed, invalid YAML, or not a YAML mapping."
+  [content]
+  (if-let [[yaml-str body] (split-frontmatter content)]
+    (let [parsed (.load (Yaml.) ^String yaml-str)
+          metadata (cond
+                     (nil? parsed) {}
+                     (instance? java.util.Map parsed)
+                     (into {} (map (fn [[k v]] [(keyword k) (java->clj v)]))
+                           parsed)
+                     :else
+                     (throw (ex-info "YAML frontmatter must be a mapping" {:parsed-type (type parsed)})))]
+      (assoc metadata :body (string/trim body)))
+    {:body (string/trim content)}))
 
 (defn named-arg-names
   "Returns the ordered, distinct {{name}} placeholder names found in content.
@@ -570,7 +576,8 @@
                     (pr-str (mapv #(select-keys % [:name :description :parameters]) tools)))
         {:keys [conversation tools]}
         (reduce (fn [acc msg]
-                  (let [role (:role msg)
+                  (let [msg (message-sanitize/strip-internal-message-fields msg)
+                        role (:role msg)
                         tks (estimate-tokens (pr-str (:content msg)))]
                     (cond
                       (contains? context-tool-roles role) (update acc :tools + tks)

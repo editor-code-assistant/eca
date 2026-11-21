@@ -1,0 +1,75 @@
+Review my memory files in the directories listed below. Use the supplied file ages, read counts, sizes,
+and descriptions. If no directories are listed, say so and stop.
+
+Follow the memory write guidance. This request permits cleanup, not new lasting preferences.
+Judge notes by their bodies, not their descriptions. The snapshot includes trimmed bodies up to
+2,500 characters. Open a note only for an omitted body, a repair, or an edit that needs current text.
+Report links and non-regular files without opening or changing them. Check repository source and docs as needed.
+Default is no change; every change names its failure and its evidence in the report. Outcomes per
+entry: remove, merge, move, polish, or keep; an entry you cannot settle goes to the report as
+worth-asking, but only when my answer would change the entry. A question whose answer changes
+nothing is not worth asking.
+
+Verify before deciding keep or remove. Prefer the entry’s recorded check. Run it as written only if it still safely
+observes the condition in this workspace without unrequested effects; otherwise skip it and report why.
+Use at most one cheap command per entry, never a test suite. Other repo-tied claims are
+checked against src and docs and git history.
+What no local check settles stays; it is listed as worth-asking only under the same rule.
+Do not invent verification scenarios.
+
+1. Combine notes that repeat or complete the same answer. Keep them separate if they serve
+   different tasks or merging would hide when each applies. Preserve each note's conditions,
+   dates, and user quotes.
+2. High read counts count for keeping: fix rather than delete, and preserve the content when
+   merging or replacing. Low or zero counts count neither way. Age alone is not a reason to delete.
+3. Find entries the write guidance says not to keep: something superseded, something finished, or
+   something already available elsewhere. For the last case the entry either keeps a one-line
+   answer with the source as its check, or is deleted as a bare copy; a pointer without the answer
+   is forbidden. Remove such an entry only when the evidence is clear.
+   When you are not sure, keep it and list it as worth-asking. If an entry says that its cause
+   is unknown or that an always/never rule was not reproduced, remove that claim and keep the
+   observation.
+4. Cut filler, copied code, logs, and chat history. Keep facts, conditions, evidence, and fixes with
+   file or symbol references. Use simple words, but keep exact user quotes, errors, paths, and commands.
+   Length alone is no reason to cut a body: the user may have asked to keep a note long.
+5. Check the user's words and their scope, not whether you agree with the preference. If the
+   note records a separate request to remember it, keep that too. Don't invent one or flag a
+   clear preference just because it lacks one. Keep dated observations as observations, not
+   standing rules. If the words or scope are unclear, clarify them from the note itself if possible.
+   Otherwise keep the entry and list it as worth-asking only if the answer would change how it
+   applies. Do not silently delete preferences.
+6. Fix file format and descriptions using the write guidance. Preserve unknown fields and types.
+   For tags, align spellings toward the most-used form and stop there: a tag with one entry is
+   normal, do not prune.
+   Do not edit a file only to shorten a name: fix names that mislead or duplicate another entry,
+   keeping their identifying words, and report the rest. A long accurate name beats a short vague
+   one. Fix a description that fails the index-line test at any length (wrong trigger, missing
+   scope, or misleading). Trim a description only over the 120-character format cap, keeping the
+   trigger and the fix; never shorten for its own sake.
+7. Remove secrets and report each removal.
+8. Suggest moving team rules or procedures to AGENTS.md or a named active skill; name the memory
+   file, the lines that would move, and the target. Do not move them.
+9. Check each entry's tier with the write guidance: project memory unless the subject is outside
+   this codebase. Move a misplaced entry with `move_file`, which keeps its read history and change
+   date. When its right dir is not in this run's scope (a tier the scope leaves out, or another
+   project's dir), list it as worth-asking.
+
+Go through every entry in the snapshot. Start with the clearest problems, so the best changes are done
+first if I stop the run.
+Scope lists the directories this run reviews.
+
+Skip the plan. Use the file tools under my usual approval rules. To remove a memory note, use `move_file`
+to put it in its directory's listed trash as `YYYY-MM-DD-<filename>` with today's date. Never delete it another way. Do not pause mid-run to ask; questions and
+suggestions belong in the final report. State the reason in one line before a deletion, a merge, or
+a large rewrite, and do not repeat a change I rejected.
+
+If a section "Additional instructions from the user" follows the snapshot, it is my request for this run.
+It decides which entries you look at and which you remove, even when it uses a rule (such as age or read
+count) that rules 2 and 3 do not accept. The rules about secrets, file format, and preferences still
+apply. Begin your answer with one sentence that says how you understood the request.
+
+Always finish with a report that accounts for every entry in the snapshot: a list of files
+created, changed, moved, or deleted with a short reason for each; a list of worth-asking entries
+(kept but not settled), or "none"; and the remaining kept entries by name, marking the ones
+you verified. No memory record stays unlisted: the lists together name every entry in the
+snapshot.

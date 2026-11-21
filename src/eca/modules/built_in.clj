@@ -22,6 +22,7 @@
    [eca.modules.llm-providers :as m.llm-providers]
    [eca.modules.manage :as m.manage]
    [eca.modules.mcp :as m.mcp]
+   [eca.modules.memory :as m.memory]
    [eca.modules.otel :as m.otel]
    [eca.modules.plugins :as m.plugins]
    [eca.modules.providers.anthropic :as m.anthropic]
@@ -121,4 +122,5 @@
    ;; optional, off by default
    m.remote/module
    m.otel/module
-   m.repl/module])
+   m.repl/module
+   m.memory/module])
