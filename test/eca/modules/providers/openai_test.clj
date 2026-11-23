@@ -5,6 +5,7 @@
    [eca.client-test-helpers :refer [blocking-input-stream with-client-proxied]]
    [eca.llm-api.errors :as llm-api.errors]
    [eca.modules.providers.openai :as m.openai]
+   [eca.oauth :as oauth]
    [hato.client :as http]
    [matcher-combinators.test :refer [match?]]))
 
@@ -183,6 +184,68 @@
           ;; expires-at should be > now
           (is (> (:expires-at result) now-seconds)
               "expires-at should be computed relative to current time"))))))
+
+(deftest oauth-authorize-failure-test
+  (doseq [[shape status body reason]
+          [["OAuth" 400 {:error "invalid_grant" :error_description "Invalid authorization code"}
+            "Invalid authorization code"]
+           ["OpenAI" 401 {:error {:message "Could not validate your token. Please try signing in again."
+                                  :type "invalid_request_error"}}
+            "Could not validate your token. Please try signing in again."]]]
+    (testing (str "a rejected token exchange tells OpenAI's reason, from an " shape "-shaped error")
+      (with-client-proxied {}
+        (fn handler [_req]
+          {:status status
+           :body body})
+        (let [error (try
+                      (with-redefs [m.openai/oauth-token-url "http://localhost:99/oauth/token"]
+                        (#'m.openai/oauth-authorize "http://localhost/callback" "abc123" "verifierXYZ"))
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (= (format "OpenAI token exchange failed (%s): %s" status reason)
+                 (ex-message error)))
+          (is (match? {:status status} (ex-data error))))))))
+
+(defn ^:private oauth-callback!
+  "What the browser gets when the OAuth redirect hits the server on `port`."
+  [port query]
+  (slurp (str "http://127.0.0.1:" port "/auth/callback?" query)))
+
+(deftest start-pro-callback-server!-test
+  (let [port (oauth/get-free-port)
+        logins (atom [])
+        failures (atom [])
+        tokens {:access-token "a-token" :refresh-token "r-token" :account-id "acc" :expires-at 1}]
+    (with-redefs [m.openai/pro-callback-port port
+                  m.openai/oauth-authorize (fn [_server-url code verifier]
+                                             (if (and (= "good-code" code) (= "attempt-verifier" verifier))
+                                               tokens
+                                               (throw (ex-info "OpenAI token exchange failed: {:error \"invalid_grant\"}" {}))))]
+      (#'m.openai/start-pro-callback-server! {:verifier "attempt-verifier"
+                                              :state "attempt-state"
+                                              :on-login #(swap! logins conj %)
+                                              :on-failure #(swap! failures conj %)})
+      (try
+        (testing "a redirect of an earlier attempt is refused, keeping the server for this one"
+          (let [page (oauth-callback! port "code=good-code&state=earlier-attempt-state")]
+            (is (string/includes? page "Authentication Failed"))
+            (is (string/includes? page "earlier login attempt"))
+            (is (empty? @logins))
+            (is (empty? @failures))))
+
+        (testing "a failed exchange shows on the page and reaches on-failure"
+          (let [page (oauth-callback! port "code=bad-code&state=attempt-state")]
+            (is (string/includes? page "Authentication Failed"))
+            (is (string/includes? page "invalid_grant"))
+            (is (match? [#"invalid_grant"] @failures))
+            (is (empty? @logins))))
+
+        (testing "this attempt's redirect exchanges its code with this attempt's verifier"
+          (let [page (oauth-callback! port "code=good-code&state=attempt-state")]
+            (is (string/includes? page "Authentication Successful"))
+            (is (= [tokens] @logins))))
+        (finally
+          (oauth/stop-oauth-server! port))))))
 
 (deftest oauth-refresh-test
   (testing "that OAuth token refresh is routed through the http proxy"
