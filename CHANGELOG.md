@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.173.2
+
 - Fix the ChatGPT (OpenAI `pro`) login failing when retried: each attempt gets its own callback server, and the browser page tells whether the login actually worked.
 - Report an OAuth callback port that can't be listened on (taken, or reserved by Windows) as a clear error, not an internal one; on Windows, listen on loopback only.
 - Fix MCP OAuth on Windows opening the authorization URL cut at its first `&`.
