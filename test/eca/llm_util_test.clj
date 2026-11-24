@@ -107,6 +107,38 @@
       (is (string/ends-with? arguments-error
                              (str "The arguments ended with: ..." (subs text (- (count text) 200))))))))
 
+;; 301x7 images from ImageMagick, e.g. `magick -size 301x7 xc:red -strip png:- | base64 -w0`.
+(def ^:private images-301x7
+  {"PNG" "iVBORw0KGgoAAAANSUhEUgAAAS0AAAAHAQMAAABnbYlJAAAAA1BMVEX/AAAZ4gk3AAAADUlEQVQY02NgGAUoAAABEQAB7vUvWgAAAABJRU5ErkJggg=="
+   "JPEG with a comment segment before its frame header"
+   "/9j/4AAQSkZJRgABAQAAAQABAAD//gAhc2VnbWVudCBiZWZvcmUgdGhlIGZyYW1lIGhlYWRlcv/bAEMAEAsMDgwKEA4NDhIREBMYKBoYFhYYMSMlHSg6Mz08OTM4N0BIXE5ARFdFNzhQbVFXX2JnaGc+TXF5cGR4XGVnY//bAEMBERISGBUYLxoaL2NCOEJjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY//AABEIAAcBLQMBIgACEQEDEQH/xAAVAAEBAAAAAAAAAAAAAAAAAAAABf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAWAQEBAQAAAAAAAAAAAAAAAAAABQb/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCKAlt4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k="
+   "progressive JPEG"
+   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABALDA4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVGC8aGi9jQjhCY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2P/wgARCAAHAS0DASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAWAQEBAQAAAAAAAAAAAAAAAAAABAX/2gAMAwEAAhADEAAAAYhLvAAAAAAAAAAAAAAAAAAf/8QAFBABAAAAAAAAAAAAAAAAAAAAUP/aAAgBAQABBQIb/8QAFBEBAAAAAAAAAAAAAAAAAAAAQP/aAAgBAwEBPwEf/8QAFBEBAAAAAAAAAAAAAAAAAAAAQP/aAAgBAgEBPwEf/8QAFBABAAAAAAAAAAAAAAAAAAAAUP/aAAgBAQAGPwIb/8QAFBABAAAAAAAAAAAAAAAAAAAAUP/aAAgBAQABPyEb/9oADAMBAAIAAwAAABAAAAAAAAAAAAAAAAAAAD//xAAUEQEAAAAAAAAAAAAAAAAAAABA/9oACAEDAQE/EB//xAAUEQEAAAAAAAAAAAAAAAAAAABA/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAABQ/9oACAEBAAE/EBv/2Q=="
+   "GIF" "R0lGODlhLQEHAPAAAP8AAAAAACH5BAAAAAAALAAAAAAtAQcAAAIuhI+py+0Po5y02ouz3rz7D4biSJbmiabqyrbuC8fyTNf2jef6zvf+DwwKh8RPAQA7"
+   "lossy WebP (VP8)"
+   "UklGRlgAAABXRUJQVlA4IEwAAAAQBACdASotAQcAPtFor1KoJiQioagBABoJaQDSJoAADbPekgQIECA+AAD+6zb/9CbHtRX//Qk/+Js/4mz4NscDMh8syHyzIfLMh0gA"
+   "lossless WebP (VP8L)" "UklGRiIAAABXRUJQVlA4TBUAAAAvLIEBAAcQ/Y/+B4CE8H+9GNH/FAEA"
+   "extended WebP (VP8X)"
+   "UklGRoIAAABXRUJQVlA4WAoAAAAQAAAALAEABgAAQUxQSBAAAAABB1DAiAgACeH/ejGi/ykCVlA4IEwAAAAQBACdASotAQcAPtFor1KoJiQioagBABoJaQDSJoAADbPekgQIECA+AAD+6zb/9CbHtRX//Qk/+Js/4mz4NscDMh8syHyzIfLMh0gA"})
+
+(deftest base64-image-size-test
+  (testing "reads width and height from the header of each supported format"
+    (doseq [[label b64] images-301x7]
+      (is (= [301 7] (llm-util/base64-image-size b64)) label)))
+  (testing "base64 with line breaks, as MIME encoders write it"
+    (let [jpeg (get images-301x7 "JPEG with a comment segment before its frame header")]
+      (is (= [301 7] (llm-util/base64-image-size
+                      (string/join "\r\n" (map string/join (partition-all 76 jpeg))))))))
+  (testing "nil when there is no size to read"
+    (is (nil? (llm-util/base64-image-size nil)))
+    (is (nil? (llm-util/base64-image-size "")))
+    (is (nil? (llm-util/base64-image-size "AAAA")))
+    (is (nil? (llm-util/base64-image-size "not base64!")))
+    (is (nil? (llm-util/base64-image-size (subs (get images-301x7 "PNG") 0 12)))
+        "a PNG cut before its header")
+    (is (nil? (llm-util/base64-image-size (subs (get images-301x7 "progressive JPEG") 0 40)))
+        "a JPEG cut before its frame header")))
+
 (deftest provider-api-key-with-key-rc-test
   (testing "provider-api-key uses keyRc when configured"
     (let [temp-file (java.io.File/createTempFile "netrc-test" ".netrc")

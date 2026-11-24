@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix approve & remember not applying to parallel tool calls already asking or pending in the same response or a subagent.
+- Fix Anthropic chats failing on every turn once they hold more than 20 images and one is over 2000 px: those images are sent as a note with their size.
 
 ## 0.173.2
 

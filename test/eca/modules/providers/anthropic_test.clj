@@ -28,7 +28,8 @@
    ["message_delta" {:delta {:stop_reason "end_turn"} :usage {:output_tokens 1}}]
    ["message_stop" {}]])
 
-(defn ^:private post-tool-scenario! [{:keys [child-response initial-response sleep-fn max-retries cancelled?]
+(defn ^:private post-tool-scenario! [{:keys [child-response initial-response sleep-fn max-retries cancelled?
+                                            new-messages model-capabilities]
                                     :or {max-retries 2 cancelled? (constantly false)}}]
   (let [requests* (atom [])
         tools-called* (atom 0)
@@ -64,7 +65,7 @@
       (llm-api/sync-or-async-prompt!
        {:provider "anthropic"
         :model "claude-test"
-        :model-capabilities {:tools true :reason? true :web-search true}
+        :model-capabilities (merge {:tools true :reason? true :web-search true} model-capabilities)
         :instructions "test"
         :user-messages [{:role "user" :content [{:type :text :text "hello"}]}]
         :past-messages []
@@ -84,9 +85,10 @@
         :on-tools-called (fn [calls]
                            (swap! tools-called* inc)
                            (swap! tool-calls* conj calls)
-                           {:new-messages [{:role "tool_call" :content (first calls)}
-                                           {:role "tool_call_output"
-                                            :content {:id "call-1" :output {:contents [{:type :text :text "result"}]}}}]
+                           {:new-messages (or new-messages
+                                              [{:role "tool_call" :content (first calls)}
+                                               {:role "tool_call_output"
+                                                :content {:id "call-1" :output {:contents [{:type :text :text "result"}]}}}])
                             :tools []})}))
     {:requests @requests* :tools-called @tools-called* :messages @messages*
      :reasons @reasons* :preparations @preparations* :searches @searches*
@@ -944,6 +946,113 @@
                                 :tool_use_id "call-2"
                                 :content "ok\n"}]}
                     (first out)))))))
+
+(defn ^:private png-b64
+  "Base64 of the start of a `width` x `height` PNG: its signature and IHDR,
+   all the size check reads."
+  [width height]
+  (let [buf (java.nio.ByteBuffer/allocate 33)]
+    (.put buf (byte-array (map unchecked-byte [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A])))
+    (.putInt buf 13)
+    (.put buf (.getBytes "IHDR" "US-ASCII"))
+    (.putInt buf (int width))
+    (.putInt buf (int height))
+    (.put buf (byte-array [8 6 0 0 0]))
+    (.putInt buf 0)
+    (.encodeToString (java.util.Base64/getEncoder) (.array buf))))
+
+(defn ^:private image-block [width height]
+  {:type "image" :source {:type "base64" :media_type "image/png" :data (png-b64 width height)}})
+
+(defn ^:private viewed-images
+  "A history of eca__view_image calls, one per [width height] in `sizes`."
+  [sizes]
+  (vec (mapcat (fn [i [width height]]
+                 [{:role "tool_call"
+                   :content {:id (str "img-" i) :full-name "eca__view_image" :arguments {"path" (str i ".png")}}}
+                  {:role "tool_call_output"
+                   :content {:id (str "img-" i)
+                             :output {:contents [{:type :text :text (str "Image " i ".png")}
+                                                 {:type :image :media-type "image/png" :base64 (png-b64 width height)}]}}}])
+               (range)
+               sizes)))
+
+(defn ^:private sent-content-blocks
+  "The content blocks of a request body's messages, with those inside
+   tool_result blocks in their place."
+  [body]
+  (->> (:messages body)
+       (mapcat #(when (sequential? (:content %)) (:content %)))
+       (mapcat #(if (= "tool_result" (:type %)) (:content %) [%]))))
+
+(defn ^:private omitted-image-texts [blocks]
+  (keep #(when (some-> (:text %) (string/starts-with? "[Image omitted")) (:text %)) blocks))
+
+(deftest omit-oversized-images-test
+  (let [omit #'m.anthropic/omit-oversized-images
+        tool-results (fn [blocks]
+                       {:role "user"
+                        :content (vec (map-indexed (fn [i block]
+                                                     {:type "tool_result"
+                                                      :tool_use_id (str "c" i)
+                                                      :content [{:type "text" :text "Image"} block]})
+                                                   blocks))})]
+    (testing "a request with 20 images is sent as it is, big images included"
+      (let [messages [(tool-results (cons (image-block 3312 1508) (repeat 19 (image-block 1072 330))))]]
+        (is (identical? messages (omit messages)))))
+
+    (testing "past 20 images, those over 2000 px per side become a text with their size"
+      (let [url-image {:type "image" :source {:type "url" :url "https://example.com/big.png"}}
+            kept (concat [(image-block 2000 2000) url-image] (repeat 17 (image-block 1072 330)))
+            messages [{:role "user" :content [{:type "text" :text "look"} (image-block 10 2001)]}
+                      {:role "assistant" :content "ok"}
+                      (tool-results (cons (image-block 2001 10) kept))]
+            [user assistant results] (omit messages)]
+        (is (match? {:role "user"
+                     :content [{:type "text" :text "look"}
+                               {:type "text"
+                                :text (str "[Image omitted: it is 10x2001 px, and requests with more than 20 images "
+                                           "only accept images up to 2000 px per side. View a smaller copy if you still need it.]")}]}
+                    user))
+        (is (= {:role "assistant" :content "ok"} assistant))
+        (is (match? {:type "tool_result"
+                     :tool_use_id "c0"
+                     :content [{:type "text" :text "Image"}
+                               {:type "text" :text #"^\[Image omitted: it is 2001x10 px"}]}
+                    (first (:content results)))
+            "inside tool_result content too")
+        (is (= (rest (:content (nth messages 2))) (rest (:content results)))
+            "images up to 2000 px, and those whose size is unknown, are sent unchanged")))))
+
+(deftest chat!-omits-oversized-images-test
+  (testing "the first request of a turn keeps a history of more than 20 images under the size limit"
+    (let [req* (atom nil)]
+      (with-client-proxied {}
+        (fn handler [req]
+          (reset! req* req)
+          {:status 200 :body {:content [{:text "ok"}]}})
+        (m.anthropic/chat! {:model "claude-test"
+                            :api-url "http://localhost:1"
+                            :api-key "fake-key"
+                            :instructions "test"
+                            :supports-image? true
+                            :past-messages (viewed-images (cons [3312 1508] (repeat 20 [1072 330])))
+                            :user-messages [{:role "user" :content [{:type :text :text "and now?"}]}]}
+                           nil))
+      (let [blocks (sent-content-blocks (:body @req*))]
+        (is (= 20 (count (filter #(= "image" (:type %)) blocks))))
+        (is (match? [#"^\[Image omitted: it is 3312x1508 px"] (omitted-image-texts blocks)))))))
+
+(deftest post-tool-request-omits-oversized-images-test
+  (testing "the request after a tool call, which resends the whole history, is kept under the size limit too"
+    (let [{:keys [requests errors]}
+          (post-tool-scenario! {:new-messages (viewed-images (cons [3312 1508] (repeat 20 [1072 330])))
+                                :model-capabilities {:image-input? true}
+                                :child-response (fn [_ respond] (respond final-events))})
+          blocks (sent-content-blocks (json/parse-string (second requests) true))]
+      (is (empty? errors))
+      (is (= 20 (count (filter #(= "image" (:type %)) blocks))))
+      (is (match? [#"^\[Image omitted: it is 3312x1508 px"] (omitted-image-texts blocks))))))
 
 (deftest max-tokens-input-overflow?-test
   (let [overflow? #'m.anthropic/max-tokens-input-overflow?]

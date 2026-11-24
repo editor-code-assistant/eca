@@ -13,6 +13,7 @@
    [java.net ConnectException SocketTimeoutException UnknownHostException]
    [java.net.http HttpConnectTimeoutException]
    [java.time Instant LocalDate OffsetDateTime ZoneOffset]
+   [java.util Arrays Base64]
    [javax.net.ssl SSLException]))
 
 (set! *warn-on-reflection* true)
@@ -85,6 +86,102 @@
           "\n"))
    ""
    (-> result :output :contents)))
+
+(defn ^:private base64-bytes
+  "Decodes `n` bytes of the base64 string `b64` from byte `offset`, fewer at
+   the end of the data. Nil when there are none or they don't decode."
+  ^bytes [^String b64 offset n]
+  (let [start (* 4 (quot offset 3))
+        end (min (.length b64) (* 4 (quot (+ offset n 2) 3)))
+        skip (rem offset 3)]
+    (when (< start end)
+      (try
+        (let [decoded (.decode (Base64/getDecoder) (.substring b64 (int start) (int end)))]
+          (when (> (alength decoded) skip)
+            (Arrays/copyOfRange decoded (int skip) (int (min (alength decoded) (+ skip n))))))
+        (catch IllegalArgumentException _ nil)))))
+
+(defn ^:private u8 [^bytes bs i]
+  (bit-and (aget bs (int i)) 0xFF))
+
+(defn ^:private be16 [bs i]
+  (bit-or (bit-shift-left (u8 bs i) 8) (u8 bs (inc i))))
+
+(defn ^:private le16 [bs i]
+  (bit-or (u8 bs i) (bit-shift-left (u8 bs (inc i)) 8)))
+
+(defn ^:private le24 [bs i]
+  (bit-or (le16 bs i) (bit-shift-left (u8 bs (+ i 2)) 16)))
+
+(defn ^:private be32 [bs i]
+  (bit-or (bit-shift-left (be16 bs i) 16) (be16 bs (+ i 2))))
+
+(defn ^:private bytes-at?
+  "Whether `bs` has the bytes `expected`, numbers or an ASCII string, at `offset`."
+  [^bytes bs offset expected]
+  (let [expected (if (string? expected) (map int expected) expected)]
+    (and (>= (alength bs) (+ offset (count expected)))
+         (every? true? (map-indexed (fn [i b] (= b (u8 bs (+ offset i)))) expected)))))
+
+(def ^:private jpeg-sof-markers
+  "JPEG start-of-frame markers, the segments that hold the image size."
+  #{0xC0 0xC1 0xC2 0xC3 0xC5 0xC6 0xC7 0xC9 0xCA 0xCB 0xCD 0xCE 0xCF})
+
+(defn ^:private jpeg-size
+  "Walks the JPEG segments of `b64` to its frame header, decoding only the
+   start of each segment, as metadata such as EXIF can come before it."
+  [b64]
+  (loop [pos 2
+         segments 0]
+    (when-let [^bytes bs (when (< segments 1000) (base64-bytes b64 pos 9))]
+      (when (and (>= (alength bs) 4) (= 0xFF (u8 bs 0)))
+        (let [marker (u8 bs 1)]
+          (cond
+            ;; fill byte before a marker
+            (= 0xFF marker) (recur (inc pos) (inc segments))
+            ;; markers without a length: TEM, RSTn and SOI
+            (or (= 0x01 marker) (<= 0xD0 marker 0xD8)) (recur (+ pos 2) (inc segments))
+            (contains? jpeg-sof-markers marker) (when (>= (alength bs) 9)
+                                                  [(be16 bs 7) (be16 bs 5)])
+            ;; image data or its end before any frame header
+            (contains? #{0xD9 0xDA} marker) nil
+            :else (recur (+ pos 2 (long (be16 bs 2))) (inc segments))))))))
+
+(defn ^:private webp-size [^bytes bs]
+  (cond
+    (and (bytes-at? bs 12 "VP8X") (>= (alength bs) 30))
+    [(inc (le24 bs 24)) (inc (le24 bs 27))]
+
+    (and (bytes-at? bs 12 "VP8L") (bytes-at? bs 20 [0x2F]) (>= (alength bs) 25))
+    (let [bits (bit-or (le16 bs 21) (bit-shift-left (le16 bs 23) 16))]
+      [(inc (bit-and bits 0x3FFF)) (inc (bit-and (bit-shift-right bits 14) 0x3FFF))])
+
+    (and (bytes-at? bs 12 "VP8 ") (bytes-at? bs 23 [0x9D 0x01 0x2A]) (>= (alength bs) 30))
+    [(bit-and (le16 bs 26) 0x3FFF) (bit-and (le16 bs 28) 0x3FFF)]))
+
+(defn base64-image-size
+  "[width height] in px of a base64 PNG, JPEG, GIF or WebP image, read from
+   its header without decoding the whole image. Nil when not recognized."
+  [b64]
+  (when (string? b64)
+    (let [b64 (if (re-find #"\s" (subs b64 0 (min 128 (count b64))))
+                (string/replace b64 #"\s+" "")
+                b64)]
+      (when-let [^bytes head (base64-bytes b64 0 30)]
+        (cond
+          (and (bytes-at? head 0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A])
+               (bytes-at? head 12 "IHDR")
+               (>= (alength head) 24))
+          [(be32 head 16) (be32 head 20)]
+
+          (bytes-at? head 0 [0xFF 0xD8 0xFF])
+          (jpeg-size b64)
+
+          (and (bytes-at? head 0 "GIF8") (>= (alength head) 10))
+          [(le16 head 6) (le16 head 8)]
+
+          (and (bytes-at? head 0 "RIFF") (bytes-at? head 8 "WEBP"))
+          (webp-size head))))))
 
 (def ^:private tool-call-arguments-tail-length
   "How many characters from the end of invalid tool call arguments the LLM gets back."

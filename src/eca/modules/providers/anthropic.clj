@@ -463,6 +463,71 @@
    []
    messages))
 
+(def ^:private many-images-threshold
+  "Anthropic lowers the per-image size limit for requests with more images."
+  20)
+
+(def ^:private many-images-max-px
+  "The largest width or height Anthropic accepts per image in a request with
+   more than 20 images. Its direct API may accept more (3000 px), but other
+   platforms such as Bedrock may not, and gateways can fail over to them."
+  2000)
+
+(defn ^:private block-type [block]
+  (when (map? block)
+    (let [type (:type block)]
+      (when (or (string? type) (keyword? type))
+        (name type)))))
+
+(defn ^:private nested-tool-result-content? [block]
+  (and (= "tool_result" (block-type block))
+       (sequential? (:content block))))
+
+(defn ^:private count-image-blocks
+  "Counts the image blocks of `messages`, including those in tool_result content."
+  [messages]
+  (count
+   (for [{:keys [content]} messages
+         :when (sequential? content)
+         block content
+         nested (if (nested-tool-result-content? block) (:content block) [block])
+         :when (= "image" (block-type nested))]
+     nested)))
+
+(defn ^:private update-image-blocks
+  "Applies `f` to the image blocks of `messages`, including those in
+   tool_result content."
+  [messages f]
+  (letfn [(update-block [block]
+            (cond
+              (= "image" (block-type block)) (f block)
+              (nested-tool-result-content? block) (update block :content #(mapv update-block %))
+              :else block))]
+    (mapv (fn [message]
+            (cond-> message
+              (sequential? (:content message)) (update :content #(mapv update-block %))))
+          messages)))
+
+(defn ^:private omit-oversized-images
+  "Anthropic rejects a request with more than 20 images when any of them is
+   over 2000 px per side, and the history is resent every turn, so the chat
+   would keep failing. Swaps those images for a text block with their size.
+   Requests with 20 images or fewer are left as they are."
+  [messages]
+  (if (<= (count-image-blocks messages) many-images-threshold)
+    messages
+    (update-image-blocks
+     messages
+     (fn [block]
+       (let [[width height] (when (= "base64" (get-in block [:source :type]))
+                              (llm-util/base64-image-size (get-in block [:source :data])))]
+         (if (and width (> (max width height) many-images-max-px))
+           {:type "text"
+            :text (format (str "[Image omitted: it is %dx%d px, and requests with more than %d images "
+                               "only accept images up to %d px per side. View a smaller copy if you still need it.]")
+                          width height many-images-threshold many-images-max-px)}
+           block))))))
+
 (defn ^:private add-cache-to-last-message [messages cache-control]
   ;; TODO add cache_control to last non thinking message
   (shared/update-last
@@ -536,7 +601,8 @@
                      group-parallel-tool-calls
                      (normalize-messages supports-image?)
                      merge-adjacent-assistants
-                     merge-adjacent-tool-results)
+                     merge-adjacent-tool-results
+                     omit-oversized-images)
         stream? (boolean callbacks)
         cache-control (cache-control-value api-url cache-retention)
         {:keys [static dynamic]} (if (map? instructions)
@@ -686,6 +752,7 @@
                                                                     (normalize-messages supports-image?)
                                                                     merge-adjacent-assistants
                                                                     merge-adjacent-tool-results
+                                                                    omit-oversized-images
                                                                     (finalize-messages cache-control mid-system? dynamic))]
                                                    (reset! content-block* {})
                                                    (request-with-retry!
