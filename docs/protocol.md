@@ -1593,7 +1593,9 @@ interface ChatMetadataContent {
 /**
  * A named checkpoint flag in the chat history.
  * Flags act as bookmarks that survive across sessions
- * and are discoverable via timeline.
+ * and are discoverable via timeline. The chat can be forked
+ * from a flag (`chat/fork`) or rolled back to it (`chat/rollback`),
+ * which keeps the flag.
  */
 interface ChatFlagContent {
     type: 'flag';
@@ -1911,9 +1913,12 @@ interface ChatPromptSteerRemoveParams {
 
 ### Chat rollback (↩)
 
-A client request to rollback chat messages to before a specific user sent message using `contentId`.
+A client request to rollback chat messages to before a specific user sent message using `contentId`,
+or to a flag: a flag is a checkpoint, so it is kept and only the messages after it are removed, letting
+the chat be rolled back to it again.
 Clients should show an option close to user sent messages in chat to rollback, calling this method, only for
-messages carrying a `contentId`: some user messages, like a compaction summary, have none.
+messages carrying a `contentId`: some user messages, like a compaction summary, have none. Clients may
+show it close to flags too.
 Server will then remove the messages from its memory after that contentId and produce `chat/cleared` followed 
 with `chat/contentReceived` with the kept messages. Clients with the `incrementalUpdates` capability receive
 a single `chat/truncated` instead. When the chat is unknown or `contentId` is missing or matches no message,
@@ -1933,7 +1938,8 @@ interface ChatRollbackParams {
     
     /**
      * The contentId of the message to roll back to: it and every later
-     * message are removed.
+     * message are removed, except a flag, which is kept, only the later
+     * messages being removed.
      */
     contentId: string;
     
@@ -2134,7 +2140,8 @@ interface ChatClearedParams {
 ### Chat truncated (←)
 
 A server notification to remove a message and everything after it from a chat UI, keeping the earlier
-messages as they are. Only sent to clients with the `incrementalUpdates` capability, currently after
+messages as they are, or, with `afterContentId`, only what comes after a message kept, like the flag a
+chat was rolled back to. Only sent to clients with the `incrementalUpdates` capability, currently after
 `chat/rollback`. When the message is not loaded in the client (e.g. it is on an unloaded history page),
 clients should re-open the chat via `chat/open`.
 
@@ -2151,9 +2158,17 @@ interface ChatTruncatedParams {
     chatId: string;
 
     /**
-     * The contentId of the first removed message.
+     * The contentId of the first removed message. Absent when
+     * `afterContentId` is present.
      */
-    contentId: string;
+    contentId?: string;
+
+    /**
+     * The contentId of the last kept message, like the flag a chat was
+     * rolled back to: every message after it is removed, it is kept.
+     * Present instead of `contentId`.
+     */
+    afterContentId?: string;
 }
 ```
 

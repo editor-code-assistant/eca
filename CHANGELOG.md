@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Support rolling a chat back to a flag via `chat/rollback`: the flag is kept and only what came after it removed; `chat/truncated` then tells it in `afterContentId`.
 - Fix approve & remember not applying to parallel tool calls already asking or pending in the same response or a subagent.
 - Fix Anthropic chats failing on every turn once they hold more than 20 images and one is over 2000 px: those images are sent as a note with their size.
 

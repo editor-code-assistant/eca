@@ -3316,6 +3316,80 @@
       (finally
         (fs/delete-if-exists file)))))
 
+(defn ^:private seed-flagged-chat!
+  "Seeds two turns whose tool calls each recorded a change to `path` for
+   rollback, with a flag in between them."
+  [path]
+  (swap! (h/db*) assoc-in [:chats "c1"]
+         {:id "c1"
+          :status :idle
+          :messages [{:role "user" :content [{:type :text :text "first"}] :content-id "u1"}
+                     {:role "tool_call_output" :content {:id "t1"
+                                                         :name "write_file"
+                                                         :output {:contents [{:type :text :text "ok"}]}}}
+                     {:role "assistant" :content [{:type :text :text "answer"}]}
+                     {:role "flag" :content {:text "checkpoint"} :content-id "f1"}
+                     {:role "user" :content [{:type :text :text "second"}] :content-id "u2"}
+                     {:role "tool_call_output" :content {:id "t2"
+                                                         :name "write_file"
+                                                         :output {:contents [{:type :text :text "ok"}]}}}
+                     {:role "assistant" :content [{:type :text :text "done"}]}]
+          :tool-calls {"t1" {:rollback-changes [{:path path :content "original"}]}
+                       "t2" {:rollback-changes [{:path path :content "at checkpoint"}]}}}))
+
+(deftest rollback-chat-to-flag-test
+  (let [file (str (fs/create-temp-file {:prefix "eca-rollback-flag" :suffix ".txt"}))
+        setup! (fn []
+                 (h/reset-components!)
+                 (spit file "latest")
+                 (seed-flagged-chat! file))
+        rollback! (fn [content-id include]
+                    (f.chat.ops/rollback-chat {:chat-id "c1" :content-id content-id :include include}
+                                              (h/db*) (h/messenger) (h/metrics)))
+        roles #(mapv :role (get-in (h/db) [:chats "c1" :messages]))]
+    (try
+      (testing "keeps the flag, removing the messages and reverting the tool changes after it"
+        (setup!)
+        (is (= {} (rollback! "f1" ["messages" "tools"])))
+        (is (= ["user" "tool_call_output" "assistant" "flag"] (roles)))
+        (is (= "at checkpoint" (slurp file))))
+
+      (testing "replays the kept messages to legacy clients, the flag last"
+        (setup!)
+        (rollback! "f1" ["messages"])
+        (is (match? {:chat-clear [{:chat-id "c1" :messages true}]}
+                    (h/messages)))
+        (is (match? {:chat-id "c1"
+                     :role :system
+                     :content {:type :flag :text "checkpoint" :contentId "f1"}}
+                    (last (:chat-content-received (h/messages))))))
+
+      (testing "tells incremental clients to remove what came after the flag"
+        (setup!)
+        (enable-incremental-updates!)
+        (rollback! "f1" ["messages"])
+        (is (= ["user" "tool_call_output" "assistant" "flag"] (roles)))
+        (is (= {:chat-truncated [{:chat-id "c1" :after-content-id "f1"}]}
+               (h/messages)))
+        (is (= "latest" (slurp file)) "tool changes are only reverted with tools"))
+
+      (testing "reverts only the tool changes after the flag, keeping the messages"
+        (setup!)
+        (rollback! "f1" ["tools"])
+        (is (= 7 (count (roles))))
+        (is (= "at checkpoint" (slurp file))))
+
+      (testing "rolling back a message before the flag removes the flag too"
+        (setup!)
+        (enable-incremental-updates!)
+        (rollback! "u1" ["messages" "tools"])
+        (is (= [] (roles)))
+        (is (= {:chat-truncated [{:chat-id "c1" :content-id "u1"}]}
+               (h/messages)))
+        (is (= "original" (slurp file))))
+      (finally
+        (fs/delete-if-exists file)))))
+
 (deftest add-flag-test
   (testing "Legacy clients get chat/cleared and a full replay including the flag"
     (h/reset-components!)

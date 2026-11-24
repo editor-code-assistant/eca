@@ -182,7 +182,7 @@ For more details, check [hooks configuration](./config/hooks.md).
 
 ![](./images/features/chat-flag.png)
 
-You can add flags in between messages so you can fork from there in the future, flags are saved by chat.
+You can add flags in between messages so you can fork from there or roll the chat back to them in the future, flags are saved by chat. Rolling back to a flag keeps it, removing only the messages after it and, if asked, reverting the changes their tool calls made.
 
 ## Inline chat
 

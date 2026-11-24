@@ -1,7 +1,8 @@
 (ns integration.chat.rollback-test
   "Exercises `chat/rollback` end-to-end over JSON-RPC: a null or unknown
   `contentId` is answered with an error and leaves the history intact (#669),
-  while the contentId of a user message rolls the chat back."
+  the contentId of a flag rolls the chat back to the flag, keeping it, while
+  the contentId of a user message rolls the chat back to before it."
   (:require
    [clojure.test :refer [deftest is testing]]
    [integration.eca :as eca]
@@ -62,6 +63,25 @@
                                                  :content-id "missing"
                                                  :include ["messages"]}])))
       (is (= history-before (history chat-id))))
+
+    (testing "the contentId of a flag rolls the chat back to the flag, keeping it"
+      (is (= {} (eca/request! [:chat/addFlag {:chat-id chat-id
+                                              :content-id user-content-id
+                                              :text "checkpoint"}])))
+      (is (match? {:chatId chat-id :messages true}
+                  (eca/client-awaits-server-notification :chat/cleared)))
+      (let [flag-id (some #(when (= "flag" (get-in % [:content :type]))
+                             (get-in % [:content :contentId]))
+                          (history chat-id))]
+        (is (string? flag-id))
+        (is (= {} (eca/request! [:chat/rollback {:chat-id chat-id
+                                                 :content-id flag-id
+                                                 :include ["messages"]}])))
+        (is (match? {:chatId chat-id :messages true}
+                    (eca/client-awaits-server-notification :chat/cleared)))
+        (is (match? [{:role "user" :content {:contentId user-content-id}}
+                     {:role "system" :content {:type "flag" :text "checkpoint" :contentId flag-id}}]
+                    (history chat-id)))))
 
     (testing "the user message contentId rolls the chat back"
       (is (= {} (eca/request! [:chat/rollback {:chat-id chat-id

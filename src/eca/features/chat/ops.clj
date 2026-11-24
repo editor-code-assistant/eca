@@ -166,9 +166,12 @@
   {:error {:code code :message message}})
 
 (defn rollback-chat
-  "Remove the message identified by content-id and every message after it.
+  "Remove the message identified by content-id and every message after it,
+   or, when it is a flag, only the messages after it: a flag is a checkpoint
+   the chat is rolled back to, kept so it can be rolled back to again.
    Then notify the client: `chat/truncated` when it supports incremental
-   updates, otherwise `chat/cleared` followed by the kept messages.
+   updates, telling the first removed message, or the kept flag as
+   `:after-content-id`, otherwise `chat/cleared` followed by the kept messages.
    Returns an `:error` without touching history or files when the chat is
    unknown or content-id is missing or matches no message: many messages have
    no id, so a nil id would match the first of those instead (#669)."
@@ -194,11 +197,15 @@
                         (set include)
                         ;; backwards compatibility
                         #{"messages" "tools"})
+              ;; A flag is kept: rolling back to it removes what came after it.
+              flag? (= "flag" (:role (all-messages target-idx)))
+              ;; Index of the first removed message.
+              cut-idx (cond-> target-idx flag? inc)
               tool-calls (:tool-calls chat)
               new-messages (when (contains? include "messages")
-                             (into [] (take target-idx) all-messages))
+                             (into [] (take cut-idx) all-messages))
               removed-messages (when (contains? include "tools")
-                                 (subvec all-messages target-idx))
+                                 (subvec all-messages cut-idx))
               rollback-changes (->> removed-messages
                                     (filter #(= "tool_call_output" (:role %)))
                                     (keep #(get-in tool-calls [(:id (:content %)) :rollback-changes]))
@@ -221,8 +228,11 @@
             ;; restart instead of relying on the next unrelated save.
             (db.chats/save-chat! @db* chat-id metrics)
             (if (f.chat.history/incremental-updates? @db*)
-              (messenger/chat-truncated messenger {:chat-id chat-id
-                                                   :content-id content-id})
+              (messenger/chat-truncated messenger (if flag?
+                                                    {:chat-id chat-id
+                                                     :after-content-id content-id}
+                                                    {:chat-id chat-id
+                                                     :content-id content-id}))
               (do
                 (messenger/chat-cleared
                  messenger
