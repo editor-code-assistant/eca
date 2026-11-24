@@ -4,6 +4,12 @@
 
 - Fix approve & remember not applying to parallel tool calls already asking or pending in the same response or a subagent.
 
+## 0.173.2
+
+- Fix the ChatGPT (OpenAI `pro`) login failing when retried: each attempt gets its own callback server, and the browser page tells whether the login actually worked.
+- Report an OAuth callback port that can't be listened on (taken, or reserved by Windows) as a clear error, not an internal one; on Windows, listen on loopback only.
+- Fix MCP OAuth on Windows opening the authorization URL cut at its first `&`.
+
 ## 0.173.1
 
 - `baseConfigs` entries can be a file in a git repo, `{"git", "path", "ref"}`, fetched with the machine's git credentials (e.g. SSH keys), so no token is needed.

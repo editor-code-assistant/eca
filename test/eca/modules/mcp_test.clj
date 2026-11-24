@@ -1308,3 +1308,9 @@
 
   (testing "returns nil for nil input"
     (is (nil? (#'m.mcp/url-without-query nil)))))
+
+(deftest windows-open-url-command-test
+  (testing "hands the whole OAuth URL to the shell's URL handler, no cmd parsing of its `&`s"
+    (let [url "https://auth.example.com/authorize?response_type=code&client_id=c&redirect_uri=http%3A%2F%2Flocalhost%3A1&state=s"]
+      (is (= ["rundll32" "url.dll,FileProtocolHandler" url]
+             (#'m.mcp/windows-open-url-command url))))))

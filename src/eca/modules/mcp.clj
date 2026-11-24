@@ -1039,10 +1039,17 @@
     (with-init-thread name
       (initialize-server! name db* config metrics on-server-updated))))
 
+(defn ^:private windows-open-url-command
+  "Opens `url` in the default browser on Windows. Not `cmd /c start`: cmd
+   treats each `&` of the (unquoted) URL as a command separator, opening an
+   authorization URL cut before its OAuth parameters."
+  [^String url]
+  ["rundll32" "url.dll,FileProtocolHandler" url])
+
 (defn ^:private open-browser! [^String url]
   (try
     (if shared/windows-os?
-      (let [^java.util.List cmd ["cmd" "/c" "start" "" url]]
+      (let [^java.util.List cmd (windows-open-url-command url)]
         (-> (ProcessBuilder. cmd)
             (.start)))
       (browse/browse-url url))

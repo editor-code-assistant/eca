@@ -964,8 +964,10 @@
 
 (defn ^:private oauth-url [server-url]
   (let [url "https://auth.openai.com/oauth/authorize"
-        {:keys [challenge verifier]} (oauth/generate-pkce)]
+        {:keys [challenge verifier]} (oauth/generate-pkce)
+        state (oauth/generate-state)]
     {:verifier verifier
+     :state state
      :url (str url "?" (ring.util/form-encode {:client_id client-id
                                                :response_type "code"
                                                :redirect_uri server-url
@@ -975,7 +977,7 @@
                                                :codex_cli_simplified_flow "true"
                                                :code_challenge challenge
                                                :code_challenge_method "S256"
-                                               :state verifier}))}))
+                                               :state state}))}))
 
 (def ^:private oauth-token-url
   "https://auth.openai.com/oauth/token")
@@ -985,6 +987,20 @@
   [{:keys [id_token access_token]}]
   (or (jwt-token->account-id id_token)
       (jwt-token->account-id access_token)))
+
+(defn ^:private token-error-reason
+  "OpenAI's reason for refusing a token request, from its error body: JSON
+   text, as only successful responses get parsed, in either OpenAI's
+   `{error: {message}}` or the OAuth `{error, error_description}` shape."
+  [body]
+  (let [body (if (string? body)
+               (try (json/parse-string body true) (catch Exception _ body))
+               body)]
+    (or (when (map? body)
+          (or (get-in body [:error :message])
+              (:error_description body)
+              (when (string? (:error body)) (:error body))))
+        (pr-str body))))
 
 (defn ^:private oauth-authorize [server-url code verifier]
   (let [{:keys [status body]} (http/post
@@ -997,13 +1013,14 @@
                                         :code_verifier verifier
                                         :redirect_uri server-url})
                                 :http-client (client/merge-with-global-http-client {})
+                                :throw-exceptions? false
                                 :as :json})]
     (if (= 200 status)
       {:refresh-token (:refresh_token body)
        :access-token (:access_token body)
        :account-id (extract-account-id body)
        :expires-at (+ (quot (System/currentTimeMillis) 1000) (:expires_in body))}
-      (throw (ex-info (format "OpenAI token exchange failed: %s" (pr-str body))
+      (throw (ex-info (format "OpenAI token exchange failed (%s): %s" status (token-error-reason body))
                       {:status status
                        :body body})))))
 
@@ -1026,38 +1043,76 @@
                       {:status status
                        :body body})))))
 
+(def ^:private pro-callback-port
+  "The only port OpenAI accepts in the redirect of the `pro` OAuth login."
+  1455)
+
+(def ^:private pro-callback-url
+  (str "http://localhost:" pro-callback-port "/auth/callback"))
+
+(defn ^:private in-background!
+  "Runs `f` off the callback server's request thread, logging its failure."
+  [f]
+  (future
+    (try
+      (f)
+      (catch Exception e
+        (logger/error logger-tag "Finishing the OAuth login failed:" (ex-message e))))))
+
+(defn ^:private start-pro-callback-server!
+  "Serves the browser redirect of a `pro` (ChatGPT subscription) OAuth login
+   started with `verifier` and `state`. The code is exchanged before the
+   browser gets its page, so the page tells whether the login worked:
+   `on-login` gets the tokens, `on-failure` the reason. A redirect of an
+   earlier attempt is refused without stopping the server, so the latest
+   attempt can still finish. Throws when the port can't be listened on."
+  [{:keys [verifier state on-login on-failure]}]
+  (let [port pro-callback-port
+        server* (promise)
+        stop! #(future
+                 (Thread/sleep 2000) ;; let the browser render the page
+                 (oauth/stop-oauth-server! port @server*))]
+    (deliver server*
+             (:server
+              (oauth/start-oauth-server!
+               {:port port
+                :sync-success? true
+                :on-success (fn [{:keys [code] :as callback}]
+                              (when (not= state (:state callback))
+                                (throw (ex-info "This browser tab belongs to an earlier login attempt: finish the login in the tab ECA opened last, or start it again." {})))
+                              (try
+                                (on-login (oauth-authorize pro-callback-url code verifier))
+                                (catch Exception e
+                                  (logger/error logger-tag "OAuth completion failed:" (ex-message e))
+                                  (on-failure (ex-message e))
+                                  (throw e))
+                                (finally
+                                  (stop!))))
+                :on-error (fn [error]
+                            (logger/error logger-tag "OAuth error:" error)
+                            (on-failure error)
+                            (stop!))})))))
+
 ;; --- Settings-based login (providers/login flow) ---
 
 (defn ^:private start-pro-login!
   "The `pro` login method's `:start`: OAuth, for a ChatGPT subscription."
   [provider db* _config done!]
-  (let [local-server-port 1455
-        server-url (str "http://localhost:" local-server-port "/auth/callback")
-        {:keys [verifier url]} (oauth-url server-url)]
-    (oauth/start-oauth-server!
-     {:port local-server-port
-      :on-success (fn [{:keys [code]}]
-                    (try
-                      (let [{:keys [access-token refresh-token account-id expires-at]}
-                            (oauth-authorize server-url code verifier)]
-                        (swap! db* update-in [:auth provider] merge
-                               {:step :login/done
-                                :type :auth/oauth
-                                :mode :pro
-                                :refresh-token refresh-token
-                                :api-key access-token
-                                :account-id account-id
-                                :expires-at expires-at})
-                        (done!))
-                      (catch Exception e
-                        (logger/error logger-tag "OAuth completion failed:" (ex-message e)))
-                      (finally
-                        (future
-                          (Thread/sleep 2000)
-                          (oauth/stop-oauth-server! local-server-port)))))
-      :on-error (fn [error]
-                  (logger/error logger-tag "OAuth error:" error)
-                  (oauth/stop-oauth-server! local-server-port))})
+  (let [{:keys [verifier state url]} (oauth-url pro-callback-url)]
+    (start-pro-callback-server!
+     {:verifier verifier
+      :state state
+      :on-login (fn [{:keys [access-token refresh-token account-id expires-at]}]
+                  (swap! db* update-in [:auth provider] merge
+                         {:step :login/done
+                          :type :auth/oauth
+                          :mode :pro
+                          :refresh-token refresh-token
+                          :api-key access-token
+                          :account-id account-id
+                          :expires-at expires-at})
+                  (in-background! done!))
+      :on-failure (constantly nil)})
     {:action "authorize"
      :url url
      :message "Complete authentication in your browser. ECA will finish the login automatically."}))
@@ -1079,27 +1134,22 @@
 (defn ^:private waiting-login-method-step [{:keys [db* input provider send-msg! login-done!]}]
   (case input
     "pro"
-    (let [local-server-port 1455 ;; openai requires this port
-          server-url (str "http://localhost:" local-server-port "/auth/callback")
-          {:keys [verifier url]} (oauth-url server-url)]
-      (oauth/start-oauth-server!
-       {:port local-server-port
-        :on-success (fn [{:keys [code]}]
-                      (let [{:keys [access-token refresh-token account-id expires-at]} (oauth-authorize server-url code verifier)]
-                        (swap! db* update-in [:auth provider] merge {:step :login/done
-                                                                     :type :auth/oauth
-                                                                     :refresh-token refresh-token
-                                                                     :api-key access-token
-                                                                     :account-id account-id
-                                                                     :expires-at expires-at})
-                        (send-msg! "")
-                        (login-done!))
-                      (future
-                        (Thread/sleep 2000) ;; wait to render success page
-                        (oauth/stop-oauth-server! local-server-port)))
-        :on-error (fn [error]
-                    (send-msg! (str "Error authenticating via oauth: " error))
-                    (oauth/stop-oauth-server! local-server-port))})
+    (let [{:keys [verifier state url]} (oauth-url pro-callback-url)]
+      (start-pro-callback-server!
+       {:verifier verifier
+        :state state
+        :on-login (fn [{:keys [access-token refresh-token account-id expires-at]}]
+                    (swap! db* update-in [:auth provider] merge {:step :login/done
+                                                                 :type :auth/oauth
+                                                                 :refresh-token refresh-token
+                                                                 :api-key access-token
+                                                                 :account-id account-id
+                                                                 :expires-at expires-at})
+                    (in-background! (fn []
+                                      (send-msg! "")
+                                      (login-done!))))
+        :on-failure (fn [error]
+                      (send-msg! (str "Error authenticating via oauth: " error)))})
       (send-msg! (format "Open your browser at: [OpenAI login](%s)\n\nAuthenticate at OpenAI, then ECA will finish the login automatically." url)))
     "manual"
     (do
