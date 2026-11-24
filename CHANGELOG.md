@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix approve & remember not applying to parallel tool calls already asking or pending in the same response or a subagent.
+
 ## 0.173.2
 
 - Fix the ChatGPT (OpenAI `pro`) login failing when retried: each attempt gets its own callback server, and the browser page tells whether the login actually worked.

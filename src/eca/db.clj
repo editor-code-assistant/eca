@@ -123,6 +123,9 @@
                                       :decision-reason {:code :keyword :text :string}
                                       :approved?* :promise
                                       :future-cleanup-complete?* :promise
+                                      ;; fn of a db: whether the remembered approvals now
+                                      ;; allow the call, for calls asking only by config rules
+                                      :remembered-approval-covers? :fn
                                       :start-time :long
                                       :future :future
                                       :resources ::any-map
@@ -169,7 +172,7 @@
           (:trust chat)
           (recur (:parent-chat-id chat) (conj seen id)))))))
 
-(defn ^:private root-chat-id
+(defn root-chat-id
   "Resolve the top-level chat of `chat-id` by walking up `:parent-chat-id`
    while the parent chat exists, so a subagent resolves to the chat that
    spawned it. Returns `chat-id` itself for top-level chats."

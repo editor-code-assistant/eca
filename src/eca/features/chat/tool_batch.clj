@@ -168,6 +168,8 @@
    - :stop-reason (string, for turn stops)
    - :ended-by (who stopped the turn, see `f.chat.lifecycle/ended-by`)
    - :module-contexts (the modules' contexts for the call's output, `{:module :content :data}`)
+   - :remembered-approval-covers? (fn of a db, whether the chat session's
+     remembered approvals now allow the call, when it asks because of the config rules)
 
    `chat-ctx` is the handlers' ctx: the hooks show their actions in the chat."
   [{:keys [full-name arguments] tool-call-id :id} all-tools db config agent-name chat-id
@@ -242,7 +244,11 @@
                          :else
                          {:code :user-config-deny
                           :text "Tool call rejected by user config"})
-                 nil)]
+                 nil)
+        remembered-approval-covers? (when-let [covers? (and (= :ask final-decision)
+                                                            (:remembered-approval-covers? event))]
+                                      (when (fn? covers?)
+                                        (fn [db] (covers? db final-arguments))))]
 
     ;; Return the decision plan
     (cond-> {:decision final-decision
@@ -254,7 +260,8 @@
       reason (assoc :reason reason)
       stop-turn? (assoc :stop-reason (shared/not-blank (:stop event))
                         :ended-by (f.chat.lifecycle/ended-by event))
-      (seq module-contexts) (assoc :module-contexts module-contexts))))
+      (seq module-contexts) (assoc :module-contexts module-contexts)
+      remembered-approval-covers? (assoc :remembered-approval-covers? remembered-approval-covers?))))
 
 (defn on-tools-called! [{:keys [db* config chat-id agent messenger metrics invalid-arguments-rounds*]
                          ;; One counter per returned fn, i.e. per LLM tool loop:
@@ -325,7 +332,8 @@
                                                                                           :trust                 (db/resolve-trust @db* chat-id)
                                                                                           :full-model            (:full-model chat-ctx)
                                                                                           :variant               (:variant chat-ctx)}))
-                        {:keys [decision tool-call-blocked-by-hook? reason stop-turn? stop-reason ended-by]
+                        {:keys [decision tool-call-blocked-by-hook? reason stop-turn? stop-reason ended-by
+                                remembered-approval-covers?]
                          before-contexts :module-contexts} decision-plan
                         ;; updatedInput is surfaced inside the real preToolCall
                         ;; hook finished block (see eca.modules.hooks/format-hook-output),
@@ -341,23 +349,34 @@
                     {:ask? ask?
                      :stop-batch? (and tool-call-blocked-by-hook? stop-turn?)
                      :run! (fn run-tool-call! []
-                             (when-not (#{:stopping :cleanup} (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id id)))
-                               (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :tool-run {:approved?*                approved?*
-                                                                                 :future-cleanup-complete?* (promise)
-                                                                                 :name                      name
-                                                                                 :server                    server-name
-                                                                                 :origin                    origin
-                                                                                 :arguments                 arguments
-                                                                                 :manual-approval           ask?
-                                                                                 :asks-user?                (:asks-user? resolved-tool)
-                                                                                 :details                   details
-                                                                                 :summary                   summary}))
-                             (when-not (#{:stopping :cleanup :rejected} (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id id)))
-                               (case decision
-                                 :ask   (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :approval-ask {:progress-text f.chat.tool-calls/waiting-approval-progress-text})
-                                 :allow (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :approval-allow {:reason reason})
-                                 :deny  (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :approval-deny {:reason reason})
-                                 (logger/warn logger-tag "Unknown value of approval" {:approval decision :tool-call-id id})))
+                             ;; An earlier call of the batch may have been approved & remembered
+                             ;; since the decision, covering this one.
+                             (let [remembered? (and (= :ask decision)
+                                                    (f.chat.tool-calls/remembered-approval-covers-call?
+                                                     @db* {:remembered-approval-covers? remembered-approval-covers?}))
+                                   decision (if remembered? :allow decision)
+                                   reason (if remembered? f.chat.tool-calls/remembered-approval-reason reason)]
+                               (when-not (#{:stopping :cleanup} (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id id)))
+                                 (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :tool-run {:approved?*                  approved?*
+                                                                                                     :future-cleanup-complete?*   (promise)
+                                                                                                     :name                        name
+                                                                                                     :server                      server-name
+                                                                                                     :origin                      origin
+                                                                                                     :arguments                   arguments
+                                                                                                     :manual-approval             (= :ask decision)
+                                                                                                     :asks-user?                  (:asks-user? resolved-tool)
+                                                                                                     :remembered-approval-covers? remembered-approval-covers?
+                                                                                                     :details                     details
+                                                                                                     :summary                     summary}))
+                               (when-not (#{:stopping :cleanup :rejected} (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id id)))
+                                 (case decision
+                                   ;; Waiting before checking again: an approval remembered meanwhile
+                                   ;; is then seen either here or by the approval of the other call.
+                                   :ask   (do (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :approval-ask {:progress-text f.chat.tool-calls/waiting-approval-progress-text})
+                                              (f.chat.tool-calls/approve-if-remembered! db* chat-ctx id))
+                                   :allow (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :approval-allow {:reason reason})
+                                   :deny  (f.chat.tool-calls/transition-tool-call! db* chat-ctx id :approval-deny {:reason reason})
+                                   (logger/warn logger-tag "Unknown value of approval" {:approval decision :tool-call-id id}))))
                              (if (and @approved?* (not tool-call-blocked-by-hook?))
                                (when-not (#{:stopping :cleanup} (:status (f.chat.tool-calls/get-tool-call-state @db* chat-id id)))
                                  (f.chat.lifecycle/assert-chat-not-stopped! chat-ctx)
