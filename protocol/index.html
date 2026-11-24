@@ -4312,7 +4312,9 @@ all behave like any other chat.</p>
 <span class="cm">/**</span>
 <span class="cm"> * A named checkpoint flag in the chat history.</span>
 <span class="cm"> * Flags act as bookmarks that survive across sessions</span>
-<span class="cm"> * and are discoverable via timeline.</span>
+<span class="cm"> * and are discoverable via timeline. The chat can be forked</span>
+<span class="cm"> * from a flag (`chat/fork`) or rolled back to it (`chat/rollback`),</span>
+<span class="cm"> * which keeps the flag.</span>
 <span class="cm"> */</span>
 <span class="kd">interface</span><span class="w"> </span><span class="nx">ChatFlagContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;flag&#39;</span><span class="p">;</span>
@@ -4583,9 +4585,12 @@ the server silently does nothing.</p>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="chat-rollback">Chat rollback (↩)<a class="headerlink" href="#chat-rollback" title="Permanent link">#</a></h3>
-<p>A client request to rollback chat messages to before a specific user sent message using <code>contentId</code>.
+<p>A client request to rollback chat messages to before a specific user sent message using <code>contentId</code>,
+or to a flag: a flag is a checkpoint, so it is kept and only the messages after it are removed, letting
+the chat be rolled back to it again.
 Clients should show an option close to user sent messages in chat to rollback, calling this method, only for
-messages carrying a <code>contentId</code>: some user messages, like a compaction summary, have none.
+messages carrying a <code>contentId</code>: some user messages, like a compaction summary, have none. Clients may
+show it close to flags too.
 Server will then remove the messages from its memory after that contentId and produce <code>chat/cleared</code> followed 
 with <code>chat/contentReceived</code> with the kept messages. Clients with the <code>incrementalUpdates</code> capability receive
 a single <code>chat/truncated</code> instead. When the chat is unknown or <code>contentId</code> is missing or matches no message,
@@ -4603,7 +4608,8 @@ the server returns an error without changing the history or any file.</p>
 
 <span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The contentId of the message to roll back to: it and every later</span>
-<span class="cm">     * message are removed.</span>
+<span class="cm">     * message are removed, except a flag, which is kept, only the later</span>
+<span class="cm">     * messages being removed.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
@@ -4767,7 +4773,8 @@ also sent to the original chat.</p>
 </code></pre></div>
 <h3 id="chat-truncated">Chat truncated (←)<a class="headerlink" href="#chat-truncated" title="Permanent link">#</a></h3>
 <p>A server notification to remove a message and everything after it from a chat UI, keeping the earlier
-messages as they are. Only sent to clients with the <code>incrementalUpdates</code> capability, currently after
+messages as they are, or, with <code>afterContentId</code>, only what comes after a message kept, like the flag a
+chat was rolled back to. Only sent to clients with the <code>incrementalUpdates</code> capability, currently after
 <code>chat/rollback</code>. When the message is not loaded in the client (e.g. it is on an unloaded history page),
 clients should re-open the chat via <code>chat/open</code>.</p>
 <p><em>Notification:</em> </p>
@@ -4782,9 +4789,17 @@ clients should re-open the chat via <code>chat/open</code>.</p>
 <span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The contentId of the first removed message.</span>
+<span class="cm">     * The contentId of the first removed message. Absent when</span>
+<span class="cm">     * `afterContentId` is present.</span>
 <span class="cm">     */</span>
-<span class="w">    </span><span class="nx">contentId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="nx">contentId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The contentId of the last kept message, like the flag a chat was</span>
+<span class="cm">     * rolled back to: every message after it is removed, it is kept.</span>
+<span class="cm">     * Present instead of `contentId`.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">afterContentId?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 </code></pre></div>
 <h3 id="chat-opened">Chat opened (←)<a class="headerlink" href="#chat-opened" title="Permanent link">#</a></h3>
@@ -6543,7 +6558,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 24, 2026 18:49:30 UTC">November 24, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 24, 2026 21:33:10 UTC">November 24, 2026</span>
   </span>
 
     
