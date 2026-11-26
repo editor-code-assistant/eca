@@ -270,6 +270,25 @@ Ready-to-use configs for some third-party MCP servers. Most remote servers work 
 
     Signs in via OAuth; for headless setups add an `Authorization: Bearer ${env:LOOOT_API_KEY}` header. Paid per call, keep approval prompts on. [Docs](https://docs.looot.ai).
 
+=== "Mobilebox"
+
+    [Mobilebox](https://mobilebox.dev): cloud Android phones and iOS simulators your agent drives through the screen (read it as numbered elements, tap, type, install an APK), for checking the app it just built.
+
+    ```javascript title="~/.config/eca/config.json"
+    {
+      "mcpServers": {
+        "mobilebox": {
+          "url": "https://mobilebox.dev/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:MOBILESANDBOX_API_KEY}"
+          }
+        }
+      }
+    }
+    ```
+
+    Get a key at [mobilebox.dev/signup](https://mobilebox.dev/signup) ($2 starter credit), or drop `headers` to sign in via OAuth. $0.01 a minute while a phone runs; ask the agent to delete it at the end. [Docs](https://mobilebox.dev/docs).
+
 === "Serply"
 
     [Serply](https://serply.io): Google (web, news, scholar, maps, jobs, videos) and Bing search, URL scraping.
