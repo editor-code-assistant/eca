@@ -3466,6 +3466,7 @@ all behave like any other chat.</p>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatImageContent</span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatProgressContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatUsageContent</span>
+<span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatTurnUsageContent</span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonStartedContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonTextContent</span><span class="w"> </span>
 <span class="w">    </span><span class="o">|</span><span class="w"> </span><span class="nx">ChatReasonFinishedContent</span><span class="w"> </span>
@@ -3704,7 +3705,9 @@ all behave like any other chat.</p>
 <span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;usage&#39;</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
-<span class="cm">     * The total input + output tokens of the whole chat session so far.</span>
+<span class="cm">     * The tokens the chat&#39;s context holds: the input, cache and output</span>
+<span class="cm">     * tokens of its last request, to compare with `limit.context`. For what</span>
+<span class="cm">     * a turn used, see `ChatTurnUsageContent`.</span>
 <span class="cm">     */</span>
 <span class="w">    </span><span class="nx">sessionTokens</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 
@@ -3815,6 +3818,56 @@ all behave like any other chat.</p>
 <span class="cm">         */</span>
 <span class="w">        </span><span class="nx">freeEmoji?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+
+<span class="cm">/**</span>
+<span class="cm"> * What a turn used, from its prompt to its end, summed over all its requests</span>
+<span class="cm"> * to the model: tool call rounds, retries and compactions included, steered</span>
+<span class="cm"> * messages too, and the requests of the subagents it ran, not the calls</span>
+<span class="cm"> * modules make on their own, e.g. to title the chat. Unlike `usage`, sent</span>
+<span class="cm"> * after each request, it is told once per turn, so clients can show it along</span>
+<span class="cm"> * the turn, e.g. under its answer.</span>
+<span class="cm"> *</span>
+<span class="cm"> * Sent right before the `finished` progress of a turn in which a request to</span>
+<span class="cm"> * the model reported its usage, a stopped turn included, telling what it used</span>
+<span class="cm"> * until then; turns that never reached the model, like a command answering by</span>
+<span class="cm"> * itself, or whose provider reports no usage, have none. It is kept with the</span>
+<span class="cm"> * chat&#39;s history: when the chat is opened again (`chat/open`, `chat/history`),</span>
+<span class="cm"> * it follows the last message of its turn again. Turns from before ECA kept</span>
+<span class="cm"> * it have none.</span>
+<span class="cm"> */</span>
+<span class="kd">interface</span><span class="w"> </span><span class="nx">ChatTurnUsageContent</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;turnUsage&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The model of the turn, e.g. &#39;anthropic/claude-sonnet-4-6&#39;.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">model</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * How long the turn took, from when the server received its prompt to</span>
+<span class="cm">     * its end, in milliseconds. Includes the tools running and waits for the</span>
+<span class="cm">     * user, e.g. to approve a tool call.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">totalTimeMs</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The tokens the model generated: text, reasoning and tool calls.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">outputTokens</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The tokens sent to the model, cache reads and writes included. Each</span>
+<span class="cm">     * request sends the whole context again, so it grows with the chat.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">inputTokens</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * The cost of the turn, formatted like `lastMessageCost` of</span>
+<span class="cm">     * `ChatUsageContent`. Absent when a request of it had no known price or</span>
+<span class="cm">     * used a subscription login (see `quota` of `ChatUsageContent`).</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">cost?</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
 <span class="p">}</span>
 
 <span class="cm">/**</span>
@@ -6558,7 +6611,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 25, 2026 03:09:18 UTC">November 25, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 26, 2026 13:28:16 UTC">November 26, 2026</span>
   </span>
 
     
