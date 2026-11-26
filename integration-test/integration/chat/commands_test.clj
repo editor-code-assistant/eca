@@ -166,6 +166,7 @@
         (match-content chat-id "assistant" {:type "text" :text "Knock"})
         (match-content chat-id "assistant" {:type "text" :text " knock!"})
         (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})))
 
     (testing "Compact calls the tool and finishes cleanly without a second LLM request"
@@ -224,6 +225,7 @@
                                             :totalTimeMs (m/pred number?)
                                             :outputs [{:type "text" :text "Compacted successfully!"}]})
         ;; Chat finishes, then compact side-effect sends summary messages
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (match-content chat-id "system" {:type "text" :text "Compacted chat"})
         (match-content chat-id "system" {:type "usage"})
@@ -261,6 +263,7 @@
         (match-content chat-id "assistant" {:type "text" :text "Knock"})
         (match-content chat-id "assistant" {:type "text" :text " knock!"})
         (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})))
 
     (testing "/btw forks the chat and prompts the question there"
@@ -288,6 +291,8 @@
         ;; Forked chat replays the copied history and gets its title.
         (match-content btw-chat-id "user" {:type "text" :text "\nTell me a joke!"})
         (match-content btw-chat-id "assistant" {:type "text" :text "\nKnock knock!"})
+        ;; with what the copied turn used
+        (match-content btw-chat-id "system" {:type "turnUsage" :inputTokens 10 :outputTokens 20})
         (match-content btw-chat-id "system" {:type "metadata" :title "btw: Who's there?"})
         ;; Origin chat turn finishes while the fork answers the question.
         (match-content chat-id "system" {:type "progress" :state "finished"})
@@ -296,6 +301,7 @@
         (match-content btw-chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content btw-chat-id "assistant" {:type "text" :text "Foo"})
         (match-content btw-chat-id "system" {:type "usage"})
+        (match-content btw-chat-id "system" {:type "turnUsage"})
         (match-content btw-chat-id "system" {:type "progress" :state "finished"})
 
         ;; The forked chat request contains the copied history + the question.
@@ -322,6 +328,7 @@
         (match-content chat-id "assistant" {:type "text" :text "\n\n"})
         (match-content chat-id "assistant" {:type "text" :text "Ha!"})
         (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         ;; No trace of the /btw exchange in the origin chat request.
         (is (match?

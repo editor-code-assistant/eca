@@ -455,6 +455,38 @@
             (is (match? {:chat-id "subagent-trust" :trust toggled-trust}
                         (deref approval-opts* 1000 ::not-called)))))))))
 
+(deftest spawn-agent-usage-counts-for-parent-turn-test
+  ;; Drives the subagent's real chat/prompt, whose request reports usage.
+  (h/reset-components!)
+  (h/config! {:env "test" :agent {"explorer" {:mode "subagent" :description "Explorer"}}})
+  (swap! (h/db*) assoc-in [:chats "parent"] {:id "parent" :model "openai/gpt-5.2"
+                                             :turn-usage {:input-tokens 1000 :output-tokens 100 :cost 0}})
+  (with-redefs [m.subagents/poll-interval-ms 10
+                llm-api/sync-prompt! (constantly nil)
+                config/await-plugins-resolved! (constantly true)
+                f.tools/all-tools (constantly [])
+                llm-api/sync-or-async-prompt!
+                (fn [{:keys [on-first-response-received on-message-received on-usage-updated]}]
+                  (on-first-response-received {:type :text :text "found"})
+                  (on-message-received {:type :text :text "found"})
+                  (on-usage-updated {:input-tokens 300 :output-tokens 40})
+                  (on-message-received {:type :finish}))]
+    (let [result ((spawn-handler)
+                  {"agent" "explorer" "task" "find"}
+                  {:db* (h/db*) :config (h/config) :messenger (h/messenger) :metrics (h/metrics)
+                   :chat-id "parent" :tool-call-id "usage"
+                   :call-state-fn (constantly {:status :executing})})]
+      (is (false? (:error result)))
+      (is (match? {:input-tokens 1300 :output-tokens 140}
+                  (get-in @(h/db*) [:chats "parent" :turn-usage]))
+          "the parent's running turn counts its subagent's requests")
+      (is (match? [{:chat-id "subagent-usage"
+                    :parent-chat-id "parent"
+                    :content {:type :turnUsage :model "openai/gpt-5.2" :input-tokens 300 :output-tokens 40}}]
+                  (filterv #(= :turnUsage (get-in % [:content :type]))
+                           (:chat-content-received (h/messages))))
+          "the subagent's own turn tells its usage"))))
+
 (defn ^:private assistant-msg [text]
   {:role "assistant" :content [{:type :text :text text}]})
 

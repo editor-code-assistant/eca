@@ -65,6 +65,7 @@
   ;; stale chats is handled by cleanup-old-chats! instead.
   (-> (apply dissoc chat :index-only? chat-computed-meta-keys)
       (dissoc :tool-calls :last-status-payload :unsent-user-messages :remembered-approvals :reason-group
+              :turn-usage
               ;; for the running session only: a compaction a module asked for
               :compaction-request :compaction-blocked-prompt-id)
       (assoc :id chat-id)))

@@ -38,9 +38,11 @@
                   (f.chat.lifecycle/chat-event chat-ctx {:provider (:provider chat-ctx) :headers headers}))))
 
 (defn ^:private on-usage-updated
-  [{:keys [chat-ctx all-tools]} usage]
+  [{:keys [chat-ctx all-tools]} request-usage]
   (let [{:keys [db* chat-id full-model instructions]} chat-ctx]
-    (when-let [usage (shared/usage-msg->usage usage full-model chat-ctx)]
+    (when-let [usage (shared/usage-msg->usage request-usage full-model chat-ctx)]
+      ;; recorded when the turn finishes, see `turnUsage`
+      (f.chat.lifecycle/add-turn-usage! chat-ctx full-model request-usage)
       (let [context-limit (get-in usage [:limit :context])
             ;; modules hear of it first, and give the auto-compaction threshold
             percentage (f.chat.lifecycle/usage-updated! chat-ctx usage context-limit)]

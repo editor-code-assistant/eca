@@ -40,6 +40,7 @@
                                          :sessionTokens 30
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
@@ -69,6 +70,7 @@
                                          :sessionTokens 15
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -103,6 +105,7 @@
                                          :sessionTokens 20
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -146,6 +149,7 @@
                                          :sessionTokens 35
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}]
@@ -180,6 +184,7 @@
                                          :sessionTokens 30
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
@@ -274,6 +279,7 @@
         ;; Second LLM call (post tool-result) reports its own usage; now carries a
         ;; distinct context breakdown so it is no longer deduped by the test helper.
         (match-content chat-id "system" {:type "usage"})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "What files you see?"}]}

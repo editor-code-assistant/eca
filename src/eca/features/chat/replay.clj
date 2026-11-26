@@ -178,21 +178,23 @@
 (defn ^:private merge-adjacent-reasons
   "Display-only: collapses each run of consecutive reason messages into one,
    mirroring the live grouping in `lifecycle/send-content!`. Keeps the first
-   block id, joins non-blank texts with a blank line and sums the times."
+   block id, joins non-blank texts with a blank line and sums the times. The
+   record of the turn a message of the run ends goes with the merged one."
   [messages]
   (into []
         (mapcat (fn [[first-message :as run]]
                   (if (and (= "reason" (:role first-message)) (next run))
-                    [(assoc first-message
-                            :content {:id (get-in first-message [:content :id])
-                                      :text (some->> run
-                                                     (keep #(shared/not-blank (get-in % [:content :text])))
-                                                     seq
-                                                     (string/join "\n\n"))
-                                      :total-time-ms (some->> run
-                                                              (keep #(get-in % [:content :total-time-ms]))
-                                                              seq
-                                                              (reduce +))})]
+                    [(assoc-some (assoc first-message
+                                        :content {:id (get-in first-message [:content :id])
+                                                  :text (some->> run
+                                                                 (keep #(shared/not-blank (get-in % [:content :text])))
+                                                                 seq
+                                                                 (string/join "\n\n"))
+                                                  :total-time-ms (some->> run
+                                                                          (keep #(get-in % [:content :total-time-ms]))
+                                                                          seq
+                                                                          (reduce +))})
+                                 :turn-usage (some :turn-usage run))]
                     run)))
         (partition-by #(= "reason" (:role %)) messages)))
 
@@ -204,7 +206,11 @@
    reason messages render as a single reasoning block, like live streaming.
 
    Shared by the streaming replay (`send-chat-contents!`) and the request/response
-   `chat/history` method so both render identical content."
+   `chat/history` method so both render identical content.
+
+   A message ending a turn keeps the turn's record (`:turn-usage`), sent
+   after the message's contents like the `turnUsage` content that ended the
+   turn live, see `eca.features.chat.lifecycle/add-turn-usage!`."
   [messages {:keys [chat-id parent-chat-id db]}]
   (let [->payload (fn [{:keys [role content]}]
                     (assoc-some {:chat-id chat-id :role role :content content}
@@ -217,17 +223,21 @@
                                       (get-in message [:content :details :subagent-chat-id]))
                    subagent-messages (when subagent-chat-id
                                        (f.chat.history/replayed-messages (get-in db [:chats subagent-chat-id :messages])
-                                                                               (:content message)))]
-               (if (some? subagent-messages)
-                 ;; For subagent tool calls: toolCallRun + toolCallRunning, then
-                 ;; subagent messages, then toolCalled — matching live execution order.
-                 (concat (map ->payload (butlast chat-contents))
-                         (messages->contents subagent-messages
-                                             {:chat-id subagent-chat-id
-                                              :parent-chat-id chat-id
-                                              :db db})
-                         [(->payload (last chat-contents))])
-                 (map ->payload chat-contents))))
+                                                                               (:content message)))
+                   turn-record (when-let [record (:turn-usage message)]
+                                 [(->payload {:role :system :content (assoc record :type :turnUsage)})])]
+               (concat
+                (if (some? subagent-messages)
+                  ;; For subagent tool calls: toolCallRun + toolCallRunning, then
+                  ;; subagent messages, then toolCalled — matching live execution order.
+                  (concat (map ->payload (butlast chat-contents))
+                          (messages->contents subagent-messages
+                                              {:chat-id subagent-chat-id
+                                               :parent-chat-id chat-id
+                                               :db db})
+                          [(->payload (last chat-contents))])
+                  (map ->payload chat-contents))
+                turn-record)))
            (merge-adjacent-reasons messages)))))
 
 (defn send-chat-contents! [messages chat-ctx]

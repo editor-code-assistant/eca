@@ -141,6 +141,7 @@
       ;; Second LLM turn: final response after tool result
       (match-content chat-id "assistant" {:type "text" :text "The echo tool returned: hello from mcp"})
       (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "turnUsage"})
       (match-content chat-id "system" {:type "progress" :state "finished"})
 
       (testing "MCP mock received tools/call request with correct arguments and the chat id as sessionId"
@@ -220,6 +221,7 @@
       (match-content chat-id "assistant" {:type "text"})
       (match-content chat-id "assistant" {:type "text"})
       (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "turnUsage"})
       (match-content chat-id "system" {:type "progress" :state "finished"})
 
       (let [req-body (llm.mocks/get-req-body :simple-text-0)
@@ -307,6 +309,7 @@
       ;; Second LLM turn: final response
       (match-content chat-id "assistant" {:type "text" :text "Tool added successfully"})
       (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "turnUsage"})
       (match-content chat-id "system" {:type "progress" :state "finished"})
 
       (testing "MCP mock received add-tool call"

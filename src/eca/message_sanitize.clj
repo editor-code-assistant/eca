@@ -32,10 +32,11 @@
 
 (defn strip-internal-message-fields
   "Removes internal ECA metadata from a message map: the top-level
-   :created-at and :content-id, and the :module and :data of the contexts
-   modules added, whose text stays for the model."
+   :created-at, :content-id and :turn-usage (the record of the turn the
+   message ends), and the :module and :data of the contexts modules added,
+   whose text stays for the model."
   [message]
-  (-> (dissoc message :created-at :content-id)
+  (-> (dissoc message :created-at :content-id :turn-usage)
       (update-blocks (fn [blocks]
                        (map #(if (module-context? %) (dissoc % :module :data) %) blocks)))))
 

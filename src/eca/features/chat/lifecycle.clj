@@ -217,6 +217,42 @@
     (when (number? percentage)
       percentage)))
 
+(defn ^:private chat-lineage
+  "`chat-id`, then the chats above it: the chat that spawned it when it is a
+   subagent's, and so on."
+  [db chat-id]
+  (loop [id chat-id
+         lineage []]
+    (if (and id
+             (get-in db [:chats id])
+             (not (some #{id} lineage)))
+      (recur (get-in db [:chats id :parent-chat-id]) (conj lineage id))
+      lineage)))
+
+(defn add-turn-usage!
+  "Adds the `usage` of a request the chat sent to `full-model` to what its
+   turn used, recorded when the turn finishes, and to the turns of the chats
+   above it: a subagent works for the turn that spawned it. The usage of a
+   superseded request counts for no turn, nor does a turn count usage
+   arriving after it finished, like a stopped stream reporting late."
+  [{:keys [db* chat-id prompt-id subscription?]} full-model usage]
+  (let [{:keys [input-tokens output-tokens input-cache-creation-tokens input-cache-read-tokens]} usage]
+    (when (and input-tokens output-tokens)
+      (let [;; subscription logins are not billed per token
+            cost (when-not subscription?
+                   (shared/tokens->raw-cost input-tokens input-cache-creation-tokens input-cache-read-tokens
+                                            output-tokens (get-in @db* [:models full-model])))]
+        (swap! db* (fn [db]
+                     (if (and prompt-id (not= prompt-id (get-in db [:chats chat-id :prompt-id])))
+                       db
+                       (reduce (fn [db id]
+                                 (if (get-in db [:chats id :prompt-finished?])
+                                   db
+                                   (update-in db [:chats id :turn-usage] shared/add-turn-usage usage cost)))
+                               db
+                               (chat-lineage db chat-id)))))
+        nil))))
+
 (defn ended-by
   "Who ended an event's chain of handlers with a `:block` or `:stop`, as
    `ended-message` names them: `{:module id}`, with `:by` when the module
@@ -341,12 +377,45 @@
     (assoc-some {:message (or message "Unknown error")}
                 :type (some-> error-type name))))
 
+(defn ^:private add-turn-record
+  "`messages`, a chat's history, with `record`, what a turn that started at
+   `started-at` used, on its last message, when the turn added it: replays
+   show the record after it, see `eca.features.chat.replay`. A last message
+   older than the turn, which then added none, keeps the record it has."
+  [messages record started-at]
+  (let [messages (vec messages)
+        last-idx (dec (count messages))
+        last-message (get messages last-idx)]
+    (if (and last-message
+             (not (:turn-usage last-message))
+             (>= (or (:created-at last-message) 0) (or started-at 0)))
+      (assoc messages last-idx (assoc last-message :turn-usage record))
+      messages)))
+
+(defn ^:private end-turn-usage!
+  "Clears what the chat's turn used, see `add-turn-usage!`. When a request
+   of the turn reported usage, keeps its record with the turn's last message,
+   saved with the chat, and tells it in a `turnUsage` content."
+  [{:keys [db* chat-id] :as chat-ctx}]
+  (let [[old-db] (swap-vals! db* (fn [db]
+                                   (if (get-in db [:chats chat-id :turn-usage])
+                                     (update-in db [:chats chat-id] dissoc :turn-usage)
+                                     db)))
+        {:keys [started-at] :as turn-usage} (get-in old-db [:chats chat-id :turn-usage])]
+    (when-let [record (shared/turn-usage->record turn-usage (System/currentTimeMillis))]
+      (swap! db* (fn [db]
+                   (if (seq (get-in db [:chats chat-id :messages]))
+                     (update-in db [:chats chat-id :messages] add-turn-record record started-at)
+                     db)))
+      (send-content! chat-ctx :system (assoc record :type :turnUsage)))))
+
 (defn ^:private apply-status-transition!
   "Update chat status, send status/progress events, set created-at if needed."
   [{:keys [chat-id db* messenger] :as chat-ctx} status]
   (swap! db* assoc-in [:chats chat-id :status] status)
   (messenger/chat-status-changed messenger {:chat-id chat-id :status status})
   (trigger-chat-status-hook! chat-ctx)
+  (end-turn-usage! chat-ctx)
   (send-content! chat-ctx :system
                  (assoc-some {:type :progress
                               :state :finished}

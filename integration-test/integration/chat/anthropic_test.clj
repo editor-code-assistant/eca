@@ -41,6 +41,12 @@
                                          :sessionTokens 30
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"
+                                         :model "anthropic/claude-sonnet-4-6"
+                                         :totalTimeMs (m/pred number?)
+                                         :inputTokens 10
+                                         :outputTokens 20
+                                         :cost (m/pred string?)})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}]
@@ -70,6 +76,8 @@
                                          :sessionTokens 15
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        ;; the usage of this turn only
+        (match-content chat-id "system" {:type "turnUsage" :inputTokens 10 :outputTokens 5})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}
@@ -104,6 +112,7 @@
                                          :sessionTokens 20
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "Tell me a joke!"}]}
@@ -147,6 +156,7 @@
                                          :sessionTokens 35
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "hello!"}]}]
@@ -181,6 +191,7 @@
                                          :sessionTokens 30
                                          :lastMessageCost (m/pred string?)
                                          :sessionCost (m/pred string?)})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "hello!"}]}
@@ -275,6 +286,8 @@
         ;; Second LLM call (post tool-result) reports its own usage; now carries a
         ;; distinct context breakdown so it is no longer deduped by the test helper.
         (match-content chat-id "system" {:type "usage"})
+        ;; both requests of the turn
+        (match-content chat-id "system" {:type "turnUsage" :inputTokens 10 :outputTokens 60})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:messages [{:role "user" :content [{:type "text" :text "What files you see?"}]}
@@ -329,4 +342,5 @@
       (match-content chat-id "assistant" {:type "text" :text "Knock"})
       (match-content chat-id "assistant" {:type "text" :text " knock!"})
       (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "turnUsage"})
       (match-content chat-id "system" {:type "progress" :state "finished"}))))

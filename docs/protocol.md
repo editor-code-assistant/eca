@@ -747,6 +747,7 @@ type ChatContent =
     | ChatImageContent
     | ChatProgressContent 
     | ChatUsageContent
+    | ChatTurnUsageContent
     | ChatReasonStartedContent 
     | ChatReasonTextContent 
     | ChatReasonFinishedContent 
@@ -985,7 +986,9 @@ interface ChatUsageContent {
     type: 'usage';
     
     /**
-     * The total input + output tokens of the whole chat session so far.
+     * The tokens the chat's context holds: the input, cache and output
+     * tokens of its last request, to compare with `limit.context`. For what
+     * a turn used, see `ChatTurnUsageContent`.
      */
     sessionTokens: number;
 
@@ -1096,6 +1099,56 @@ interface ChatUsageContent {
          */
         freeEmoji?: string;
     }
+}
+
+/**
+ * What a turn used, from its prompt to its end, summed over all its requests
+ * to the model: tool call rounds, retries and compactions included, steered
+ * messages too, and the requests of the subagents it ran, not the calls
+ * modules make on their own, e.g. to title the chat. Unlike `usage`, sent
+ * after each request, it is told once per turn, so clients can show it along
+ * the turn, e.g. under its answer.
+ *
+ * Sent right before the `finished` progress of a turn in which a request to
+ * the model reported its usage, a stopped turn included, telling what it used
+ * until then; turns that never reached the model, like a command answering by
+ * itself, or whose provider reports no usage, have none. It is kept with the
+ * chat's history: when the chat is opened again (`chat/open`, `chat/history`),
+ * it follows the last message of its turn again. Turns from before ECA kept
+ * it have none.
+ */
+interface ChatTurnUsageContent {
+    type: 'turnUsage';
+
+    /**
+     * The model of the turn, e.g. 'anthropic/claude-sonnet-4-6'.
+     */
+    model: string;
+
+    /**
+     * How long the turn took, from when the server received its prompt to
+     * its end, in milliseconds. Includes the tools running and waits for the
+     * user, e.g. to approve a tool call.
+     */
+    totalTimeMs: number;
+
+    /**
+     * The tokens the model generated: text, reasoning and tool calls.
+     */
+    outputTokens: number;
+
+    /**
+     * The tokens sent to the model, cache reads and writes included. Each
+     * request sends the whole context again, so it grows with the chat.
+     */
+    inputTokens: number;
+
+    /**
+     * The cost of the turn, formatted like `lastMessageCost` of
+     * `ChatUsageContent`. Absent when a request of it had no known price or
+     * used a subscription login (see `quota` of `ChatUsageContent`).
+     */
+    cost?: string;
 }
 
 /**

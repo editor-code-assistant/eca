@@ -345,7 +345,9 @@
    (e.g. `${cmd:...}` keys spawning commands). Callers that already hold the
    config should pass the map."
   [{:keys [message agent behavior chat-id contexts variant trust] :as params} db* messenger config metrics]
-  (let [provided-chat-id chat-id
+  (let [;; when its turn started, for the record of what it used
+        received-at (System/currentTimeMillis)
+        provided-chat-id chat-id
         managed (get-in @db* [:managed-chats chat-id])
         invalid-id-reason (cond
                             ;; Only the run holding the owner token may prompt a managed chat.
@@ -419,6 +421,7 @@
                                              :contexts contexts
                                              :db* db*
                                              :messenger messenger
+                                             :prompt-received-at received-at
                                              :user-content-id user-content-id
                                              :message message
                                              :chat-id chat-id

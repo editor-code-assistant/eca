@@ -6,6 +6,7 @@
    [eca.features.chat.lifecycle :as f.chat.lifecycle]
    [eca.modules.hooks :as m.hooks]
    [eca.test-helper :as h]
+   [matcher-combinators.matchers :as m]
    [matcher-combinators.test :refer [match?]]))
 
 (set! *warn-on-reflection* true)
@@ -365,6 +366,123 @@
                  {:content {:type :progress :state :finished}}]
                 (:chat-content-received (h/messages))))
     (is (nil? (get-in @db* [:chats chat-id :reason-group])))))
+
+(deftest add-turn-usage!-test
+  (let [usage {:input-tokens 10 :input-cache-read-tokens 90 :output-tokens 20}
+        models {full-model {:input-token-cost 0.001 :output-token-cost 0.002
+                            :input-cache-read-token-cost 0.0001}}
+        add! (fn [db* ctx] (f.chat.lifecycle/add-turn-usage! (assoc ctx :db* db*) full-model usage))
+        about (fn [expected] #(< (abs (- % expected)) 1e-9))]
+    (testing "adds the request's tokens and cost to what the turn used"
+      (let [db* (atom {:models models :chats {chat-id {:prompt-id :p1}}})]
+        (add! db* {:chat-id chat-id :prompt-id :p1})
+        (add! db* {:chat-id chat-id :prompt-id :p1})
+        (is (match? {:input-tokens 200 :output-tokens 40 :cost (about 0.118)}
+                    (get-in @db* [:chats chat-id :turn-usage])))))
+
+    (testing "a subagent's requests count for the turns of the chats above it too"
+      (let [db* (atom {:models models
+                       :chats {"parent" {:prompt-id :p0}
+                               "sub" {:prompt-id :p1 :parent-chat-id "parent"}
+                               "sub-sub" {:prompt-id :p2 :parent-chat-id "sub"}
+                               "other" {:prompt-id :p3}}})]
+        (add! db* {:chat-id "sub-sub" :prompt-id :p2})
+        (is (match? {"parent" {:turn-usage {:input-tokens 100 :output-tokens 20}}
+                     "sub" {:turn-usage {:input-tokens 100 :output-tokens 20}}
+                     "sub-sub" {:turn-usage {:input-tokens 100 :output-tokens 20}}}
+                    (:chats @db*)))
+        (is (nil? (get-in @db* [:chats "other" :turn-usage])))))
+
+    (testing "subscription logins, not billed per token, and models without prices leave the cost unknown"
+      (let [db* (atom {:models models :chats {chat-id {:prompt-id :p1} "c2" {:prompt-id :p1}}})]
+        (add! db* {:chat-id chat-id :prompt-id :p1 :subscription? true})
+        (f.chat.lifecycle/add-turn-usage! {:db* db* :chat-id "c2" :prompt-id :p1} "openai/unknown" usage)
+        (is (= {:input-tokens 100 :output-tokens 20 :unpriced? true}
+               (get-in @db* [:chats chat-id :turn-usage])
+               (get-in @db* [:chats "c2" :turn-usage])))))
+
+    (testing "the usage of a superseded request counts for no turn"
+      (let [db* (atom {:models models :chats {"parent" {:prompt-id :p0}
+                                              chat-id {:prompt-id :p2 :parent-chat-id "parent"}}})
+            before @db*]
+        (add! db* {:chat-id chat-id :prompt-id :p1})
+        (is (= before @db*))))
+
+    (testing "a finished turn counts no more usage, the running turns above it still do"
+      (let [db* (atom {:models models :chats {"parent" {:prompt-id :p0}
+                                              chat-id {:prompt-id :p1 :parent-chat-id "parent"
+                                                       :prompt-finished? true}}})]
+        (add! db* {:chat-id chat-id :prompt-id :p1})
+        (is (nil? (get-in @db* [:chats chat-id :turn-usage])))
+        (is (match? {:output-tokens 20} (get-in @db* [:chats "parent" :turn-usage])))))
+
+    (testing "usage without its input or output tokens counts for nothing"
+      (let [db* (atom {:models models :chats {chat-id {:prompt-id :p1}}})
+            before @db*]
+        (f.chat.lifecycle/add-turn-usage! {:db* db* :chat-id chat-id :prompt-id :p1} full-model {:output-tokens 5})
+        (is (= before @db*))))))
+
+(deftest finish-chat-prompt!-records-turn-usage-test
+  (let [ctx (fn [] {:chat-id chat-id
+                    :db* (h/db*)
+                    :messenger (h/messenger)
+                    :config (h/config)
+                    :metrics (h/metrics)
+                    :agent "default"})
+        started-at (- (System/currentTimeMillis) 5000)
+        messages [{:role "user" :content [{:type :text :text "Hey"}] :content-id "u1" :created-at (+ started-at 10)}
+                  {:role "assistant" :content [{:type :text :text "Hi"}] :created-at (+ started-at 20)}]
+        contents #(mapv :content (:chat-content-received (h/messages)))
+        last-message #(peek (get-in (h/db) [:chats chat-id :messages]))]
+    (testing "the turn ends telling what it used, kept with its last message, then forgotten"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :status :running :messages messages
+                                                :turn-usage {:started-at started-at :model full-model
+                                                             :input-tokens 200 :output-tokens 40 :cost 0.118}})
+      (f.chat.lifecycle/finish-chat-prompt! :idle (ctx))
+      (let [record {:model full-model :total-time-ms #(>= % 5000)
+                    :input-tokens 200 :output-tokens 40 :cost "0.12"}]
+        (is (match? [(assoc record :type :turnUsage)
+                     {:type :progress :state :finished :usage m/absent}]
+                    (contents)))
+        (is (match? {:role "assistant" :turn-usage record} (last-message)))
+        (is (= (dissoc (:turn-usage (last-message)) :type)
+               (dissoc (first (contents)) :type))
+            "replays tell the same record"))
+      (is (nil? (get-in (h/db) [:chats chat-id :turn-usage]))))
+
+    (testing "a stopped turn tells what it used until then"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :status :running :messages messages
+                                                :turn-usage {:started-at started-at :model full-model
+                                                             :input-tokens 200 :output-tokens 40 :unpriced? true}})
+      (f.chat.lifecycle/finish-chat-prompt! :stopping (ctx))
+      (is (match? [{:type :turnUsage :input-tokens 200 :output-tokens 40 :cost m/absent}
+                   {:type :progress :state :finished}]
+                  (contents))))
+
+    (testing "a last message older than the turn keeps the record it has"
+      (h/reset-components!)
+      (let [old-record {:model full-model :total-time-ms 1 :input-tokens 1 :output-tokens 1}
+            old-messages (assoc-in messages [1 :turn-usage] old-record)]
+        (doseq [[msgs expected] [[old-messages old-record]
+                                 [(update-in messages [1 :created-at] - 1000) nil]]]
+          (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :status :running :messages msgs
+                                                    :turn-usage {:started-at started-at :model full-model
+                                                                 :input-tokens 200 :output-tokens 40}})
+          (f.chat.lifecycle/finish-chat-prompt! :idle (ctx))
+          (is (= expected (:turn-usage (last-message))))
+          (swap! (h/db*) update-in [:chats chat-id] dissoc :prompt-finished?)))
+      (is (= 2 (count (filter #(= :turnUsage (:type %)) (contents))))
+          "the turns still tell what they used"))
+
+    (testing "no record when no request of the turn reported usage"
+      (h/reset-components!)
+      (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :status :running :messages messages
+                                                :turn-usage {:started-at started-at :model full-model}})
+      (f.chat.lifecycle/finish-chat-prompt! :idle (ctx))
+      (is (= [{:type :progress :state :finished}] (contents)))
+      (is (= messages (get-in (h/db) [:chats chat-id :messages]))))))
 
 (deftest finish-chat-prompt!-always-emits-protocol-status-test
   (testing "every turn finish emits the protocol chat/statusChanged even when the aggregate is unchanged (command-only turns stay idle throughout)"

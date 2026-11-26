@@ -5,7 +5,8 @@
 
    Besides what `eca.features.chat/prompt` puts in chat-ctx (`:db*`,
    `:config`, `:chat-id`, `:agent`, `:message`, `:user-content-id`,
-   `:instructions`, `:full-model`...), it carries the turn's flow:
+   `:prompt-received-at`, `:instructions`, `:full-model`...), it carries
+   the turn's flow:
    - `:prompt-id`, `:subscription?`, `:continue-turn-fn`: the request's, set here;
    - `:auto-continue-count`: recoveries in a row (`f.chat.recovery`);
    - `:module-recovery-attempted?`, `:image-retried?`, `:error-recovery-attempted?`:
@@ -181,6 +182,19 @@
                                                          :status (get-in @db* [:chats chat-id :status])}))
   (swap! db* assoc-in [:chats chat-id :status] :running)
   (swap! db* update-in [:chats chat-id] dissoc :prompt-finished? :prompt-error)
+  ;; What the turn uses, recorded when it finishes, starts with its first
+  ;; request: a prompt's (the previous turn recorded its own when it
+  ;; finished, and a superseded one never will), or a follow-up's, whose
+  ;; turn starts after the previous one finished. The next requests of the
+  ;; turn, like retries and compactions, keep it.
+  (let [now (System/currentTimeMillis)]
+    (swap! db* update-in [:chats chat-id]
+           (fn [chat]
+             (cond
+               run-hooks? (assoc chat :turn-usage {:started-at (or (:prompt-received-at chat-ctx) now)
+                                                   :model full-model})
+               (nil? (:turn-usage chat)) (assoc chat :turn-usage {:started-at now :model full-model})
+               :else chat))))
   (when (and run-hooks? (:user-content-id chat-ctx))
     ;; Kept until the LLM responds, so a turn that is stopped, fails or is
     ;; superseded before that doesn't lose what the user typed.
@@ -350,6 +364,9 @@
       ;; Only notify client if finish-chat-prompt! hasn't already run,
       ;; otherwise the belated statusChanged causes duplicate finished handling.
       (when-not (get-in @db* [:chats chat-id :prompt-finished?])
+        ;; No `finished` progress tells what this turn used: drop it, so that
+        ;; a next turn not sending requests, like a command, doesn't tell it.
+        (swap! db* update-in [:chats chat-id] dissoc :turn-usage)
         (when (contains? (:managed-chats @db*) chat-id)
           (swap! db* assoc-in [:managed-chats chat-id :interrupted?] true))
         (messenger/chat-status-changed (:messenger chat-ctx) {:chat-id chat-id :status :idle})

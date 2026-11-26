@@ -210,6 +210,43 @@
                              chat-ctx)
     (is (nil? (get-in @db* [:chats "c1" :usage :last-output-tps])))))
 
+(deftest add-turn-usage-test
+  (testing "the first request reporting usage adds to the turn, cache reads and writes counting as input"
+    (is (= {:started-at 1000 :model "openai/gpt-5.2" :input-tokens 35 :output-tokens 20 :cost 0.5}
+           (shared/add-turn-usage {:started-at 1000 :model "openai/gpt-5.2"}
+                                  {:input-tokens 10 :input-cache-creation-tokens 5
+                                   :input-cache-read-tokens 20 :output-tokens 20}
+                                  0.5)))
+    (is (= {:input-tokens 10 :output-tokens 20 :cost 0.5}
+           (shared/add-turn-usage nil {:input-tokens 10 :output-tokens 20} 0.5))))
+  (testing "the next requests add up"
+    (is (= {:input-tokens 45 :output-tokens 25 :cost 0.75}
+           (shared/add-turn-usage {:input-tokens 35 :output-tokens 20 :cost 0.5}
+                                  {:input-tokens 10 :output-tokens 5}
+                                  0.25))))
+  (testing "a request of unknown cost makes the cost of the turn unknown, for good"
+    (let [unpriced (shared/add-turn-usage {:input-tokens 35 :output-tokens 20 :cost 0.5}
+                                          {:input-tokens 10 :output-tokens 5}
+                                          nil)]
+      (is (= {:input-tokens 45 :output-tokens 25 :unpriced? true} unpriced))
+      (is (= {:input-tokens 46 :output-tokens 26 :unpriced? true}
+             (shared/add-turn-usage unpriced {:input-tokens 1 :output-tokens 1} 0.25))))))
+
+(deftest turn-usage->record-test
+  (testing "the turn's model, how long it took, its tokens and its cost, formatted like the usage content's"
+    (is (= {:model "openai/gpt-5.2" :total-time-ms 2500 :input-tokens 45 :output-tokens 25 :cost "0.75"}
+           (shared/turn-usage->record {:started-at 1000 :model "openai/gpt-5.2"
+                                       :input-tokens 45 :output-tokens 25 :cost 0.75}
+                                      3500)))
+    (is (= "0.0012" (:cost (shared/turn-usage->record {:input-tokens 45 :output-tokens 25 :cost 0.00123} 0)))))
+  (testing "no cost when unknown, nor time without the turn's start"
+    (is (= {:model "openai/gpt-5.2" :input-tokens 45 :output-tokens 25}
+           (shared/turn-usage->record {:model "openai/gpt-5.2" :input-tokens 45 :output-tokens 25 :unpriced? true}
+                                      3500))))
+  (testing "nothing when no request of the turn reported usage"
+    (is (nil? (shared/turn-usage->record {:started-at 1000 :model "openai/gpt-5.2"} 3500)))
+    (is (nil? (shared/turn-usage->record nil 3500)))))
+
 (deftest deep-merge-test
   (testing "second map as nil returns first map"
     (is (match?

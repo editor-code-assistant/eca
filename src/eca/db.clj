@@ -88,7 +88,14 @@
                         :messages [{:role (or "user" "assistant" "tool_call" "tool_call_output" "reason" "compact_marker" "flag" "server_tool_use" "server_tool_result")
                                     :content (or :string [::any-map]) ;; string for simple text, map/vector for structured content
                                     :content-id :string
-                                    :created-at :number}]
+                                    :created-at :number
+                                    ;; on the last message of a turn: what the turn used, replayed
+                                    ;; after the message as a `turnUsage` content
+                                    :turn-usage {:model :string
+                                                 :total-time-ms :number
+                                                 :input-tokens :number
+                                                 :output-tokens :number
+                                                 :cost :string}}]
                         :task {:next-id :number
                                :active-summary (or :string nil)
                                :tasks [{:id :number
@@ -110,6 +117,17 @@
                                        :open {"<reason-id>" :number}
                                        :text? :boolean
                                        :last-text-block-id :string}
+                        ;; What the running turn used so far, its subagents'
+                        ;; requests included, since its first request; when it
+                        ;; finishes, cleared and recorded on its last message
+                        ;; (see :messages). In memory only (never persisted), see
+                        ;; `eca.features.chat.lifecycle/add-turn-usage!`.
+                        :turn-usage {:started-at :number ;; epoch ms, the prompt received
+                                     :model :string
+                                     :input-tokens :number
+                                     :output-tokens :number
+                                     :cost :number ;; USD, absent once :unpriced?
+                                     :unpriced? :boolean}
                         :tool-calls {"<tool-call-id>"
                                      {:status (or :initial :preparing :check-approval :waiting-approval
                                                   :execution-approved :executing :rejected :cleanup

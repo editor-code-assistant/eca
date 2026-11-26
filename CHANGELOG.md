@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a `turnUsage` content ending each turn, kept with the chat for reopened chats: its model, time, output and input tokens (subagents included) and cost when known.
+
 ## 0.174.0
 
 - Support rolling a chat back to a flag via `chat/rollback`: the flag is kept and only what came after it removed; `chat/truncated` then tells it in `afterContentId`.

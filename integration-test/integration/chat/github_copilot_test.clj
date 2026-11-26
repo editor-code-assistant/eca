@@ -38,6 +38,7 @@
         (match-content chat-id "assistant" {:type "text" :text "Knock "})
         (match-content chat-id "assistant" {:type "text" :text "knock!"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 30})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
@@ -64,6 +65,7 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 15})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -96,6 +98,7 @@
         (match-content chat-id "assistant" {:type "text" :text "bar"})
         (match-content chat-id "assistant" {:type "text" :text "!\n\nHa!"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 20})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -139,6 +142,7 @@
         (match-content chat-id "assistant" {:type "text" :text "hello "})
         (match-content chat-id "assistant" {:type "text" :text "there!"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 30})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}]
@@ -171,6 +175,7 @@
         (match-content chat-id "assistant" {:type "text" :text "I'm"})
         (match-content chat-id "assistant" {:type "text" :text "  fine"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 30})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
@@ -266,6 +271,7 @@
                                            :sessionTokens 70
                                            :messageCost (m/pred string?)
                                            :sessionCost (m/pred string?)})
+          (match-content chat-id "system" {:type "turnUsage"})
           (match-content chat-id "system" {:type "progress" :state "finished"})
           (is (match?
                {:messages [{:role "user" :content [{:type "text" :text "What files you see?"}]}

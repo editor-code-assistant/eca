@@ -23,7 +23,12 @@
            (message-sanitize/strip-internal-message-fields (tool-output {:type :text :text "ok"} module-context)))))
   (testing "a string content stays as it is"
     (is (= {:role "user" :content "hi"}
-           (message-sanitize/strip-internal-message-fields {:role "user" :content "hi" :created-at 1})))))
+           (message-sanitize/strip-internal-message-fields {:role "user" :content "hi" :created-at 1}))))
+  (testing "the record of the turn a message ends stays out of what providers get"
+    (is (= {:role "assistant" :content [{:type :text :text "Done"}]}
+           (message-sanitize/strip-internal-message-fields
+            {:role "assistant" :content [{:type :text :text "Done"}] :created-at 1
+             :turn-usage {:model "openai/gpt-5.2" :total-time-ms 900 :input-tokens 10 :output-tokens 5}})))))
 
 (deftest without-module-contexts-test
   (testing "the contexts modules added go, a hook's stays"

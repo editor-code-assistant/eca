@@ -38,6 +38,7 @@
         (match-content chat-id "assistant" {:type "text" :text "Knoc"})
         (match-content chat-id "assistant" {:type "text" :text "k knock!"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 30})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}]
@@ -64,6 +65,7 @@
         (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
         (match-content chat-id "assistant" {:type "text" :text "Foo"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 15})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -95,6 +97,7 @@
         (match-content chat-id "assistant" {:type "text" :text "o b"})
         (match-content chat-id "assistant" {:type "text" :text "ar!\n\nHa!"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 20})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "Tell me a joke!"}]}
@@ -138,6 +141,7 @@
         (match-content chat-id "assistant" {:type "text" :text "hell"})
         (match-content chat-id "assistant" {:type "text" :text "o there!"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 30})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}]
@@ -170,6 +174,7 @@
         (match-content chat-id "assistant" {:type "text" :text "I"})
         (match-content chat-id "assistant" {:type "text" :text "'m  fine"})
         (match-content chat-id "system" {:type "usage" :sessionTokens 30})
+        (match-content chat-id "system" {:type "turnUsage"})
         (match-content chat-id "system" {:type "progress" :state "finished"})
         (is (match?
              {:input [{:role "user" :content [{:type "input_text" :text "hello!"}]}
@@ -267,6 +272,7 @@
          [chat-id "assistant" {:type "text" :text " I see:\nfile"}]
          [chat-id "assistant" {:type "text" :text "1\nfile2\n"}]
          [chat-id "system" {:type "usage"}]
+         [chat-id "system" {:type "turnUsage"}]
          [chat-id "system" {:type "progress" :state "finished"}])
 
         ;; Verify thought signature was passed back in the second request

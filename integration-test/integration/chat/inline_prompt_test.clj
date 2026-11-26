@@ -59,6 +59,7 @@
       (match-content "inline-1" "assistant" {:type "text" :text "Knock"})
       (match-content "inline-1" "assistant" {:type "text" :text " knock!"})
       (match-content "inline-1" "system" {:type "usage" :sessionTokens 30})
+      (match-content "inline-1" "system" {:type "turnUsage"})
       (match-content "inline-1" "system" {:type "progress" :state "finished"})
 
       (is (match?

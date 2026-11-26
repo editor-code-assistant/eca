@@ -47,7 +47,8 @@
         history-before (history chat-id)]
     (is (string? user-content-id))
     (is (match? [{:role "user" :content {:contentId user-content-id}}
-                 {:role "assistant" :content {:type "text"}}]
+                 {:role "assistant" :content {:type "text"}}
+                 {:role "system" :content {:type "turnUsage" :model "openai/gpt-4.1"}}]
                 history-before))
 
     (testing "a null contentId is rejected and the history is kept"

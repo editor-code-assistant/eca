@@ -7,6 +7,7 @@
    [eca.config :as config]
    [eca.db :as db]
    [eca.db.chats :as db.chats]
+   [eca.db.io :as db.io]
    [eca.features.chat :as f.chat]
    [eca.features.chat.compaction :as f.chat.compaction]
    [eca.features.chat.history :as f.chat.history]
@@ -373,6 +374,235 @@
                                  (:chat-content-received (h/messages))))]
       (is (= chat-id (:chat-id finished)))
       (is (= {:type :progress :state :finished} (:content finished))))))
+
+(deftest turn-usage-content-test
+  (let [priced-models {"openai/gpt-5.2" {:tools true
+                                         :input-token-cost 0.000003
+                                         :output-token-cost 0.000015
+                                         :input-cache-read-token-cost 0.0000003}}
+        turn-ends #(->> (:chat-content-received (h/messages))
+                        (map :content)
+                        (filterv (fn [{:keys [type state]}] (or (= :turnUsage type) (= :finished state)))))
+        tool-mocks {:all-tools-mock (constantly [{:name "list_allowed_directories"
+                                                  :full-name "eca__list_allowed_directories"
+                                                  :server {:name "eca"}}])
+                    :call-tool-mock (constantly {:error false :contents [{:type :text :text "/foo/bar"}]})
+                    ;; two requests: one calling a tool, then one answering
+                    :api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated
+                                           on-prepare-tool-call on-tools-called]}]
+                                (on-first-response-received {:type :text :text "Ok,"})
+                                (on-message-received {:type :text :text "Ok,"})
+                                (on-prepare-tool-call {:id "call-1" :full-name "eca__list_allowed_directories" :arguments-text ""})
+                                (on-usage-updated {:input-tokens 1000 :input-cache-read-tokens 9000 :output-tokens 300})
+                                (on-tools-called [{:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}])
+                                (on-message-received {:type :text :text "/foo/bar"})
+                                (on-usage-updated {:input-tokens 1500 :input-cache-read-tokens 9000 :output-tokens 112})
+                                (on-message-received {:type :finish}))}]
+    (testing "ends the turn with its model, its time, the tokens of all its requests and their cost"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/token :api-key "sk-key"})
+      (let [{:keys [chat-id]} (prompt! {:message "List the files"} tool-mocks)
+            record {:model "openai/gpt-5.2" :total-time-ms nat-int?
+                    :input-tokens 20500 :output-tokens 412 :cost "0.02"}]
+        (is (match? [(assoc record :type :turnUsage)
+                     {:type :progress :state :finished :usage m/absent}]
+                    (turn-ends)))
+        (is (nil? (get-in (h/db) [:chats chat-id :turn-usage])))
+
+        (testing "kept with the turn's last message, saved with the chat"
+          (is (match? {:role "assistant" :turn-usage record}
+                      (peek (get-in (h/db) [:chats chat-id :messages]))))
+          (is (match? {:role "assistant" :turn-usage record}
+                      (peek (:messages (db.chats/read-chat-file (db.io/db-workspaces (h/db)) chat-id (h/metrics)))))))
+
+        (testing "a resumed chat tells it again, right after the turn's last message"
+          (h/reset-messenger!)
+          ;; as after a restart: only the chats index is in memory
+          (swap! (h/db*) assoc-in [:chats chat-id] {:id chat-id :index-only? true})
+          (f.chat.ops/open-chat! {:chat-id chat-id} (h/db*) (h/messenger) (h/config))
+          (is (match? [{:type :text :text #"/foo/bar$"}
+                       (assoc record :type :turnUsage)
+                       {:type :metadata}]
+                      (take-last 3 (mapv :content (:chat-content-received (h/messages))))))
+          (is (match? {:role :system :content (assoc record :type :turnUsage)}
+                      (last (:contents (f.chat.ops/fetch-history {:chat-id chat-id} (h/db*)))))
+              "history pages too"))))
+
+    (testing "a subscription login, not billed per token, has no cost"
+      (h/reset-components!)
+      (swap! (h/db*) assoc :models priced-models)
+      (swap! (h/db*) assoc-in [:auth "openai"] {:type :auth/oauth :mode :pro :api-key "oauth-token"})
+      (prompt! {:message "List the files"} tool-mocks)
+      (is (match? [{:type :turnUsage :input-tokens 20500 :output-tokens 412 :cost m/absent}
+                   {:type :progress :state :finished}]
+                  (turn-ends))))
+
+    (testing "each turn tells its own usage"
+      (h/reset-components!)
+      (let [answer-mock (fn [output-tokens]
+                          {:all-tools-mock (constantly [])
+                           :api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated]}]
+                                       (on-first-response-received {:type :text :text "Hi"})
+                                       (on-message-received {:type :text :text "Hi"})
+                                       (on-usage-updated {:input-tokens 100 :output-tokens output-tokens})
+                                       (on-message-received {:type :finish}))})
+            {:keys [chat-id]} (prompt! {:message "Hey"} (answer-mock 10))]
+        (h/reset-messenger!)
+        (prompt! {:message "Again" :chat-id chat-id} (answer-mock 7))
+        (is (match? [{:type :turnUsage :input-tokens 100 :output-tokens 7} {:type :progress}]
+                    (turn-ends)))
+        (is (= [10 7] (keep #(get-in % [:turn-usage :output-tokens])
+                            (get-in (h/db) [:chats chat-id :messages])))
+            "each with its own last message")))
+
+    (testing "the requests retrying a failed one count for the same turn"
+      (h/reset-components!)
+      (let [attempts* (atom 0)
+            exception (javax.net.ssl.SSLException. "Received fatal alert: bad_record_mac")]
+        (prompt! {:message "Keep working"}
+                 {:all-tools-mock (constantly [])
+                  :api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated on-error]}]
+                              (on-first-response-received)
+                              (if (= 1 (swap! attempts* inc))
+                                (do (on-usage-updated {:input-tokens 100 :output-tokens 10})
+                                    (on-error {:exception exception
+                                               :message (llm-util/connection-error-message exception)}))
+                                (do (on-message-received {:type :text :text "Done"})
+                                    (on-usage-updated {:input-tokens 200 :output-tokens 20})
+                                    (on-message-received {:type :finish}))))})
+        (is (= 2 @attempts*))
+        (is (match? [{:type :turnUsage :input-tokens 300 :output-tokens 30} {:type :progress}]
+                    (turn-ends)))))
+
+    (testing "a prompt superseding a running one tells its own usage only"
+      (h/reset-components!)
+      (let [calls* (atom 0)
+            chat-id "superseded-usage"]
+        (prompt! {:message "Hey" :chat-id chat-id}
+                 {:all-tools-mock (constantly [])
+                  :api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated]}]
+                              (on-first-response-received {:type :text :text "Hi"})
+                              (if (= 1 (swap! calls* inc))
+                                (do (on-usage-updated {:input-tokens 100 :output-tokens 10})
+                                    ;; another client prompts the chat meanwhile
+                                    (f.chat/prompt {:chat-id chat-id :message "Instead"}
+                                                   (h/db*) (h/messenger) (h/config) (h/metrics)))
+                                (do (on-message-received {:type :text :text "Ok"})
+                                    (on-usage-updated {:input-tokens 200 :output-tokens 20})
+                                    (on-message-received {:type :finish}))))})
+        (is (= 2 @calls*))
+        (is (match? [{:type :turnUsage :input-tokens 200 :output-tokens 20} {:type :progress}]
+                    (turn-ends)))))
+
+    (testing "usage reported after the turn finished counts for no turn, and a command turn has none"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (prompt! {:message "Hey"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated]}]
+                                                    (on-first-response-received {:type :text :text "Hi"})
+                                                    (on-message-received {:type :text :text "Hi"})
+                                                    (on-usage-updated {:input-tokens 100 :output-tokens 10})
+                                                    (on-message-received {:type :finish})
+                                                    (on-usage-updated {:input-tokens 999 :output-tokens 99}))})]
+        (is (match? [{:type :turnUsage :input-tokens 100 :output-tokens 10} {:type :progress}]
+                    (turn-ends)))
+        (is (nil? (get-in (h/db) [:chats chat-id :turn-usage])))
+        (h/reset-messenger!)
+        (prompt! {:message "/prompt-show" :chat-id chat-id}
+                 {:all-tools-mock (constantly []) :api-mock (constantly nil)})
+        (is (match? [{:type :progress :state :finished}] (turn-ends)))))
+
+    (testing "a turn whose requests reported no usage has no record"
+      (h/reset-components!)
+      (let [{:keys [chat-id]} (prompt! {:message "Hey"}
+                                       {:all-tools-mock (constantly [])
+                                        :api-mock (fn [{:keys [on-first-response-received on-message-received]}]
+                                                    (on-first-response-received {:type :text :text "Hi"})
+                                                    (on-message-received {:type :text :text "Hi"})
+                                                    (on-message-received {:type :finish}))})]
+        (is (match? [{:type :progress :state :finished}] (turn-ends)))
+        (is (not-any? :turn-usage (get-in (h/db) [:chats chat-id :messages])))))))
+
+(deftest turn-usage-time-test
+  (testing "a turn takes from when its prompt was received, loading the config included"
+    (h/reset-components!)
+    (let [received-at (System/currentTimeMillis)
+          started-at* (atom nil)]
+      (with-redefs [llm-api/sync-or-async-prompt! (fn [{:keys [on-first-response-received on-message-received
+                                                               on-usage-updated]}]
+                                                    (reset! started-at* (get-in (h/db) [:chats "timed" :turn-usage :started-at]))
+                                                    (on-first-response-received {:type :text :text "Hi"})
+                                                    (on-message-received {:type :text :text "Hi"})
+                                                    (on-usage-updated {:input-tokens 10 :output-tokens 5})
+                                                    (on-message-received {:type :finish}))
+                    llm-api/sync-prompt! (constantly nil)
+                    f.tools/all-tools (constantly [])
+                    m.approval/approval (constantly :allow)
+                    config/await-plugins-resolved! (constantly true)]
+        (h/config! {:env "test"})
+        (swap! (h/db*) update :models (fn [models] (merge {"openai/gpt-5.2" {:tools true}} (or models {}))))
+        (f.chat/prompt {:chat-id "timed" :message "Hey"}
+                       (h/db*)
+                       (h/messenger)
+                       (fn [] (Thread/sleep 300) (h/config))
+                       (h/metrics)))
+      (is (< (- @started-at* received-at) 200) "before loading the config")
+      (is (match? [{:type :turnUsage :total-time-ms #(>= % 300)}]
+                  (filterv #(= :turnUsage (:type %)) (map :content (:chat-content-received (h/messages)))))))))
+
+(deftest start-request-turn-usage-test
+  (let [ctx (fn [& {:as extra}]
+              (merge {:db* (h/db*) :chat-id "c1" :full-model "openai/gpt-5.2" :agent "code"
+                      :messenger (h/messenger) :config (h/config) :metrics (h/metrics)}
+                     extra))
+        start! (fn [chat-ctx run-hooks?]
+                 (#'f.chat.turn/start-request! chat-ctx [{:role "user" :content "hi"}] run-hooks? (random-uuid)))
+        turn-usage #(get-in (h/db) [:chats "c1" :turn-usage])]
+    (h/reset-components!)
+    (testing "a prompt's first request starts what its turn uses, from when the prompt was received"
+      (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :turn-usage {:started-at 1 :output-tokens 99}})
+      (start! (ctx :prompt-received-at 1000) true)
+      (is (= {:started-at 1000 :model "openai/gpt-5.2"} (turn-usage))))
+    (testing "the next requests of the turn, like a retry, keep it"
+      (start! (ctx :prompt-received-at 2000) false)
+      (is (= {:started-at 1000 :model "openai/gpt-5.2"} (turn-usage))))
+    (testing "a follow-up, a turn starting after the previous one finished, starts it when it starts"
+      (swap! (h/db*) update-in [:chats "c1"] dissoc :turn-usage)
+      (let [before (System/currentTimeMillis)]
+        (start! (ctx :prompt-received-at 1000) false)
+        (is (match? {:started-at #(>= % before) :model "openai/gpt-5.2"} (turn-usage)))))))
+
+(deftest replay-turn-usage-test
+  (let [record {:model "openai/gpt-5.2" :total-time-ms 900 :input-tokens 10 :output-tokens 5}
+        contents (fn [messages]
+                   (mapv :content (f.chat.replay/messages->contents messages {:chat-id "c1" :db {}})))]
+    (testing "the record of a turn comes right after the contents of its last message"
+      (is (match? [{:type :text :text #"Hey$"}
+                   {:type :text :text #"Hi$"}
+                   (assoc record :type :turnUsage)
+                   {:type :text :text #"Again$"}]
+                  (contents [{:role "user" :content [{:type :text :text "Hey"}] :content-id "u1"}
+                             {:role "assistant" :content [{:type :text :text "Hi"}] :turn-usage record}
+                             {:role "user" :content [{:type :text :text "Again"}] :content-id "u2"}]))))
+    (testing "also when that message is a reasoning merged with the ones before it"
+      (is (match? [{:type :reasonStarted}
+                   {:type :reasonText}
+                   {:type :reasonFinished :total-time-ms 3}
+                   (assoc record :type :turnUsage)]
+                  (contents [{:role "reason" :content {:id "r1" :text "a" :total-time-ms 1}}
+                             {:role "reason" :content {:id "r2" :text "b" :total-time-ms 2} :turn-usage record}]))))))
+
+(deftest request-ended-without-finish-drops-turn-usage-test
+  (testing "a turn whose request worker ends without finishing it never tells what it used"
+    (h/reset-components!)
+    (swap! (h/db*) assoc-in [:chats "c1"] {:id "c1" :status :running :prompt-id :p1
+                                           :turn-usage {:input-tokens 100 :output-tokens 10 :cost 0}})
+    (#'f.chat.turn/request-ended! {:chat-ctx {:db* (h/db*) :chat-id "c1" :prompt-id :p1
+                                              :messenger (h/messenger) :metrics (h/metrics)
+                                              :config (h/config)}})
+    (is (= :idle (get-in (h/db) [:chats "c1" :status])))
+    (is (nil? (get-in (h/db) [:chats "c1" :turn-usage])))))
 
 (deftest provider-max-auto-continues-test
   (is (= 3 (#'f.chat.recovery/provider-max-auto-continues {} "openai")))
