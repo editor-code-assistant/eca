@@ -1230,10 +1230,11 @@
    :stream-idle-timeout-seconds stream-idle-timeout-seconds})
 
 (defn ^:private default-model
-  "With an OpenAI key, GPT-5.2 (the declaration's `:default-model`)."
+  "With an OpenAI key or a ChatGPT login, GPT-6.2 Sol, OpenAI's everyday model
+   (the declaration's `:default-model`)."
   [{:keys [db config]}]
   (when (llm-util/provider-api-key "openai" (get-in db [:auth "openai"]) config)
-    "openai/gpt-5.2"))
+    "openai/gpt-6.2-sol"))
 
 (defn ^:private response-field [m field]
   (when (map? m)
@@ -1343,4 +1344,5 @@
                                                     "gpt-5" {}
                                                     "gpt-5-mini" {}
                                                     "gpt-5.2" {}
-                                                    "gpt-5.3-codex" {}}}}}})
+                                                    "gpt-5.3-codex" {}
+                                                    "gpt-6.2-sol" {}}}}}})

@@ -158,34 +158,40 @@
             config {}]
         (is (= "ollama/foo" (llm-api/default-model db config))))))
 
+  ;; Each db also lists a model sorting first, so these check the provider's
+  ;; default, not the first-available fallback.
   (testing "Anthropic API key present in config"
     (with-redefs [config/get-env (constantly nil)
                   secrets/credential-file-paths (constantly [])]
-      (let [db {:models {"anthropic/claude-sonnet-4.5" {}}}
+      (let [db {:models {"anthropic/claude-opus-5-5" {}
+                         "anthropic/claude-sonnet-5-5" {}}}
             config {:providers {"anthropic" {:key "something"}}}]
-        (is (= "anthropic/claude-sonnet-4.5" (llm-api/default-model db config))))))
+        (is (= "anthropic/claude-sonnet-5-5" (llm-api/default-model db config))))))
 
   (testing "Anthropic API key present in ENV"
     (with-redefs [config/get-env (fn [k] (when (= k "ANTHROPIC_API_KEY") "env-anthropic"))
                   secrets/credential-file-paths (constantly [])]
-      (let [db {:models {"anthropic/claude-sonnet-4.5" {}}}
+      (let [db {:models {"anthropic/claude-opus-5-5" {}
+                         "anthropic/claude-sonnet-5-5" {}}}
             config {:providers {"anthropic" {:keyEnv "ANTHROPIC_API_KEY"}}}]
-        (is (= "anthropic/claude-sonnet-4.5" (llm-api/default-model db config))))))
+        (is (= "anthropic/claude-sonnet-5-5" (llm-api/default-model db config))))))
 
   (testing "OpenAI API key present in config"
     (with-redefs [config/get-env (constantly nil)
                   secrets/credential-file-paths (constantly [])]
-      (let [db {:models {"openai/gpt-5.2" {}}}
+      (let [db {:models {"openai/gpt-5.2" {}
+                         "openai/gpt-6.2-sol" {}}}
             config {:providers {"openai" {:key "yes!"}}}]
-        (is (= "openai/gpt-5.2" (llm-api/default-model db config))))))
+        (is (= "openai/gpt-6.2-sol" (llm-api/default-model db config))))))
 
   (testing "OpenAI API key present in ENV"
     (with-redefs [config/get-env (fn [k] (when (= k "OPENAI_API_KEY") "env-openai"))
                   secrets/credential-file-paths (constantly [])]
-      (let [db {:models {"openai/gpt-5.2" {}}}
+      (let [db {:models {"openai/gpt-5.2" {}
+                         "openai/gpt-6.2-sol" {}}}
             config {:providers {"anthropic" {:key nil :keyEnv nil :keyRc nil}
                                 "openai" {:keyEnv "OPENAI_API_KEY"}}}]
-        (is (= "openai/gpt-5.2" (llm-api/default-model db config))))))
+        (is (= "openai/gpt-6.2-sol" (llm-api/default-model db config))))))
 
   (testing "GitHub Copilot login present picks from the account's models by picker category"
     (with-redefs [config/get-env (constantly nil)
@@ -216,10 +222,11 @@
   (testing "Fallback default (no keys anywhere)"
     (with-redefs [config/get-env (constantly nil)
                   secrets/credential-file-paths (constantly [])]
-      (let [db {:models {"anthropic/claude-sonnet-4.5" {}
-                         "openai/gpt-5.2" {}}}
+      (let [db {:models {"anthropic/claude-opus-5-5" {}
+                         "anthropic/claude-sonnet-5-5" {}
+                         "openai/gpt-6.2-sol" {}}}
             config {}]
-        (is (= "anthropic/claude-sonnet-4.5" (llm-api/default-model db config))))))
+        (is (= "anthropic/claude-sonnet-5-5" (llm-api/default-model db config))))))
 
   (testing "Returns nil when no models are available"
     (with-redefs [config/get-env (constantly nil)

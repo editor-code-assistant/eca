@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add a `turnUsage` content ending each turn, kept with the chat for reopened chats: its model, time, output and input tokens (subagents included) and cost when known.
+- Update default models to `anthropic/claude-sonnet-5-5` (from `claude-sonnet-4-6`) and `openai/gpt-6.2-sol` (from `gpt-5.2`), both now listed by default.
 
 ## 0.174.0
 

@@ -370,6 +370,40 @@
         "structured_output" : true,
         "temperature" : false,
         "tool_call" : true
+      },
+      "claude-sonnet-5-5" : {
+        "attachment" : true,
+        "canonical_model_id" : "anthropic/claude-sonnet-5-5",
+        "cost" : {
+          "cache_read" : 0.1,
+          "cache_write" : 2.5,
+          "input" : 2,
+          "output" : 10
+        },
+        "description" : "Fast Claude model for everyday coding, agents, and knowledge work",
+        "family" : "claude-sonnet",
+        "id" : "claude-sonnet-5-5",
+        "knowledge" : "2026-06",
+        "last_updated" : "2026-09-28",
+        "limit" : {
+          "context" : 1000000,
+          "output" : 128000
+        },
+        "modalities" : {
+          "input" : [ "text", "image", "pdf" ],
+          "output" : [ "text" ]
+        },
+        "name" : "Claude Sonnet 5.5",
+        "open_weights" : false,
+        "reasoning" : true,
+        "reasoning_options" : [ {
+          "type" : "effort",
+          "values" : [ "low", "medium", "high", "xhigh", "max" ]
+        } ],
+        "release_date" : "2026-09-28",
+        "structured_output" : true,
+        "temperature" : false,
+        "tool_call" : true
       }
     },
     "name" : "Anthropic",
@@ -712,6 +746,90 @@
         "release_date" : "2026-02-05",
         "structured_output" : true,
         "temperature" : true,
+        "tool_call" : true
+      },
+      "gpt-6.2-sol" : {
+        "attachment" : true,
+        "canonical_model_id" : "openai/gpt-6.2-sol",
+        "cost" : {
+          "cache_read" : 0.1,
+          "cache_write" : 2.5,
+          "context_over_200k" : {
+            "cache_read" : 0.2,
+            "cache_write" : 5,
+            "input" : 4,
+            "output" : 15
+          },
+          "input" : 2,
+          "output" : 10,
+          "tiers" : [ {
+            "cache_read" : 0.2,
+            "cache_write" : 5,
+            "input" : 4,
+            "output" : 15,
+            "tier" : {
+              "size" : 272000,
+              "type" : "context"
+            }
+          } ]
+        },
+        "description" : "An efficient reasoning model for everyday work, multistep agentic workflows, and coding.",
+        "experimental" : {
+          "modes" : {
+            "fast" : {
+              "cost" : {
+                "cache_read" : 0.2,
+                "cache_write" : 5,
+                "input" : 4,
+                "output" : 20
+              },
+              "provider" : {
+                "body" : {
+                  "service_tier" : "priority"
+                }
+              }
+            },
+            "pro" : {
+              "provider" : {
+                "body" : {
+                  "reasoning" : {
+                    "mode" : "pro"
+                  }
+                }
+              }
+            },
+            "ultrafast" : {
+              "provider" : {
+                "body" : {
+                  "service_tier" : "ultrafast"
+                }
+              }
+            }
+          }
+        },
+        "family" : "gpt-sol",
+        "id" : "gpt-6.2-sol",
+        "knowledge" : "2026-06-01",
+        "last_updated" : "2026-11-17",
+        "limit" : {
+          "context" : 1050000,
+          "input" : 922000,
+          "output" : 128000
+        },
+        "modalities" : {
+          "input" : [ "text", "image", "pdf" ],
+          "output" : [ "text" ]
+        },
+        "name" : "GPT-6.2 Sol",
+        "open_weights" : false,
+        "reasoning" : true,
+        "reasoning_options" : [ {
+          "type" : "effort",
+          "values" : [ "low", "medium", "high", "xhigh", "max" ]
+        } ],
+        "release_date" : "2026-11-17",
+        "structured_output" : true,
+        "temperature" : false,
         "tool_call" : true
       }
     },

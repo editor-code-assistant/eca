@@ -1185,11 +1185,16 @@
   [_opts request]
   (messages-request request))
 
+(def ^:private default-full-model
+  "Claude Sonnet 5.5, Anthropic's everyday model: the default with a key and
+   the last resort."
+  "anthropic/claude-sonnet-5-5")
+
 (defn ^:private default-model
-  "With an Anthropic key, Claude Sonnet (the declaration's `:default-model`)."
+  "With an Anthropic key, Claude Sonnet 5.5 (the declaration's `:default-model`)."
   [{:keys [db config]}]
   (when (llm-util/provider-api-key "anthropic" (get-in db [:auth "anthropic"]) config)
-    "anthropic/claude-sonnet-4-6"))
+    default-full-model))
 
 (def ^:private web-search-models
   "Claude models that support the built-in web-search tool (the declaration's
@@ -1247,7 +1252,7 @@
                             :api-fn (constantly :anthropic)
                             ;; Claude Sonnet with a key first; also the last resort
                             :default-model [{:rank 1 :fn #'default-model}
-                                            {:rank 100 :decision :default :fn (constantly "anthropic/claude-sonnet-4-6")}]
+                                            {:rank 100 :decision :default :fn (constantly default-full-model)}]
                             :capabilities {:web-search web-search-models
                                            :mid-conversation-system? mid-conversation-system-models}
                             :errors {:enrich #'enrich-error
@@ -1258,6 +1263,7 @@
                                               :requiresAuth? true
                                               :models {"claude-sonnet-4-6" {}
                                                        "claude-sonnet-5" {}
+                                                       "claude-sonnet-5-5" {}
                                                        "claude-opus-4-6" {}
                                                        "claude-opus-4-7" {}
                                                        "claude-opus-4-8" {}
