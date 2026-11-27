@@ -3863,6 +3863,21 @@ all behave like any other chat.</p>
 <span class="w">    </span><span class="nx">inputTokens</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
 
 <span class="w">    </span><span class="cm">/**</span>
+<span class="cm">     * How fast `model` generated during the turn, in output tokens per second</span>
+<span class="cm">     * rounded to an integer: the output tokens of its responses over the time</span>
+<span class="cm">     * they took to generate them, each measured like `messageOutputTps` of</span>
+<span class="cm">     * `ChatUsageContent`, from its first generated token to its end. Tool</span>
+<span class="cm">     * runs, waits for the user and the time before the first token are left</span>
+<span class="cm">     * out. Each response weighs as long as it took, so a short one, like a</span>
+<span class="cm">     * tool call of a few tokens, barely sways it, unlike an average of</span>
+<span class="cm">     * `messageOutputTps`. The responses of the subagents it ran don&#39;t count,</span>
+<span class="cm">     * their model may be another. Absent when no response of the chat could</span>
+<span class="cm">     * be measured, e.g. non-streamed requests, and in turns from before ECA</span>
+<span class="cm">     * told it.</span>
+<span class="cm">     */</span>
+<span class="w">    </span><span class="nx">outputTps?</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+
+<span class="w">    </span><span class="cm">/**</span>
 <span class="cm">     * The cost of the turn, formatted like `lastMessageCost` of</span>
 <span class="cm">     * `ChatUsageContent`. Absent when a request of it had no known price or</span>
 <span class="cm">     * used a subscription login (see `quota` of `ChatUsageContent`).</span>
@@ -6611,7 +6626,7 @@ Clients can track all tasks to derive aggregate initialization progress.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 27, 2026 02:14:35 UTC">November 27, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 27, 2026 14:20:52 UTC">November 27, 2026</span>
   </span>
 
     
