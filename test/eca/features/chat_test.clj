@@ -438,6 +438,29 @@
                    {:type :progress :state :finished}]
                   (turn-ends))))
 
+    (testing "tells how fast the model generated, each response weighing as long as it took"
+      (h/reset-components!)
+      (prompt! {:message "List the files"}
+               (assoc tool-mocks
+                      :api-mock (fn [{:keys [on-first-response-received on-message-received on-usage-updated
+                                             on-prepare-tool-call on-tools-called]}]
+                                  (on-first-response-received {:type :text :text "Ok,"})
+                                  (on-message-received {:type :text :text "Ok,"})
+                                  (on-prepare-tool-call {:id "call-1" :full-name "eca__list_allowed_directories" :arguments-text ""})
+                                  ;; a tool call of 30 tokens in 1s: 30 tok/s
+                                  (on-usage-updated {:input-tokens 1000 :output-tokens 30
+                                                     :message-output-tps 30 :message-output-time-ms 1000})
+                                  (on-tools-called [{:id "call-1" :full-name "eca__list_allowed_directories" :arguments {}}])
+                                  (on-message-received {:type :text :text "/foo/bar"})
+                                  ;; then an answer of 900 tokens in 10s: 90 tok/s
+                                  (on-usage-updated {:input-tokens 1500 :output-tokens 900
+                                                     :message-output-tps 90 :message-output-time-ms 10000})
+                                  (on-message-received {:type :finish}))))
+      ;; 930 tokens in 11s, where the average of the speeds would tell 60
+      (is (match? [{:type :turnUsage :output-tokens 930 :output-tps 85}
+                   {:type :progress :state :finished}]
+                  (turn-ends))))
+
     (testing "each turn tells its own usage"
       (h/reset-components!)
       (let [answer-mock (fn [output-tokens]

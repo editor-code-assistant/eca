@@ -393,6 +393,20 @@
                     (:chats @db*)))
         (is (nil? (get-in @db* [:chats "other" :turn-usage])))))
 
+    (testing "a response's speed counts for its chat's turn only, a subagent's model may not be the turn's"
+      (let [db* (atom {:models models
+                       :chats {"parent" {:prompt-id :p0}
+                               "sub" {:prompt-id :p1 :parent-chat-id "parent"}}})
+            measured (assoc usage :message-output-tps 40 :message-output-time-ms 500)]
+        (f.chat.lifecycle/add-turn-usage! {:db* db* :chat-id "sub" :prompt-id :p1} full-model measured)
+        (f.chat.lifecycle/add-turn-usage! {:db* db* :chat-id "parent" :prompt-id :p0} full-model
+                                          (assoc usage :message-output-time-ms 250))
+        (is (match? {"parent" {:turn-usage {:output-tokens 40
+                                            :measured-output-tokens 20 :measured-output-ms 250}}
+                     "sub" {:turn-usage {:output-tokens 20
+                                         :measured-output-tokens 20 :measured-output-ms 500}}}
+                    (:chats @db*)))))
+
     (testing "subscription logins, not billed per token, and models without prices leave the cost unknown"
       (let [db* (atom {:models models :chats {chat-id {:prompt-id :p1} "c2" {:prompt-id :p1}}})]
         (add! db* {:chat-id chat-id :prompt-id :p1 :subscription? true})

@@ -460,7 +460,11 @@
                                          tps (shared/tokens-per-second (:output-tokens usage) elapsed-ms)]
                                      (reset! generation-start-ms* nil)
                                      (on-usage-updated (cond-> usage
-                                                         tps (assoc :message-output-tps tps)))))
+                                                         ;; with the time, so the speed of a turn
+                                                         ;; can weigh its responses by it, see
+                                                         ;; `shared/add-turn-usage`
+                                                         tps (assoc :message-output-tps tps
+                                                                    :message-output-time-ms elapsed-ms)))))
         ;; Deliver at most one terminal error per prompt: when a shared
         ;; connection dies, every stacked tool-continuation request unwinds
         ;; and fires its own on-error for the same failure. #547

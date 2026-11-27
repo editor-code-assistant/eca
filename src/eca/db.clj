@@ -95,6 +95,7 @@
                                                  :total-time-ms :number
                                                  :input-tokens :number
                                                  :output-tokens :number
+                                                 :output-tps :number
                                                  :cost :string}}]
                         :task {:next-id :number
                                :active-summary (or :string nil)
@@ -126,6 +127,10 @@
                                      :model :string
                                      :input-tokens :number
                                      :output-tokens :number
+                                     ;; of the chat's own responses whose speed was
+                                     ;; measured, and the time they took (ms)
+                                     :measured-output-tokens :number
+                                     :measured-output-ms :number
                                      :cost :number ;; USD, absent once :unpriced?
                                      :unpriced? :boolean}
                         :tool-calls {"<tool-call-id>"

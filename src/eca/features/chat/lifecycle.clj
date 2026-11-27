@@ -232,9 +232,11 @@
 (defn add-turn-usage!
   "Adds the `usage` of a request the chat sent to `full-model` to what its
    turn used, recorded when the turn finishes, and to the turns of the chats
-   above it: a subagent works for the turn that spawned it. The usage of a
-   superseded request counts for no turn, nor does a turn count usage
-   arriving after it finished, like a stopped stream reporting late."
+   above it: a subagent works for the turn that spawned it. Its speed counts
+   for its own turn only, as its model may not be theirs: the speed of a
+   turn is its model's. The usage of a superseded request counts for no
+   turn, nor does a turn count usage arriving after it finished, like a
+   stopped stream reporting late."
   [{:keys [db* chat-id prompt-id subscription?]} full-model usage]
   (let [{:keys [input-tokens output-tokens input-cache-creation-tokens input-cache-read-tokens]} usage]
     (when (and input-tokens output-tokens)
@@ -248,7 +250,10 @@
                        (reduce (fn [db id]
                                  (if (get-in db [:chats id :prompt-finished?])
                                    db
-                                   (update-in db [:chats id :turn-usage] shared/add-turn-usage usage cost)))
+                                   (update-in db [:chats id :turn-usage] shared/add-turn-usage
+                                              (cond-> usage
+                                                (not= id chat-id) (dissoc :message-output-time-ms))
+                                              cost)))
                                db
                                (chat-lineage db chat-id)))))
         nil))))

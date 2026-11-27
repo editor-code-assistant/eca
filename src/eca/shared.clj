@@ -417,27 +417,40 @@
   "`turn-usage`, what a turn used so far, with the `usage` of one more of its
    requests added: its input tokens, cache reads and writes included, its
    output tokens and `cost`, its USD cost. A request of unknown cost, nil,
-   makes the cost of the turn unknown."
-  [turn-usage {:keys [input-tokens output-tokens input-cache-creation-tokens input-cache-read-tokens]} cost]
+   makes the cost of the turn unknown. A response whose speed was measured,
+   `:message-output-time-ms` long from its first generated token to its end,
+   adds its output tokens and that time to those the turn's speed is
+   measured over, see `turn-usage->record`."
+  [turn-usage {:keys [input-tokens output-tokens input-cache-creation-tokens input-cache-read-tokens
+                      message-output-time-ms]} cost]
   (cond-> (-> turn-usage
               (update :input-tokens (fnil + 0) (or input-tokens 0)
                       (or input-cache-creation-tokens 0) (or input-cache-read-tokens 0))
               (update :output-tokens (fnil + 0) (or output-tokens 0)))
+    (and message-output-time-ms output-tokens) (-> (update :measured-output-tokens (fnil + 0) output-tokens)
+                                                   (update :measured-output-ms (fnil + 0) message-output-time-ms))
     (and cost (not (:unpriced? turn-usage))) (update :cost (fnil + 0) cost)
     (nil? cost) (-> (dissoc :cost) (assoc :unpriced? true))))
 
 (defn turn-usage->record
   "The record of a turn that used `turn-usage` and ended at `now` (epoch
-   ms), as clients get it: its model, how long it took, its tokens and its
-   cost, formatted like the `usage` content's. Nil when no request of the
-   turn reported usage. `turn-usage` has the turn's `:model` and when it
-   started, `:started-at`, and what `add-turn-usage` added."
-  [{:keys [model started-at input-tokens output-tokens cost]} now]
+   ms), as clients get it: its model, how long it took, its tokens, its
+   speed and its cost, formatted like the `usage` content's. Nil when no
+   request of the turn reported usage. `turn-usage` has the turn's `:model`
+   and when it started, `:started-at`, and what `add-turn-usage` added.
+
+   The speed is the output tokens per second of the responses whose speed
+   was measured: their tokens over the time they took, so each weighs as
+   long as it took. A short response, like a tool call of a few tokens,
+   whose speed tells little, barely sways it, unlike an average of the
+   speeds of the responses."
+  [{:keys [model started-at input-tokens output-tokens cost measured-output-tokens measured-output-ms]} now]
   (when output-tokens
     (assoc-some {:input-tokens input-tokens
                  :output-tokens output-tokens}
                 :model model
                 :total-time-ms (when started-at (max 0 (- now started-at)))
+                :output-tps (tokens-per-second measured-output-tokens measured-output-ms)
                 :cost (some-> cost format-cost))))
 
 (defn estimate-tokens

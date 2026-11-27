@@ -1503,7 +1503,9 @@
            :on-usage-updated #(reset! usage* %)})))
       (let [[tokens elapsed-ms] @tps-args*]
         (is (= 2 tokens) "uses output tokens")
-        (is (and (number? elapsed-ms) (pos? elapsed-ms)) "measures elapsed time"))
+        (is (and (number? elapsed-ms) (pos? elapsed-ms)) "measures elapsed time")
+        (is (= elapsed-ms (:message-output-time-ms @usage*))
+            "attaches the time the TPS was measured over, for the turn's speed"))
       (is (= 42 (:message-output-tps @usage*)) "attaches the computed TPS")))
 
   (testing "usage has no TPS without a generation event"
@@ -1514,7 +1516,20 @@
          (make-prompt-opts
           {:on-message-received identity
            :on-usage-updated #(reset! usage* %)})))
-      (is (nil? (:message-output-tps @usage*)))))
+      (is (nil? (:message-output-tps @usage*)))
+      (is (nil? (:message-output-time-ms @usage*)))))
+
+  (testing "usage without output tokens has neither TPS nor time, it tells no speed"
+    (let [usage* (atom nil)]
+      (with-redefs [eca.llm-api/prompt! (fn [{:keys [on-message-received on-usage-updated]}]
+                                          (on-message-received {:type :text :text "hi"})
+                                          (Thread/sleep 5)
+                                          (on-usage-updated {:input-tokens 1 :output-tokens 0}))]
+        (llm-api/sync-or-async-prompt!
+         (make-prompt-opts
+          {:on-message-received identity
+           :on-usage-updated #(reset! usage* %)})))
+      (is (= {:input-tokens 1 :output-tokens 0} @usage*))))
 
   (testing "usage after tools has no TPS because tool time is not generation time"
     (let [usage* (atom nil)]
@@ -1528,7 +1543,8 @@
           {:on-message-received identity
            :on-tools-called (constantly nil)
            :on-usage-updated #(reset! usage* %)})))
-      (is (nil? (:message-output-tps @usage*))))))
+      (is (nil? (:message-output-tps @usage*)))
+      (is (nil? (:message-output-time-ms @usage*))))))
 
 (deftest async-retry-on-custom-retry-rule-error-pattern-test
   (testing "retries async when custom retryRules errorPattern matches error message"

@@ -1144,6 +1144,21 @@ interface ChatTurnUsageContent {
     inputTokens: number;
 
     /**
+     * How fast `model` generated during the turn, in output tokens per second
+     * rounded to an integer: the output tokens of its responses over the time
+     * they took to generate them, each measured like `messageOutputTps` of
+     * `ChatUsageContent`, from its first generated token to its end. Tool
+     * runs, waits for the user and the time before the first token are left
+     * out. Each response weighs as long as it took, so a short one, like a
+     * tool call of a few tokens, barely sways it, unlike an average of
+     * `messageOutputTps`. The responses of the subagents it ran don't count,
+     * their model may be another. Absent when no response of the chat could
+     * be measured, e.g. non-streamed requests, and in turns from before ECA
+     * told it.
+     */
+    outputTps?: number;
+
+    /**
      * The cost of the turn, formatted like `lastMessageCost` of
      * `ChatUsageContent`. Absent when a request of it had no known price or
      * used a subscription login (see `quota` of `ChatUsageContent`).

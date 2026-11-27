@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `outputTps` to `turnUsage`, how fast the turn's model generated: the output tokens of its responses over the time they took, so clients can show the speed of the whole turn instead of the last response's (`messageOutputTps`). Each response weighs as long as it took, so short ones like tool calls barely sway it. Subagents' responses don't count, as their model may differ.
+
 ## 0.175.0
 
 - Add a `turnUsage` content ending each turn, kept with the chat for reopened chats: its model, time, output and input tokens (subagents included) and cost when known.

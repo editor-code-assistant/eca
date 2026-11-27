@@ -230,7 +230,22 @@
                                           nil)]
       (is (= {:input-tokens 45 :output-tokens 25 :unpriced? true} unpriced))
       (is (= {:input-tokens 46 :output-tokens 26 :unpriced? true}
-             (shared/add-turn-usage unpriced {:input-tokens 1 :output-tokens 1} 0.25))))))
+             (shared/add-turn-usage unpriced {:input-tokens 1 :output-tokens 1} 0.25)))))
+  (testing "a response whose speed was measured adds its output tokens and time to those of the turn's speed"
+    (let [measured (shared/add-turn-usage {:input-tokens 35 :output-tokens 20}
+                                          {:input-tokens 10 :output-tokens 900
+                                           :message-output-tps 90 :message-output-time-ms 10000}
+                                          0)]
+      (is (= {:input-tokens 45 :output-tokens 920 :cost 0
+              :measured-output-tokens 900 :measured-output-ms 10000}
+             measured))
+      (is (match? {:output-tokens 950 :measured-output-tokens 930 :measured-output-ms 11000}
+                  (shared/add-turn-usage measured
+                                         {:input-tokens 1 :output-tokens 30 :message-output-time-ms 1000}
+                                         0)))
+      (is (match? {:output-tokens 925 :measured-output-tokens 900 :measured-output-ms 10000}
+                  (shared/add-turn-usage measured {:input-tokens 1 :output-tokens 5} 0))
+          "an unmeasured one, e.g. non-streamed, counts for its tokens only"))))
 
 (deftest turn-usage->record-test
   (testing "the turn's model, how long it took, its tokens and its cost, formatted like the usage content's"
@@ -239,10 +254,21 @@
                                        :input-tokens 45 :output-tokens 25 :cost 0.75}
                                       3500)))
     (is (= "0.0012" (:cost (shared/turn-usage->record {:input-tokens 45 :output-tokens 25 :cost 0.00123} 0)))))
-  (testing "no cost when unknown, nor time without the turn's start"
+  (testing "no cost when unknown, nor time without the turn's start, nor speed without a measured response"
     (is (= {:model "openai/gpt-5.2" :input-tokens 45 :output-tokens 25}
            (shared/turn-usage->record {:model "openai/gpt-5.2" :input-tokens 45 :output-tokens 25 :unpriced? true}
                                       3500))))
+  (testing "the speed is of the measured responses, each weighing as long as it took"
+    ;; a tool call of 30 tokens in 1s (30 tok/s), an answer of 900 tokens in
+    ;; 10s (90 tok/s) and a burst of 40 tokens in 0.2s (200 tok/s): 970 tokens
+    ;; in 11.2s, where the average of their speeds would tell 107
+    (is (= 87 (:output-tps (shared/turn-usage->record {:input-tokens 45 :output-tokens 1000
+                                                       :measured-output-tokens 970 :measured-output-ms 11200}
+                                                      0))))
+    (is (= {:model "openai/gpt-5.2" :total-time-ms 15000 :input-tokens 45 :output-tokens 1000 :output-tps 87}
+           (shared/turn-usage->record {:started-at 0 :model "openai/gpt-5.2" :input-tokens 45 :output-tokens 1000
+                                       :measured-output-tokens 970 :measured-output-ms 11200 :unpriced? true}
+                                      15000))))
   (testing "nothing when no request of the turn reported usage"
     (is (nil? (shared/turn-usage->record {:started-at 1000 :model "openai/gpt-5.2"} 3500)))
     (is (nil? (shared/turn-usage->record nil 3500)))))
