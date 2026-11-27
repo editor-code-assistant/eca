@@ -4,6 +4,7 @@
 
 - Add a `turnUsage` content ending each turn, kept with the chat for reopened chats: its model, time, output and input tokens (subagents included) and cost when known.
 - Update default models to `anthropic/claude-sonnet-5-5` (from `claude-sonnet-4-6`) and `openai/gpt-6.2-sol` (from `gpt-5.2`), both now listed by default.
+- Enable hosted web search for Claude Sonnet 5.5, Haiku 5.5, Fable 5.2 and Mythos 5.2, which Anthropic lists as supporting the `web_search_20250305` tool ECA sends. #677
 
 ## 0.174.0
 

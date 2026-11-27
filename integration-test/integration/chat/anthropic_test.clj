@@ -344,3 +344,37 @@
       (match-content chat-id "system" {:type "usage"})
       (match-content chat-id "system" {:type "turnUsage"})
       (match-content chat-id "system" {:type "progress" :state "finished"}))))
+
+(deftest sonnet-5-5-request
+  (eca/start-process!)
+
+  (eca/request! (fixture/initialize-request))
+  (eca/notify! (fixture/initialized-notification))
+  (testing "Sonnet 5.5 gets the hosted web search tool, and adaptive thinking without the budget it rejects"
+    (llm.mocks/set-case! :simple-text-0)
+    (let [resp (eca/request! (fixture/chat-prompt-request
+                              {:model "anthropic/claude-sonnet-5-5"
+                               :message "Tell me a joke!"}))
+          chat-id (:chatId resp)]
+
+      (is (match?
+           {:chatId (m/pred string?)
+            :model "anthropic/claude-sonnet-5-5"
+            :status "prompting"}
+           resp))
+
+      (match-content chat-id "user" {:type "text" :text "Tell me a joke!\n"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Loading config"})
+      (match-content chat-id "system" {:type "metadata" :title "Some Cool Title"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Waiting model"})
+      (match-content chat-id "system" {:type "progress" :state "running" :text "Generating"})
+      (match-content chat-id "assistant" {:type "text" :text "Knock"})
+      (match-content chat-id "assistant" {:type "text" :text " knock!"})
+      (match-content chat-id "system" {:type "usage"})
+      (match-content chat-id "system" {:type "turnUsage" :model "anthropic/claude-sonnet-5-5"})
+      (match-content chat-id "system" {:type "progress" :state "finished"})
+      (is (match?
+           {:model "claude-sonnet-5-5"
+            :tools (m/embeds [{:type "web_search_20250305" :name "web_search"}])
+            :thinking {:type "adaptive" :budget_tokens m/absent}}
+           (llm.mocks/get-req-body :simple-text-0))))))

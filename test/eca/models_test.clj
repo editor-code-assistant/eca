@@ -21,10 +21,11 @@
     (#'models/build-all-supported-models known-models config models)))
 
 (deftest web-search-support-test
-  (let [supported {"openai" ["gpt-6.1-sol" "gpt-6-sol" "gpt-6-luna" "gpt-6.2-astra" "gpt-6.2-sol"]}
+  (let [supported {"openai" ["gpt-6.1-sol" "gpt-6-sol" "gpt-6-luna" "gpt-6.2-astra" "gpt-6.2-sol"]
+                   ;; Listed by Anthropic's web search docs, they take web_search_20250305,
+                   ;; which Claude Code sends to every model (#677).
+                   "anthropic" ["claude-sonnet-5-5" "claude-haiku-5-5" "claude-fable-5-2" "claude-mythos-5-2"]}
         unsupported {"openai" ["gpt-4.1-nano" "gpt-5.3-codex" "unknown-model"]
-                     ;; Keep disabled pending verification of web_search_20250305 support.
-                     "anthropic" ["claude-sonnet-5-5"]
                      "other" ["gpt-6.1-sol" "claude-sonnet-5-5"]}
         catalog (into {}
                       (for [[provider names] (merge-with into supported unsupported)]
