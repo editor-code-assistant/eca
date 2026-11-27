@@ -1,5 +1,5 @@
 /* Header, tabs bar and footer stay teal to match the homepage hero.
-   Hover and focus accents are black */
+   Hover and focus accents are black in the light scheme */
 :root {
   --md-primary-fg-color: #007a94;
   --md-accent-fg-color: #000000;
@@ -176,7 +176,7 @@
 }
 
 .tabbed-content {
-  border: 1px solid #ccc;
+  border: 1px solid var(--eca-tabbed-border-color);
   border-top: none;
   padding: 0.5em;
   border-bottom-right-radius: 0.3em;
@@ -198,6 +198,7 @@
   --eca-nav-rule-color: #00000024;
   --eca-nav-rule-hover-color: rgba(0, 0, 0, 0.44);
   --eca-nav-rule-active-color: #000000;
+  --eca-nav-hover-fg-color: #000000;
   /* Both sidebars: vertical padding of the headings */
   --eca-nav-heading-padding-block: 0.52em;
   /* Both sidebars: height of every one-line item, top-level and nested
@@ -218,6 +219,29 @@
      article, so the right edge stays put */
   --eca-toc-width: calc(13.3rem + 0.9rem);
   --eca-link-underline-color: #9e9e9e;
+  --eca-tabbed-border-color: #cccccc;
+}
+
+/* Dark scheme: keep the teal header and footer, but use light text,
+   rules and accents over Material's dark surfaces */
+[data-md-color-scheme="slate"] {
+  --md-accent-fg-color: #7ad7e8;
+  --md-accent-fg-color--transparent: rgba(122, 215, 232, 0.12);
+  /* Material uses this for footnote backrefs, meta links, search-result
+     summaries and some nav states; article links override it below */
+  --md-typeset-a-color: #7ad7e8;
+  --eca-teal: #6fd6e7;
+  --eca-heading-fg-color: #e6edf3;
+  --eca-nav-fg-color: #b6c1cb;
+  --eca-nav-top-fg-color: #e6edf3;
+  --eca-nav-nested-fg-color: #c9d2da;
+  --eca-nav-active-bg-color: rgba(255, 255, 255, 0.07);
+  --eca-nav-rule-color: rgba(255, 255, 255, 0.16);
+  --eca-nav-rule-hover-color: rgba(255, 255, 255, 0.5);
+  --eca-nav-rule-active-color: #ffffff;
+  --eca-nav-hover-fg-color: #ffffff;
+  --eca-link-underline-color: #6f7b87;
+  --eca-tabbed-border-color: rgba(255, 255, 255, 0.15);
 }
 
 /* Article column: fixed max width and body text size */
@@ -400,7 +424,7 @@
 .md-nav__link[href]:hover,
 .md-nav--primary .md-nav__item--active > .md-nav__link:focus,
 .md-nav--primary .md-nav__item--active > .md-nav__link:hover {
-  color: #000000;
+  color: var(--eca-nav-hover-fg-color);
 }
 
 /* Sidebars: Material gives every nav a -.4rem bottom margin and its
@@ -571,7 +595,7 @@
 
 .eca-toc-toggle:focus-visible,
 .eca-toc-toggle:hover {
-  color: #000000;
+  color: var(--eca-nav-hover-fg-color);
   opacity: 1;
 }
 

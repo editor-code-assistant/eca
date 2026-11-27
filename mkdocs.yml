@@ -55,6 +55,23 @@ theme:
     text: Inter
   icon:
     repo: fontawesome/brands/github
+  # Light and dark schemes follow the OS unless the visitor picks one with
+  # the header toggle. primary/accent are custom: layout.css defines them.
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
     - navigation.tabs
     - toc.follow
